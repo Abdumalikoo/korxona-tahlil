@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@korxona/shared": ["../shared/src"],
+      "@korxona/shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "prisma/**/*.ts"],
+  "exclude": ["node_modules"]
+}

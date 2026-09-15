@@ -1,0 +1,345 @@
+'use client';
+
+import { expensesApi, type ExpenseFilters } from '@/features/expenses/api';
+import { ExpenseDrawer } from '@/features/expenses/expense-drawer';
+import { referencesApi } from '@/features/shared/references';
+import { useAuth } from '@/lib/auth-context';
+import { currentPeriod, formatDate, formatPeriod } from '@/lib/format';
+import { useAsync } from '@/lib/use-async';
+import Link from 'next/link';
+import { useCallback, useState } from 'react';
+
+import { PageHeader } from '@/components/layout/page-header';
+import { Pagination } from '@/components/shared/pagination';
+import { PeriodPicker } from '@/components/shared/period-picker';
+import { SearchInput } from '@/components/shared/search-input';
+import { StatCard } from '@/components/shared/stat-card';
+import { BehaviorBadge, PaymentBadge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { IconPlus, IconWallet } from '@/components/ui/icons';
+import { Money } from '@/components/ui/money';
+import { Select } from '@/components/ui/select';
+import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
+import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
+import { Tabs } from '@/components/ui/tabs';
+import { Toast } from '@/components/ui/toast';
+import type { Expense, PaymentStatus } from '@/lib/types';
+
+const PAGE_LIMIT = 25;
+
+export default function ExpensesPage() {
+  const { isAdmin } = useAuth();
+
+  const [period, setPeriod] = useState(currentPeriod());
+  const [departmentId, setDepartmentId] = useState('');
+  const [rootCategoryCode, setRootCategoryCode] = useState('');
+  const [search, setSearch] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('');
+  const [page, setPage] = useState(1);
+
+  const [selected, setSelected] = useState<Expense | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const filters: ExpenseFilters = {
+    period,
+    departmentId: departmentId || undefined,
+    rootCategoryCode: rootCategoryCode || undefined,
+    paymentStatus: (paymentStatus || undefined) as PaymentStatus | undefined,
+    search: search || undefined,
+    page,
+    limit: PAGE_LIMIT,
+  };
+
+  // Malumotnomalar bir marta yuklanadi
+  const departments = useAsync(() => referencesApi.departments(), []);
+  const categoryTree = useAsync(() => referencesApi.expenseTree(), []);
+  const categoryLeaves = useAsync(() => referencesApi.expenseLeaves(), []);
+
+  const list = useAsync(
+    () => expensesApi.list(filters),
+    [period, departmentId, rootCategoryCode, paymentStatus, search, page],
+  );
+
+  const comparison = useAsync(
+    () => expensesApi.comparison(period, departmentId || undefined),
+    [period, departmentId],
+  );
+
+  /** Filtr ozgarganda birinchi sahifaga qaytamiz */
+  const changeFilter = useCallback((setter: () => void) => {
+    setter();
+    setPage(1);
+  }, []);
+
+  /** Panel yopilgach royxat va yigindilarni yangilaymiz */
+  const handleSaved = useCallback(
+    (message: string) => {
+      setToast(message);
+      list.reload();
+      comparison.reload();
+    },
+    [list, comparison],
+  );
+
+  const departmentOptions = [
+    { value: '', label: 'Barcha bolimlar' },
+    ...(departments.data?.data ?? []).map((item) => ({
+      value: item.id,
+      label: item.name,
+    })),
+  ];
+
+  const categoryOptions = [
+    { value: '', label: 'Barcha kategoriyalar' },
+    ...(categoryTree.data?.data ?? []).map((item) => ({
+      value: item.code,
+      label: item.label,
+    })),
+  ];
+
+  const items = list.data?.data ?? [];
+  const meta = list.data?.meta;
+  const hasFilters = Boolean(departmentId || rootCategoryCode || paymentStatus || search);
+
+  return (
+    <>
+      <PageHeader
+        title="Xarajatlar"
+        description={formatPeriod(period)}
+        actions={
+          isAdmin && (
+            <Link href="/xarajatlar/yangi">
+              <Button size="sm">
+                <IconPlus className="size-4" />
+                Yangi xarajat
+              </Button>
+            </Link>
+          )
+        }
+      />
+
+      <Tabs
+        items={[
+          { href: '/xarajatlar', label: 'Royxat' },
+          { href: '/xarajatlar/tahlil', label: 'Tahlil' },
+        ]}
+        className="bg-white px-6"
+      />
+
+      <div className="space-y-4 p-6">
+        {/* Filtrlar */}
+        <div className="flex flex-wrap items-center gap-3">
+          <PeriodPicker
+            value={period}
+            onChange={(value) => changeFilter(() => setPeriod(value))}
+          />
+
+          <div className="w-48">
+            <Select
+              options={departmentOptions}
+              value={departmentId}
+              onChange={(event) => changeFilter(() => setDepartmentId(event.target.value))}
+              className="h-9"
+            />
+          </div>
+
+          <div className="w-52">
+            <Select
+              options={categoryOptions}
+              value={rootCategoryCode}
+              onChange={(event) =>
+                changeFilter(() => setRootCategoryCode(event.target.value))
+              }
+              className="h-9"
+            />
+          </div>
+
+          <div className="w-44">
+            <Select
+              options={[
+                { value: '', label: 'Barcha holatlar' },
+                { value: 'PAID', label: 'Tolangan' },
+                { value: 'UNPAID', label: 'Tolanmagan' },
+                { value: 'PARTIAL', label: 'Qisman' },
+              ]}
+              value={paymentStatus}
+              onChange={(event) => changeFilter(() => setPaymentStatus(event.target.value))}
+              className="h-9"
+            />
+          </div>
+
+          <SearchInput
+            value={search}
+            onChange={(value) => changeFilter(() => setSearch(value))}
+            placeholder="Tavsif, kontragent, hujjat"
+            className="w-64"
+          />
+
+          {hasFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                changeFilter(() => {
+                  setDepartmentId('');
+                  setRootCategoryCode('');
+                  setPaymentStatus('');
+                  setSearch('');
+                })
+              }
+            >
+              Tozalash
+            </Button>
+          )}
+        </div>
+
+        {/* Yigindi */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Jami xarajat"
+            tiyin={meta?.sumTiyin ?? 0}
+            tone="expense"
+            hint={meta ? `${meta.total} ta yozuv` : undefined}
+            icon={<IconWallet className="size-4" />}
+          />
+
+          <StatCard
+            label="Otgan oyga nisbatan"
+            tiyin={comparison.data?.data.previous.amountTiyin ?? 0}
+            changePercent={comparison.data?.data.previous.changePercent}
+            positiveIsGood={false}
+            hint={
+              comparison.data
+                ? formatPeriod(comparison.data.data.previous.period)
+                : undefined
+            }
+          />
+
+          <StatCard
+            label="Otgan yilning shu oyi"
+            tiyin={comparison.data?.data.lastYear.amountTiyin ?? 0}
+            changePercent={comparison.data?.data.lastYear.changePercent}
+            positiveIsGood={false}
+            hint={
+              comparison.data
+                ? formatPeriod(comparison.data.data.lastYear.period)
+                : undefined
+            }
+          />
+
+          <StatCard
+            label="Tolanmagan"
+            tiyin={meta?.unpaidTiyin ?? 0}
+            tone={Number(meta?.unpaidTiyin ?? 0) > 0 ? 'expense' : 'neutral'}
+             hint={meta ? `${meta.unpaidCount} ta yozuv` : undefined}
+          />
+        </div>
+
+        {/* Jadval */}
+        <Card className="overflow-hidden">
+          {list.loading ? (
+            <TableSkeleton rows={8} cols={6} />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={list.reload} />
+          ) : items.length === 0 ? (
+            <EmptyState
+              title={hasFilters ? 'Hech narsa topilmadi' : 'Bu oyda xarajat yoq'}
+              description={
+                hasFilters
+                  ? 'Filtrlarni ozgartirib koring'
+                  : isAdmin
+                    ? 'Birinchi xarajatni kiriting'
+                    : undefined
+              }
+              action={
+                !hasFilters && isAdmin ? (
+                  <Link href="/xarajatlar/yangi">
+                    <Button size="sm">
+                      <IconPlus className="size-4" />
+                      Yangi xarajat
+                    </Button>
+                  </Link>
+                ) : undefined
+              }
+            />
+          ) : (
+            <>
+              <Table>
+                <THead>
+                  <Tr>
+                    <Th className="w-28">Sana</Th>
+                    <Th>Kategoriya</Th>
+                    <Th className="w-44">Bolim</Th>
+                    <Th>Tavsif</Th>
+                    <Th className="w-28">Holat</Th>
+                    <Th align="right" className="w-40">
+                      Summa
+                    </Th>
+                  </Tr>
+                </THead>
+
+                <TBody>
+                  {items.map((expense) => (
+                    <Tr key={expense.id} clickable onClick={() => setSelected(expense)}>
+                      <Td className="money whitespace-nowrap text-[--color-text-muted]">
+                        {formatDate(expense.date)}
+                      </Td>
+
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <span>{expense.category.label}</span>
+                          {expense.category.behavior && (
+                            <BehaviorBadge behavior={expense.category.behavior} />
+                          )}
+                        </div>
+                      </Td>
+
+                      <Td className="text-[--color-text-muted]">
+                        {expense.department?.name ?? 'Umumkorxona'}
+                      </Td>
+
+                      <Td className="max-w-xs truncate text-[--color-text-muted]">
+                        {expense.description ?? expense.counterparty ?? '-'}
+                      </Td>
+
+                      <Td>
+                        {expense.paymentStatus !== 'PAID' && (
+                          <PaymentBadge status={expense.paymentStatus} />
+                        )}
+                      </Td>
+
+                      <Td money>
+                        <Money tiyin={expense.amountTiyin} tone="expense" />
+                      </Td>
+                    </Tr>
+                  ))}
+                </TBody>
+              </Table>
+
+              {meta && (
+                <Pagination
+                  page={meta.page}
+                  totalPages={meta.totalPages}
+                  total={meta.total}
+                  limit={meta.limit}
+                  onChange={setPage}
+                />
+              )}
+            </>
+          )}
+        </Card>
+      </div>
+
+      <ExpenseDrawer
+        expense={selected}
+        categories={categoryLeaves.data?.data ?? []}
+        departments={departments.data?.data ?? []}
+        onClose={() => setSelected(null)}
+        onSaved={handleSaved}
+      />
+
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+    </>
+  );
+}

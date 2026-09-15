@@ -1,0 +1,30 @@
+{
+  "name": "korxona-tahlil",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.5.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/**\" dev",
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api dev",
+    "build": "pnpm --filter \"./packages/**\" build && pnpm --filter \"./apps/**\" build",
+    "db:generate": "pnpm --filter @korxona/db generate",
+    "db:push": "pnpm --filter @korxona/db push",
+    "db:migrate": "pnpm --filter @korxona/db migrate",
+    "db:studio": "pnpm --filter @korxona/db studio",
+    "db:seed": "pnpm --filter @korxona/db seed",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yaml}\"",
+    "clean": "pnpm -r exec rimraf dist .next node_modules",
+    "stop": "powershell -Command \"Get-NetTCPConnection -LocalPort 3000,3001 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\""
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  }
+}

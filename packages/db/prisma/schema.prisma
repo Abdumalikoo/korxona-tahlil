@@ -1,0 +1,399 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ FOYDALANUVCHILAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum UserRole {
+  ADMIN
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  fullName     String
+  role         UserRole @default(VIEWER)
+  isActive     Boolean  @default(true)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  expenses      Expense[]
+  incomes       Income[]
+  importBatches ImportBatch[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ BO'LIMLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+model Department {
+  id       String  @id @default(cuid())
+  code     String  @unique
+  name     String
+  isActive Boolean @default(true)
+  order    Int     @default(0)
+
+  /// Umumiy xarajatlarni taqsimlash og'irligi
+  allocationWeight Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expenses  Expense[]
+  incomes   Income[]
+  employees Employee[]
+
+  @@index([isActive, order])
+  @@map("departments")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ KATEGORIYALAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum CostBehavior {
+  FIXED
+  VARIABLE
+  MIXED
+}
+
+enum CostScope {
+  DEPARTMENT
+  GENERAL
+}
+
+model Category {
+  code       String       @id
+  label      String
+  parentCode String?
+  isLeaf     Boolean      @default(true)
+  behavior   CostBehavior @default(VARIABLE)
+  scope      CostScope    @default(GENERAL)
+  keywords   String[]     @default([])
+  model3d    String?
+  isActive   Boolean      @default(true)
+  order      Int          @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Category?  @relation("CategoryTree", fields: [parentCode], references: [code], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+  expenses Expense[]
+
+  @@index([parentCode])
+  @@index([isActive, order])
+  @@map("categories")
+}
+
+model IncomeCategory {
+  code     String  @id
+  label    String
+  isActive Boolean @default(true)
+  order    Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  incomes Income[]
+
+  @@index([isActive, order])
+  @@map("income_categories")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ XARAJATLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum PaymentMethod {
+  CASH
+  BANK
+  CARD
+  OTHER
+}
+
+enum EntrySource {
+  MANUAL
+  IMPORT
+  PAYROLL
+}
+
+model Expense {
+  id String @id @default(cuid())
+
+  date   DateTime
+  /// "2026-09"
+  period String
+
+  /// TIYIN'da: 1 000 000 so'm = 100 000 000
+  amountTiyin BigInt
+
+  categoryCode String
+  departmentId String?
+
+  description   String?
+  paymentMethod PaymentMethod @default(BANK)
+  documentNo    String?
+  counterparty  String?
+
+  /// To'lov holati вЂ” kreditorlik qarzini kuzatish uchun
+  paymentStatus PaymentStatus @default(PAID)
+  /// Qachongacha to'lanishi kerak
+  dueDate       DateTime?
+  /// Javobgar shaxs
+  responsible   String?
+  /// Summa ichidagi QQS, tiyinda
+  vatTiyin      BigInt?
+
+  source        EntrySource @default(MANUAL)
+  importBatchId String?
+
+  categoryConfidence Int?
+  categoryOverridden Boolean @default(false)
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  category    Category     @relation(fields: [categoryCode], references: [code])
+  department  Department?  @relation(fields: [departmentId], references: [id])
+  createdBy   User         @relation(fields: [createdById], references: [id])
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([period, deletedAt])
+  @@index([date])
+  @@index([categoryCode, period])
+  @@index([departmentId, period])
+  @@index([importBatchId])
+  @@index([paymentStatus])
+  @@map("expenses")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ DAROMADLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  UNPAID
+}
+
+model Income {
+  id String @id @default(cuid())
+
+  date   DateTime
+  period String
+
+  amountTiyin BigInt
+  paidTiyin   BigInt @default(0)
+
+  categoryCode String
+  departmentId String?
+
+  clientName  String?
+  description String?
+  contractNo  String?
+
+  paymentStatus PaymentStatus @default(PAID)
+  paymentMethod PaymentMethod @default(BANK)
+
+  source        EntrySource @default(MANUAL)
+  importBatchId String?
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  category   IncomeCategory @relation(fields: [categoryCode], references: [code])
+  department Department?    @relation(fields: [departmentId], references: [id])
+  createdBy  User           @relation(fields: [createdById], references: [id])
+
+  @@index([period, deletedAt])
+  @@index([date])
+  @@index([categoryCode, period])
+  @@index([departmentId, period])
+  @@index([paymentStatus])
+  @@map("incomes")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ XODIMLAR VA ISH HAQI РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+model Employee {
+  id String @id @default(cuid())
+
+  externalId String? @unique
+  fullName   String
+  position   String?
+
+  departmentId String?
+  hiredAt      DateTime?
+  firedAt      DateTime?
+  isActive     Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department     Department?    @relation(fields: [departmentId], references: [id])
+  payrollEntries PayrollEntry[]
+
+  @@index([departmentId, isActive])
+  @@map("employees")
+}
+
+model PayrollEntry {
+  id String @id @default(cuid())
+
+  employeeId String
+  period     String
+
+  baseTiyin      BigInt @default(0)
+  bonusTiyin     BigInt @default(0)
+  vacationTiyin  BigInt @default(0)
+  deductionTiyin BigInt @default(0)
+  taxTiyin       BigInt @default(0)
+  totalTiyin     BigInt @default(0)
+
+  workedDays Int?
+
+  importBatchId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  employee    Employee     @relation(fields: [employeeId], references: [id])
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@unique([employeeId, period])
+  @@index([period])
+  @@index([importBatchId])
+  @@map("payroll_entries")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ IMPORT QUVURI РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum ImportType {
+  PAYROLL
+  EXPENSE
+  INCOME
+}
+
+enum ImportStatus {
+  PENDING
+  READY
+  COMMITTED
+  CANCELLED
+  FAILED
+}
+
+model ImportBatch {
+  id String @id @default(cuid())
+
+  type   ImportType
+  status ImportStatus @default(PENDING)
+
+  fileName String
+  /// SHA-256 РІР‚вЂќ dublikat yuklashni oldini oladi
+  fileHash String
+  fileSize Int
+
+  period String?
+
+  totalRows     Int @default(0)
+  validRows     Int @default(0)
+  warningRows   Int @default(0)
+  errorRows     Int @default(0)
+  committedRows Int @default(0)
+
+  errorMessage String?
+
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  committedAt  DateTime?
+
+  uploadedBy     User           @relation(fields: [uploadedById], references: [id])
+  stagingRows    StagingRow[]
+  expenses       Expense[]
+  payrollEntries PayrollEntry[]
+
+  @@index([type, status])
+  @@index([fileHash])
+  @@map("import_batches")
+}
+
+enum RowStatus {
+  VALID
+  WARNING
+  ERROR
+}
+
+model StagingRow {
+  id String @id @default(cuid())
+
+  batchId  String
+  rowIndex Int
+
+  rawData    Json
+  parsedData Json?
+
+  status   RowStatus @default(VALID)
+  messages Json      @default("[]")
+
+  batch ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, status])
+  @@map("staging_rows")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ AUDIT РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  IMPORT
+  EXPORT
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  userId     String
+  action     AuditAction
+  entityType String
+  entityId   String?
+
+  changes Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ SOZLAMALAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+model Setting {
+  key   String @id
+  value Json
+
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}

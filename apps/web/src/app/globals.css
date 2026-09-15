@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+
+@theme {
+  /* ─────────── Shriftlar ─────────── */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  /* ─────────── Asosiy ko'k ─────────── */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+
+  /* ─────────── Neytral (ko'k-kulrang) ─────────── */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-sunken: #f1f5f9;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  --color-text: #334155;
+  --color-text-muted: #64748b;
+  --color-text-faint: #94a3b8;
+
+  /* ─────────── Ma'noli ranglar ─────────── */
+  --color-income: #059669;
+  --color-income-soft: #ecfdf5;
+
+  --color-expense: #dc2626;
+  --color-expense-soft: #fef2f2;
+  --color-warn: #d97706;
+  --color-warn-soft: #fffbeb;
+
+  /* ─────────── O'lchamlar ─────────── */
+  --radius-card: 0.625rem;
+  --radius-control: 0.5rem;
+}
+
+/* ─────────── Shriftlarni yuklash ─────────── */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_took3E.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0100-024F, U+0259, U+1E00-1EFF, U+2000-206F, U+2074,
+    U+20A0-20AB, U+20AD-20CF, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxTOlOV.woff2')
+    format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2074,
+    U+20A0-20AB, U+20AD-20CF;
+}
+
+
+/* ─────────── Asosiy uslublar ─────────── */
+
+* {
+  border-color: var(--color-line);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--color-surface-muted);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/**
+ * Pul summalari uchun.
+ * `tabular-nums` — barcha raqamlar bir xil enlikda,
+ * shunda ustundagi summalar bir-biriga to'g'ri tekislanadi.
+ */
+.money {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  letter-spacing: -0.01em;
+}
+
+
+/* Fokus halqasi — klaviatura bilan ishlash uchun */
+:focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+}
+
+/* Raqam maydonlaridagi strelkalarni olib tashlaymiz */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* Ingichka aylantirish paneli */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 5px;
+  border: 2px solid var(--color-surface-muted);
+}
+
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-faint);
+}
+
+/* Chop etishda ortiqcha elementlarni yashirish */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+  }
+}

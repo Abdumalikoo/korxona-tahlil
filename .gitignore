@@ -1,0 +1,45 @@
+# ---- Bog'liqliklar ----
+node_modules/
+.pnpm-store/
+
+# ---- Build natijalari ----
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# ---- Muhit o'zgaruvchilari ----
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---- Prisma ----
+*.db
+*.db-journal
+
+# ---- Loglar ----
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ---- Muharrir ----
+.vscode/*
+!.vscode/settings.json
+.idea/
+
+# ---- Operatsion tizim ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- KORXONA MA'LUMOTI ----
+uploads/
+storage/
+backups/
+*.xlsx
+*.xls
+*.csv
+!templates/*.xlsx
