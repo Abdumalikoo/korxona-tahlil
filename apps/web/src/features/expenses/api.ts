@@ -1,4 +1,4 @@
-import { api, type ApiResponse, type PaginatedResponse } from "@/lib/api";
+import { api, getToken, type ApiResponse, type PaginatedResponse } from "@/lib/api";
 import type {
   Expense,
   CategorySummaryRow,
@@ -51,6 +51,52 @@ export interface CreateExpensePayload {
 }
 
 export type UpdateExpensePayload = Partial<CreateExpensePayload>;
+
+/**
+ * Excel faylni yuklab oladi.
+ *
+ * Oddiy havola ishlamaydi - token Authorization sarlavhasida
+ * yuborilishi kerak. Shuning uchun fayl blob sifatida olinadi
+ * va vaqtinchalik havola orqali brauzerga beriladi.
+ */
+export async function downloadExpensesExcel(filters: ExpenseFilters): Promise<void> {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      search.set(key, String(value));
+    }
+  }
+  search.delete('page');
+  search.delete('limit');
+
+  const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
+  const token = getToken();
+
+  const response = await fetch(`${base}/expenses/export?${search.toString()}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    throw new Error('Faylni yuklab bolmadi');
+  }
+
+  // Fayl nomini serverdan olamiz
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : 'Xarajatlar.xlsx';
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+}
 
 export const expensesApi = {
   list: (filters: ExpenseFilters) =>

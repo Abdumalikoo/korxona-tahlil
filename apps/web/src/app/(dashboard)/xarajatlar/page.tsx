@@ -1,6 +1,6 @@
 'use client';
 
-import { expensesApi, type ExpenseFilters } from '@/features/expenses/api';
+import { expensesApi, downloadExpensesExcel, type ExpenseFilters } from '@/features/expenses/api';
 import { ExpenseDrawer } from '@/features/expenses/expense-drawer';
 import { referencesApi } from '@/features/shared/references';
 import { useAuth } from '@/lib/auth-context';
@@ -17,7 +17,7 @@ import { StatCard } from '@/components/shared/stat-card';
 import { BehaviorBadge, PaymentBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { IconPlus, IconWallet } from '@/components/ui/icons';
+import { IconPlus, IconWallet, IconDownload } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
@@ -40,6 +40,19 @@ export default function ExpensesPage() {
 
   const [selected, setSelected] = useState<Expense | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  /** Excel faylni yuklab olish */
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadExpensesExcel(filters);
+    } catch {
+      setToast('Faylni yuklab bo‘lmadi');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const filters: ExpenseFilters = {
     period,
@@ -83,7 +96,7 @@ export default function ExpensesPage() {
   );
 
   const departmentOptions = [
-    { value: '', label: 'Barcha bolimlar' },
+    { value: '', label: 'Barcha bo‘limlar' },
     ...(departments.data?.data ?? []).map((item) => ({
       value: item.id,
       label: item.name,
@@ -108,20 +121,33 @@ export default function ExpensesPage() {
         title="Xarajatlar"
         description={formatPeriod(period)}
         actions={
-          isAdmin && (
-            <Link href="/xarajatlar/yangi">
-              <Button size="sm">
-                <IconPlus className="size-4" />
-                Yangi xarajat
-              </Button>
-            </Link>
-          )
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleExport()}
+              loading={exporting}
+              disabled={items.length === 0}
+            >
+              <IconDownload className="size-4" />
+              Excel
+            </Button>
+
+            {isAdmin && (
+              <Link href="/xarajatlar/yangi">
+                <Button size="sm">
+                  <IconPlus className="size-4" />
+                  Yangi xarajat
+                </Button>
+              </Link>
+            )}
+          </>
         }
       />
 
       <Tabs
         items={[
-          { href: '/xarajatlar', label: 'Royxat' },
+          { href: '/xarajatlar', label: 'Ro‘yxat' },
           { href: '/xarajatlar/tahlil', label: 'Tahlil' },
         ]}
         className="bg-white px-6"
@@ -159,8 +185,8 @@ export default function ExpensesPage() {
             <Select
               options={[
                 { value: '', label: 'Barcha holatlar' },
-                { value: 'PAID', label: 'Tolangan' },
-                { value: 'UNPAID', label: 'Tolanmagan' },
+                { value: 'PAID', label: 'To‘langan' },
+                { value: 'UNPAID', label: 'To‘lanmagan' },
                 { value: 'PARTIAL', label: 'Qisman' },
               ]}
               value={paymentStatus}
@@ -205,7 +231,7 @@ export default function ExpensesPage() {
           />
 
           <StatCard
-            label="Otgan oyga nisbatan"
+            label="O‘tgan oyga nisbatan"
             tiyin={comparison.data?.data.previous.amountTiyin ?? 0}
             changePercent={comparison.data?.data.previous.changePercent}
             positiveIsGood={false}
@@ -217,7 +243,7 @@ export default function ExpensesPage() {
           />
 
           <StatCard
-            label="Otgan yilning shu oyi"
+            label="O‘tgan yilning shu oyi"
             tiyin={comparison.data?.data.lastYear.amountTiyin ?? 0}
             changePercent={comparison.data?.data.lastYear.changePercent}
             positiveIsGood={false}
@@ -229,7 +255,7 @@ export default function ExpensesPage() {
           />
 
           <StatCard
-            label="Tolanmagan"
+            label="To‘lanmagan"
             tiyin={meta?.unpaidTiyin ?? 0}
             tone={Number(meta?.unpaidTiyin ?? 0) > 0 ? 'expense' : 'neutral'}
              hint={meta ? `${meta.unpaidCount} ta yozuv` : undefined}
@@ -244,10 +270,10 @@ export default function ExpensesPage() {
             <ErrorState message={list.error} onRetry={list.reload} />
           ) : items.length === 0 ? (
             <EmptyState
-              title={hasFilters ? 'Hech narsa topilmadi' : 'Bu oyda xarajat yoq'}
+              title={hasFilters ? 'Hech narsa topilmadi' : 'Bu oyda xarajat yo‘q'}
               description={
                 hasFilters
-                  ? 'Filtrlarni ozgartirib koring'
+                  ? 'Filtrlarni o‘zgartirib ko‘ring'
                   : isAdmin
                     ? 'Birinchi xarajatni kiriting'
                     : undefined
@@ -270,7 +296,7 @@ export default function ExpensesPage() {
                   <Tr>
                     <Th className="w-28">Sana</Th>
                     <Th>Kategoriya</Th>
-                    <Th className="w-44">Bolim</Th>
+                    <Th className="w-44">Bo‘lim</Th>
                     <Th>Tavsif</Th>
                     <Th className="w-28">Holat</Th>
                     <Th align="right" className="w-40">
