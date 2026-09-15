@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, Max, Matches, IsEnum } from "class-validator";
+import { IsOptional, IsString, IsInt, Min, Max, Matches, IsEnum, IsIn } from "class-validator";
 import { Type } from "class-transformer";
 import { PaymentMethod, PaymentStatus } from "@prisma/client";
 
@@ -44,6 +44,16 @@ export class QueryExpenseDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  /** Qaysi ustun boyicha saralash */
+  @IsOptional()
+  @IsIn(["date", "amountTiyin", "categoryCode", "createdAt"])
+  sortBy?: string;
+
+  /** Osish yoki kamayish tartibida */
+  @IsOptional()
+  @IsIn(["asc", "desc"])
+  sortOrder?: "asc" | "desc";
 
   @IsOptional()
   @Type(() => Number)

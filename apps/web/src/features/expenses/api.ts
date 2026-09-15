@@ -22,7 +22,12 @@ export interface ExpenseFilters {
   search?: string;
   page?: number;
   limit?: number;
+  sortBy?: SortField;
+  sortOrder?: SortOrder;
 }
+
+export type SortField = 'date' | 'amountTiyin' | 'categoryCode';
+export type SortOrder = 'asc' | 'desc';
 
 export interface ExpenseListMeta {
   page: number;

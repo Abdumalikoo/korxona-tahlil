@@ -126,6 +126,27 @@ export class ExpensesService {
     return where;
   }
 
+  /**
+   * Saralash tartibini quradi.
+   * Korsatilmasa - sana boyicha kamayish (eng yangisi tepada).
+   */
+  private buildOrderBy(query: QueryExpenseDto): Prisma.ExpenseOrderByWithRelationInput[] {
+    const order = query.sortOrder ?? "desc";
+
+    switch (query.sortBy) {
+      case "amountTiyin":
+        return [{ amountTiyin: order }, { date: "desc" }];
+      case "categoryCode":
+        return [{ categoryCode: order }, { date: "desc" }];
+      case "createdAt":
+        return [{ createdAt: order }];
+      case "date":
+        return [{ date: order }, { createdAt: "desc" }];
+      default:
+        return [{ date: "desc" }, { createdAt: "desc" }];
+    }
+  }
+
   // --------- Asosiy amallar ---------
 
   async create(dto: CreateExpenseDto, userId: string): Promise<Expense> {
@@ -173,7 +194,7 @@ export class ExpensesService {
     const [items, total, sum, unpaid] = await Promise.all([
       this.prisma.expense.findMany({
         where,
-        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+        orderBy: this.buildOrderBy(query),
         skip: (page - 1) * limit,
         take: limit,
         include: {

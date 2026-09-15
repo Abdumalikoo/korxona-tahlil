@@ -1,6 +1,6 @@
 'use client';
 
-import { expensesApi, downloadExpensesExcel, type ExpenseFilters } from '@/features/expenses/api';
+import { expensesApi, downloadExpensesExcel, type ExpenseFilters, type SortField, type SortOrder } from '@/features/expenses/api';
 import { ExpenseDrawer } from '@/features/expenses/expense-drawer';
 import { referencesApi } from '@/features/shared/references';
 import { useAuth } from '@/lib/auth-context';
@@ -17,12 +17,13 @@ import { StatCard } from '@/components/shared/stat-card';
 import { BehaviorBadge, PaymentBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { IconPlus, IconWallet, IconDownload } from '@/components/ui/icons';
+import { IconPlus, IconWallet, IconDownload, IconEdit } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
 import { Tabs } from '@/components/ui/tabs';
+import { SortableTh } from '@/components/ui/sortable-th';
 import { Toast } from '@/components/ui/toast';
 import type { Expense, PaymentStatus } from '@/lib/types';
 
@@ -41,6 +42,20 @@ export default function ExpensesPage() {
   const [selected, setSelected] = useState<Expense | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [sortBy, setSortBy] = useState<SortField>('date');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+
+  /** Ustun sarlavhasi bosilganda tartibni almashtiradi */
+  function handleSort(field: string) {
+    const next = field as SortField;
+    if (sortBy === next) {
+      setSortOrder((state) => (state === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortBy(next);
+      setSortOrder('desc');
+    }
+    setPage(1);
+  }
 
   /** Excel faylni yuklab olish */
   async function handleExport() {
@@ -62,6 +77,8 @@ export default function ExpensesPage() {
     search: search || undefined,
     page,
     limit: PAGE_LIMIT,
+    sortBy,
+    sortOrder,
   };
 
   // Malumotnomalar bir marta yuklanadi
@@ -71,7 +88,7 @@ export default function ExpensesPage() {
 
   const list = useAsync(
     () => expensesApi.list(filters),
-    [period, departmentId, rootCategoryCode, paymentStatus, search, page],
+    [period, departmentId, rootCategoryCode, paymentStatus, search, page, sortBy, sortOrder],
   );
 
   const comparison = useAsync(
@@ -294,20 +311,47 @@ export default function ExpensesPage() {
               <Table>
                 <THead>
                   <Tr>
-                    <Th className="w-28">Sana</Th>
-                    <Th>Kategoriya</Th>
+                    <SortableTh
+                      field="date"
+                      activeField={sortBy}
+                      activeOrder={sortOrder}
+                      onSort={handleSort}
+                      className="w-28"
+                    >
+                      Sana
+                    </SortableTh>
+
+                    <SortableTh
+                      field="categoryCode"
+                      activeField={sortBy}
+                      activeOrder={sortOrder}
+                      onSort={handleSort}
+                    >
+                      Kategoriya
+                    </SortableTh>
+
                     <Th className="w-44">Bo‘lim</Th>
                     <Th>Tavsif</Th>
                     <Th className="w-28">Holat</Th>
-                    <Th align="right" className="w-40">
+
+                    <SortableTh
+                      field="amountTiyin"
+                      activeField={sortBy}
+                      activeOrder={sortOrder}
+                      onSort={handleSort}
+                      align="right"
+                      className="w-40"
+                    >
                       Summa
-                    </Th>
+                    </SortableTh>
+
+                    <Th className="w-10" />
                   </Tr>
                 </THead>
 
                 <TBody>
                   {items.map((expense) => (
-                    <Tr key={expense.id} clickable onClick={() => setSelected(expense)}>
+                    <Tr key={expense.id} clickable className="group" onClick={() => setSelected(expense)}>
                       <Td className="money whitespace-nowrap text-[--color-text-muted]">
                         {formatDate(expense.date)}
                       </Td>
@@ -337,6 +381,10 @@ export default function ExpensesPage() {
 
                       <Td money>
                         <Money tiyin={expense.amountTiyin} tone="expense" />
+                      </Td>
+
+                      <Td className="pr-3 text-right">
+                        <IconEdit className="ml-auto size-4 text-[--color-text-faint] opacity-0 transition-opacity group-hover:opacity-100" />
                       </Td>
                     </Tr>
                   ))}

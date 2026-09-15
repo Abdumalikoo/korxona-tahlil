@@ -12,6 +12,7 @@ import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators';
 import { CategoriesService } from './categories.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { CreateCategoryDto } from './dto/create-category.dto';
 
 @Controller('categories')
 export class CategoriesController {
@@ -63,6 +64,26 @@ export class CategoriesController {
     return { data };
   }
 
+
+  @Get(':code/usage')
+  async usage(@Param('code') code: string) {
+    const data = await this.categories.getUsage(code);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post()
+  async create(@Body() dto: CreateCategoryDto) {
+    const data = await this.categories.create(dto);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Patch(':code/archive')
+  async archive(@Param('code') code: string) {
+    const data = await this.categories.archive(code);
+    return { data };
+  }
 
   @Roles(UserRole.ADMIN)
   @Patch(':code')
