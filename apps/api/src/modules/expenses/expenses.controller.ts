@@ -46,6 +46,16 @@ export class ExpensesController {
     response.send(buffer);
   }
 
+  @Get('spikes')
+  async spikes(
+    @Query('period') period: string,
+    @Query('threshold', new DefaultValuePipe(30), ParseIntPipe) threshold: number,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const data = await this.expenses.spikes(period, threshold, departmentId);
+    return { data };
+  }
+
   @Get('summary/category')
   async summaryByCategory(@Query() query: QueryExpenseDto) {
     const data = await this.expenses.summaryByCategory(query);

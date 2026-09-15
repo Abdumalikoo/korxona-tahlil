@@ -12,7 +12,8 @@ import { PeriodPicker } from '@/components/shared/period-picker';
 import { ShareBar } from '@/components/shared/share-bar';
 import { BehaviorBadge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { Money } from '@/components/ui/money';
+import { IconAlert } from '@/components/ui/icons';
+import { Money, Change } from '@/components/ui/money';
 import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
@@ -46,6 +47,11 @@ export default function ExpenseAnalysisPage() {
 
   const byBehavior = useAsync(
     () => expensesApi.summaryByBehavior(filters),
+    [period, departmentId],
+  );
+
+  const spikes = useAsync(
+    () => expensesApi.spikes(period, 30, departmentId || undefined),
     [period, departmentId],
   );
 
@@ -89,6 +95,45 @@ export default function ExpenseAnalysisPage() {
             className="h-9 w-48"
           />
         </div>
+
+        {(spikes.data?.data.rows.length ?? 0) > 0 && (
+          <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] p-4">
+            <div className="flex items-start gap-3">
+              <IconAlert className="mt-0.5 size-5 shrink-0 text-[--color-warn]" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[--color-warn]">
+                  Keskin o&rsquo;zgargan moddalar
+                </p>
+                <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                  O&rsquo;tgan oyga nisbatan 30% dan ko&rsquo;p oshgan yoki yangi paydo bo&rsquo;lgan
+                </p>
+
+                <div className="mt-3 space-y-2">
+                  {spikes.data?.data.rows.map((row) => (
+                    <div
+                      key={row.categoryCode}
+                      className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-2"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm">{row.label}</span>
+
+                      <span className="shrink-0 text-xs text-[--color-text-muted]">
+                        {row.isNew ? (
+                          <span className="font-medium text-[--color-warn]">yangi</span>
+                        ) : (
+                          <Change percent={row.changePercent} positiveIsGood={false} />
+                        )}
+                      </span>
+
+                      <span className="w-32 shrink-0 text-right">
+                        <Money tiyin={row.currentTiyin} tone="expense" />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ─────────── Doimiy / o'zgaruvchan ─────────── */}
         <Card>

@@ -98,6 +98,23 @@ export async function downloadExpensesExcel(filters: ExpenseFilters): Promise<vo
   URL.revokeObjectURL(url);
 }
 
+export interface SpikeRow {
+  categoryCode: string;
+  label: string;
+  currentTiyin: string;
+  previousTiyin: string;
+  diffTiyin: string;
+  changePercent: number | null;
+  isNew: boolean;
+}
+
+export interface SpikesResult {
+  period: string;
+  previousPeriod: string;
+  thresholdPercent: number;
+  rows: SpikeRow[];
+}
+
 export const expensesApi = {
   list: (filters: ExpenseFilters) =>
     api.get<PaginatedResponse<Expense> & { meta: ExpenseListMeta }>("/expenses", {
@@ -113,6 +130,11 @@ export const expensesApi = {
     api.patch<ApiResponse<Expense>>(`/expenses/${id}`, payload),
 
   remove: (id: string) => api.delete<ApiResponse<{ success: true }>>(`/expenses/${id}`),
+
+  spikes: (period: string, threshold = 30, departmentId?: string) =>
+    api.get<ApiResponse<SpikesResult>>("/expenses/spikes", {
+      params: { period, threshold, departmentId },
+    }),
 
   summaryByCategory: (filters: ExpenseFilters) =>
     api.get<ApiResponse<{ rows: CategorySummaryRow[]; totalTiyin: string }>>(

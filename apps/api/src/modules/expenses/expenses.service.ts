@@ -457,6 +457,70 @@ export class ExpensesService {
    * Ozgarish foizi.
    * Baza nol bolsa null - "cheksiz osish" korsatilmasligi kerak.
    */
+  /**
+   * Keskin ozgargan kategoriyalarni topadi.
+   *
+   * Joriy davrni oldingi davr bilan solishtiradi va berilgan
+   * chegaradan koproq ozgargan moddalarni qaytaradi.
+   */
+  async spikes(period: string, thresholdPercent = 30, departmentId?: string) {
+    const previous = this.shiftPeriod(period, -1);
+    const filter = departmentId ? { departmentId } : {};
+
+    const [current, prior, categories] = await Promise.all([
+      this.prisma.expense.groupBy({
+        by: ["categoryCode"],
+        where: { deletedAt: null, period, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.expense.groupBy({
+        by: ["categoryCode"],
+        where: { deletedAt: null, period: previous, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.category.findMany({ select: { code: true, label: true } }),
+    ]);
+
+    const labels = new Map(categories.map((c) => [c.code, c.label]));
+    const priorMap = new Map(prior.map((r) => [r.categoryCode, r._sum.amountTiyin ?? 0n]));
+
+    const rows: {
+      categoryCode: string;
+      label: string;
+      currentTiyin: bigint;
+      previousTiyin: bigint;
+      diffTiyin: bigint;
+      changePercent: number | null;
+      isNew: boolean;
+    }[] = [];
+
+    for (const row of current) {
+      const currentSum = row._sum.amountTiyin ?? 0n;
+      const previousSum = priorMap.get(row.categoryCode) ?? 0n;
+      const diff = currentSum - previousSum;
+
+      const isNew = previousSum === 0n;
+      const change = this.percentChange(currentSum, previousSum);
+
+      const significant = isNew || (change !== null && change >= thresholdPercent);
+      if (!significant) continue;
+
+      rows.push({
+        categoryCode: row.categoryCode,
+        label: labels.get(row.categoryCode) ?? row.categoryCode,
+        currentTiyin: currentSum,
+        previousTiyin: previousSum,
+        diffTiyin: diff,
+        changePercent: change,
+        isNew,
+      });
+    }
+
+    rows.sort((a, b) => (b.diffTiyin > a.diffTiyin ? 1 : -1));
+
+    return { period, previousPeriod: previous, thresholdPercent, rows };
+  }
+
   private percentChange(current: bigint, base: bigint): number | null {
     if (base === 0n) return null;
     const diff = current - base;
