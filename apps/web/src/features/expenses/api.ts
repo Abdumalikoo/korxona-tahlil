@@ -136,6 +136,17 @@ export const expensesApi = {
 
   remove: (id: string) => api.delete<ApiResponse<{ success: true }>>(`/expenses/${id}`),
 
+  /** Oxshash yozuv bor-yoqligini tekshiradi */
+  similar: (params: {
+    date: string;
+    amountTiyin: number;
+    categoryCode: string;
+    excludeId?: string;
+  }) =>
+    api.get<ApiResponse<{ items: Expense[]; count: number }>>("/expenses/similar", {
+      params,
+    }),
+
   spikes: (period: string, threshold = 30, departmentId?: string) =>
     api.get<ApiResponse<SpikesResult>>("/expenses/spikes", {
       params: { period, threshold, departmentId },

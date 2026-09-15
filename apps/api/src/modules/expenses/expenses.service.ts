@@ -186,6 +186,39 @@ export class ExpensesService {
     });
   }
 
+  /**
+   * Oxshash yozuv bor-yoqligini tekshiradi.
+   *
+   * Bir xil sana, summa va kategoriya - dublikat belgisi.
+   * Bu tosiq emas, ogohlantirish: bir kunda ikkita taksi
+   * chindan ham bolishi mumkin.
+   */
+  async findSimilar(params: {
+    date: string;
+    amountTiyin: number;
+    categoryCode: string;
+    excludeId?: string;
+  }) {
+    const items = await this.prisma.expense.findMany({
+      where: {
+        deletedAt: null,
+        date: this.toStoredDate(params.date),
+        amountTiyin: BigInt(params.amountTiyin),
+        categoryCode: params.categoryCode,
+        ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+      },
+      take: 5,
+      orderBy: { createdAt: "desc" },
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, code: true, name: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+
+    return { items, count: items.length };
+  }
+
   async findAll(query: QueryExpenseDto) {
     const where = await this.buildWhere(query);
     const page = query.page ?? 1;

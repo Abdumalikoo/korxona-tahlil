@@ -1,6 +1,6 @@
 'use client';
 
-import { IconChevronDown, IconClose, IconSearch } from '@/components/ui/icons';
+import { IconChevronDown, IconClose, IconPlus, IconSearch } from '@/components/ui/icons';
 import type { Category } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -14,6 +14,8 @@ interface CategoryPickerProps {
   required?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  /** Royxat pastida yangi kategoriya qoshish tugmasi */
+  onCreateNew?: (query: string) => void;
 }
 
 /**
@@ -32,6 +34,7 @@ export function CategoryPicker({
   required,
   disabled,
   placeholder = 'Kategoriya tanlang',
+  onCreateNew,
 }: CategoryPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -212,6 +215,21 @@ export function CategoryPicker({
                 ))
               )}
             </div>
+
+            {onCreateNew && (
+              <button
+                type="button"
+                onClick={() => {
+                  onCreateNew(query.trim());
+                  setOpen(false);
+                  setQuery('');
+                }}
+                className="flex w-full items-center gap-2 border-t border-[--color-line] px-3 py-2.5 text-left text-sm font-medium text-brand-700 transition-colors hover:bg-brand-50"
+              >
+                <IconPlus className="size-4" />
+                {query.trim() ? `"${query.trim()}" qoshish` : 'Yangi kategoriya'}
+              </button>
+            )}
           </div>
         )}
       </div>

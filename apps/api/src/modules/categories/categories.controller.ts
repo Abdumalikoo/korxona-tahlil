@@ -6,6 +6,7 @@ import {
     Param,
     ParseBoolPipe,
     Patch,
+  Post,
     Query,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';

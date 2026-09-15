@@ -46,6 +46,22 @@ export class ExpensesController {
     response.send(buffer);
   }
 
+  @Get('similar')
+  async similar(
+    @Query('date') date: string,
+    @Query('amountTiyin', ParseIntPipe) amountTiyin: number,
+    @Query('categoryCode') categoryCode: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    const data = await this.expenses.findSimilar({
+      date,
+      amountTiyin,
+      categoryCode,
+      excludeId,
+    });
+    return { data };
+  }
+
   @Get('spikes')
   async spikes(
     @Query('period') period: string,

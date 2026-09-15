@@ -14,6 +14,9 @@ import { useAsync } from '@/lib/use-async';
 import { PageHeader } from '@/components/layout/page-header';
 import { CategoryPicker } from '@/components/shared/category-picker';
 import { MoneyInput } from '@/components/shared/money-input';
+import { QuickCategoryDialog } from '@/components/shared/quick-category-dialog';
+import { DuplicateWarning } from '@/features/expenses/duplicate-warning';
+import type { Expense } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardFooter } from '@/components/ui/card';
 import { IconChevronDown } from '@/components/ui/icons';
@@ -81,14 +84,42 @@ export default function NewExpensePage() {
     null,
   );
   const [extraOpen, setExtraOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickLabel, setQuickLabel] = useState('');
+  const [duplicates, setDuplicates] = useState<Expense[]>([]);
 
   const departments = useAsync(() => referencesApi.departments(), []);
   const categories = useAsync(() => referencesApi.expenseLeaves(), []);
+  const tree = useAsync(() => referencesApi.expenseTree(), []);
 
   // Kuzatuvchi bu sahifaga kira olmaydi
   useEffect(() => {
     if (!isAdmin) router.replace('/xarajatlar');
   }, [isAdmin, router]);
+
+  /**
+   * Sana, summa va kategoriya toldirilganda oxshash yozuvni qidiradi.
+   * 600 ms kutamiz - foydalanuvchi yozib bolishini kutish uchun.
+   */
+  useEffect(() => {
+    if (!form.date || !form.categoryCode || !form.amount) {
+      setDuplicates([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      expensesApi
+        .similar({
+          date: form.date,
+          amountTiyin: sumToTiyin(form.amount ?? 0),
+          categoryCode: form.categoryCode,
+        })
+        .then((response) => setDuplicates(response.data.items))
+        .catch(() => setDuplicates([]));
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [form.date, form.categoryCode, form.amount]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((state) => ({ ...state, [key]: value }));
@@ -228,6 +259,10 @@ export default function NewExpensePage() {
                     error={errors.categoryCode}
                     required
                     disabled={saving}
+                    onCreateNew={(text) => {
+                      setQuickLabel(text);
+                      setQuickOpen(true);
+                    }}
                   />
                 </div>
               </div>
@@ -251,6 +286,8 @@ export default function NewExpensePage() {
                   hint="Bo&apos;sh qoldirilsa umumkorxona xarajati hisoblanadi"
                 />
               </div>
+
+              <DuplicateWarning items={duplicates} />
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Select
@@ -370,6 +407,18 @@ export default function NewExpensePage() {
           </Card>
         </form>
       </div>
+
+      <QuickCategoryDialog
+        open={quickOpen}
+        groups={(tree.data?.data ?? []).map((g) => ({ code: g.code, label: g.label }))}
+        initialLabel={quickLabel}
+        onClose={() => setQuickOpen(false)}
+        onCreated={(created) => {
+          categories.reload();
+          update('categoryCode', created.code);
+          setToast({ message: 'Kategoriya qoshildi', tone: 'success' });
+        }}
+      />
 
       {toast && (
         <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />
