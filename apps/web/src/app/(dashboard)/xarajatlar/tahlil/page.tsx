@@ -22,6 +22,7 @@ import { Tabs } from '@/components/ui/tabs';
 const tabs = [
   { href: '/xarajatlar', label: "Ro'yxat" },
   { href: '/xarajatlar/tahlil', label: 'Tahlil' },
+          { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
 ];
 
 export default function ExpenseAnalysisPage() {

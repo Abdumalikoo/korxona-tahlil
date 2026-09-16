@@ -166,6 +166,7 @@ export default function ExpensesPage() {
         items={[
           { href: '/xarajatlar', label: 'Ro‘yxat' },
           { href: '/xarajatlar/tahlil', label: 'Tahlil' },
+          { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
         ]}
         className="bg-white px-6"
       />
