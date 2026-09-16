@@ -6,6 +6,7 @@ import {
     IconDashboard,
     IconLogout,
     IconSettings,
+  IconUsers,
     IconTrendUp,
     IconWallet,
 } from '@/components/ui/icons';
@@ -39,7 +40,10 @@ const navigation: NavGroup[] = [
   },
   {
     title: 'Tahlil',
-    items: [{ href: '/bolimlar', label: "Bo'limlar", icon: IconBuilding }],
+    items: [
+      { href: '/xodimlar', label: 'Xodimlar', icon: IconUsers },
+      { href: '/bolimlar', label: "Bo'limlar", icon: IconBuilding },
+    ],
   },
   {
     items: [

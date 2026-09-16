@@ -10,6 +10,7 @@ import { ExpensesModule } from './modules/expenses/expenses.module';
 import { IncomesModule } from './modules/incomes/incomes.module';
 import { RegionsModule } from './modules/regions/regions.module';
 import { EmployeesModule } from './modules/employees/employees.module';
+import { PayrollModule } from './modules/payroll/payroll.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 
 @Module({
@@ -27,6 +28,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
     IncomesModule,
     RegionsModule,
     EmployeesModule,
+    PayrollModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

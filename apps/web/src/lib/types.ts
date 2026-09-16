@@ -177,3 +177,77 @@ export interface AbcRow {
   cumulativePercent: number;
   group: "A" | "B" | "C";
 }
+// --------- Hududlar ---------
+
+export interface Region {
+  code: number;
+  name: string;
+  isActive: boolean;
+}
+
+export interface District {
+  id: string;
+  regionCode: number;
+  code: number;
+  name: string;
+  isActive: boolean;
+}
+
+export interface RegionWithDistricts extends Region {
+  districts: District[];
+}
+
+// --------- Xodimlar ---------
+
+export type EmploymentType = 'SHTAT' | 'SHARTNOMA';
+
+interface RegionRef {
+  code: number;
+  name: string;
+}
+
+interface DistrictRef {
+  id: string;
+  code: number;
+  name: string;
+}
+
+interface DepartmentRef2 {
+  id: string;
+  code: string;
+  name: string;
+  index: number;
+}
+
+export interface Employee {
+  pinfl: string;
+  lastName: string;
+  firstName: string;
+  middleName: string | null;
+  fullName: string;
+
+  employmentType: EmploymentType;
+
+  regionCode: number;
+  districtId: string | null;
+  departmentId: string | null;
+
+  position: string | null;
+  hiredAt: string | null;
+  firedAt: string | null;
+  isActive: boolean;
+
+  createdAt: string;
+  updatedAt: string;
+
+  region: RegionRef;
+  district: DistrictRef | null;
+  department: DepartmentRef2 | null;
+}
+
+export interface EmployeeStats {
+  centralStaff: number;
+  regionalStaff: number;
+  contract: number;
+  total: number;
+}

@@ -31,6 +31,7 @@ model User {
   incomes       Income[]
   importBatches ImportBatch[]
   auditLogs     AuditLog[]
+  payrollBatches PayrollBatch[]
 
   @@map("users")
 }
@@ -154,8 +155,9 @@ model Expense {
   /// Summa ichidagi QQS, tiyinda
   vatTiyin      BigInt?
 
-  source        EntrySource @default(MANUAL)
-  importBatchId String?
+  source         EntrySource @default(MANUAL)
+  importBatchId  String?
+  payrollBatchId String?
 
   categoryConfidence Int?
   categoryOverridden Boolean @default(false)
@@ -168,7 +170,8 @@ model Expense {
   category    Category     @relation(fields: [categoryCode], references: [code])
   department  Department?  @relation(fields: [departmentId], references: [id])
   createdBy   User         @relation(fields: [createdById], references: [id])
-  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id])
+  importBatch  ImportBatch?  @relation(fields: [importBatchId], references: [id])
+  payrollBatch PayrollBatch? @relation(fields: [payrollBatchId], references: [id])
 
   @@index([period, deletedAt])
   @@index([date])
@@ -281,8 +284,9 @@ model PayrollEntry {
   id String @id @default(cuid())
 
   employeePinfl String
-  period     String
+  period        String
 
+  /// Barcha summalar tiyinda
   baseTiyin      BigInt @default(0)
   bonusTiyin     BigInt @default(0)
   vacationTiyin  BigInt @default(0)
@@ -292,18 +296,19 @@ model PayrollEntry {
 
   workedDays Int?
 
-  importBatchId String?
+  /// Qaysi yuklashdan kelgani
+  batchId String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  employee    Employee     @relation(fields: [employeePinfl], references: [pinfl])
-  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id])
+  employee Employee      @relation(fields: [employeePinfl], references: [pinfl])
+  batch    PayrollBatch? @relation(fields: [batchId], references: [id])
 
   @@unique([employeePinfl, period])
   @@index([period])
-  @@index([importBatchId])
+  @@index([batchId])
   @@map("payroll_entries")
 }
 
@@ -351,7 +356,6 @@ model ImportBatch {
   uploadedBy     User           @relation(fields: [uploadedById], references: [id])
   stagingRows    StagingRow[]
   expenses       Expense[]
-  payrollEntries PayrollEntry[]
 
   @@index([type, status])
   @@index([fileHash])
@@ -458,7 +462,48 @@ model District {
   @@map("districts")
 }
 
+// ═══════════ ISH HAQI YUKLASH ═══════════
 
+enum PayrollBatchStatus {
+  DRAFT      // Yuklandi, korib chiqilmoqda
+  COMMITTED  // Tasdiqlandi, xarajatlar yaratildi
+  CANCELLED  // Bekor qilindi
+}
+
+model PayrollBatch {
+  id String @id @default(cuid())
+
+  /// "2026-09"
+  period String
+  status PayrollBatchStatus @default(DRAFT)
+
+  fileName String
+  /// SHA-256 - bir xil faylni ikki marta yuklashni oldini oladi
+  fileHash String
+
+  totalRows   Int @default(0)
+  matchedRows Int @default(0)
+  /// PINFL reestrda topilmagan qatorlar
+  missingRows Int @default(0)
+
+  /// Jami summa, tiyinda
+  totalTiyin BigInt @default(0)
+
+  /// Topilmagan PINFL lar royxati
+  missingPinfls Json @default("[]")
+
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  committedAt  DateTime?
+
+  uploadedBy User           @relation(fields: [uploadedById], references: [id])
+  entries    PayrollEntry[]
+  expenses   Expense[]
+
+  @@index([period, status])
+  @@index([fileHash])
+  @@map("payroll_batches")
+}
 
 model Setting {
   key   String @id
