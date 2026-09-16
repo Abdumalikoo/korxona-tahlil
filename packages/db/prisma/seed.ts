@@ -1,34 +1,19 @@
+import { PrismaClient, CostBehavior, CostScope, UserRole } from '@prisma/client';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@korxona/shared';
-import { CostBehavior, CostScope, PrismaClient, UserRole } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { REGIONS, DEPARTMENTS } from './regions-data';
 
 const prisma = new PrismaClient();
 
 const BCRYPT_ROUNDS = 12;
 
-/** Boshlang'ich administrator ma'lumotlari */
 const ADMIN_USERNAME = 'admin';
 const ADMIN_PASSWORD = 'admin123';
-
-/**
- * Bo'limlar ro'yxati — taxminiy.
- * Korxonaning haqiqiy bo'limlari ma'lum bo'lganda o'zgartiriladi.
- *
- * allocationWeight — umumiy xarajatlarni taqsimlash og'irligi.
- * Ma'muriyat daromad keltirmaydi, shuning uchun 0.
- */
-const DEPARTMENTS = [
-  { code: 'BUX', name: 'Buxgalteriya xizmati', order: 10, allocationWeight: 1 },
-  { code: 'SOLIQ', name: 'Soliq maslahati', order: 20, allocationWeight: 1 },
-  { code: 'AUDIT', name: 'Audit va tekshiruv', order: 30, allocationWeight: 1 },
-  { code: 'YURID', name: 'Yuridik xizmat', order: 40, allocationWeight: 1 },
-  { code: 'ADMIN', name: "Ma'muriyat", order: 90, allocationWeight: 0 },
-];
 
 // ═══════════════════════════════════════════
 
 async function seedExpenseCategories(): Promise<void> {
-  // Ota-kategoriyalar avval yoziladi — bolalari ularga bog'lanadi
+  // Ota-kategoriyalar avval yoziladi - bolalari ularga boglanadi
   const parents = EXPENSE_CATEGORIES.filter((node) => node.parent === null);
   const children = EXPENSE_CATEGORIES.filter((node) => node.parent !== null);
 
@@ -72,14 +57,52 @@ async function seedDepartments(): Promise<void> {
       where: { code: dept.code },
       update: {
         name: dept.name,
-        order: dept.order,
-        allocationWeight: dept.allocationWeight,
+        index: dept.index,
+        order: dept.index * 10,
       },
-      create: dept,
+      create: {
+        code: dept.code,
+        name: dept.name,
+        index: dept.index,
+        order: dept.index * 10,
+        allocationWeight: 1,
+      },
     });
   }
 
   console.log(`  Bo'limlar: ${DEPARTMENTS.length}`);
+}
+
+async function seedRegions(): Promise<void> {
+  let districtCount = 0;
+
+  for (const region of REGIONS) {
+    await prisma.region.upsert({
+      where: { code: region.code },
+      update: { name: region.name },
+      create: { code: region.code, name: region.name },
+    });
+
+    for (const district of region.districts) {
+      // Tarkibli kalit: "33-1"
+      const id = `${region.code}-${district.code}`;
+
+      await prisma.district.upsert({
+        where: { id },
+        update: { name: district.name },
+        create: {
+          id,
+          regionCode: region.code,
+          code: district.code,
+          name: district.name,
+        },
+      });
+
+      districtCount += 1;
+    }
+  }
+
+  console.log(`  Hududlar: ${REGIONS.length} viloyat, ${districtCount} tuman`);
 }
 
 async function seedAdmin(): Promise<void> {
@@ -90,7 +113,6 @@ async function seedAdmin(): Promise<void> {
   });
 
   if (existing) {
-    // Parolni qayta o'rnatamiz — eski SHA-256 hash bcrypt'ga almashadi
     await prisma.user.update({
       where: { username: ADMIN_USERNAME },
       data: { passwordHash, isActive: true },
@@ -113,21 +135,9 @@ async function seedAdmin(): Promise<void> {
 
 async function seedSettings(): Promise<void> {
   const settings = [
-    {
-      key: 'allocation.enabled',
-      value: false,
-      comment: "Umumiy xarajatlar bo'limlarga taqsimlansinmi",
-    },
-    {
-      key: 'company.name',
-      value: 'Korxona',
-      comment: 'Hisobotlarda ko\u2018rsatiladigan nom',
-    },
-    {
-      key: 'alerts.expenseSpikePercent',
-      value: 30,
-      comment: 'Xarajat shu foizdan ko\u2018p oshsa ogohlantirish',
-    },
+    { key: 'allocation.enabled', value: false },
+    { key: 'company.name', value: 'Korxona' },
+    { key: 'alerts.expenseSpikePercent', value: 30 },
   ];
 
   for (const setting of settings) {
@@ -149,6 +159,7 @@ async function main(): Promise<void> {
   await seedExpenseCategories();
   await seedIncomeCategories();
   await seedDepartments();
+  await seedRegions();
   await seedAdmin();
   await seedSettings();
 

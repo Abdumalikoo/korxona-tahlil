@@ -41,10 +41,12 @@ model Department {
   id       String  @id @default(cuid())
   code     String  @unique
   name     String
+  /// Foydalanuvchi koradigan raqamli indeks: 1, 2, 3...
+  index    Int     @unique
   isActive Boolean @default(true)
   order    Int     @default(0)
 
-  /// Umumiy xarajatlarni taqsimlash og'irligi
+  /// Umumiy xarajatlarni taqsimlash ogirligi
   allocationWeight Int @default(0)
 
   createdAt DateTime @default(now())
@@ -226,32 +228,59 @@ model Income {
 
 // РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ XODIMLAR VA ISH HAQI РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
 
+// ═══════════ XODIMLAR REESTRI ═══════════
+
+enum EmploymentType {
+  SHTAT      // Asosiy shtat
+  SHARTNOMA  // Shartnoma asosida
+}
+
 model Employee {
-  id String @id @default(cuid())
+  /// PINFL - 14 raqamli shaxsiy identifikator, birlamchi kalit
+  pinfl String @id
 
-  externalId String? @unique
-  fullName   String
-  position   String?
+  lastName   String
+  firstName  String
+  middleName String?
 
+  /// Toliq ism - qidiruv va hisobotlar uchun
+  fullName String
+
+  employmentType EmploymentType
+
+  /// Hudud kodi: 0 - Markaz, 3 - Andijon, 33 - Xorazm
+  regionCode Int
+  /// Tuman kaliti: "33-1". Markaz (region=0) uchun null
+  districtId String?
+  /// Bolim - faqat markaz xodimlari uchun
   departmentId String?
-  hiredAt      DateTime?
-  firedAt      DateTime?
-  isActive     Boolean   @default(true)
+
+  position String?
+
+  hiredAt  DateTime?
+  firedAt  DateTime?
+  isActive Boolean   @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  department     Department?    @relation(fields: [departmentId], references: [id])
+  region     Region      @relation(fields: [regionCode], references: [code])
+  district   District?   @relation(fields: [districtId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+
   payrollEntries PayrollEntry[]
 
+  @@index([regionCode, isActive])
   @@index([departmentId, isActive])
+  @@index([employmentType])
+  @@index([fullName])
   @@map("employees")
 }
 
 model PayrollEntry {
   id String @id @default(cuid())
 
-  employeeId String
+  employeePinfl String
   period     String
 
   baseTiyin      BigInt @default(0)
@@ -269,10 +298,10 @@ model PayrollEntry {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  employee    Employee     @relation(fields: [employeeId], references: [id])
+  employee    Employee     @relation(fields: [employeePinfl], references: [pinfl])
   importBatch ImportBatch? @relation(fields: [importBatchId], references: [id])
 
-  @@unique([employeeId, period])
+  @@unique([employeePinfl, period])
   @@index([period])
   @@index([importBatchId])
   @@map("payroll_entries")
@@ -388,6 +417,48 @@ model AuditLog {
 }
 
 // РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ SOZLAMALAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+
+// ═══════════ HUDUDLAR ═══════════
+
+model Region {
+  /// Rasmiy klassifikator kodi: 0 - Markaz, 3 - Andijon, 33 - Xorazm
+  code Int    @id
+  name String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  districts District[]
+  employees Employee[]
+
+  @@map("regions")
+}
+
+model District {
+  /// Tarkibli kalit: "33-1" - viloyat va tuman kodi birga
+  id         String @id
+  regionCode Int
+  /// Tuman kodi - viloyat ichida noyob, yolgiz ozida emas
+  code       Int
+  name       String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  region    Region     @relation(fields: [regionCode], references: [code])
+  employees Employee[]
+
+  @@unique([regionCode, code])
+  @@index([regionCode])
+  @@map("districts")
+}
+
+
 
 model Setting {
   key   String @id
