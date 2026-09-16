@@ -2,6 +2,13 @@ import { PrismaClient, CostBehavior, CostScope, UserRole } from '@prisma/client'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@korxona/shared';
 import bcrypt from 'bcryptjs';
 import { REGIONS, DEPARTMENTS } from './regions-data';
+import { REGIONS, DEPARTMENTS } from './regions-data';
+import {
+  CENTRAL_STAFF,
+  CENTRAL_STAFF_2,
+  REGIONAL_STAFF,
+  REGIONAL_STAFF_2,
+} from './employees-data';
 
 const prisma = new PrismaClient();
 
@@ -104,7 +111,94 @@ async function seedRegions(): Promise<void> {
 
   console.log(`  Hududlar: ${REGIONS.length} viloyat, ${districtCount} tuman`);
 }
+async function seedEmployees(): Promise<void> {
+  // Bo'lim kodlarini id ga o'girish uchun xarita
+  const departments = await prisma.department.findMany({
+    select: { id: true, code: true },
+  });
+  const deptMap = new Map(departments.map((d) => [d.code, d.id]));
 
+  let central = 0;
+  let regional = 0;
+  const missing: string[] = [];
+
+  /** To'liq ismni uch qismga ajratadi */
+  function splitName(fullName: string) {
+    const parts = fullName.trim().split(/\s+/);
+    return {
+      lastName: parts[0] ?? fullName,
+      firstName: parts[1] ?? '',
+      middleName: parts.slice(2).join(' ') || null,
+    };
+  }
+
+  // Markaz xodimlari
+  for (const emp of [...CENTRAL_STAFF, ...CENTRAL_STAFF_2]) {
+    const departmentId = deptMap.get(emp.departmentCode);
+
+    if (!departmentId) {
+      missing.push(`${emp.fullName} — bo'lim topilmadi: ${emp.departmentCode}`);
+      continue;
+    }
+
+    const data = {
+      fullName: emp.fullName,
+      ...splitName(emp.fullName),
+      employmentType: 'SHTAT' as const,
+      regionCode: 0,
+      districtId: null,
+      departmentId,
+    };
+
+    await prisma.employee.upsert({
+      where: { pinfl: emp.pinfl },
+      update: data,
+      create: { pinfl: emp.pinfl, ...data },
+    });
+
+    central += 1;
+  }
+
+  // Viloyat xodimlari
+  for (const emp of [...REGIONAL_STAFF, ...REGIONAL_STAFF_2]) {
+    const districtId =
+      emp.districtCode === null ? null : `${emp.regionCode}-${emp.districtCode}`;
+
+    if (districtId) {
+      const exists = await prisma.district.findUnique({ where: { id: districtId } });
+      if (!exists) {
+        missing.push(`${emp.fullName} — tuman topilmadi: ${districtId}`);
+        continue;
+      }
+    }
+
+    const data = {
+      fullName: emp.fullName,
+      ...splitName(emp.fullName),
+      employmentType: 'SHTAT' as const,
+      regionCode: emp.regionCode,
+      districtId,
+      departmentId: null,
+    };
+
+    await prisma.employee.upsert({
+      where: { pinfl: emp.pinfl },
+      update: data,
+      create: { pinfl: emp.pinfl, ...data },
+    });
+
+    regional += 1;
+  }
+
+  console.log(`  Xodimlar: ${central} markaz, ${regional} viloyat`);
+
+  if (missing.length > 0) {
+    console.log(`\n  DIQQAT — ${missing.length} ta yozuv o'tkazib yuborildi:`);
+    for (const item of missing) {
+      console.log(`    ${item}`);
+    }
+  }
+}
 async function seedAdmin(): Promise<void> {
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, BCRYPT_ROUNDS);
 
@@ -160,6 +254,7 @@ async function main(): Promise<void> {
   await seedIncomeCategories();
   await seedDepartments();
   await seedRegions();
+  await seedEmployees();
   await seedAdmin();
   await seedSettings();
 

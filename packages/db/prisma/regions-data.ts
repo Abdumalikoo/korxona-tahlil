@@ -368,4 +368,5 @@ export const DEPARTMENTS = [
   },
   { index: 24, code: 'XARIDLAR', name: 'Xaridlar va xo\u2018jalik ishlari bo\u2018yicha' },
   { index: 25, code: 'TEXNIK', name: 'Texnik xodimlar' },
+  { index: 26, code: 'DSQ', name: 'DSQ' },
 ];
