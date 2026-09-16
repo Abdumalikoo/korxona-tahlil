@@ -1,10 +1,15 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsString, IsInt, IsOptional, IsBoolean, Min, MaxLength } from "class-validator";
 
 export class UpdateDepartmentDto {
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(200)
   name?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  index?: number;
 
   @IsOptional()
   @IsInt()

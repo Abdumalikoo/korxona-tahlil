@@ -35,7 +35,8 @@ export class DepartmentsService {
       data: {
         code: dto.code,
         name: dto.name,
-        order: dto.order ?? 0,
+        index: dto.index,
+        order: dto.order ?? dto.index * 10,
         allocationWeight: dto.allocationWeight ?? 1,
         isActive: dto.isActive ?? true,
       },

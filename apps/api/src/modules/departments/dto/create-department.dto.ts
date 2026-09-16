@@ -1,23 +1,28 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { IsString, IsInt, IsOptional, IsBoolean, Min, MaxLength, Matches } from "class-validator";
 
 export class CreateDepartmentDto {
   @IsString()
-  @MaxLength(20, { message: 'Kod 20 belgidan oshmasligi kerak' })
+  @MaxLength(30, { message: "Kod 30 belgidan oshmasligi kerak" })
   @Matches(/^[A-Z0-9_]+$/, {
-    message: 'Kod faqat katta lotin harflari, raqam va pastki chiziqdan iborat bo\u2018lsin',
+    message: "Kod faqat katta lotin harflari, raqam va pastki chiziqdan iborat bolsin",
   })
   code!: string;
 
   @IsString()
-  @MaxLength(100, { message: 'Nom 100 belgidan oshmasligi kerak' })
+  @MaxLength(200, { message: "Nom 200 belgidan oshmasligi kerak" })
   name!: string;
+
+  /** Foydalanuvchi koradigan raqamli indeks */
+  @IsInt({ message: "Indeks butun son bolishi kerak" })
+  @Min(1, { message: "Indeks 1 dan boshlanadi" })
+  index!: number;
 
   @IsOptional()
   @IsInt()
   @Min(0)
   order?: number;
 
-  /** Umumiy xarajatlarni taqsimlash og'irligi */
+  /** Umumiy xarajatlarni taqsimlash ogirligi */
   @IsOptional()
   @IsInt()
   @Min(0)

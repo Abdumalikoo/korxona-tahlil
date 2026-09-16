@@ -8,6 +8,7 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { IncomesModule } from './modules/incomes/incomes.module';
+import { RegionsModule } from './modules/regions/regions.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 
 @Module({
@@ -23,6 +24,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
     CategoriesModule,
     ExpensesModule,
     IncomesModule,
+    RegionsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
