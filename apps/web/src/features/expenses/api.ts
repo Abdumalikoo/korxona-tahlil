@@ -8,6 +8,7 @@ import type {
   BehaviorSummary,
   PaymentMethod,
   PaymentStatus,
+  RegionSummaryRow,
 } from "@/lib/types";
 
 export interface ExpenseFilters {
@@ -15,6 +16,7 @@ export interface ExpenseFilters {
   periodFrom?: string;
   periodTo?: string;
   departmentId?: string;
+  regionCode?: number;
   categoryCode?: string;
   rootCategoryCode?: string;
   paymentMethod?: PaymentMethod;
@@ -45,6 +47,7 @@ export interface CreateExpensePayload {
   amountTiyin: number;
   categoryCode: string;
   departmentId?: string;
+  regionCode?: number;
   description?: string;
   paymentMethod?: PaymentMethod;
   documentNo?: string;
@@ -161,6 +164,12 @@ export const expensesApi = {
   summaryByDepartment: (filters: ExpenseFilters) =>
     api.get<ApiResponse<{ rows: DepartmentSummaryRow[]; totalTiyin: string }>>(
       "/expenses/summary/department",
+      { params: filters },
+    ),
+
+  summaryByRegion: (filters: ExpenseFilters) =>
+    api.get<ApiResponse<{ rows: RegionSummaryRow[]; totalTiyin: string }>>(
+      "/expenses/summary/region",
       { params: filters },
     ),
 

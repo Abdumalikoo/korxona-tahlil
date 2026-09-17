@@ -83,6 +83,8 @@ export interface Expense {
   amountTiyin: string;
   categoryCode: string;
   departmentId: string | null;
+  /** Hudud kodi - ish haqi va hududiy xarajatlarda */
+  regionCode: number | null;
 
   description: string | null;
   paymentMethod: PaymentMethod;
@@ -104,6 +106,7 @@ export interface Expense {
 
   category: CategoryRef;
   department: DepartmentRef | null;
+  region: { code: number; name: string } | null;
   createdBy?: UserRef;
 }
 
@@ -251,3 +254,5 @@ export interface EmployeeStats {
   contract: number;
   total: number;
 }
+
+ export interface RegionSummaryRow {   regionCode: number | null;   name: string;   amountTiyin: string;   count: number;   sharePercent: number; }

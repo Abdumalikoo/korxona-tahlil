@@ -3,6 +3,7 @@
 import { expensesApi, downloadExpensesExcel, type ExpenseFilters, type SortField, type SortOrder } from '@/features/expenses/api';
 import { ExpenseDrawer } from '@/features/expenses/expense-drawer';
 import { referencesApi } from '@/features/shared/references';
+import { regionsApi } from '@/features/employees/api';
 import { useAuth } from '@/lib/auth-context';
 import { currentPeriod, formatDate, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -37,6 +38,7 @@ export default function ExpensesPage() {
   const [rootCategoryCode, setRootCategoryCode] = useState('');
   const [search, setSearch] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('');
+  const [regionCode, setRegionCode] = useState('');
   const [page, setPage] = useState(1);
 
   const [selected, setSelected] = useState<Expense | null>(null);
@@ -74,6 +76,7 @@ export default function ExpensesPage() {
     departmentId: departmentId || undefined,
     rootCategoryCode: rootCategoryCode || undefined,
     paymentStatus: (paymentStatus || undefined) as PaymentStatus | undefined,
+    regionCode: regionCode ? Number(regionCode) : undefined,
     search: search || undefined,
     page,
     limit: PAGE_LIMIT,
@@ -83,12 +86,13 @@ export default function ExpensesPage() {
 
   // Malumotnomalar bir marta yuklanadi
   const departments = useAsync(() => referencesApi.departments(), []);
+  const regions = useAsync(() => regionsApi.list(), []);
   const categoryTree = useAsync(() => referencesApi.expenseTree(), []);
   const categoryLeaves = useAsync(() => referencesApi.expenseLeaves(), []);
 
   const list = useAsync(
     () => expensesApi.list(filters),
-    [period, departmentId, rootCategoryCode, paymentStatus, search, page, sortBy, sortOrder],
+    [period, departmentId, rootCategoryCode, paymentStatus, regionCode, search, page, sortBy, sortOrder],
   );
 
   const comparison = useAsync(
@@ -130,7 +134,7 @@ export default function ExpensesPage() {
 
   const items = list.data?.data ?? [];
   const meta = list.data?.meta;
-  const hasFilters = Boolean(departmentId || rootCategoryCode || paymentStatus || search);
+  const hasFilters = Boolean(departmentId || rootCategoryCode || paymentStatus || regionCode || search);
 
   return (
     <>
@@ -199,6 +203,21 @@ export default function ExpensesPage() {
             />
           </div>
 
+          <div className="w-48">
+            <Select
+              options={[
+                { value: '', label: 'Barcha hududlar' },
+                ...(regions.data?.data ?? []).map((r) => ({
+                  value: String(r.code),
+                  label: r.code === 0 ? r.name : `${r.code} \u2014 ${r.name}`,
+                })),
+              ]}
+              value={regionCode}
+              onChange={(event) => changeFilter(() => setRegionCode(event.target.value))}
+              className="h-9"
+            />
+          </div>
+
           <div className="w-44">
             <Select
               options={[
@@ -229,6 +248,7 @@ export default function ExpensesPage() {
                   setDepartmentId('');
                   setRootCategoryCode('');
                   setPaymentStatus('');
+                  setRegionCode('');
                   setSearch('');
                 })
               }
@@ -331,7 +351,7 @@ export default function ExpensesPage() {
                       Kategoriya
                     </SortableTh>
 
-                    <Th className="w-44">Bo‘lim</Th>
+                    <Th className="w-48">Bo‘lim / Hudud</Th>
                     <Th>Tavsif</Th>
                     <Th className="w-28">Holat</Th>
 
@@ -367,7 +387,9 @@ export default function ExpensesPage() {
                       </Td>
 
                       <Td className="text-[--color-text-muted]">
-                        {expense.department?.name ?? 'Umumkorxona'}
+                        {expense.department?.name ??
+                          expense.region?.name ??
+                          'Umumkorxona'}
                       </Td>
 
                       <Td className="max-w-xs truncate text-[--color-text-muted]">
