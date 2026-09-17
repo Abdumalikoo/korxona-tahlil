@@ -85,6 +85,22 @@ export const incomesApi = {
 
   remove: (id: string) => api.delete<ApiResponse<{ success: true }>>(`/incomes/${id}`),
 
+  removeMany: (ids: string[]) =>
+    api.post<ApiResponse<{ count: number }>>("/incomes/bulk-delete", { ids }),
+
+  removeByFilter: (filters: IncomeFilters) =>
+    api.post<ApiResponse<{ count: number }>>("/incomes/delete-by-filter", undefined, {
+      params: filters,
+    }),
+
+  countByFilter: (filters: IncomeFilters) =>
+    api.get<ApiResponse<{ count: number }>>("/incomes/count", { params: filters }),
+
+  restore: (id: string) => api.post<ApiResponse<Income>>(`/incomes/${id}/restore`),
+
+  deleted: (period?: string) =>
+    api.get<ApiResponse<Income[]>>("/incomes/deleted", { params: { period } }),
+
   summaryByCategory: (filters: IncomeFilters) =>
     api.get<ApiResponse<{ rows: IncomeCategorySummary[]; totalTiyin: string }>>(
       '/incomes/summary/category',

@@ -347,6 +347,77 @@ export class ExpensesService {
     return { success: true };
   }
 
+  /**
+   * Bir nechta yozuvni birdan ochiradi.
+   * Savatga tushadi - 15 kun ichida tiklash mumkin.
+   */
+  async removeMany(ids: string[]): Promise<{ count: number }> {
+    if (ids.length === 0) {
+      throw new BadRequestException("Ochirish uchun yozuv tanlanmadi");
+    }
+
+    const result = await this.prisma.expense.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+
+    return { count: result.count };
+  }
+
+  /** Filtrga mos barcha yozuvlarni ochiradi */
+  async removeByFilter(query: QueryExpenseDto): Promise<{ count: number }> {
+    const where = await this.buildWhere(query);
+
+    const result = await this.prisma.expense.updateMany({
+      where,
+      data: { deletedAt: new Date() },
+    });
+
+    return { count: result.count };
+  }
+
+  /** Filtrga nechta yozuv mos kelishi - tasdiqlashdan oldin */
+  async countByFilter(query: QueryExpenseDto): Promise<{ count: number }> {
+    const where = await this.buildWhere(query);
+    const count = await this.prisma.expense.count({ where });
+    return { count };
+  }
+
+  /** Ochirilgan yozuvni tiklaydi */
+  async restore(id: string) {
+    const expense = await this.prisma.expense.findUnique({ where: { id } });
+
+    if (!expense) {
+      throw new NotFoundException("Yozuv topilmadi");
+    }
+    if (!expense.deletedAt) {
+      throw new BadRequestException("Bu yozuv ochirilmagan");
+    }
+
+    return this.prisma.expense.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+  }
+
+  /** Savatdagi yozuvlar - 15 kun saqlanadi */
+  async findDeleted(period?: string) {
+    return this.prisma.expense.findMany({
+      where: {
+        deletedAt: { not: null },
+        ...(period ? { period } : {}),
+      },
+      orderBy: { deletedAt: "desc" },
+      take: 200,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+  }
+
   // --------- Tahlil ---------
 
   /** Kategoriyalar kesimida yigindi */

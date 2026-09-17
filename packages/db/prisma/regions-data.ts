@@ -370,3 +370,55 @@ export const DEPARTMENTS = [
   { index: 25, code: 'TEXNIK', name: 'Texnik xodimlar' },
   { index: 26, code: 'DSQ', name: 'DSQ' },
 ];
+
+/**
+ * Hududlardan keladigan xizmat turlari.
+ * Soliq-servis korxonasi ko'rsatadigan xizmatlar ro'yxati.
+ */
+/**
+ * Hududlardan keladigan xizmat turlari.
+ * Tartib korxona ro'yxatiga muvofiq — o'zgartirilmaydi.
+ */
+export const INCOME_SERVICES = [
+  { order: 10, code: 'SRV_01', label: 'Soliq solish munosabatlari va majburiyatlari bilan bog\u2018liq xizmatlar bo\u2018yicha tushuntirish hamda og\u2018zaki maslahatlar berish' },
+  { order: 20, code: 'SRV_02', label: 'Rezidentlik sertifikatini chop etib berish' },
+  { order: 30, code: 'SRV_03', label: 'Hujjatdan nusxa olish (bir tomon)' },
+  { order: 40, code: 'SRV_04', label: 'Hujjatdan nusxa olish (ikki tomon)' },
+  { order: 50, code: 'SRV_05', label: 'Hujjatni skaner qilib berish (bir tomon)' },
+  { order: 60, code: 'SRV_06', label: 'Matnni elektron terib berish (A4)' },
+  { order: 70, code: 'SRV_07', label: 'Elektron matnni chop etish (A4)' },
+  { order: 80, code: 'SRV_08', label: 'Yuridik shaxslar va yakka tartibdagi tadbirkorlarga soliq qarzi to\u2018g\u2018risida ma\u2019lumotnoma chop etib berish' },
+  { order: 90, code: 'SRV_09', label: 'Jismoniy shaxslarga soliq qarzi to\u2018g\u2018risida ma\u2019lumotnoma chop etib berish' },
+  { order: 100, code: 'SRV_10', label: 'Yuridik shaxslar va yakka tartibdagi tadbirkorlarga solishtirma dalolatnoma (akt-sverka) chop etib berish' },
+  { order: 110, code: 'SRV_11', label: 'Jismoniy shaxslarga mol-mulkini ijaraga berish shartnomasini tayyorlab berish va e-ijara.soliq.uz saytida ro\u2018yxatdan o\u2018tkazish' },
+  { order: 120, code: 'SRV_12', label: 'Yuridik shaxslar va yakka tartibdagi tadbirkorlarning mol-mulkini ijaraga berish shartnomasini tayyorlab berish va e-ijara.soliq.uz saytida ro\u2018yxatdan o\u2018tkazish' },
+  { order: 130, code: 'SRV_13', label: 'Yuridik va jismoniy shaxslarning mol-mulkini ijaraga berish shartnomasini bekor qilish' },
+  { order: 140, code: 'SRV_14', label: 'Yuridik shaxslar va yakka tartibdagi tadbirkorlarning hisobvaraq-fakturalarini tayyorlash va yuborish' },
+  { order: 150, code: 'SRV_15', label: 'O\u2018zini-o\u2018zi band qilgan jismoniy shaxslarga ma\u2019lumotnoma berish' },
+  { order: 160, code: 'SRV_16', label: 'Yakka tartibdagi tadbirkorlarning yollanma xodimlarini hisobga olish va ularga ma\u2019lumotnoma berish' },
+  { order: 170, code: 'SRV_17', label: 'Jismoniy shaxslarga hisoblangan sug\u2018urta badali bo\u2018yicha ma\u2019lumotnoma berish' },
+  { order: 180, code: 'SRV_18', label: 'Nazorat kassa mashinasini ro\u2018yxatdan o\u2018tkazish (chiqarish)' },
+  { order: 190, code: 'SRV_19', label: 'Virtual kassa dasturiy mahsuli bo\u2018yicha texnik xizmat ko\u2018rsatish' },
+  { order: 200, code: 'SRV_20', label: 'Yuridik va jismoniy shaxslarga elektron raqamli imzo olishga ko\u2018maklashish' },
+  { order: 210, code: 'SRV_21', label: 'Soliq to\u2018lovchilarning matritsali shtrix kod ma\u2019lumotnomasini shakllantirish' },
+  { order: 220, code: 'SRV_22', label: 'Yuridik shaxslar va yakka tartibdagi tadbirkorlarning litsenziya, ruxsatnoma yoki xabarnomasini olish uchun ariza yuborish' },
+  { order: 230, code: 'SRV_23', label: 'Sug\u2018urta polisini rasmiylashtirish' },
+  { order: 240, code: 'SRV_24', label: 'Tadbirkorlik sub\u2019yektlarini qo\u2018shilgan qiymat solig\u2018i bo\u2018yicha maxsus ro\u2018yxatdan o\u2018tkazish uchun ariza yuborish' },
+  { order: 250, code: 'SRV_25', label: 'Yuridik shaxslarning mol-mulkini baholash natijalarini taqdim etish' },
+  { order: 260, code: 'SRV_26', label: 'Tadbirkorlik sub\u2019yektlarini avtomatlashtirilgan aylanmadan olinadigan soliq hisobotiga o\u2018zgartirish kiritish to\u2018g\u2018risida murojaat yuborish' },
+  { order: 270, code: 'SRV_27', label: 'Tadbirkorlik sub\u2019yektlarini soliq imtiyozlaridan foydalanish to\u2018g\u2018risida murojaat yuborish' },
+  { order: 280, code: 'SRV_28', label: 'Rezidentlik sertifikati olish uchun ariza yuborish' },
+  { order: 290, code: 'SRV_29', label: 'Tadbirkorlik sub\u2019yektlari tomonidan qishloq xo\u2018jalik mahsulotlarini xarid qilish dalolatnomasini rasmiylashtirish' },
+  { order: 300, code: 'SRV_30', label: 'Tadbirkorlik sub\u2019yektlarining hisob ma\u2019lumotlarini o\u2018zgartirish uchun ariza yuborish' },
+  { order: 310, code: 'SRV_31', label: 'Tadbirkorlik sub\u2019yektlarining soliq turlari bo\u2018yicha hisob varaqa ochish' },
+  { order: 320, code: 'SRV_32', label: 'Tadbirkorlik sub\u2019yektlarini ro\u2018yxatdan chiqarish uchun ariza yuborish' },
+  { order: 330, code: 'SRV_33', label: 'Tadbirkorlik sub\u2019yektlarini manzil ma\u2019lumotlarini o\u2018zgartirish ariza yuborish' },
+  { order: 340, code: 'SRV_34', label: 'Tadbirkorlik sub\u2019yektlarini boshqa tadbirkorlik sub\u2019yektlariga qo\u2018shish uchun ariza yuborish' },
+  { order: 350, code: 'SRV_35', label: 'Tadbirkorlik sub\u2019yektlarining faoliyat turi (IFUT kodi)ni o\u2018zgartirish uchun ariza yuborish' },
+  { order: 360, code: 'SRV_36', label: 'Tadbirkorlik sub\u2019yektlarining tamaki va alkogol mahsulotlari bilan savdo qilishni boshlaganlik yoki tugatganlik haqida xabarnoma yuborish' },
+  { order: 370, code: 'SRV_37', label: 'Yuridik shaxslar va yakka tartibdagi tadbirkorlar tomonidan taqdim etilgan ma\u2019lumotlar asosida elektron soliq hisobotlarini tayyorlash va soliq organlariga yuborish' },
+  { order: 380, code: 'SRV_38', label: 'Jismoniy shaxslarning jami yillik daromadi to\u2018g\u2018risidagi deklaratsiyani tuzish va soliq organlariga yuborish' },
+  { order: 390, code: 'SRV_39', label: 'Boshqa xizmatlar' },
+];
+
+

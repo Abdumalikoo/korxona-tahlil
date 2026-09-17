@@ -22,7 +22,7 @@ const variants: Record<Variant, string> = {
   ghost:
     'bg-transparent text-[--color-text-muted] hover:bg-[--color-surface-sunken] hover:text-[--color-text] disabled:text-[--color-text-faint]',
   danger:
-    'bg-[--color-expense] text-white hover:brightness-95 active:brightness-90 disabled:opacity-50',
+    'bg-red-600 text-white hover:bg-red-700 active:bg-red-800 disabled:bg-red-300',
 };
 
 const sizes: Record<Size, string> = {

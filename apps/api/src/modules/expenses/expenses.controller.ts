@@ -1,17 +1,17 @@
 import {
-    Body,
-    Controller,
-    DefaultValuePipe,
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
   Res,
-    Delete,
-    Get,
-    HttpCode,
-    HttpStatus,
-    Param,
-    ParseIntPipe,
-    Patch,
-    Post,
-    Query,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser, Roles } from '../../common/decorators';
@@ -59,6 +59,20 @@ export class ExpensesController {
       categoryCode,
       excludeId,
     });
+    return { data };
+  }
+
+  /** Savatdagi yozuvlar */
+  @Get('deleted')
+  async deleted(@Query('period') period?: string) {
+    const data = await this.expenses.findDeleted(period);
+    return { data };
+  }
+
+  /** Filtrga nechta yozuv mos kelishi */
+  @Get('count')
+  async count(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.countByFilter(query);
     return { data };
   }
 
@@ -139,6 +153,33 @@ export class ExpensesController {
   @Patch(':id')
   async update(@Param('id') id: string, @Body() dto: UpdateExpenseDto) {
     const data = await this.expenses.update(id, dto);
+    return { data };
+  }
+
+  /** Bir nechta yozuvni birdan ochirish */
+  @Roles(UserRole.ADMIN)
+  @Post('bulk-delete')
+  @HttpCode(HttpStatus.OK)
+  async removeMany(@Body() body: { ids: string[] }) {
+    const data = await this.expenses.removeMany(body?.ids ?? []);
+    return { data };
+  }
+
+  /** Filtrga mos hamma yozuvni ochirish */
+  @Roles(UserRole.ADMIN)
+  @Post('delete-by-filter')
+  @HttpCode(HttpStatus.OK)
+  async removeByFilter(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.removeByFilter(query);
+    return { data };
+  }
+
+  /** Savatdan tiklash */
+  @Roles(UserRole.ADMIN)
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  async restore(@Param('id') id: string) {
+    const data = await this.expenses.restore(id);
     return { data };
   }
 

@@ -205,7 +205,10 @@ model Income {
 
   categoryCode String
   departmentId String?
-  regionCode   Int?
+  /// Hudud kodi - hududiy daromadlar uchun
+  regionCode  Int?
+  /// Xizmat korsatilgan soni
+  quantity    Int?
 
   clientName  String?
   description String?
@@ -224,6 +227,7 @@ model Income {
 
   category   IncomeCategory @relation(fields: [categoryCode], references: [code])
   department Department?    @relation(fields: [departmentId], references: [id])
+  region     Region?        @relation(fields: [regionCode], references: [code])
   createdBy  User           @relation(fields: [createdById], references: [id])
 
   @@index([period, deletedAt])
@@ -231,6 +235,7 @@ model Income {
   @@index([categoryCode, period])
   @@index([departmentId, period])
   @@index([paymentStatus])
+  @@index([regionCode, period])
   @@map("incomes")
 }
 
@@ -443,6 +448,7 @@ model Region {
   districts District[]
   employees Employee[]
   expenses  Expense[]
+  incomes   Income[]
 
   @@map("regions")
 }

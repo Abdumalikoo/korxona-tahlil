@@ -18,7 +18,7 @@ import { StatCard } from '@/components/shared/stat-card';
 import { BehaviorBadge, PaymentBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { IconPlus, IconWallet, IconDownload, IconEdit } from '@/components/ui/icons';
+import { IconPlus, IconWallet, IconDownload, IconEdit, IconTrash } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
@@ -26,6 +26,7 @@ import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
 import { Tabs } from '@/components/ui/tabs';
 import { SortableTh } from '@/components/ui/sortable-th';
 import { Toast } from '@/components/ui/toast';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { Expense, PaymentStatus } from '@/lib/types';
 
 const PAGE_LIMIT = 25;
@@ -46,6 +47,48 @@ export default function ExpensesPage() {
   const [exporting, setExporting] = useState(false);
   const [sortBy, setSortBy] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkConfirm, setBulkConfirm] = useState<'selected' | 'filter' | null>(null);
+
+  /** Bitta qatorni belgilash */
+  function toggleOne(id: string) {
+    setSelectedIds((state) => {
+      const next = new Set(state);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Sahifadagi hammasini belgilash yoki bekor qilish */
+  function toggleAll() {
+    setSelectedIds((state) =>
+      state.size === items.length ? new Set() : new Set(items.map((item) => item.id)),
+    );
+  }
+
+  /** Tanlangan yoki filtrga mos yozuvlarni ochiradi */
+  async function handleBulkDelete() {
+    setBulkDeleting(true);
+
+    try {
+      const result =
+        bulkConfirm === 'filter'
+          ? await expensesApi.removeByFilter(filters)
+          : await expensesApi.removeMany([...selectedIds]);
+
+      setToast(`${result.data.count} ta yozuv savatga tushdi`);
+      setSelectedIds(new Set());
+      list.reload();
+      comparison.reload();
+    } catch {
+      setToast('Ochirishda xatolik');
+    } finally {
+      setBulkDeleting(false);
+      setBulkConfirm(null);
+    }
+  }
 
   /** Ustun sarlavhasi bosilganda tartibni almashtiradi */
   function handleSort(field: string) {
@@ -301,6 +344,43 @@ export default function ExpensesPage() {
         </div>
 
         {/* Jadval */}
+        {isAdmin && selectedIds.size > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-[--radius-card] border border-brand-200 bg-brand-50 px-4 py-2.5">
+            <span className="text-sm font-medium text-brand-800">
+              {selectedIds.size} ta yozuv tanlandi
+            </span>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Bekor qilish
+              </Button>
+
+              {meta && meta.total > items.length && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setBulkConfirm('filter')}
+                >
+                  Barcha {meta.total} tasini o&rsquo;chirish
+                </Button>
+              )}
+
+              <Button
+                size="sm"
+                onClick={() => setBulkConfirm('selected')}
+                className="bg-[--color-expense] hover:bg-red-700"
+              >
+                <IconTrash className="size-4" />
+                O&rsquo;chirish
+              </Button>
+            </div>
+          </div>
+        )}
+
         <Card className="overflow-hidden">
           {list.loading ? (
             <TableSkeleton rows={8} cols={6} />
@@ -332,6 +412,18 @@ export default function ExpensesPage() {
               <Table>
                 <THead>
                   <Tr>
+                    {isAdmin && (
+                      <Th className="w-10 pl-4">
+                        <input
+                          type="checkbox"
+                          checked={items.length > 0 && selectedIds.size === items.length}
+                          onChange={toggleAll}
+                          className="size-4 rounded border-[--color-line-strong]"
+                          aria-label="Hammasini belgilash"
+                        />
+                      </Th>
+                    )}
+
                     <SortableTh
                       field="date"
                       activeField={sortBy}
@@ -373,6 +465,18 @@ export default function ExpensesPage() {
                 <TBody>
                   {items.map((expense) => (
                     <Tr key={expense.id} clickable className="group" onClick={() => setSelected(expense)}>
+                      {isAdmin && (
+                        <Td className="pl-4" onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(expense.id)}
+                            onChange={() => toggleOne(expense.id)}
+                            className="size-4 rounded border-[--color-line-strong]"
+                            aria-label="Belgilash"
+                          />
+                        </Td>
+                      )}
+
                       <Td className="money whitespace-nowrap text-[--color-text-muted]">
                         {formatDate(expense.date)}
                       </Td>
@@ -434,6 +538,21 @@ export default function ExpensesPage() {
         departments={departments.data?.data ?? []}
         onClose={() => setSelected(null)}
         onSaved={handleSaved}
+      />
+
+      <ConfirmDialog
+        open={bulkConfirm !== null}
+        title="Yozuvlarni ochirish"
+        message={
+          bulkConfirm === 'filter'
+            ? `Filtrga mos ${meta?.total ?? 0} ta yozuv savatga tushadi. 15 kun ichida tiklash mumkin.`
+            : `${selectedIds.size} ta yozuv savatga tushadi. 15 kun ichida tiklash mumkin.`
+        }
+        confirmLabel="Ochirish"
+        danger
+        loading={bulkDeleting}
+        onConfirm={() => void handleBulkDelete()}
+        onCancel={() => setBulkConfirm(null)}
       />
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}

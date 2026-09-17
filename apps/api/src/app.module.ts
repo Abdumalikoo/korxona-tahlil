@@ -11,7 +11,9 @@ import { IncomesModule } from './modules/incomes/incomes.module';
 import { RegionsModule } from './modules/regions/regions.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
+import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { CleanupModule } from './modules/cleanup/cleanup.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 
 @Module({
@@ -30,7 +32,9 @@ import { PrismaModule } from './modules/prisma/prisma.module';
     RegionsModule,
     EmployeesModule,
     PayrollModule,
+    ScheduleModule.forRoot(),
     DashboardModule,
+    CleanupModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

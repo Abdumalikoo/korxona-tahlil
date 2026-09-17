@@ -155,6 +155,26 @@ export const expensesApi = {
       params: { period, threshold, departmentId },
     }),
 
+  /** Bir nechta yozuvni birdan ochirish */
+  removeMany: (ids: string[]) =>
+    api.post<ApiResponse<{ count: number }>>("/expenses/bulk-delete", { ids }),
+
+  /** Filtrga mos hammasini ochirish */
+  removeByFilter: (filters: ExpenseFilters) =>
+    api.post<ApiResponse<{ count: number }>>("/expenses/delete-by-filter", undefined, {
+      params: filters,
+    }),
+
+  /** Filtrga nechta yozuv mos kelishi */
+  countByFilter: (filters: ExpenseFilters) =>
+    api.get<ApiResponse<{ count: number }>>("/expenses/count", { params: filters }),
+
+  restore: (id: string) =>
+    api.post<ApiResponse<Expense>>(`/expenses/${id}/restore`),
+
+  deleted: (period?: string) =>
+    api.get<ApiResponse<Expense[]>>("/expenses/deleted", { params: { period } }),
+
   summaryByCategory: (filters: ExpenseFilters) =>
     api.get<ApiResponse<{ rows: CategorySummaryRow[]; totalTiyin: string }>>(
       "/expenses/summary/category",

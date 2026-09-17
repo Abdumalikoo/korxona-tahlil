@@ -285,6 +285,73 @@ export class IncomesService {
   // ─────────── Tahlil ───────────
 
   /** Xizmat turlari kesimida */
+  /** Bir nechta yozuvni birdan ochiradi */
+  async removeMany(ids: string[]): Promise<{ count: number }> {
+    if (ids.length === 0) {
+      throw new BadRequestException("Ochirish uchun yozuv tanlanmadi");
+    }
+
+    const result = await this.prisma.income.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+
+    return { count: result.count };
+  }
+
+  /** Filtrga mos barcha yozuvlarni ochiradi */
+  async removeByFilter(query: QueryIncomeDto): Promise<{ count: number }> {
+    const where = await this.buildWhere(query);
+
+    const result = await this.prisma.income.updateMany({
+      where,
+      data: { deletedAt: new Date() },
+    });
+
+    return { count: result.count };
+  }
+
+  /** Filtrga nechta yozuv mos kelishi */
+  async countByFilter(query: QueryIncomeDto): Promise<{ count: number }> {
+    const where = await this.buildWhere(query);
+    const count = await this.prisma.income.count({ where });
+    return { count };
+  }
+
+  /** Ochirilgan yozuvni tiklaydi */
+  async restore(id: string) {
+    const income = await this.prisma.income.findUnique({ where: { id } });
+
+    if (!income) {
+      throw new NotFoundException("Yozuv topilmadi");
+    }
+    if (!income.deletedAt) {
+      throw new BadRequestException("Bu yozuv ochirilmagan");
+    }
+
+    return this.prisma.income.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+  }
+
+  /** Savatdagi yozuvlar */
+  async findDeleted(period?: string) {
+    return this.prisma.income.findMany({
+      where: {
+        deletedAt: { not: null },
+        ...(period ? { period } : {}),
+      },
+      orderBy: { deletedAt: "desc" },
+      take: 200,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+  }
+
   async summaryByCategory(query: QueryIncomeDto) {
     const where = await this.buildWhere(query);
 

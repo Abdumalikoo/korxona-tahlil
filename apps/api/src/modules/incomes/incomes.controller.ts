@@ -25,6 +25,20 @@ export class IncomesController {
 
   // ─────────── Tahlil (":id" dan oldin) ───────────
 
+  /** Savatdagi yozuvlar */
+  @Get('deleted')
+  async deleted(@Query('period') period?: string) {
+    const data = await this.incomes.findDeleted(period);
+    return { data };
+  }
+
+  /** Filtrga nechta yozuv mos kelishi */
+  @Get('count')
+  async count(@Query() query: QueryIncomeDto) {
+    const data = await this.incomes.countByFilter(query);
+    return { data };
+  }
+
   @Get('summary/category')
   async summaryByCategory(@Query() query: QueryIncomeDto) {
     const data = await this.incomes.summaryByCategory(query);
@@ -97,6 +111,30 @@ export class IncomesController {
     return { data };
   }
 
+
+  @Roles(UserRole.ADMIN)
+  @Post('bulk-delete')
+  @HttpCode(HttpStatus.OK)
+  async removeMany(@Body() body: { ids: string[] }) {
+    const data = await this.incomes.removeMany(body?.ids ?? []);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('delete-by-filter')
+  @HttpCode(HttpStatus.OK)
+  async removeByFilter(@Query() query: QueryIncomeDto) {
+    const data = await this.incomes.removeByFilter(query);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  async restore(@Param('id') id: string) {
+    const data = await this.incomes.restore(id);
+    return { data };
+  }
 
   @Roles(UserRole.ADMIN)
   @Delete(':id')

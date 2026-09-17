@@ -1,8 +1,8 @@
 import { PrismaClient, CostBehavior, CostScope, UserRole } from '@prisma/client';
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@korxona/shared';
+import { EXPENSE_CATEGORIES } from '@korxona/shared';
 import bcrypt from 'bcryptjs';
-import { REGIONS, DEPARTMENTS } from './regions-data';
-import { REGIONS, DEPARTMENTS } from './regions-data';
+import { REGIONS, DEPARTMENTS, INCOME_SERVICES } from './regions-data';
+import { REGIONS, DEPARTMENTS, INCOME_SERVICES } from './regions-data';
 import {
   CENTRAL_STAFF,
   CENTRAL_STAFF_2,
@@ -47,15 +47,18 @@ async function seedExpenseCategories(): Promise<void> {
 }
 
 async function seedIncomeCategories(): Promise<void> {
-  for (const node of INCOME_CATEGORIES) {
+  // Hududlardan keladigan xizmat turlari
+  for (const service of INCOME_SERVICES) {
     await prisma.incomeCategory.upsert({
-      where: { code: node.code },
-      update: { label: node.label, order: node.order },
-      create: { code: node.code, label: node.label, order: node.order },
+      where: { code: service.code },
+      update: { label: service.label, order: service.order },
+      create: { code: service.code, label: service.label, order: service.order },
     });
   }
 
-  console.log(`  Daromad kategoriyalari: ${INCOME_CATEGORIES.length}`);
+  console.log(`  Xizmat turlari: ${INCOME_SERVICES.length}`);
+
+
 }
 
 async function seedDepartments(): Promise<void> {
