@@ -3,7 +3,12 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
-import { employeesApi, regionsApi, type EmployeeFilters } from '@/features/employees/api';
+import {
+  employeesApi,
+  regionsApi,
+  downloadEmployeesExcel,
+  type EmployeeFilters,
+} from '@/features/employees/api';
 import { referencesApi } from '@/features/shared/references';
 
 import { PageHeader } from '@/components/layout/page-header';
@@ -16,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/table';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
-import { IconPlus, IconUsers, IconEdit } from '@/components/ui/icons';
+import { IconPlus, IconUsers, IconEdit, IconDownload } from '@/components/ui/icons';
 import { EmployeeDrawer } from '@/features/employees/employee-drawer';
 import type { Employee } from '@/lib/types';
 
@@ -43,6 +48,19 @@ export default function EmployeesPage() {
   const [selected, setSelected] = useState<Employee | null>(null);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  /** Excel faylni yuklab olish */
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadEmployeesExcel(filters);
+    } catch {
+      setToast('Faylni yuklab bolmadi');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const filters: EmployeeFilters = {
     search: search || undefined,
@@ -105,12 +123,25 @@ export default function EmployeesPage() {
         title="Xodimlar"
         description={statsData ? `${statsData.total} ta faol xodim` : undefined}
         actions={
-          isAdmin && (
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <IconPlus className="size-4" />
-              Yangi xodim
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleExport()}
+              loading={exporting}
+              disabled={items.length === 0}
+            >
+              <IconDownload className="size-4" />
+              Excel
             </Button>
-          )
+
+            {isAdmin && (
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <IconPlus className="size-4" />
+                Yangi xodim
+              </Button>
+            )}
+          </>
         }
       />
 

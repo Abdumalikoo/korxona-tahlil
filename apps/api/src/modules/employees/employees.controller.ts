@@ -6,9 +6,15 @@ import {
   Param,
   Body,
   Query,
+  Delete,
+  Res,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+import type { Response } from 'express';
 import { EmployeesService } from './employees.service';
+import { EmployeesExportService } from './employees-export.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { QueryEmployeeDto } from './dto/query-employee.dto';
@@ -16,13 +22,38 @@ import { Roles } from '../../common/decorators';
 
 @Controller('employees')
 export class EmployeesController {
-  constructor(private readonly employees: EmployeesService) {}
+  constructor(
+    private readonly employees: EmployeesService,
+    private readonly exportService: EmployeesExportService,
+  ) {}
 
   // --------- Statistika (":pinfl" dan oldin) ---------
 
   @Get('stats')
   async stats() {
     const data = await this.employees.stats();
+    return { data };
+  }
+
+  /** Excel eksport */
+  @Get('export')
+  async exportExcel(@Query() query: QueryEmployeeDto, @Res() response: Response) {
+    const { buffer, filename } = await this.exportService.build(query);
+
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"`,
+    );
+    response.send(buffer);
+  }
+
+  @Get(':pinfl/usage')
+  async usage(@Param('pinfl') pinfl: string) {
+    const data = await this.employees.usage(pinfl);
     return { data };
   }
 
@@ -63,6 +94,14 @@ export class EmployeesController {
   @Patch(':pinfl')
   async update(@Param('pinfl') pinfl: string, @Body() dto: UpdateEmployeeDto) {
     const data = await this.employees.update(pinfl, dto);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete(':pinfl')
+  @HttpCode(HttpStatus.OK)
+  async remove(@Param('pinfl') pinfl: string) {
+    const data = await this.employees.remove(pinfl);
     return { data };
   }
 

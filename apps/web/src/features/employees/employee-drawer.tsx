@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { ApiError } from '@/lib/api';
 import { employeesApi } from './api';
+import { IconTrash } from '@/components/ui/icons';
 import { formatDate } from '@/lib/format';
 
 import { Drawer } from '@/components/ui/drawer';
@@ -84,6 +85,8 @@ export function EmployeeDrawer({
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const isOpen = employee !== null || creating;
@@ -187,6 +190,25 @@ export function EmployeeDrawer({
     }
   }
 
+  /** Xodimni butunlay ochiradi - ish haqi yozuvlari bolmasa */
+  async function handleDelete() {
+    if (!employee) return;
+
+    setDeleting(true);
+
+    try {
+      await employeesApi.remove(employee.pinfl);
+      onSaved('Xodim ochirildi');
+      setDeleteOpen(false);
+      onClose();
+    } catch (err) {
+      setServerError(err instanceof ApiError ? err.message : 'Ochirishda xatolik');
+      setDeleteOpen(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleArchive() {
     if (!employee) return;
 
@@ -234,15 +256,28 @@ export function EmployeeDrawer({
             </Button>
           ) : (
             <>
-              {isEditing && employee?.isActive && (
-                <Button
-                  variant="ghost"
-                  onClick={() => setConfirmOpen(true)}
-                  disabled={saving}
-                  className="mr-auto text-[--color-text-muted] hover:text-[--color-expense]"
-                >
-                  Arxivlash
-                </Button>
+              {isEditing && (
+                <div className="mr-auto flex gap-1">
+                  {employee?.isActive && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => setConfirmOpen(true)}
+                      disabled={saving}
+                      className="text-[--color-text-muted] hover:text-[--color-warn]"
+                    >
+                      Arxivlash
+                    </Button>
+                  )}
+
+                  <Button
+                    variant="ghost"
+                    onClick={() => setDeleteOpen(true)}
+                    disabled={saving}
+                    className="text-[--color-text-muted] hover:text-[--color-expense]"
+                  >
+                    <IconTrash className="size-4" />
+                  </Button>
+                </div>
               )}
 
               <Button variant="secondary" onClick={onClose} disabled={saving}>
@@ -377,6 +412,17 @@ export function EmployeeDrawer({
           </div>
         </div>
       </Drawer>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Xodimni ochirish"
+        message={`${employee?.fullName} butunlay ochiriladi. Bu amalni qaytarib bolmaydi.`}
+        confirmLabel="Ochirish"
+        danger
+        loading={deleting}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setDeleteOpen(false)}
+      />
 
       <ConfirmDialog
         open={confirmOpen}

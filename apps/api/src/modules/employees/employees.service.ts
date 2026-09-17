@@ -273,6 +273,36 @@ export class EmployeesService {
     });
   }
 
+  /**
+   * Xodimni butunlay ochiradi.
+   * Ish haqi yozuvlari bolsa ruxsat berilmaydi - arxivlash kerak.
+   */
+  async remove(pinfl: string): Promise<{ success: true }> {
+    await this.findOne(pinfl);
+
+    const payrollCount = await this.prisma.payrollEntry.count({
+      where: { employeePinfl: pinfl },
+    });
+
+    if (payrollCount > 0) {
+      throw new BadRequestException(
+        `Bu xodimda ${payrollCount} ta ish haqi yozuvi bor. Ochirish ornina arxivlang`,
+      );
+    }
+
+    await this.prisma.employee.delete({ where: { pinfl } });
+    return { success: true };
+  }
+
+  /** Xodimda nechta ish haqi yozuvi borligini korsatadi */
+  async usage(pinfl: string): Promise<{ payrollEntries: number }> {
+    const payrollEntries = await this.prisma.payrollEntry.count({
+      where: { employeePinfl: pinfl },
+    });
+
+    return { payrollEntries };
+  }
+
   // --------- Statistika ---------
 
   /** Guruhlar boyicha xodimlar soni */
