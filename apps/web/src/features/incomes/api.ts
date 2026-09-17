@@ -101,6 +101,12 @@ export const incomesApi = {
   deleted: (period?: string) =>
     api.get<ApiResponse<Income[]>>("/incomes/deleted", { params: { period } }),
 
+  /** Eng katta yozuvlar */
+  top: (filters: IncomeFilters, limit = 5) =>
+    api.get<ApiResponse<Income[]>>("/incomes/top", {
+      params: { ...filters, limit },
+    }),
+
   summaryByCategory: (filters: IncomeFilters) =>
     api.get<ApiResponse<{ rows: IncomeCategorySummary[]; totalTiyin: string }>>(
       '/incomes/summary/category',

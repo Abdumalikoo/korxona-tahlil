@@ -352,6 +352,22 @@ export class IncomesService {
     });
   }
 
+  /** Eng katta yozuvlar */
+  async topIncomes(query: QueryIncomeDto, limit = 5) {
+    const where = await this.buildWhere(query);
+
+    return this.prisma.income.findMany({
+      where,
+      orderBy: { amountTiyin: "desc" },
+      take: limit,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+  }
+
   async summaryByCategory(query: QueryIncomeDto) {
     const where = await this.buildWhere(query);
 

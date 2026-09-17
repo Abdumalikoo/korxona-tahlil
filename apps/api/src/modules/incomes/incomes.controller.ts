@@ -39,6 +39,16 @@ export class IncomesController {
     return { data };
   }
 
+  /** Eng katta yozuvlar */
+  @Get('top')
+  async topIncomes(
+    @Query() query: QueryIncomeDto,
+    @Query('limit', new DefaultValuePipe(5), ParseIntPipe) limit: number,
+  ) {
+    const data = await this.incomes.topIncomes(query, Math.min(limit, 20));
+    return { data };
+  }
+
   @Get('summary/category')
   async summaryByCategory(@Query() query: QueryIncomeDto) {
     const data = await this.incomes.summaryByCategory(query);
