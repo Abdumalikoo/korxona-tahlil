@@ -53,6 +53,27 @@ export interface DepartmentPnL {
   };
 }
 
+export interface RegionPnLRow {
+  regionCode: number;
+  name: string;
+  incomeTiyin: string;
+  expenseTiyin: string;
+  profitTiyin: string;
+  marginPercent: number | null;
+  /** Har 1 som daromadga qancha xarajat */
+  costRatio: number | null;
+}
+
+export interface RegionPnL {
+  rows: RegionPnLRow[];
+  totals: {
+    incomeTiyin: string;
+    expenseTiyin: string;
+    profitTiyin: string;
+    marginPercent: number | null;
+  };
+}
+
 export interface SpikeRow {
   categoryCode: string;
   label: string;
@@ -93,6 +114,9 @@ export const dashboardApi = {
     api.get<ApiResponse<DepartmentPnL>>('/dashboard/departments', {
       params: { period },
     }),
+
+  regions: (period: string) =>
+    api.get<ApiResponse<RegionPnL>>("/dashboard/regions", { params: { period } }),
 
   alerts: (period: string) =>
     api.get<ApiResponse<Alerts>>('/dashboard/alerts', { params: { period } }),

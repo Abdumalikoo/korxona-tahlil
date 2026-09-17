@@ -9,12 +9,10 @@ import { currentPeriod, formatPeriod, formatPercent, formatTiyin } from '@/lib/f
 import { PageHeader } from '@/components/layout/page-header';
 import { PeriodPicker } from '@/components/shared/period-picker';
 import { LineChart } from '@/components/shared/line-chart';
-import { ShareBar } from '@/components/shared/share-bar';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
 import { Money, Change } from '@/components/ui/money';
 import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
 import { EmptyState, LoadingState } from '@/components/ui/states';
-import { IconAlert } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 
 export default function GeneralAnalysisPage() {
@@ -23,8 +21,7 @@ export default function GeneralAnalysisPage() {
   const overview = useAsync(() => dashboardApi.overview(period), [period]);
   const trend = useAsync(() => dashboardApi.trend(12, period), [period]);
   const departments = useAsync(() => dashboardApi.departments(period), [period]);
-  const alerts = useAsync(() => dashboardApi.alerts(period), [period]);
-  const structure = useAsync(() => dashboardApi.expenseStructure(period), [period]);
+  const regions = useAsync(() => dashboardApi.regions(period), [period]);
 
   const data = overview.data?.data;
   const current = data?.current;
@@ -36,15 +33,23 @@ export default function GeneralAnalysisPage() {
   const profit = income - expense;
   const isProfit = profit >= 0;
 
-  const alertData = alerts.data?.data;
-  const hasAlerts =
-    (alertData?.spikes.length ?? 0) > 0 ||
-    Number(alertData?.payable.totalTiyin ?? 0) > 0 ||
-    Number(alertData?.receivable.totalTiyin ?? 0) > 0;
+  /** Har 1 so'm daromadga qancha xarajat */
+  const costRatio = income > 0 ? expense / income : null;
 
-  const deptRows = departments.data?.data.rows ?? [];
-  const profitable = deptRows.filter((row) => Number(row.profitTiyin) > 0).length;
-  const losing = deptRows.filter((row) => Number(row.profitTiyin) < 0).length;
+  /** Grafikda nisbatni ko'rsatish uchun */
+  const maxValue = Math.max(income, expense, 1);
+  const incomeWidth = (income / maxValue) * 100;
+  const expenseWidth = (expense / maxValue) * 100;
+
+  // O'sish sur'ati solishtiruvi
+  const incomeGrowth = previous?.incomeChange ?? null;
+  const expenseGrowth = previous?.expenseChange ?? null;
+  const growthGap =
+    incomeGrowth !== null && expenseGrowth !== null
+      ? incomeGrowth - expenseGrowth
+      : null;
+
+  const trendRows = trend.data?.data ?? [];
 
   return (
     <>
@@ -65,76 +70,255 @@ export default function GeneralAnalysisPage() {
       />
 
       <div className="space-y-4 p-6">
-        {/* Asosiy ko'rsatkichlar */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
-              Daromad
-            </p>
-            <Money
-              tiyin={current?.incomeTiyin ?? 0}
-              tone="income"
-              className="mt-2 block text-xl font-semibold"
-            />
-            <div className="mt-1.5">
-              <Change percent={previous?.incomeChange} positiveIsGood />
+        {/* Asosiy javob */}
+        <Card>
+          <CardBody className="space-y-5">
+            <div className="text-center">
+              <p className="text-sm text-[--color-text-muted]">
+                Har 1 so&rsquo;m daromadga
+              </p>
+              <p
+                className={cn(
+                  'money mt-1 text-4xl font-bold',
+                  costRatio === null
+                    ? 'text-[--color-text-faint]'
+                    : costRatio < 1
+                      ? 'text-[--color-income]'
+                      : 'text-[--color-expense]',
+                )}
+              >
+                {costRatio === null ? '\u2014' : costRatio.toFixed(2)}
+              </p>
+              <p className="text-sm text-[--color-text-muted]">so&rsquo;m xarajat</p>
             </div>
-          </div>
 
-          <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
-              Xarajat
-            </p>
-            <Money
-              tiyin={current?.expenseTiyin ?? 0}
-              tone="expense"
-              className="mt-2 block text-xl font-semibold"
-            />
-            <div className="mt-1.5">
-              <Change percent={previous?.expenseChange} positiveIsGood={false} />
+            {/* Solishtirma chiziqlar */}
+            <div className="space-y-3">
+              <div>
+                <div className="mb-1 flex items-baseline justify-between">
+                  <span className="text-sm text-[--color-text-muted]">Daromad</span>
+                  <Money
+                    tiyin={current?.incomeTiyin ?? 0}
+                    tone="income"
+                    className="text-sm font-semibold"
+                  />
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+                  <div
+                    className="h-full rounded-full bg-[--color-income] transition-all"
+                    style={{ width: `${incomeWidth}%` }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-baseline justify-between">
+                  <span className="text-sm text-[--color-text-muted]">Xarajat</span>
+                  <Money
+                    tiyin={current?.expenseTiyin ?? 0}
+                    tone="expense"
+                    className="text-sm font-semibold"
+                  />
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+                  <div
+                    className="h-full rounded-full bg-[--color-expense] transition-all"
+                    style={{ width: `${expenseWidth}%` }}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div
-            className={cn(
-              'rounded-[--radius-card] border-2 bg-white p-4',
-              isProfit ? 'border-[--color-income]' : 'border-[--color-expense]',
-            )}
-          >
-            <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
-              {isProfit ? 'Foyda' : 'Zarar'}
-            </p>
-            <Money
-              tiyin={current?.profitTiyin ?? 0}
-              tone="auto"
-              className="mt-2 block text-xl font-semibold"
-            />
-            <div className="mt-1.5">
-              <Change percent={previous?.profitChange} positiveIsGood />
-            </div>
-          </div>
-
-          <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
-              Rentabellik
-            </p>
-            <p
+            {/* Natija */}
+            <div
               className={cn(
-                'money mt-2 text-xl font-semibold',
-                (current?.marginPercent ?? 0) >= 0
-                  ? 'text-[--color-income]'
-                  : 'text-[--color-expense]',
+                'flex items-center justify-between rounded-[--radius-control] px-4 py-3',
+                isProfit ? 'bg-[--color-income-soft]' : 'bg-[--color-expense-soft]',
               )}
             >
-              {formatPercent(current?.marginPercent)}
-            </p>
-            <p className="mt-1.5 text-xs text-[--color-text-muted]">
-              Foyda / daromad
-            </p>
-          </div>
-        </div>
+              <span className="text-sm font-medium">
+                {isProfit ? 'Foyda' : 'Zarar'}
+              </span>
 
-        {/* O'tgan yil bilan solishtirish */}
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    'money text-xs',
+                    isProfit ? 'text-[--color-income]' : 'text-[--color-expense]',
+                  )}
+                >
+                  {formatPercent(current?.marginPercent)}
+                </span>
+                <Money
+                  tiyin={current?.profitTiyin ?? 0}
+                  tone="auto"
+                  className="text-lg font-semibold"
+                />
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+
+        {/* O'sish sur'ati */}
+        {growthGap !== null && (
+          <Card>
+            <CardHeader
+              title="O'sish sur'ati"
+              description="O'tgan oyga nisbatan"
+            />
+            <CardBody>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-[--radius-control] bg-[--color-surface-muted] p-3 text-center">
+                  <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                    Daromad
+                  </p>
+                  <p
+                    className={cn(
+                      'money mt-1 text-lg font-semibold',
+                      (incomeGrowth ?? 0) >= 0
+                        ? 'text-[--color-income]'
+                        : 'text-[--color-expense]',
+                    )}
+                  >
+                    {formatPercent(incomeGrowth)}
+                  </p>
+                </div>
+
+                <div className="rounded-[--radius-control] bg-[--color-surface-muted] p-3 text-center">
+                  <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                    Xarajat
+                  </p>
+                  <p
+                    className={cn(
+                      'money mt-1 text-lg font-semibold',
+                      (expenseGrowth ?? 0) <= 0
+                        ? 'text-[--color-income]'
+                        : 'text-[--color-expense]',
+                    )}
+                  >
+                    {formatPercent(expenseGrowth)}
+                  </p>
+                </div>
+
+                <div
+                  className={cn(
+                    'rounded-[--radius-control] p-3 text-center',
+                    growthGap >= 0
+                      ? 'bg-[--color-income-soft]'
+                      : 'bg-[--color-expense-soft]',
+                  )}
+                >
+                  <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                    Farq
+                  </p>
+                  <p
+                    className={cn(
+                      'money mt-1 text-lg font-semibold',
+                      growthGap >= 0
+                        ? 'text-[--color-income]'
+                        : 'text-[--color-expense]',
+                    )}
+                  >
+                    {growthGap > 0 ? '+' : ''}
+                    {growthGap.toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+
+              <p className="mt-3 text-sm text-[--color-text-muted]">
+                {growthGap >= 0
+                  ? "Daromad xarajatdan tezroq o'smoqda"
+                  : "Xarajat daromaddan tezroq o'smoqda"}
+              </p>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Dinamika */}
+        <Card>
+          <CardHeader
+            title="Daromad va xarajat dinamikasi"
+            description="Oxirgi 12 oy"
+          />
+          <CardBody>
+            {trend.loading ? <LoadingState /> : <LineChart data={trendRows} />}
+          </CardBody>
+        </Card>
+
+        {/* Oylik jadval */}
+        <Card className="overflow-hidden">
+          <CardHeader title="Oylik solishtirma" description="Oxirgi 12 oy" />
+
+          {trend.loading ? (
+            <LoadingState />
+          ) : trendRows.length === 0 ? (
+            <EmptyState title="Ma'lumot yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th className="w-28">Davr</Th>
+                  <Th align="right" className="w-36">
+                    Daromad
+                  </Th>
+                  <Th align="right" className="w-36">
+                    Xarajat
+                  </Th>
+                  <Th align="right" className="w-36">
+                    Foyda
+                  </Th>
+                  <Th align="right" className="w-24">
+                    Nisbat
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {[...trendRows].reverse().map((row) => {
+                  const rowIncome = Number(row.incomeTiyin);
+                  const rowExpense = Number(row.expenseTiyin);
+                  const ratio = rowIncome > 0 ? rowExpense / rowIncome : null;
+
+                  return (
+                    <Tr key={row.period}>
+                      <Td className="money text-[--color-text-muted]">
+                        {formatPeriod(row.period)}
+                      </Td>
+
+                      <Td money>
+                        <Money tiyin={row.incomeTiyin} tone="income" />
+                      </Td>
+
+                      <Td money>
+                        <Money tiyin={row.expenseTiyin} tone="expense" />
+                      </Td>
+
+                      <Td money>
+                        <Money tiyin={row.profitTiyin} tone="auto" />
+                      </Td>
+
+                      <Td
+                        align="right"
+                        className={cn(
+                          'money text-xs',
+                          ratio === null
+                            ? 'text-[--color-text-faint]'
+                            : ratio < 1
+                              ? 'text-[--color-income]'
+                              : 'text-[--color-expense]',
+                        )}
+                      >
+                        {ratio === null ? '\u2014' : ratio.toFixed(2)}
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </TBody>
+            </Table>
+          )}
+        </Card>
+
+        {/* O'tgan yil bilan */}
         <Card>
           <CardHeader
             title="O'tgan yilning shu oyi bilan"
@@ -147,128 +331,129 @@ export default function GeneralAnalysisPage() {
                 current={current?.incomeTiyin ?? 0}
                 previous={lastYear?.incomeTiyin ?? 0}
                 change={lastYear?.incomeChange}
-                positiveIsGood
               />
               <CompareBox
                 label="Xarajat"
                 current={current?.expenseTiyin ?? 0}
                 previous={lastYear?.expenseTiyin ?? 0}
                 change={lastYear?.expenseChange}
-                positiveIsGood={false}
               />
               <CompareBox
                 label="Foyda"
                 current={current?.profitTiyin ?? 0}
                 previous={lastYear?.profitTiyin ?? 0}
                 change={lastYear?.profitChange}
-                positiveIsGood
               />
             </div>
           </CardBody>
         </Card>
 
-        {/* Ogohlantirishlar */}
-        {hasAlerts && (
-          <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] p-4">
-            <div className="flex items-start gap-3">
-              <IconAlert className="mt-0.5 size-5 shrink-0 text-[--color-warn]" />
-
-              <div className="min-w-0 flex-1 space-y-2">
-                <p className="text-sm font-medium text-[--color-warn]">
-                  E&rsquo;tibor talab qiladi
-                </p>
-
-                {Number(alertData?.receivable.totalTiyin ?? 0) > 0 && (
-                  <div className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-2">
-                    <span className="text-sm">
-                      Debitorlik qarzi
-                      <span className="ml-2 text-xs text-[--color-text-muted]">
-                        {alertData?.receivable.count} ta
-                      </span>
-                    </span>
-                    <Money
-                      tiyin={alertData?.receivable.totalTiyin ?? 0}
-                      className="text-sm font-semibold"
-                    />
-                  </div>
-                )}
-
-                {Number(alertData?.payable.totalTiyin ?? 0) > 0 && (
-                  <div className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-2">
-                    <span className="text-sm">
-                      To&rsquo;lanmagan xarajat
-                      <span className="ml-2 text-xs text-[--color-text-muted]">
-                        {alertData?.payable.count} ta
-                      </span>
-                    </span>
-                    <Money
-                      tiyin={alertData?.payable.totalTiyin ?? 0}
-                      tone="expense"
-                      className="text-sm font-semibold"
-                    />
-                  </div>
-                )}
-
-                {(alertData?.spikes.length ?? 0) > 0 && (
-                  <div className="space-y-1.5">
-                    {alertData?.spikes.map((spike) => (
-                      <div
-                        key={spike.categoryCode}
-                        className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-2"
-                      >
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {spike.label}
-                        </span>
-                        <span className="shrink-0 text-xs">
-                          {spike.isNew ? (
-                            <span className="font-medium text-[--color-warn]">yangi</span>
-                          ) : (
-                            <Change percent={spike.changePercent} positiveIsGood={false} />
-                          )}
-                        </span>
-                        <Money
-                          tiyin={spike.currentTiyin}
-                          tone="expense"
-                          className="w-28 shrink-0 text-right text-sm"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Dinamika */}
-        <Card>
-          <CardHeader
-            title="Daromad va xarajat dinamikasi"
-            description="Oxirgi 12 oy"
-          />
-          <CardBody>
-            {trend.loading ? (
-              <LoadingState />
-            ) : (
-              <LineChart data={trend.data?.data ?? []} />
-            )}
-          </CardBody>
-        </Card>
-
-        {/* Bo'limlar foydasi */}
+        {/* Hududlar */}
         <Card className="overflow-hidden">
           <CardHeader
-            title="Bo'limlar bo'yicha foyda"
-            description={
-              deptRows.length > 0
-                ? `${profitable} ta foydali, ${losing} ta zararli`
-                : undefined
-            }
+            title="Hududlar bo'yicha"
+            description="Daromad va xarajat solishtiruvi"
+          />
+
+          {regions.loading ? (
+            <LoadingState />
+          ) : (regions.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Ma'lumot yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Hudud</Th>
+                  <Th align="right" className="w-32">
+                    Daromad
+                  </Th>
+                  <Th align="right" className="w-32">
+                    Xarajat
+                  </Th>
+                  <Th align="right" className="w-32">
+                    Foyda
+                  </Th>
+                  <Th align="right" className="w-24">
+                    Nisbat
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {regions.data?.data.rows.map((row) => (
+                  <Tr key={row.regionCode}>
+                    <Td className="truncate">{row.name}</Td>
+
+                    <Td money>
+                      <Money tiyin={row.incomeTiyin} tone="income" />
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.expenseTiyin} tone="expense" />
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.profitTiyin} tone="auto" />
+                    </Td>
+
+                    <Td
+                      align="right"
+                      className={cn(
+                        'money text-xs',
+                        row.costRatio === null
+                          ? 'text-[--color-text-faint]'
+                          : row.costRatio < 1
+                            ? 'text-[--color-income]'
+                            : 'text-[--color-expense]',
+                      )}
+                    >
+                      {row.costRatio === null ? '\u2014' : row.costRatio.toFixed(2)}
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={regions.data?.data.totals.incomeTiyin ?? 0}
+                      tone="income"
+                      className="font-semibold"
+                    />
+                  </Td>
+                  <Td money>
+                    <Money
+                      tiyin={regions.data?.data.totals.expenseTiyin ?? 0}
+                      tone="expense"
+                      className="font-semibold"
+                    />
+                  </Td>
+                  <Td money>
+                    <Money
+                      tiyin={regions.data?.data.totals.profitTiyin ?? 0}
+                      tone="auto"
+                      className="font-semibold"
+                    />
+                  </Td>
+                  <Td />
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Bo'limlar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Bo'limlar bo'yicha"
+            description="Daromad va xarajat solishtiruvi"
           />
 
           {departments.loading ? (
             <LoadingState />
-          ) : deptRows.length === 0 ? (
+          ) : (departments.data?.data.rows.length ?? 0) === 0 ? (
             <EmptyState title="Ma'lumot yo'q" />
           ) : (
             <Table>
@@ -291,7 +476,7 @@ export default function GeneralAnalysisPage() {
               </THead>
 
               <TBody>
-                {deptRows.map((row) => (
+                {departments.data?.data.rows.map((row) => (
                   <Tr key={row.departmentId ?? 'general'}>
                     <Td className="truncate">{row.name}</Td>
 
@@ -354,36 +539,6 @@ export default function GeneralAnalysisPage() {
             </Table>
           )}
         </Card>
-
-        {/* Xarajat strukturasi */}
-        <Card className="overflow-hidden">
-          <CardHeader title="Xarajat strukturasi" description={formatPeriod(period)} />
-
-          {structure.loading ? (
-            <LoadingState />
-          ) : (structure.data?.data.rows.length ?? 0) === 0 ? (
-            <EmptyState title="Bu davrda xarajat yo'q" />
-          ) : (
-            <CardBody className="space-y-3">
-              {structure.data?.data.rows.map((row) => (
-                <div key={row.code}>
-                  <div className="mb-1 flex items-baseline justify-between gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm">{row.label}</span>
-                    <span className="money shrink-0 text-xs text-[--color-text-muted]">
-                      {formatPercent(row.sharePercent)}
-                    </span>
-                    <Money
-                      tiyin={row.amountTiyin}
-                      tone="expense"
-                      className="w-36 shrink-0 text-right text-sm"
-                    />
-                  </div>
-                  <ShareBar percent={row.sharePercent} color="var(--color-expense)" />
-                </div>
-              ))}
-            </CardBody>
-          )}
-        </Card>
       </div>
     </>
   );
@@ -394,13 +549,11 @@ function CompareBox({
   current,
   previous,
   change,
-  positiveIsGood,
 }: {
   label: string;
   current: string | number;
   previous: string | number;
   change?: number | null;
-  positiveIsGood: boolean;
 }) {
   return (
     <div className="rounded-[--radius-control] bg-[--color-surface-muted] p-3">

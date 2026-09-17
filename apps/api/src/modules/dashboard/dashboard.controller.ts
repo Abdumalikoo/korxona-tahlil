@@ -45,6 +45,14 @@ export class DashboardController {
   }
 
   /** Etibor talab qiladigan holatlar */
+  /** Hududlar boyicha foyda */
+  @Get('regions')
+  async regions(@Query('period') period: string) {
+    this.assertPeriod(period);
+    const data = await this.dashboard.regionPnL(period);
+    return { data };
+  }
+
   @Get('alerts')
   async alerts(@Query('period') period: string) {
     this.assertPeriod(period);

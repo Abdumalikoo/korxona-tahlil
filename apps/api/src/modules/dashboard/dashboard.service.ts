@@ -255,6 +255,94 @@ export class DashboardService {
     };
   }
 
+  /** Hududlar boyicha daromad, xarajat va foyda */
+  async regionPnL(period: string) {
+    const [regions, incomes, expenses] = await Promise.all([
+      this.prisma.region.findMany({
+        where: { isActive: true },
+        orderBy: { code: "asc" },
+        select: { code: true, name: true },
+      }),
+      this.prisma.income.groupBy({
+        by: ["regionCode"],
+        where: { deletedAt: null, period },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.expense.groupBy({
+        by: ["regionCode"],
+        where: { deletedAt: null, period },
+        _sum: { amountTiyin: true },
+      }),
+    ]);
+
+    const incomeMap = new Map(
+      incomes.map((r) => [r.regionCode ?? -1, r._sum.amountTiyin ?? 0n]),
+    );
+    const expenseMap = new Map(
+      expenses.map((r) => [r.regionCode ?? -1, r._sum.amountTiyin ?? 0n]),
+    );
+
+    const rows = regions
+      .map((region) => {
+        const income = incomeMap.get(region.code) ?? 0n;
+        const expense = expenseMap.get(region.code) ?? 0n;
+        const profit = income - expense;
+
+        return {
+          regionCode: region.code,
+          name: region.name,
+          incomeTiyin: income,
+          expenseTiyin: expense,
+          profitTiyin: profit,
+          marginPercent: this.percent(profit, income),
+          /** Har 1 som daromadga qancha xarajat */
+          costRatio:
+            income > 0n ? Number((expense * 1000n) / income) / 1000 : null,
+        };
+      })
+      .filter((row) => row.incomeTiyin > 0n || row.expenseTiyin > 0n);
+
+    // Hudud korsatilmagan yozuvlar
+    const noRegionIncome = incomeMap.get(-1) ?? 0n;
+    const noRegionExpense = expenseMap.get(-1) ?? 0n;
+
+    if (noRegionIncome > 0n || noRegionExpense > 0n) {
+      const profit = noRegionIncome - noRegionExpense;
+      rows.push({
+        regionCode: -1,
+        name: "Hudud korsatilmagan",
+        incomeTiyin: noRegionIncome,
+        expenseTiyin: noRegionExpense,
+        profitTiyin: profit,
+        marginPercent: this.percent(profit, noRegionIncome),
+        costRatio:
+          noRegionIncome > 0n
+            ? Number((noRegionExpense * 1000n) / noRegionIncome) / 1000
+            : null,
+      });
+    }
+
+    const totals = rows.reduce(
+      (acc, row) => ({
+        incomeTiyin: acc.incomeTiyin + row.incomeTiyin,
+        expenseTiyin: acc.expenseTiyin + row.expenseTiyin,
+      }),
+      { incomeTiyin: 0n, expenseTiyin: 0n },
+    );
+
+    return {
+      rows: rows.sort((a, b) => (b.profitTiyin > a.profitTiyin ? 1 : -1)),
+      totals: {
+        ...totals,
+        profitTiyin: totals.incomeTiyin - totals.expenseTiyin,
+        marginPercent: this.percent(
+          totals.incomeTiyin - totals.expenseTiyin,
+          totals.incomeTiyin,
+        ),
+      },
+    };
+  }
+
   // --------- Ogohlantirishlar ---------
 
   /**
