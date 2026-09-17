@@ -148,6 +148,37 @@ export async function analyzeFile(
   return result.data;
 }
 
+/** Xarajat ortidagi xodimlar */
+export interface ExpenseDetailEntry {
+  id: string;
+  totalTiyin: string;
+  employee: {
+    pinfl: string;
+    fullName: string;
+    position: string | null;
+    regionCode: number;
+    districtId: string | null;
+    district: { id: string; code: number; name: string } | null;
+    department: { name: string } | null;
+  };
+}
+
+export interface ExpenseDetailGroup {
+  key: string;
+  label: string;
+  count: number;
+  totalTiyin: string;
+}
+
+export interface ExpenseDetail {
+  isPayroll: boolean;
+  isCentral?: boolean;
+  groups: ExpenseDetailGroup[];
+  entries: ExpenseDetailEntry[];
+  count?: number;
+  totalTiyin?: string;
+}
+
 export const payrollApi = {
   /** replace=true bo'lsa eski yuklash bekor qilinadi */
   commit: (batchId: string, replace = false) =>
@@ -157,6 +188,10 @@ export const payrollApi = {
 
   cancel: (batchId: string) =>
     api.post<ApiResponse<{ success: true }>>(`/payroll/${batchId}/cancel`),
+
+  /** Xarajat ortidagi xodimlar royxati */
+  expenseDetail: (expenseId: string) =>
+    api.get<ApiResponse<ExpenseDetail>>(`/payroll/expense/${expenseId}`),
 
   batches: (period?: string) =>
     api.get<ApiResponse<PayrollBatch[]>>('/payroll/batches', {

@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Drawer } from '@/components/ui/drawer';
 import { IconTrash } from '@/components/ui/icons';
+import { ExpensePayrollDetail } from '@/features/payroll/expense-payroll-detail';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 
@@ -202,20 +203,22 @@ export function ExpenseDrawer({
   ];
 
   const readOnly = !isAdmin;
+  /** Ish haqi xarajati - tahrirlanmaydi, faqat tafsilot korsatiladi */
+  const isPayroll = expense.source === 'PAYROLL';
 
   return (
     <>
       <Drawer
         open
         onClose={onClose}
-        title={readOnly ? 'Xarajat yozuvi' : 'Xarajatni tahrirlash'}
+        title={isPayroll ? 'Ish haqi tafsiloti' : readOnly ? 'Xarajat yozuvi' : 'Xarajatni tahrirlash'}
         description={
           expense.createdBy
             ? `${expense.createdBy.fullName} \u00B7 ${formatDateTime(expense.createdAt)}`
             : formatDateTime(expense.createdAt)
         }
         footer={
-          readOnly ? (
+          isPayroll || readOnly ? (
             <Button variant="secondary" onClick={onClose}>
               Yopish
             </Button>
@@ -267,6 +270,10 @@ export function ExpenseDrawer({
             </div>
           </div>
 
+          {isPayroll ? (
+            <ExpensePayrollDetail expenseId={expense.id} />
+          ) : (
+          <>
           <Input
             label="Sana"
             type="date"
@@ -381,6 +388,8 @@ export function ExpenseDrawer({
               className="w-full rounded-[--radius-control] border border-[--color-line-strong] bg-white px-3 py-2 text-sm focus:border-brand-600 disabled:bg-[--color-surface-sunken]"
             />
           </div>
+          </>
+          )}
         </div>
       </Drawer>
 
