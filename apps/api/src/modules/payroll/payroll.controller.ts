@@ -68,8 +68,9 @@ export class PayrollController {
   async commit(
     @Param('batchId') batchId: string,
     @CurrentUser('id') userId: string,
+    @Query('replace') replace?: string,
   ) {
-    const data = await this.payroll.commit(batchId, userId);
+    const data = await this.payroll.commit(batchId, userId, replace === 'true');
     return { data };
   }
 
@@ -77,6 +78,13 @@ export class PayrollController {
   @Post(':batchId/cancel')
   async cancel(@Param('batchId') batchId: string) {
     const data = await this.payroll.cancel(batchId);
+    return { data };
+  }
+
+  /** Xarajat ortidagi xodimlar royxati */
+  @Get('expense/:expenseId')
+  async expenseDetail(@Param('expenseId') expenseId: string) {
+    const data = await this.payroll.expenseDetail(expenseId);
     return { data };
   }
 

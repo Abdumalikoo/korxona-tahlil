@@ -340,7 +340,7 @@ export class PayrollService {
    * Qoralamani tasdiqlaydi va xarajat yozuvlarini yaratadi.
    * Bu davr uchun eski tasdiqlangan yuklash bolsa - bekor qilinadi.
    */
-  async commit(batchId: string, userId: string) {
+  async commit(batchId: string, userId: string, replacePrevious = false) {
     const batch = await this.prisma.payrollBatch.findUnique({
       where: { id: batchId },
       include: { entries: true },
@@ -358,7 +358,7 @@ export class PayrollService {
       where: { period: batch.period, status: 'COMMITTED' },
     });
 
-    if (previous) {
+    if (previous && replacePrevious) {
       await this.prisma.expense.updateMany({
         where: { payrollBatchId: previous.id },
         data: { deletedAt: new Date() },
@@ -389,7 +389,13 @@ export class PayrollService {
 
     const groups = new Map<
       string,
-      { label: string; departmentId: string | null; totalTiyin: bigint; count: number }
+      {
+        label: string;
+        departmentId: string | null;
+        regionCode: number | null;
+        totalTiyin: bigint;
+        count: number;
+      }
     >();
 
     for (const entry of entries) {
@@ -400,6 +406,7 @@ export class PayrollService {
       let key: string;
       let label: string;
       let departmentId: string | null = null;
+      let regionCode: number | null = null;
 
       if (isContract) {
         key = 'shartnoma';
@@ -408,14 +415,17 @@ export class PayrollService {
         key = `markaz-${emp.departmentId ?? 'none'}`;
         label = `Ish haqi \u2014 ${emp.department?.name ?? 'bolimsiz'}`;
         departmentId = emp.departmentId;
+        regionCode = 0;
       } else {
         key = `region-${emp.regionCode}`;
         label = `Ish haqi \u2014 ${emp.region.name}`;
+        regionCode = emp.regionCode;
       }
 
       const current = groups.get(key) ?? {
         label,
         departmentId,
+        regionCode,
         totalTiyin: 0n,
         count: 0,
       };
@@ -435,6 +445,7 @@ export class PayrollService {
           amountTiyin: group.totalTiyin,
           categoryCode: PAYROLL_CATEGORY,
           departmentId: group.departmentId,
+          regionCode: group.regionCode,
           description: `${group.label} (${group.count} xodim)`,
           paymentMethod: 'BANK',
           paymentStatus: 'PAID',
@@ -454,7 +465,7 @@ export class PayrollService {
       success: true,
       expensesCreated: groups.size,
       totalTiyin: batch.totalTiyin,
-      replacedPrevious: Boolean(previous),
+      replacedPrevious: Boolean(previous && replacePrevious),
     };
   }
 
@@ -476,6 +487,108 @@ export class PayrollService {
     });
 
     return { success: true };
+  }
+
+  /**
+   * Xarajat yozuvi ortidagi xodimlar royxati.
+   *
+   * Markaz xarajati bolsa - bolim xodimlari.
+   * Viloyat xarajati bolsa - tumanlar boyicha guruhlangan.
+   */
+  async expenseDetail(expenseId: string) {
+    const expense = await this.prisma.expense.findUnique({
+      where: { id: expenseId },
+      include: {
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+
+    if (!expense) {
+      throw new NotFoundException("Xarajat topilmadi");
+    }
+
+    if (expense.source !== "PAYROLL" || !expense.payrollBatchId) {
+      return { isPayroll: false, expense, groups: [], entries: [] };
+    }
+
+    // Shu xarajatga tegishli xodimlarni topamiz
+    const isCentral = expense.regionCode === CENTRAL_REGION;
+
+    const entries = await this.prisma.payrollEntry.findMany({
+      where: {
+        batchId: expense.payrollBatchId,
+        employee: isCentral
+          ? {
+              regionCode: CENTRAL_REGION,
+              departmentId: expense.departmentId,
+              employmentType: "SHTAT",
+            }
+          : {
+              regionCode: expense.regionCode ?? undefined,
+              employmentType: "SHTAT",
+            },
+      },
+      orderBy: { totalTiyin: "desc" },
+      include: {
+        employee: {
+          select: {
+            pinfl: true,
+            fullName: true,
+            position: true,
+            regionCode: true,
+            districtId: true,
+            district: { select: { id: true, code: true, name: true } },
+            department: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    // Viloyat bolsa tumanlar boyicha guruhlaymiz
+    const groups: {
+      key: string;
+      label: string;
+      count: number;
+      totalTiyin: bigint;
+    }[] = [];
+
+    if (!isCentral) {
+      const byDistrict = new Map<string, { label: string; count: number; total: bigint }>();
+
+      for (const entry of entries) {
+        const key = entry.employee.districtId ?? "none";
+        const label = entry.employee.district?.name ?? "Tuman korsatilmagan";
+
+        const current = byDistrict.get(key) ?? { label, count: 0, total: 0n };
+        current.count += 1;
+        current.total += entry.totalTiyin;
+        byDistrict.set(key, current);
+      }
+
+      for (const [key, value] of byDistrict.entries()) {
+        groups.push({
+          key,
+          label: value.label,
+          count: value.count,
+          totalTiyin: value.total,
+        });
+      }
+
+      groups.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
+    }
+
+    const totalTiyin = entries.reduce((sum, e) => sum + e.totalTiyin, 0n);
+
+    return {
+      isPayroll: true,
+      expense,
+      isCentral,
+      groups,
+      entries,
+      count: entries.length,
+      totalTiyin,
+    };
   }
 
   // --------- Royxat ---------

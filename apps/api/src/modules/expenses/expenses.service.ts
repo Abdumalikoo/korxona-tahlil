@@ -94,6 +94,10 @@ export class ExpensesService {
       where.departmentId = query.departmentId;
     }
 
+    if (query.regionCode !== undefined) {
+      where.regionCode = query.regionCode;
+    }
+
     if (query.categoryCode) {
       where.categoryCode = query.categoryCode;
     } else if (query.rootCategoryCode) {
@@ -182,6 +186,7 @@ export class ExpensesService {
       include: {
         category: { select: { code: true, label: true, behavior: true } },
         department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
       },
     });
   }
@@ -212,6 +217,7 @@ export class ExpensesService {
       include: {
         category: { select: { code: true, label: true } },
         department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
         createdBy: { select: { id: true, fullName: true } },
       },
     });
@@ -233,6 +239,7 @@ export class ExpensesService {
         include: {
           category: { select: { code: true, label: true, behavior: true } },
           department: { select: { id: true, code: true, name: true } },
+          region: { select: { code: true, name: true } },
           createdBy: { select: { id: true, fullName: true } },
         },
       }),
@@ -266,6 +273,7 @@ export class ExpensesService {
       include: {
         category: { select: { code: true, label: true, behavior: true, parentCode: true } },
         department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
         createdBy: { select: { id: true, fullName: true } },
       },
     });
@@ -322,6 +330,7 @@ export class ExpensesService {
       include: {
         category: { select: { code: true, label: true, behavior: true } },
         department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
       },
     });
   }
@@ -406,6 +415,44 @@ export class ExpensesService {
           departmentId: row.departmentId,
           code: department?.code ?? null,
           name: department?.name ?? "Bolimsiz",
+          amountTiyin: amount,
+          count: row._count._all,
+          sharePercent: total > 0n ? Number((amount * 10000n) / total) / 100 : 0,
+        };
+      })
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    return { rows, totalTiyin: total };
+  }
+
+  /** Hududlar kesimida yigindi */
+  async summaryByRegion(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+
+    const grouped = await this.prisma.expense.groupBy({
+      by: ["regionCode"],
+      where,
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    const regions = await this.prisma.region.findMany({
+      select: { code: true, name: true },
+    });
+    const map = new Map(regions.map((r) => [r.code, r.name]));
+
+    const total = grouped.reduce((acc, row) => acc + (row._sum.amountTiyin ?? 0n), 0n);
+
+    const rows = grouped
+      .map((row) => {
+        const amount = row._sum.amountTiyin ?? 0n;
+
+        return {
+          regionCode: row.regionCode,
+          name:
+            row.regionCode === null
+              ? "Hudud korsatilmagan"
+              : (map.get(row.regionCode) ?? String(row.regionCode)),
           amountTiyin: amount,
           count: row._count._all,
           sharePercent: total > 0n ? Number((amount * 10000n) / total) / 100 : 0,

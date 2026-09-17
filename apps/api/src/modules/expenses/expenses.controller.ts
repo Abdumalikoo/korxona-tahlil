@@ -84,6 +84,12 @@ export class ExpensesController {
     return { data };
   }
 
+  @Get('summary/region')
+  async summaryByRegion(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.summaryByRegion(query);
+    return { data };
+  }
+
   @Get('summary/behavior')
   async summaryByBehavior(@Query() query: QueryExpenseDto) {
     const data = await this.expenses.summaryByBehavior(query);

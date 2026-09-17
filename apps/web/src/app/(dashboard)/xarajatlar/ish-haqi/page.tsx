@@ -46,6 +46,7 @@ export default function PayrollPage() {
   const [downloading, setDownloading] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [replacePrevious, setReplacePrevious] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(
     null,
@@ -99,7 +100,7 @@ export default function PayrollPage() {
     setCommitting(true);
 
     try {
-      const result = await payrollApi.commit(analysis.batchId);
+      const result = await payrollApi.commit(analysis.batchId, replacePrevious);
       setToast({
         message: `${result.data.expensesCreated} ta xarajat yozuvi yaratildi`,
         tone: 'success',
@@ -219,6 +220,8 @@ export default function PayrollPage() {
         {analysis && (
           <AnalysisView
             analysis={analysis}
+            replacePrevious={replacePrevious}
+            onReplaceChange={setReplacePrevious}
             onCommit={() => setConfirmOpen(true)}
             onCancel={() => void handleCancel()}
             committing={committing}
@@ -306,12 +309,12 @@ export default function PayrollPage() {
         open={confirmOpen}
         title="Yuklashni tasdiqlash"
         message={
-          analysis?.hasPrevious
-            ? `Bu davr uchun oldin yuklash bo'lgan. Tasdiqlansa, eski xarajatlar bekor qilinadi va yangilari yaratiladi.`
+          analysis?.hasPrevious && replacePrevious
+            ? `Eski xarajatlar bekor qilinadi va ${analysis?.groups.length ?? 0} ta yangi yozuv yaratiladi.`
             : `${analysis?.groups.length ?? 0} ta xarajat yozuvi yaratiladi. Davom etamizmi?`
         }
         confirmLabel="Tasdiqlash"
-        danger={analysis?.hasPrevious}
+        danger={analysis?.hasPrevious && replacePrevious}
         loading={committing}
         onConfirm={() => void handleCommit()}
         onCancel={() => setConfirmOpen(false)}
@@ -328,11 +331,15 @@ export default function PayrollPage() {
 
 function AnalysisView({
   analysis,
+  replacePrevious,
+  onReplaceChange,
   onCommit,
   onCancel,
   committing,
 }: {
   analysis: AnalyzeResult;
+  replacePrevious: boolean;
+  onReplaceChange: (value: boolean) => void;
   onCommit: () => void;
   onCancel: () => void;
   committing: boolean;
@@ -357,11 +364,50 @@ function AnalysisView({
 
       {/* Ogohlantirishlar */}
       {analysis.hasPrevious && (
-        <div className="flex items-start gap-2.5 rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
-          <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
-          <p className="text-sm text-[--color-warn]">
-            Bu davr uchun oldin yuklash tasdiqlangan. Yangi yuklash uni almashtiradi.
-          </p>
+        <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-[--color-warn]">
+                Bu davr uchun oldin yuklash tasdiqlangan
+              </p>
+              <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                Nima qilishni tanlang
+              </p>
+
+              <div className="mt-3 space-y-2">
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] bg-white px-3 py-2.5">
+                  <input
+                    type="radio"
+                    checked={!replacePrevious}
+                    onChange={() => onReplaceChange(false)}
+                    className="mt-0.5 size-4"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">Qo&rsquo;shish</span>
+                    <span className="block text-xs text-[--color-text-muted]">
+                      Eski xarajatlar joyida qoladi, yangilari ustiga qo&rsquo;shiladi
+                    </span>
+                  </span>
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] bg-white px-3 py-2.5">
+                  <input
+                    type="radio"
+                    checked={replacePrevious}
+                    onChange={() => onReplaceChange(true)}
+                    className="mt-0.5 size-4"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">Almashtirish</span>
+                    <span className="block text-xs text-[--color-text-muted]">
+                      Eski xarajatlar bekor qilinadi, faqat yangilari qoladi
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

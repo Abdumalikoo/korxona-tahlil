@@ -149,8 +149,11 @@ export async function analyzeFile(
 }
 
 export const payrollApi = {
-  commit: (batchId: string) =>
-    api.post<ApiResponse<CommitResult>>(`/payroll/${batchId}/commit`),
+  /** replace=true bo'lsa eski yuklash bekor qilinadi */
+  commit: (batchId: string, replace = false) =>
+    api.post<ApiResponse<CommitResult>>(
+      `/payroll/${batchId}/commit?replace=${replace}`,
+    ),
 
   cancel: (batchId: string) =>
     api.post<ApiResponse<{ success: true }>>(`/payroll/${batchId}/cancel`),

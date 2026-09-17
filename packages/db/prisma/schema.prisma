@@ -140,6 +140,8 @@ model Expense {
 
   categoryCode String
   departmentId String?
+  /// Hudud kodi - ish haqi va hududiy xarajatlar uchun
+  regionCode   Int?
 
   description   String?
   paymentMethod PaymentMethod @default(BANK)
@@ -169,6 +171,7 @@ model Expense {
 
   category    Category     @relation(fields: [categoryCode], references: [code])
   department  Department?  @relation(fields: [departmentId], references: [id])
+  region      Region?      @relation(fields: [regionCode], references: [code])
   createdBy   User         @relation(fields: [createdById], references: [id])
   importBatch  ImportBatch?  @relation(fields: [importBatchId], references: [id])
   payrollBatch PayrollBatch? @relation(fields: [payrollBatchId], references: [id])
@@ -179,6 +182,7 @@ model Expense {
   @@index([departmentId, period])
   @@index([importBatchId])
   @@index([paymentStatus])
+  @@index([regionCode, period])
   @@map("expenses")
 }
 
@@ -201,6 +205,7 @@ model Income {
 
   categoryCode String
   departmentId String?
+  regionCode   Int?
 
   clientName  String?
   description String?
@@ -437,6 +442,7 @@ model Region {
 
   districts District[]
   employees Employee[]
+  expenses  Expense[]
 
   @@map("regions")
 }

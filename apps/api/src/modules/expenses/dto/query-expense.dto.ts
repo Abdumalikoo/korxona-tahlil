@@ -22,6 +22,13 @@ export class QueryExpenseDto {
   @IsString()
   departmentId?: string;
 
+  /** Hudud kodi: 0 - Markaz, 33 - Xorazm */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  regionCode?: number;
+
   @IsOptional()
   @IsString()
   categoryCode?: string;
