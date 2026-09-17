@@ -98,6 +98,23 @@ export class ExpensesController {
     return { data };
   }
 
+  /** Ildiz guruhlar kesimi - 9 ta guruh */
+  @Get('summary/group')
+  async summaryByGroup(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.summaryByGroup(query);
+    return { data };
+  }
+
+  /** Eng katta yozuvlar */
+  @Get('top')
+  async topExpenses(
+    @Query() query: QueryExpenseDto,
+    @Query('limit', new DefaultValuePipe(5), ParseIntPipe) limit: number,
+  ) {
+    const data = await this.expenses.topExpenses(query, Math.min(limit, 20));
+    return { data };
+  }
+
   @Get('summary/region')
   async summaryByRegion(@Query() query: QueryExpenseDto) {
     const data = await this.expenses.summaryByRegion(query);

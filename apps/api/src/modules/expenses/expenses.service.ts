@@ -497,6 +497,103 @@ export class ExpensesService {
   }
 
   /** Hududlar kesimida yigindi */
+  /**
+   * Ildiz guruhlar boyicha yigindi - 9 ta guruh.
+   * Otgan davr bilan solishtirish ham beriladi.
+   */
+  async summaryByGroup(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+    const previousPeriod = query.period
+      ? this.shiftPeriod(query.period, -1)
+      : undefined;
+
+    const [current, previous, categories] = await Promise.all([
+      this.prisma.expense.groupBy({
+        by: ["categoryCode"],
+        where,
+        _sum: { amountTiyin: true },
+        _count: { _all: true },
+      }),
+      previousPeriod
+        ? this.prisma.expense.groupBy({
+            by: ["categoryCode"],
+            where: { ...where, period: previousPeriod },
+            _sum: { amountTiyin: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.category.findMany({
+        select: { code: true, label: true, parentCode: true },
+      }),
+    ]);
+
+    const map = new Map(categories.map((c) => [c.code, c]));
+
+    /** Kategoriyani ildiz guruhiga biriktiradi */
+    const toRoot = (code: string): { code: string; label: string } => {
+      const category = map.get(code);
+      const rootCode = category?.parentCode ?? code;
+      return { code: rootCode, label: map.get(rootCode)?.label ?? rootCode };
+    };
+
+    const groups = new Map<
+      string,
+      { label: string; amount: bigint; count: number; previous: bigint }
+    >();
+
+    for (const row of current) {
+      const root = toRoot(row.categoryCode);
+      const item = groups.get(root.code) ?? {
+        label: root.label,
+        amount: 0n,
+        count: 0,
+        previous: 0n,
+      };
+
+      item.amount += row._sum.amountTiyin ?? 0n;
+      item.count += row._count._all;
+      groups.set(root.code, item);
+    }
+
+    for (const row of previous) {
+      const root = toRoot(row.categoryCode);
+      const item = groups.get(root.code);
+      if (item) item.previous += row._sum.amountTiyin ?? 0n;
+    }
+
+    const total = [...groups.values()].reduce((sum, g) => sum + g.amount, 0n);
+
+    return {
+      rows: [...groups.entries()]
+        .map(([code, value]) => ({
+          code,
+          label: value.label,
+          amountTiyin: value.amount,
+          previousTiyin: value.previous,
+          count: value.count,
+          sharePercent: total > 0n ? Number((value.amount * 10000n) / total) / 100 : 0,
+          changePercent: this.percentChange(value.amount, value.previous),
+        }))
+        .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1)),
+      totalTiyin: total,
+    };
+  }
+
+  /** Eng katta yozuvlar - alohida xarajatlar */
+  async topExpenses(query: QueryExpenseDto, limit = 5) {
+    const where = await this.buildWhere(query);
+
+    return this.prisma.expense.findMany({
+      where,
+      orderBy: { amountTiyin: "desc" },
+      take: limit,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+  }
+
   async summaryByRegion(query: QueryExpenseDto) {
     const where = await this.buildWhere(query);
 

@@ -123,6 +123,16 @@ export interface SpikesResult {
   rows: SpikeRow[];
 }
 
+export interface GroupSummaryRow {
+  code: string;
+  label: string;
+  amountTiyin: string;
+  previousTiyin: string;
+  count: number;
+  sharePercent: number;
+  changePercent: number | null;
+}
+
 export const expensesApi = {
   list: (filters: ExpenseFilters) =>
     api.get<PaginatedResponse<Expense> & { meta: ExpenseListMeta }>("/expenses", {
@@ -186,6 +196,19 @@ export const expensesApi = {
       "/expenses/summary/department",
       { params: filters },
     ),
+
+  /** Ildiz guruhlar kesimi */
+  summaryByGroup: (filters: ExpenseFilters) =>
+    api.get<ApiResponse<{ rows: GroupSummaryRow[]; totalTiyin: string }>>(
+      "/expenses/summary/group",
+      { params: filters },
+    ),
+
+  /** Eng katta yozuvlar */
+  top: (filters: ExpenseFilters, limit = 5) =>
+    api.get<ApiResponse<Expense[]>>("/expenses/top", {
+      params: { ...filters, limit },
+    }),
 
   summaryByRegion: (filters: ExpenseFilters) =>
     api.get<ApiResponse<{ rows: RegionSummaryRow[]; totalTiyin: string }>>(

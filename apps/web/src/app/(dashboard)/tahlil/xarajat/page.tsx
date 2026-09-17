@@ -4,7 +4,13 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useAsync } from '@/lib/use-async';
 import { expensesApi } from '@/features/expenses/api';
-import { currentPeriod, formatPeriod, formatPercent } from '@/lib/format';
+import {
+  currentPeriod,
+  formatPeriod,
+  formatPercent,
+  formatDate,
+  formatTiyin,
+} from '@/lib/format';
 
 import { PageHeader } from '@/components/layout/page-header';
 import { PeriodPicker } from '@/components/shared/period-picker';
@@ -12,7 +18,6 @@ import { BarChart } from '@/components/shared/bar-chart';
 import { ShareBar } from '@/components/shared/share-bar';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
 import { Money, Change } from '@/components/ui/money';
-import { BehaviorBadge } from '@/components/ui/badge';
 import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
 import { EmptyState, LoadingState } from '@/components/ui/states';
 import { IconAlert } from '@/components/ui/icons';
@@ -24,21 +29,21 @@ export default function ExpenseAnalysisPage() {
 
   const comparison = useAsync(() => expensesApi.comparison(period), [period]);
   const trend = useAsync(() => expensesApi.trend(12), []);
+  const byGroup = useAsync(() => expensesApi.summaryByGroup(filters), [period]);
   const byCategory = useAsync(() => expensesApi.summaryByCategory(filters), [period]);
   const byDepartment = useAsync(() => expensesApi.summaryByDepartment(filters), [period]);
   const byRegion = useAsync(() => expensesApi.summaryByRegion(filters), [period]);
-  const byBehavior = useAsync(() => expensesApi.summaryByBehavior(filters), [period]);
+  const top = useAsync(() => expensesApi.top(filters, 5), [period]);
   const spikes = useAsync(() => expensesApi.spikes(period, 30), [period]);
 
   const current = comparison.data?.data.current;
   const previous = comparison.data?.data.previous;
   const lastYear = comparison.data?.data.lastYear;
 
-  const behavior = byBehavior.data?.data;
-  const fixedTiyin = Number(behavior?.fixedTiyin ?? 0);
-  const variableTiyin = Number(behavior?.variableTiyin ?? 0);
-  const behaviorTotal = fixedTiyin + variableTiyin;
-  const fixedPercent = behaviorTotal > 0 ? (fixedTiyin / behaviorTotal) * 100 : 0;
+  // O'rtacha yozuv — jami / soni
+  const totalTiyin = Number(current?.amountTiyin ?? 0);
+  const count = current?.count ?? 0;
+  const averageTiyin = count > 0 ? Math.round(totalTiyin / count) : 0;
 
   const spikeRows = spikes.data?.data.rows ?? [];
 
@@ -61,12 +66,12 @@ export default function ExpenseAnalysisPage() {
       />
 
       <div className="space-y-4 p-6">
-        {/* Asosiy ko'rsatkichlar */}
+        {/* Ko'rsatkichlar */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard
             label="Jami xarajat"
             tiyin={current?.amountTiyin ?? 0}
-            hint={current ? `${current.count} ta yozuv` : undefined}
+            hint={count > 0 ? `${count} ta yozuv` : undefined}
           />
 
           <MetricCard
@@ -83,20 +88,14 @@ export default function ExpenseAnalysisPage() {
             hint={lastYear ? formatPeriod(lastYear.period) : undefined}
           />
 
-          <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
-              Doimiy xarajat ulushi
-            </p>
-            <p className="money mt-2 text-xl font-semibold">
-              {formatPercent(fixedPercent)}
-            </p>
-            <p className="mt-1.5 text-xs text-[--color-text-muted]">
-              Hajmdan qat&rsquo;i nazar to&rsquo;lanadi
-            </p>
-          </div>
+          <MetricCard
+            label="O'rtacha yozuv"
+            tiyin={String(averageTiyin)}
+            hint="Bitta yozuvning o'rtacha summasi"
+          />
         </div>
 
-        {/* Ogohlantirish */}
+        {/* Keskin oshgan moddalar */}
         {spikeRows.length > 0 && (
           <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] p-4">
             <div className="flex items-start gap-3">
@@ -104,10 +103,10 @@ export default function ExpenseAnalysisPage() {
 
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-[--color-warn]">
-                  Keskin o&rsquo;zgargan moddalar
+                  Keskin oshgan moddalar
                 </p>
                 <p className="mt-0.5 text-xs text-[--color-text-muted]">
-                  O&rsquo;tgan oyga nisbatan 30% dan ko&rsquo;p oshgan
+                  O&rsquo;tgan oyga nisbatan 30% dan ko&rsquo;p
                 </p>
 
                 <div className="mt-3 space-y-1.5">
@@ -139,47 +138,6 @@ export default function ExpenseAnalysisPage() {
           </div>
         )}
 
-        {/* Doimiy / o'zgaruvchan */}
-        {behaviorTotal > 0 && (
-          <Card>
-            <CardHeader
-              title="Xarajat tuzilishi"
-              description="Doimiy va o'zgaruvchan nisbati"
-            />
-            <CardBody>
-              <div className="space-y-3">
-                <div className="flex h-2.5 overflow-hidden rounded-full bg-[--color-surface-sunken]">
-                  <div
-                    className="bg-brand-700 transition-all"
-                    style={{ width: `${fixedPercent}%` }}
-                  />
-                  <div
-                    className="bg-[--color-warn] transition-all"
-                    style={{ width: `${100 - fixedPercent}%` }}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-brand-700" />
-                    <span className="text-[--color-text-muted]">Doimiy</span>
-                    <Money tiyin={String(fixedTiyin)} className="font-medium" />
-                    <span className="money text-xs text-[--color-text-faint]">
-                      {formatPercent(fixedPercent)}
-                    </span>
-                  </span>
-
-                  <span className="flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-[--color-warn]" />
-                    <span className="text-[--color-text-muted]">O&rsquo;zgaruvchan</span>
-                    <Money tiyin={String(variableTiyin)} className="font-medium" />
-                  </span>
-                </div>
-              </div>
-            </CardBody>
-          </Card>
-        )}
-
         {/* Dinamika */}
         <Card>
           <CardHeader title="Oylik dinamika" description="Oxirgi 12 oy" />
@@ -192,61 +150,212 @@ export default function ExpenseAnalysisPage() {
           </CardBody>
         </Card>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          {/* Bo'limlar */}
-          <Card className="overflow-hidden">
-            <CardHeader title="Bo'limlar bo'yicha" />
+        {/* Guruhlar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Xarajat guruhlari"
+            description="Asosiy yo'nalishlar bo'yicha"
+          />
 
-            {byDepartment.loading ? (
-              <LoadingState />
-            ) : (byDepartment.data?.data.rows.length ?? 0) === 0 ? (
-              <EmptyState title="Ma'lumot yo'q" />
-            ) : (
-              <Table>
-                <THead>
-                  <Tr>
-                    <Th>Bo&apos;lim</Th>
-                    <Th className="w-28">Ulush</Th>
-                    <Th align="right" className="w-36">
-                      Summa
-                    </Th>
-                  </Tr>
-                </THead>
+          {byGroup.loading ? (
+            <LoadingState />
+          ) : (byGroup.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Bu davrda xarajat yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Guruh</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th className="w-36">Ulush</Th>
+                  <Th align="center" className="w-28">
+                    O&apos;zgarish
+                  </Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
 
-                <TBody>
-                  {byDepartment.data?.data.rows.slice(0, 12).map((row) => (
-                    <Tr key={row.departmentId ?? 'none'}>
-                      <Td className="truncate">{row.name}</Td>
-                      <Td>
+              <TBody>
+                {byGroup.data?.data.rows.map((row) => (
+                  <Tr key={row.code}>
+                    <Td className="font-medium">{row.label}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
                         <ShareBar
                           percent={row.sharePercent}
                           color="var(--color-expense)"
                         />
-                      </Td>
-                      <Td money>
-                        <Money tiyin={row.amountTiyin} tone="expense" />
-                      </Td>
-                    </Tr>
-                  ))}
-                </TBody>
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
 
-                <TFoot>
-                  <Tr>
-                    <Td colSpan={2}>Jami</Td>
+                    <Td align="center">
+                      <Change percent={row.changePercent} positiveIsGood={false} />
+                    </Td>
+
                     <Td money>
-                      <Money
-                        tiyin={byDepartment.data?.data.totalTiyin ?? 0}
-                        tone="expense"
-                        className="font-semibold"
-                      />
+                      <Money tiyin={row.amountTiyin} tone="expense" />
                     </Td>
                   </Tr>
-                </TFoot>
-              </Table>
-            )}
-          </Card>
+                ))}
+              </TBody>
 
-          {/* Hududlar */}
+              <TFoot>
+                <Tr>
+                  <Td colSpan={4}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byGroup.data?.data.totalTiyin ?? 0}
+                      tone="expense"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Eng katta yozuvlar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Eng katta 5 xarajat"
+            description="Alohida yozuvlar bo'yicha"
+          />
+
+          {top.loading ? (
+            <LoadingState />
+          ) : (top.data?.data.length ?? 0) === 0 ? (
+            <EmptyState title="Yozuv yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th className="w-10" />
+                  <Th className="w-28">Sana</Th>
+                  <Th>Kategoriya</Th>
+                  <Th>Tavsif</Th>
+                  <Th className="w-44">Bo&apos;lim / Hudud</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {top.data?.data.map((item, index) => (
+                  <Tr key={item.id}>
+                    <Td className="money text-center text-[--color-text-faint]">
+                      {index + 1}
+                    </Td>
+
+                    <Td className="money text-[--color-text-muted]">
+                      {formatDate(item.date)}
+                    </Td>
+
+                    <Td>{item.category.label}</Td>
+
+                    <Td className="max-w-xs truncate text-[--color-text-muted]">
+                      {item.description ?? '\u2014'}
+                    </Td>
+
+                    <Td className="text-[--color-text-muted]">
+                      {item.department?.name ?? item.region?.name ?? 'Umumkorxona'}
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={item.amountTiyin} tone="expense" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </Card>
+
+        {/* Kategoriyalar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Kategoriyalar"
+            description="Eng katta xarajatdan boshlab"
+          />
+
+          {byCategory.loading ? (
+            <LoadingState />
+          ) : (byCategory.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Bu davrda xarajat yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Kategoriya</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th className="w-36">Ulush</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {byCategory.data?.data.rows.map((row) => (
+                  <Tr key={row.categoryCode}>
+                    <Td className="max-w-md truncate">{row.label}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-expense)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="expense" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={3}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byCategory.data?.data.totalTiyin ?? 0}
+                      tone="expense"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Hududlar va bo'limlar */}
+        <div className="grid gap-4 lg:grid-cols-2">
           <Card className="overflow-hidden">
             <CardHeader title="Hududlar bo'yicha" />
 
@@ -267,7 +376,7 @@ export default function ExpenseAnalysisPage() {
                 </THead>
 
                 <TBody>
-                  {byRegion.data?.data.rows.slice(0, 12).map((row) => (
+                  {byRegion.data?.data.rows.map((row) => (
                     <Tr key={row.regionCode ?? 'none'}>
                       <Td className="truncate">{row.name}</Td>
                       <Td>
@@ -282,90 +391,49 @@ export default function ExpenseAnalysisPage() {
                     </Tr>
                   ))}
                 </TBody>
+              </Table>
+            )}
+          </Card>
 
-                <TFoot>
+          <Card className="overflow-hidden">
+            <CardHeader title="Bo'limlar bo'yicha" />
+
+            {byDepartment.loading ? (
+              <LoadingState />
+            ) : (byDepartment.data?.data.rows.length ?? 0) === 0 ? (
+              <EmptyState title="Ma'lumot yo'q" />
+            ) : (
+              <Table>
+                <THead>
                   <Tr>
-                    <Td colSpan={2}>Jami</Td>
-                    <Td money>
-                      <Money
-                        tiyin={byRegion.data?.data.totalTiyin ?? 0}
-                        tone="expense"
-                        className="font-semibold"
-                      />
-                    </Td>
+                    <Th>Bo&apos;lim</Th>
+                    <Th className="w-28">Ulush</Th>
+                    <Th align="right" className="w-36">
+                      Summa
+                    </Th>
                   </Tr>
-                </TFoot>
+                </THead>
+
+                <TBody>
+                  {byDepartment.data?.data.rows.map((row) => (
+                    <Tr key={row.departmentId ?? 'none'}>
+                      <Td className="truncate">{row.name}</Td>
+                      <Td>
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-expense)"
+                        />
+                      </Td>
+                      <Td money>
+                        <Money tiyin={row.amountTiyin} tone="expense" />
+                      </Td>
+                    </Tr>
+                  ))}
+                </TBody>
               </Table>
             )}
           </Card>
         </div>
-
-        {/* Kategoriyalar */}
-        <Card className="overflow-hidden">
-          <CardHeader
-            title="Kategoriyalar bo'yicha"
-            description="Eng katta xarajatdan boshlab"
-          />
-
-          {byCategory.loading ? (
-            <LoadingState />
-          ) : (byCategory.data?.data.rows.length ?? 0) === 0 ? (
-            <EmptyState title="Bu davrda xarajat yo'q" />
-          ) : (
-            <Table>
-              <THead>
-                <Tr>
-                  <Th>Kategoriya</Th>
-                  <Th className="w-28">Turi</Th>
-                  <Th align="center" className="w-20">
-                    Soni
-                  </Th>
-                  <Th className="w-32">Ulush</Th>
-                  <Th align="right" className="w-40">
-                    Summa
-                  </Th>
-                </Tr>
-              </THead>
-
-              <TBody>
-                {byCategory.data?.data.rows.map((row) => (
-                  <Tr key={row.categoryCode}>
-                    <Td className="max-w-md truncate">{row.label}</Td>
-
-                    <Td>
-                      {row.behavior && <BehaviorBadge behavior={row.behavior} />}
-                    </Td>
-
-                    <Td align="center" className="money text-[--color-text-muted]">
-                      {row.count}
-                    </Td>
-
-                    <Td>
-                      <ShareBar percent={row.sharePercent} color="var(--color-expense)" />
-                    </Td>
-
-                    <Td money>
-                      <Money tiyin={row.amountTiyin} tone="expense" />
-                    </Td>
-                  </Tr>
-                ))}
-              </TBody>
-
-              <TFoot>
-                <Tr>
-                  <Td colSpan={4}>Jami</Td>
-                  <Td money>
-                    <Money
-                      tiyin={byCategory.data?.data.totalTiyin ?? 0}
-                      tone="expense"
-                      className="font-semibold"
-                    />
-                  </Td>
-                </Tr>
-              </TFoot>
-            </Table>
-          )}
-        </Card>
       </div>
     </>
   );
