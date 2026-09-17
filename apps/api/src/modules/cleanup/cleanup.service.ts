@@ -55,6 +55,23 @@ export class CleanupService {
     return { expenses: expenses.count, incomes: incomes.count };
   }
 
+  /**
+   * Savatni butunlay bosatadi - muddatdan qatiy nazar.
+   * Bu amal qaytarilmaydi.
+   */
+  async emptyTrash(): Promise<{ expenses: number; incomes: number }> {
+    const [expenses, incomes] = await Promise.all([
+      this.prisma.expense.deleteMany({ where: { deletedAt: { not: null } } }),
+      this.prisma.income.deleteMany({ where: { deletedAt: { not: null } } }),
+    ]);
+
+    this.logger.log(
+      `Savat qolda bosatildi: ${expenses.count} xarajat, ${incomes.count} daromad`,
+    );
+
+    return { expenses: expenses.count, incomes: incomes.count };
+  }
+
   /** Savatda nechta yozuv borligi */
   async trashStats() {
     const cutoff = this.cutoffDate();

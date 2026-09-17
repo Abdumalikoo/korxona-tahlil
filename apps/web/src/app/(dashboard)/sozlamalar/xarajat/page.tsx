@@ -20,9 +20,8 @@ import { cn } from '@/lib/utils';
 import type { CategoryTree, Category } from '@/lib/types';
 
 const tabs = [
-  { href: '/sozlamalar/umumiy', label: 'Umumiy' },
-  { href: '/sozlamalar/daromad', label: 'Daromad' },
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
+  { href: '/sozlamalar/savat', label: 'Savat' },
 ];
 
 export default function ExpenseSettingsPage() {
