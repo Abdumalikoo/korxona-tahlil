@@ -31,7 +31,7 @@ const PAGE_LIMIT = 25;
 const tabs = [
   { href: '/daromadlar', label: "Ro'yxat" },
   { href: '/daromadlar/tahlil', label: 'Tahlil' },
-  { href: '/daromadlar/mijozlar', label: 'Mijozlar' },
+  { href: '/daromadlar/hududlar', label: 'Hududlar' },
 ];
 
 export default function IncomesPage() {

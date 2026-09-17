@@ -402,6 +402,7 @@ enum AuditAction {
   CREATE
   UPDATE
   DELETE
+  RESTORE
   LOGIN
   IMPORT
   EXPORT

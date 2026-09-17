@@ -18,7 +18,7 @@ import { EmployeesExportService } from './employees-export.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { QueryEmployeeDto } from './dto/query-employee.dto';
-import { Roles } from '../../common/decorators';
+import { Roles, CurrentUser } from '../../common/decorators';
 
 @Controller('employees')
 export class EmployeesController {
@@ -92,8 +92,12 @@ export class EmployeesController {
 
   @Roles(UserRole.ADMIN)
   @Patch(':pinfl')
-  async update(@Param('pinfl') pinfl: string, @Body() dto: UpdateEmployeeDto) {
-    const data = await this.employees.update(pinfl, dto);
+  async update(
+    @Param('pinfl') pinfl: string,
+    @Body() dto: UpdateEmployeeDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.employees.update(pinfl, dto, userId);
     return { data };
   }
 

@@ -591,6 +591,62 @@ export class PayrollService {
     };
   }
 
+  /**
+   * Topilmagan PINFL larni Excel faylga chiqaradi.
+   * Ular reestrda yoq, shuning uchun faqat PINFL va qator raqami boladi.
+   */
+  async exportMissing(batchId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const batch = await this.prisma.payrollBatch.findUnique({
+      where: { id: batchId },
+    });
+
+    if (!batch) {
+      throw new NotFoundException("Yuklash topilmadi");
+    }
+
+    const missing = (batch.missingPinfls ?? []) as { rowIndex: number; pinfl: string }[];
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Korxona tahlil";
+
+    const sheet = workbook.addWorksheet("Topilmaganlar");
+
+    sheet.columns = [
+      { header: "Qator", key: "rowIndex", width: 10 },
+      { header: "PINFL", key: "pinfl", width: 20 },
+      { header: "F.I.Sh.", key: "fullName", width: 45 },
+      { header: "Izoh", key: "note", width: 40 },
+    ];
+
+    const header = sheet.getRow(1);
+    header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDC2626" } };
+    header.height = 22;
+
+    sheet.getColumn("B").numFmt = "@";
+
+    for (const item of missing) {
+      sheet.addRow({
+        rowIndex: item.rowIndex,
+        pinfl: item.pinfl,
+        fullName: "",
+        note: "Reestrda topilmadi",
+      });
+    }
+
+    if (missing.length === 0) {
+      sheet.addRow({ rowIndex: "", pinfl: "", fullName: "", note: "Hammasi topildi" });
+    }
+
+    sheet.autoFilter = { from: "A1", to: `D${sheet.rowCount}` };
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      filename: `Topilmaganlar-${batch.period}.xlsx`,
+    };
+  }
+
   // --------- Royxat ---------
 
   async findBatches(period?: string) {

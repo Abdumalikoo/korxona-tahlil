@@ -93,6 +93,21 @@ async function seedRegions(): Promise<void> {
       create: { code: region.code, name: region.name },
     });
 
+    // Har viloyatda bolim boshligi - tuman kodi 0
+    if (region.code !== 0) {
+      await prisma.district.upsert({
+        where: { id: `${region.code}-0` },
+        update: { name: "Bolim boshligi" },
+        create: {
+          id: `${region.code}-0`,
+          regionCode: region.code,
+          code: 0,
+          name: "Bolim boshligi",
+        },
+      });
+      districtCount += 1;
+    }
+
     for (const district of region.districts) {
       // Tarkibli kalit: "33-1"
       const id = `${region.code}-${district.code}`;

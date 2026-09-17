@@ -90,7 +90,8 @@ export class RegionalIncomeService {
   async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
     const [regions, services] = await Promise.all([
       this.prisma.region.findMany({
-        where: { isActive: true },
+        // Markaz (0) hududiy daromadlarga kirmaydi
+        where: { isActive: true, code: { not: 0 } },
         orderBy: { code: 'asc' },
       }),
       this.prisma.incomeCategory.findMany({
@@ -196,7 +197,7 @@ export class RegionalIncomeService {
     }
 
     const [regions, services] = await Promise.all([
-      this.prisma.region.findMany({ where: { isActive: true } }),
+      this.prisma.region.findMany({ where: { isActive: true, code: { not: 0 } } }),
       this.prisma.incomeCategory.findMany({ where: { isActive: true } }),
     ]);
 

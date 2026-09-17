@@ -20,7 +20,7 @@ import { EmptyState, LoadingState, ErrorState } from '@/components/ui/states';
 const tabs = [
   { href: '/daromadlar', label: "Ro'yxat" },
   { href: '/daromadlar/tahlil', label: 'Tahlil' },
-  { href: '/daromadlar/mijozlar', label: 'Mijozlar' },
+  { href: '/daromadlar/hududlar', label: 'Hududlar' },
 ];
 
 export default function IncomeAnalysisPage() {

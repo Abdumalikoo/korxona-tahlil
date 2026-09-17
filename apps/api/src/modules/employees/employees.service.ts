@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Prisma, Employee } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import type { CreateEmployeeDto } from './dto/create-employee.dto';
 import type { UpdateEmployeeDto } from './dto/update-employee.dto';
 import type { QueryEmployeeDto } from './dto/query-employee.dto';
@@ -15,7 +16,10 @@ const CENTRAL_REGION = 0;
 
 @Injectable()
 export class EmployeesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // --------- Yordamchilar ---------
 
@@ -208,7 +212,7 @@ export class EmployeesService {
     });
   }
 
-  async update(pinfl: string, dto: UpdateEmployeeDto): Promise<Employee> {
+  async update(pinfl: string, dto: UpdateEmployeeDto, userId?: string): Promise<Employee> {
     const current = await this.prisma.employee.findUnique({ where: { pinfl } });
     if (!current) {
       throw new NotFoundException('Xodim topilmadi');
@@ -252,7 +256,7 @@ export class EmployeesService {
     }
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
-    return this.prisma.employee.update({
+    const updated = await this.prisma.employee.update({
       where: { pinfl },
       data,
       include: {
@@ -261,6 +265,48 @@ export class EmployeesService {
         department: { select: { id: true, code: true, name: true, index: true } },
       },
     });
+
+    // Ozgarishlarni yozamiz - keyin kim nima ozgartirgani korinadi
+    if (userId) {
+      const changes = this.audit.diff(
+        current as unknown as Record<string, unknown>,
+        {
+          lastName,
+          firstName,
+          middleName,
+          employmentType: dto.employmentType,
+          regionCode,
+          districtId,
+          departmentId,
+          position: dto.position,
+          isActive: dto.isActive,
+        } as Record<string, unknown>,
+        [
+          "lastName",
+          "firstName",
+          "middleName",
+          "employmentType",
+          "regionCode",
+          "districtId",
+          "departmentId",
+          "position",
+          "isActive",
+        ],
+      );
+
+      if (Object.keys(changes).length > 0) {
+        await this.audit.log({
+          userId,
+          action: "UPDATE",
+          entity: "employee",
+          entityId: pinfl,
+          changes,
+          summary: updated.fullName,
+        });
+      }
+    }
+
+    return updated;
   }
 
   /** Xodimni arxivlaydi - ish haqi tarixi saqlanadi */

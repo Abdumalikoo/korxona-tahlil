@@ -14,6 +14,7 @@ import { PayrollModule } from './modules/payroll/payroll.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { CleanupModule } from './modules/cleanup/cleanup.module';
+import { AuditModule } from './modules/audit/audit.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 
 @Module({
@@ -35,6 +36,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
     ScheduleModule.forRoot(),
     DashboardModule,
     CleanupModule,
+    AuditModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

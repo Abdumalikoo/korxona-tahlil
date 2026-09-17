@@ -179,6 +179,37 @@ export interface ExpenseDetail {
   totalTiyin?: string;
 }
 
+/** Topilmagan PINFL larni Excel faylga yuklab oladi */
+export async function downloadMissing(batchId: string): Promise<void> {
+  const token = getToken();
+
+  const response = await fetch(`${BASE}/payroll/${batchId}/missing`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    throw new Error('Faylni yuklab bolmadi');
+  }
+
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const filename = match?.[1]
+    ? decodeURIComponent(match[1])
+    : 'Topilmaganlar.xlsx';
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+}
+
 export const payrollApi = {
   /** replace=true bo'lsa eski yuklash bekor qilinadi */
   commit: (batchId: string, replace = false) =>

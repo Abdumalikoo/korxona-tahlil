@@ -88,6 +88,25 @@ export class PayrollController {
     return { data };
   }
 
+  /** Topilmagan PINFL larni Excel faylga chiqarish */
+  @Get(':batchId/missing')
+  async exportMissing(
+    @Param('batchId') batchId: string,
+    @Res() response: Response,
+  ) {
+    const { buffer, filename } = await this.payroll.exportMissing(batchId);
+
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"`,
+    );
+    response.send(buffer);
+  }
+
   @Get('batches')
   async batches(@Query('period') period?: string) {
     const data = await this.payroll.findBatches(period);
