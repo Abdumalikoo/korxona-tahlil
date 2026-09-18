@@ -41,7 +41,15 @@ export interface AuditFilters {
 
 export const auditApi = {
   list: (filters: AuditFilters) =>
-    api.get<PaginatedResponse<AuditLog>>('/audit', { params: filters }),
+    api.get<PaginatedResponse<AuditLog>>('/audit', {
+      params: {
+        entity: filters.entity,
+        action: filters.action,
+        userId: filters.userId,
+        page: filters.page,
+        limit: filters.limit,
+      },
+    }),
 
   /** Bitta yozuvning tarixi */
   byEntity: (entity: string, entityId: string) =>
