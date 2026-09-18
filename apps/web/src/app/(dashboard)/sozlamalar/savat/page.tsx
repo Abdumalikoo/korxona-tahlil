@@ -21,6 +21,7 @@ import { IconTrash } from '@/components/ui/icons';
 const tabs = [
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
   { href: '/sozlamalar/savat', label: 'Savat' },
+  { href: '/sozlamalar/tarix', label: 'Tarix' },
 ];
 
 export default function TrashPage() {

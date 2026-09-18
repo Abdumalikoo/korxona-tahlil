@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Income, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import type { CreateIncomeDto } from './dto/create-income.dto';
 import type { QueryIncomeDto } from './dto/query-income.dto';
 import type { UpdateIncomeDto } from './dto/update-income.dto';
@@ -10,7 +11,10 @@ const TASHKENT_OFFSET_HOURS = 5;
 
 @Injectable()
 export class IncomesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ─────────── Yordamchilar ───────────
 
@@ -286,27 +290,74 @@ export class IncomesService {
 
   /** Xizmat turlari kesimida */
   /** Bir nechta yozuvni birdan ochiradi */
-  async removeMany(ids: string[]): Promise<{ count: number }> {
+  async removeMany(ids: string[], userId?: string): Promise<{ count: number }> {
     if (ids.length === 0) {
       throw new BadRequestException("Ochirish uchun yozuv tanlanmadi");
     }
+
+    const before = await this.prisma.income.aggregate({
+      where: { id: { in: ids }, deletedAt: null },
+      _sum: { amountTiyin: true },
+    });
 
     const result = await this.prisma.income.updateMany({
       where: { id: { in: ids }, deletedAt: null },
       data: { deletedAt: new Date() },
     });
 
+    if (userId && result.count > 0) {
+      await this.audit.log({
+        userId,
+        action: "DELETE",
+        entity: "income",
+        entityId: ids[0] ?? "",
+        changes: {
+          count: { from: null, to: result.count },
+          totalTiyin: {
+            from: null,
+            to: (before._sum.amountTiyin ?? 0n).toString(),
+          },
+        },
+        summary: `${result.count} ta daromad ochirildi`,
+      });
+    }
+
     return { count: result.count };
   }
 
   /** Filtrga mos barcha yozuvlarni ochiradi */
-  async removeByFilter(query: QueryIncomeDto): Promise<{ count: number }> {
+  async removeByFilter(
+    query: QueryIncomeDto,
+    userId?: string,
+  ): Promise<{ count: number }> {
     const where = await this.buildWhere(query);
+
+    const before = await this.prisma.income.aggregate({
+      where,
+      _sum: { amountTiyin: true },
+    });
 
     const result = await this.prisma.income.updateMany({
       where,
       data: { deletedAt: new Date() },
     });
+
+    if (userId && result.count > 0) {
+      await this.audit.log({
+        userId,
+        action: "DELETE",
+        entity: "income",
+        entityId: query.period ?? "filter",
+        changes: {
+          count: { from: null, to: result.count },
+          totalTiyin: {
+            from: null,
+            to: (before._sum.amountTiyin ?? 0n).toString(),
+          },
+        },
+        summary: `Filtr boyicha ${result.count} ta daromad ochirildi`,
+      });
+    }
 
     return { count: result.count };
   }

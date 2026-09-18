@@ -125,16 +125,22 @@ export class IncomesController {
   @Roles(UserRole.ADMIN)
   @Post('bulk-delete')
   @HttpCode(HttpStatus.OK)
-  async removeMany(@Body() body: { ids: string[] }) {
-    const data = await this.incomes.removeMany(body?.ids ?? []);
+  async removeMany(
+    @Body() body: { ids: string[] },
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.incomes.removeMany(body?.ids ?? [], userId);
     return { data };
   }
 
   @Roles(UserRole.ADMIN)
   @Post('delete-by-filter')
   @HttpCode(HttpStatus.OK)
-  async removeByFilter(@Query() query: QueryIncomeDto) {
-    const data = await this.incomes.removeByFilter(query);
+  async removeByFilter(
+    @Query() query: QueryIncomeDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.incomes.removeByFilter(query, userId);
     return { data };
   }
 

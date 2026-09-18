@@ -10,7 +10,10 @@ const TASHKENT_OFFSET_HOURS = 5;
 
 @Injectable()
 export class ExpensesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // --------- Yordamchilar ---------
 
@@ -351,27 +354,77 @@ export class ExpensesService {
    * Bir nechta yozuvni birdan ochiradi.
    * Savatga tushadi - 15 kun ichida tiklash mumkin.
    */
-  async removeMany(ids: string[]): Promise<{ count: number }> {
+  async removeMany(ids: string[], userId?: string): Promise<{ count: number }> {
     if (ids.length === 0) {
       throw new BadRequestException("Ochirish uchun yozuv tanlanmadi");
     }
+
+    // Ochirishdan oldin summani olamiz - auditga yozish uchun
+    const before = await this.prisma.expense.aggregate({
+      where: { id: { in: ids }, deletedAt: null },
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
 
     const result = await this.prisma.expense.updateMany({
       where: { id: { in: ids }, deletedAt: null },
       data: { deletedAt: new Date() },
     });
 
+    if (userId && result.count > 0) {
+      await this.audit.log({
+        userId,
+        action: "DELETE",
+        entity: "expense",
+        entityId: ids[0] ?? "",
+        changes: {
+          count: { from: null, to: result.count },
+          totalTiyin: {
+            from: null,
+            to: (before._sum.amountTiyin ?? 0n).toString(),
+          },
+        },
+        summary: `${result.count} ta xarajat ochirildi`,
+      });
+    }
+
     return { count: result.count };
   }
 
   /** Filtrga mos barcha yozuvlarni ochiradi */
-  async removeByFilter(query: QueryExpenseDto): Promise<{ count: number }> {
+  async removeByFilter(
+    query: QueryExpenseDto,
+    userId?: string,
+  ): Promise<{ count: number }> {
     const where = await this.buildWhere(query);
+
+    const before = await this.prisma.expense.aggregate({
+      where,
+      _sum: { amountTiyin: true },
+    });
 
     const result = await this.prisma.expense.updateMany({
       where,
       data: { deletedAt: new Date() },
     });
+
+    if (userId && result.count > 0) {
+      await this.audit.log({
+        userId,
+        action: "DELETE",
+        entity: "expense",
+        entityId: query.period ?? "filter",
+        changes: {
+          count: { from: null, to: result.count },
+          totalTiyin: {
+            from: null,
+            to: (before._sum.amountTiyin ?? 0n).toString(),
+          },
+          filter: { from: null, to: JSON.stringify(query) },
+        },
+        summary: `Filtr boyicha ${result.count} ta xarajat ochirildi`,
+      });
+    }
 
     return { count: result.count };
   }

@@ -177,8 +177,11 @@ export class ExpensesController {
   @Roles(UserRole.ADMIN)
   @Post('bulk-delete')
   @HttpCode(HttpStatus.OK)
-  async removeMany(@Body() body: { ids: string[] }) {
-    const data = await this.expenses.removeMany(body?.ids ?? []);
+  async removeMany(
+    @Body() body: { ids: string[] },
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.expenses.removeMany(body?.ids ?? [], userId);
     return { data };
   }
 
@@ -186,8 +189,11 @@ export class ExpensesController {
   @Roles(UserRole.ADMIN)
   @Post('delete-by-filter')
   @HttpCode(HttpStatus.OK)
-  async removeByFilter(@Query() query: QueryExpenseDto) {
-    const data = await this.expenses.removeByFilter(query);
+  async removeByFilter(
+    @Query() query: QueryExpenseDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.expenses.removeByFilter(query, userId);
     return { data };
   }
 

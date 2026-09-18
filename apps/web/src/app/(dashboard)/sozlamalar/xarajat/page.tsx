@@ -22,6 +22,7 @@ import type { CategoryTree, Category } from '@/lib/types';
 const tabs = [
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
   { href: '/sozlamalar/savat', label: 'Savat' },
+  { href: '/sozlamalar/tarix', label: 'Tarix' },
 ];
 
 export default function ExpenseSettingsPage() {
