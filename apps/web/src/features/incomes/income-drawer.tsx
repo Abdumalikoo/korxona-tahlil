@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { ApiError } from '@/lib/api';
+import { errorMessage } from '@/lib/error-message';
 import { incomesApi } from './api';
 import { todayInput, sumToTiyin, tiyinToSum, formatDateTime, formatTiyin } from '@/lib/format';
 
@@ -196,7 +197,7 @@ export function IncomeDrawer({
       }
       onClose();
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : 'Saqlashda xatolik');
+      setServerError(errorMessage(err, 'Saqlashda xatolik'));
     } finally {
       setSaving(false);
     }
@@ -213,7 +214,7 @@ export function IncomeDrawer({
       setConfirmOpen(false);
       onClose();
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : "O'chirishda xatolik");
+      setServerError(errorMessage(err, "O'chirishda xatolik"));
       setConfirmOpen(false);
     } finally {
       setDeleting(false);

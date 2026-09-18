@@ -1,6 +1,7 @@
 'use client';
 
 import { ApiError } from '@/lib/api';
+import { errorMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth-context';
 import {
     formatDateTime,
@@ -173,7 +174,7 @@ export function ExpenseDrawer({
       onSaved('O\u2018zgarishlar saqlandi');
       onClose();
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : 'Saqlashda xatolik');
+      setServerError(errorMessage(err, 'Saqlashda xatolik'));
     } finally {
       setSaving(false);
     }
@@ -190,7 +191,7 @@ export function ExpenseDrawer({
       setConfirmOpen(false);
       onClose();
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : 'O\u2018chirishda xatolik');
+      setServerError(errorMessage(err, 'O\u2018chirishda xatolik'));
       setConfirmOpen(false);
     } finally {
       setDeleting(false);

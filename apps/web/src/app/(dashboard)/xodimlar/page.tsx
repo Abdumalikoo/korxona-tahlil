@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
 import {
   employeesApi,
   regionsApi,
@@ -55,8 +56,8 @@ export default function EmployeesPage() {
     setExporting(true);
     try {
       await downloadEmployeesExcel(filters);
-    } catch {
-      setToast('Faylni yuklab bolmadi');
+    } catch (err) {
+      setToast(errorMessage(err, 'Faylni yuklab bolmadi'));
     } finally {
       setExporting(false);
     }

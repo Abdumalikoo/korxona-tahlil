@@ -5,6 +5,7 @@ import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
@@ -66,7 +67,7 @@ export default function IntegrityPage() {
       setToast(result.data.message);
       check.reload();
     } catch (err) {
-      setToast(err instanceof ApiError ? err.message : 'Tuzatishda xatolik');
+      setToast(errorMessage(err, 'Tuzatishda xatolik'));
     } finally {
       setFixing(null);
     }

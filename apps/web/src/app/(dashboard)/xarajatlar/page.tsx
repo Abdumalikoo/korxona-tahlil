@@ -7,6 +7,7 @@ import { regionsApi } from '@/features/employees/api';
 import { useAuth } from '@/lib/auth-context';
 import { currentPeriod, formatDate, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
 
@@ -82,8 +83,8 @@ export default function ExpensesPage() {
       setSelectedIds(new Set());
       list.reload();
       comparison.reload();
-    } catch {
-      setToast('Ochirishda xatolik');
+    } catch (err) {
+      setToast(errorMessage(err, 'Ochirishda xatolik'));
     } finally {
       setBulkDeleting(false);
       setBulkConfirm(null);

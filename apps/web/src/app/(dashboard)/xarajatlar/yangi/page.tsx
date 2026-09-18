@@ -7,6 +7,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { expensesApi, type CreateExpensePayload } from '@/features/expenses/api';
 import { referencesApi } from '@/features/shared/references';
 import { ApiError } from '@/lib/api';
+import { errorMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth-context';
 import { formatSum, sumToTiyin, todayInput } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -200,7 +201,7 @@ export default function NewExpensePage() {
       }
     } catch (err) {
       setToast({
-        message: err instanceof ApiError ? err.message : 'Saqlashda xatolik',
+        message: errorMessage(err, 'Saqlashda xatolik'),
         tone: 'error',
       });
       setSaving(false);

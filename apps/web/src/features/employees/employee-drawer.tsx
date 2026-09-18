@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { ApiError } from '@/lib/api';
+import { errorMessage } from '@/lib/error-message';
 import { employeesApi } from './api';
 import { IconTrash } from '@/components/ui/icons';
 import { formatDate } from '@/lib/format';
@@ -184,7 +185,7 @@ export function EmployeeDrawer({
       }
       onClose();
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : 'Saqlashda xatolik');
+      setServerError(errorMessage(err, 'Saqlashda xatolik'));
     } finally {
       setSaving(false);
     }
@@ -202,7 +203,7 @@ export function EmployeeDrawer({
       setDeleteOpen(false);
       onClose();
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : 'Ochirishda xatolik');
+      setServerError(errorMessage(err, 'Ochirishda xatolik'));
       setDeleteOpen(false);
     } finally {
       setDeleting(false);
@@ -220,7 +221,7 @@ export function EmployeeDrawer({
       setConfirmOpen(false);
       onClose();
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : 'Xatolik');
+      setServerError(errorMessage(err, 'Xatolik'));
       setConfirmOpen(false);
     } finally {
       setArchiving(false);

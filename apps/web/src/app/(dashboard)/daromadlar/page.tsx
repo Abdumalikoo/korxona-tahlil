@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
 import { incomesApi, type IncomeFilters } from '@/features/incomes/api';
 import { IncomeDrawer } from '@/features/incomes/income-drawer';
 import { referencesApi } from '@/features/shared/references';
@@ -83,8 +84,8 @@ export default function IncomesPage() {
       setSelectedIds(new Set());
       list.reload();
       comparison.reload();
-    } catch {
-      setToast('Ochirishda xatolik');
+    } catch (err) {
+      setToast(errorMessage(err, 'Ochirishda xatolik'));
     } finally {
       setBulkDeleting(false);
       setBulkConfirm(null);

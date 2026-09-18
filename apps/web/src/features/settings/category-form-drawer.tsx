@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ApiError } from '@/lib/api';
+import { errorMessage } from '@/lib/error-message';
 import { categoriesApi } from '@/features/shared/references';
 
 import { Drawer } from '@/components/ui/drawer';
@@ -125,7 +126,7 @@ export function CategoryFormDrawer({
       }
       onClose();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Saqlashda xatolik');
+      setError(errorMessage(err, 'Saqlashda xatolik'));
     } finally {
       setSaving(false);
     }

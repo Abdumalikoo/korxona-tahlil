@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
 import { ApiError } from '@/lib/api';
+import { errorMessage } from '@/lib/error-message';
 import { referencesApi, categoriesApi } from '@/features/shared/references';
 
 import { PageHeader } from '@/components/layout/page-header';
@@ -72,7 +73,7 @@ export default function ExpenseSettingsPage() {
       setToast('Arxivlandi');
       tree.reload();
     } catch (err) {
-      setToast(err instanceof ApiError ? err.message : 'Xatolik');
+      setToast(errorMessage(err, 'Xatolik'));
     }
   }
 

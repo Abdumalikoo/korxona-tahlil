@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
 import { ApiError } from '@/lib/api';
 import {
   regionalIncomeApi,
@@ -97,7 +98,7 @@ export default function RegionalIncomePage() {
       setAnalysis(result);
     } catch (err) {
       setToast({
-        message: err instanceof Error ? err.message : 'Xatolik',
+        message: errorMessage(err),
         tone: 'error',
       });
     } finally {
@@ -125,7 +126,7 @@ export default function RegionalIncomePage() {
       byService.reload();
     } catch (err) {
       setToast({
-        message: err instanceof ApiError ? err.message : 'Saqlashda xatolik',
+        message: errorMessage(err, 'Saqlashda xatolik'),
         tone: 'error',
       });
     } finally {

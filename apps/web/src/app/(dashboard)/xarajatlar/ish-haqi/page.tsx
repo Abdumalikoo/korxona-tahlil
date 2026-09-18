@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
 import { ApiError } from '@/lib/api';
 import {
   payrollApi,
@@ -87,7 +88,7 @@ export default function PayrollPage() {
       setAnalysis(result);
     } catch (err) {
       setToast({
-        message: err instanceof Error ? err.message : 'Xatolik',
+        message: errorMessage(err),
         tone: 'error',
       });
     } finally {
@@ -110,7 +111,7 @@ export default function PayrollPage() {
       batches.reload();
     } catch (err) {
       setToast({
-        message: err instanceof ApiError ? err.message : 'Tasdiqlashda xatolik',
+        message: errorMessage(err, 'Tasdiqlashda xatolik'),
         tone: 'error',
       });
     } finally {

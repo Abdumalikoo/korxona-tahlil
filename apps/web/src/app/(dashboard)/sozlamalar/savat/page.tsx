@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
 import { trashApi } from '@/features/shared/trash-api';
 import { formatDate, formatDateTime } from '@/lib/format';
 
@@ -52,8 +53,8 @@ export default function TrashPage() {
       );
       expenses.reload();
       incomes.reload();
-    } catch {
-      setToast('Tozalashda xatolik');
+    } catch (err) {
+      setToast(errorMessage(err, 'Tozalashda xatolik'));
     } finally {
       setEmptying(false);
       setEmptyOpen(false);
@@ -72,8 +73,8 @@ export default function TrashPage() {
         incomes.reload();
       }
       setToast('Yozuv tiklandi');
-    } catch {
-      setToast('Tiklashda xatolik');
+    } catch (err) {
+      setToast(errorMessage(err, 'Tiklashda xatolik'));
     } finally {
       setRestoring(null);
     }
