@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, Max, Matches, IsEnum, IsIn } from "class-validator";
+import { IsOptional, IsString, IsInt, Min, Max, Matches, IsEnum, IsIn, IsDateString } from "class-validator";
 import { Type } from "class-transformer";
 import { PaymentMethod, PaymentStatus } from "@prisma/client";
 
@@ -21,6 +21,16 @@ export class QueryExpenseDto {
   @IsOptional()
   @IsString()
   departmentId?: string;
+
+  /** Sana oraligi boshi: "2026-01-01" */
+  @IsOptional()
+  @IsDateString({}, { message: "Sana notogri formatda" })
+  dateFrom?: string;
+
+  /** Sana oraligi oxiri */
+  @IsOptional()
+  @IsDateString({}, { message: "Sana notogri formatda" })
+  dateTo?: string;
 
   /** Hudud kodi: 0 - Markaz, 33 - Xorazm */
   @IsOptional()

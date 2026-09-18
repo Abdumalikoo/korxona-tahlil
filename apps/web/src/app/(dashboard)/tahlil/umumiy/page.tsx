@@ -2,12 +2,17 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useAsync } from '@/lib/use-async';
 import { dashboardApi } from '@/features/dashboard/api';
 import { currentPeriod, formatPeriod, formatPercent, formatTiyin } from '@/lib/format';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { PeriodPicker } from '@/components/shared/period-picker';
+import {
+  DateRangePicker,
+  defaultRange,
+  type DateRange,
+} from '@/components/shared/date-range-picker';
 import { LineChart } from '@/components/shared/line-chart';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
 import { Money, Change } from '@/components/ui/money';
@@ -16,7 +21,16 @@ import { EmptyState, LoadingState } from '@/components/ui/states';
 import { cn } from '@/lib/utils';
 
 export default function GeneralAnalysisPage() {
-  const [period, setPeriod] = useState(currentPeriod());
+  const searchParams = useSearchParams();
+
+  const [range, setRange] = useState<DateRange>(() => {
+    const from = searchParams.get("dateFrom");
+    const to = searchParams.get("dateTo");
+    return from && to ? { from, to } : defaultRange();
+  });
+
+  // Solishtirish uchun oxirgi oy
+  const period = range.to.slice(0, 7);
 
   const overview = useAsync(() => dashboardApi.overview(period), [period]);
   const trend = useAsync(() => dashboardApi.trend(12, period), [period]);
@@ -55,10 +69,10 @@ export default function GeneralAnalysisPage() {
     <>
       <PageHeader
         title="Umumiy tahlil"
-        description={formatPeriod(period)}
+        description={`${formatDate(range.from)} — ${formatDate(range.to)}`}
         actions={
           <div className="flex items-center gap-3">
-            <PeriodPicker value={period} onChange={setPeriod} />
+            <DateRangePicker value={range} onChange={setRange} />
             <Link
               href="/"
               className="text-sm text-[--color-text-muted] hover:text-[--color-text]"

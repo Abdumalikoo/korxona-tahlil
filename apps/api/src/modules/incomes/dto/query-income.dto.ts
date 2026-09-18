@@ -1,6 +1,6 @@
 import { PaymentStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
 export class QueryIncomeDto {
   @IsOptional()
@@ -14,6 +14,15 @@ export class QueryIncomeDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}$/)
   periodTo?: string;
+
+  /** Sana oraligi */
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
 
   @IsOptional()
   @IsString()

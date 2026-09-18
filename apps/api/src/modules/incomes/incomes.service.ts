@@ -103,7 +103,13 @@ export class IncomesService {
   private async buildWhere(query: QueryIncomeDto): Promise<Prisma.IncomeWhereInput> {
     const where: Prisma.IncomeWhereInput = { deletedAt: null };
 
-    if (query.period) {
+    // Sana oraligi eng aniq filtr - u boshqalardan ustun
+    if (query.dateFrom || query.dateTo) {
+      where.date = {
+        ...(query.dateFrom ? { gte: this.toStoredDate(query.dateFrom) } : {}),
+        ...(query.dateTo ? { lte: this.toStoredDate(query.dateTo) } : {}),
+      };
+    } else if (query.period) {
       where.period = query.period;
     } else if (query.periodFrom || query.periodTo) {
       where.period = {

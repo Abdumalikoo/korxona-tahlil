@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useAsync } from '@/lib/use-async';
 import { incomesApi } from '@/features/incomes/api';
 import { regionalIncomeApi } from '@/features/incomes/regional-api';
@@ -14,7 +15,11 @@ import {
 } from '@/lib/format';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { PeriodPicker } from '@/components/shared/period-picker';
+import {
+  DateRangePicker,
+  defaultRange,
+  type DateRange,
+} from '@/components/shared/date-range-picker';
 import { BarChart } from '@/components/shared/bar-chart';
 import { ShareBar } from '@/components/shared/share-bar';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
@@ -23,7 +28,16 @@ import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
 import { EmptyState, LoadingState } from '@/components/ui/states';
 
 export default function IncomeAnalysisPage() {
-  const [period, setPeriod] = useState(currentPeriod());
+  const searchParams = useSearchParams();
+
+  const [range, setRange] = useState<DateRange>(() => {
+    const from = searchParams.get("dateFrom");
+    const to = searchParams.get("dateTo");
+    return from && to ? { from, to } : defaultRange();
+  });
+
+  // Solishtirish uchun oxirgi oy
+  const period = range.to.slice(0, 7);
 
   const filters = { period };
 
@@ -54,10 +68,10 @@ export default function IncomeAnalysisPage() {
     <>
       <PageHeader
         title="Daromad tahlili"
-        description={formatPeriod(period)}
+        description={`${formatDate(range.from)} — ${formatDate(range.to)}`}
         actions={
           <div className="flex items-center gap-3">
-            <PeriodPicker value={period} onChange={setPeriod} />
+            <DateRangePicker value={range} onChange={setRange} />
             <Link
               href="/"
               className="text-sm text-[--color-text-muted] hover:text-[--color-text]"

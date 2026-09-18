@@ -99,6 +99,13 @@ export class ExpensesController {
   }
 
   /** Ildiz guruhlar kesimi - 9 ta guruh */
+  /** Daraxt korinishidagi tarkib */
+  @Get('breakdown')
+  async breakdown(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.breakdown(query);
+    return { data };
+  }
+
   @Get('summary/group')
   async summaryByGroup(@Query() query: QueryExpenseDto) {
     const data = await this.expenses.summaryByGroup(query);

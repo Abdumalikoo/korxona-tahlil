@@ -1,40 +1,58 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { useAsync } from '@/lib/use-async';
-import { expensesApi } from '@/features/expenses/api';
+import { expensesApi, type BreakdownNode } from '@/features/expenses/api';
 import {
-  currentPeriod,
-  formatPeriod,
-  formatPercent,
   formatDate,
-  formatTiyin,
+  formatPercent,
+  formatPeriod
 } from '@/lib/format';
+import { useAsync } from '@/lib/use-async';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { useState } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { PeriodPicker } from '@/components/shared/period-picker';
 import { BarChart } from '@/components/shared/bar-chart';
+import { BreakdownTree } from '@/components/shared/breakdown-tree';
+import {
+  DateRangePicker,
+  defaultRange,
+  type DateRange,
+} from '@/components/shared/date-range-picker';
+import { DonutChart } from '@/components/shared/donut-chart';
 import { ShareBar } from '@/components/shared/share-bar';
-import { Card, CardHeader, CardBody } from '@/components/ui/card';
-import { Money, Change } from '@/components/ui/money';
-import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
-import { EmptyState, LoadingState } from '@/components/ui/states';
+import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { IconAlert } from '@/components/ui/icons';
+import { Change, Money } from '@/components/ui/money';
+import { EmptyState, LoadingState } from '@/components/ui/states';
+import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
 
 export default function ExpenseAnalysisPage() {
-  const [period, setPeriod] = useState(currentPeriod());
+  const searchParams = useSearchParams();
 
-  const filters = { period };
+  // URL dan davr olamiz, bolmasa yil boshidan
+  const [range, setRange] = useState<DateRange>(() => {
+    const from = searchParams.get("dateFrom");
+    const to = searchParams.get("dateTo");
+    return from && to ? { from, to } : defaultRange();
+  });
 
-  const comparison = useAsync(() => expensesApi.comparison(period), [period]);
+  const filters = { dateFrom: range.from, dateTo: range.to };
+
+  // Solishtirish va ogohlantirish oxirgi oy boyicha
+  const lastPeriod = range.to.slice(0, 7);
+
+  const comparison = useAsync(() => expensesApi.comparison(lastPeriod), [lastPeriod]);
   const trend = useAsync(() => expensesApi.trend(12), []);
-  const byGroup = useAsync(() => expensesApi.summaryByGroup(filters), [period]);
-  const byCategory = useAsync(() => expensesApi.summaryByCategory(filters), [period]);
-  const byDepartment = useAsync(() => expensesApi.summaryByDepartment(filters), [period]);
-  const byRegion = useAsync(() => expensesApi.summaryByRegion(filters), [period]);
-  const top = useAsync(() => expensesApi.top(filters, 5), [period]);
-  const spikes = useAsync(() => expensesApi.spikes(period, 30), [period]);
+  const byGroup = useAsync(() => expensesApi.summaryByGroup(filters), [range.from, range.to]);
+  const byCategory = useAsync(() => expensesApi.summaryByCategory(filters), [range.from, range.to]);
+  const byDepartment = useAsync(() => expensesApi.summaryByDepartment(filters), [range.from, range.to]);
+  const byRegion = useAsync(() => expensesApi.summaryByRegion(filters), [range.from, range.to]);
+  const top = useAsync(() => expensesApi.top(filters, 5), [range.from, range.to]);
+  const spikes = useAsync(() => expensesApi.spikes(lastPeriod, 30), [lastPeriod]);
+  const breakdown = useAsync(() => expensesApi.breakdown(filters), [range.from, range.to]);
+
+  const [selected, setSelected] = useState<BreakdownNode | null>(null);
 
   const current = comparison.data?.data.current;
   const previous = comparison.data?.data.previous;
@@ -51,10 +69,10 @@ export default function ExpenseAnalysisPage() {
     <>
       <PageHeader
         title="Xarajat tahlili"
-        description={formatPeriod(period)}
+            description={`${formatDate(range.from)} — ${formatDate(range.to)}`}
         actions={
           <div className="flex items-center gap-3">
-            <PeriodPicker value={period} onChange={setPeriod} />
+            <DateRangePicker value={range} onChange={setRange} />
             <Link
               href="/"
               className="text-sm text-[--color-text-muted] hover:text-[--color-text]"
@@ -148,6 +166,56 @@ export default function ExpenseAnalysisPage() {
               <BarChart data={trend.data?.data ?? []} color="var(--color-expense)" />
             )}
           </CardBody>
+        </Card>
+
+        {/* Tarkib daraxti */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Xarajat tarkibi"
+            description="Qatorni bosib ichiga kiring"
+          />
+
+          {breakdown.loading ? (
+            <LoadingState />
+          ) : (breakdown.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Bu davrda xarajat yoq" />
+          ) : (
+            <>
+              <CardBody className="border-b border-[--color-line]">
+                <DonutChart
+                  slices={(selected?.children ?? breakdown.data?.data.rows ?? []).map(
+                    (node) => ({
+                      key: node.key,
+                      label: node.label,
+                      amountTiyin: node.amountTiyin,
+                      sharePercent: node.sharePercent,
+                    }),
+                  )}
+                  totalTiyin={
+                    selected?.amountTiyin ?? breakdown.data?.data.totalTiyin ?? "0"
+                  }
+                />
+
+                {selected && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(null)}
+                    className="mt-3 text-xs font-medium text-brand-700 hover:underline"
+                  >
+                    Umumiy korinishga qaytish
+                  </button>
+                )}
+              </CardBody>
+
+              <BreakdownTree
+                nodes={breakdown.data?.data.rows ?? []}
+                selectedKey={selected?.key ?? null}
+                onSelect={(node) =>
+                  setSelected(node && node.children.length > 0 ? node : null)
+                }
+              />
+            </>
+          )}
         </Card>
 
         {/* Guruhlar */}

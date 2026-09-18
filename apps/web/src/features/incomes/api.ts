@@ -14,6 +14,8 @@ export interface IncomeFilters {
   period?: string;
   periodFrom?: string;
   periodTo?: string;
+  dateFrom?: string;
+  dateTo?: string;
   departmentId?: string;
   categoryCode?: string;
   paymentStatus?: PaymentStatus;

@@ -1,11 +1,10 @@
 'use client';
 
 import { integrityApi, type IntegrityIssue } from '@/features/shared/integrity-api';
-import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { errorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
-import { errorMessage } from '@/lib/error-message';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 

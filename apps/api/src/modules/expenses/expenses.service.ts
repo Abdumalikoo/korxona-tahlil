@@ -85,7 +85,13 @@ export class ExpensesService {
   private async buildWhere(query: QueryExpenseDto): Promise<Prisma.ExpenseWhereInput> {
     const where: Prisma.ExpenseWhereInput = { deletedAt: null };
 
-    if (query.period) {
+    // Sana oraligi eng aniq filtr - u boshqalardan ustun
+    if (query.dateFrom || query.dateTo) {
+      where.date = {
+        ...(query.dateFrom ? { gte: this.toStoredDate(query.dateFrom) } : {}),
+        ...(query.dateTo ? { lte: this.toStoredDate(query.dateTo) } : {}),
+      };
+    } else if (query.period) {
       where.period = query.period;
     } else if (query.periodFrom || query.periodTo) {
       where.period = {
@@ -646,6 +652,133 @@ export class ExpensesService {
         region: { select: { code: true, name: true } },
       },
     });
+  }
+
+  /**
+   * Xarajatlarning daraxt korinishidagi tarkibi.
+   *
+   * Ish haqi uchun uch daraja: guruh > markaz/viloyat > bolim yoki hudud.
+   * Qolgan guruhlar uchun ikki daraja: guruh > kategoriya.
+   */
+  async breakdown(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+
+    const [expenses, categories, departments, regions] = await Promise.all([
+      this.prisma.expense.groupBy({
+        by: ["categoryCode", "departmentId", "regionCode", "source"],
+        where,
+        _sum: { amountTiyin: true },
+        _count: { _all: true },
+      }),
+      this.prisma.category.findMany({
+        select: { code: true, label: true, parentCode: true },
+      }),
+      this.prisma.department.findMany({
+        select: { id: true, name: true, index: true },
+      }),
+      this.prisma.region.findMany({ select: { code: true, name: true } }),
+    ]);
+
+    const catMap = new Map(categories.map((c) => [c.code, c]));
+    const deptMap = new Map(departments.map((d) => [d.id, d]));
+    const regionMap = new Map(regions.map((r) => [r.code, r.name]));
+
+    /** Kategoriyaning ildiz guruhini topadi */
+    const rootOf = (code: string) => {
+      const category = catMap.get(code);
+      const rootCode = category?.parentCode ?? code;
+      return { code: rootCode, label: catMap.get(rootCode)?.label ?? rootCode };
+    };
+
+    interface Node {
+      key: string;
+      label: string;
+      amountTiyin: bigint;
+      count: number;
+      children: Map<string, Node>;
+    }
+
+    const makeNode = (key: string, label: string): Node => ({
+      key,
+      label,
+      amountTiyin: 0n,
+      count: 0,
+      children: new Map(),
+    });
+
+    const roots = new Map<string, Node>();
+
+    for (const row of expenses) {
+      const amount = row._sum.amountTiyin ?? 0n;
+      const count = row._count._all;
+      const root = rootOf(row.categoryCode);
+
+      const rootNode = roots.get(root.code) ?? makeNode(root.code, root.label);
+      rootNode.amountTiyin += amount;
+      rootNode.count += count;
+      roots.set(root.code, rootNode);
+
+      // Ish haqi - joylashuv boyicha ajratamiz
+      if (row.source === "PAYROLL") {
+        const isCentral = row.regionCode === 0;
+        const midKey = isCentral ? "markaz" : "viloyat";
+        const midLabel = isCentral ? "Markaz" : "Viloyatlar";
+
+        const midNode =
+          rootNode.children.get(midKey) ?? makeNode(midKey, midLabel);
+        midNode.amountTiyin += amount;
+        midNode.count += count;
+        rootNode.children.set(midKey, midNode);
+
+        const leafKey = isCentral
+          ? `dept-${row.departmentId ?? "none"}`
+          : `region-${row.regionCode ?? "none"}`;
+
+        const leafLabel = isCentral
+          ? (deptMap.get(row.departmentId ?? "")?.name ?? "Bolimsiz")
+          : (regionMap.get(row.regionCode ?? -1) ?? "Hududsiz");
+
+        const leafNode =
+          midNode.children.get(leafKey) ?? makeNode(leafKey, leafLabel);
+        leafNode.amountTiyin += amount;
+        leafNode.count += count;
+        midNode.children.set(leafKey, leafNode);
+
+        continue;
+      }
+
+      // Oddiy xarajat - kategoriya boyicha
+      const catLabel = catMap.get(row.categoryCode)?.label ?? row.categoryCode;
+      const catNode =
+        rootNode.children.get(row.categoryCode) ??
+        makeNode(row.categoryCode, catLabel);
+      catNode.amountTiyin += amount;
+      catNode.count += count;
+      rootNode.children.set(row.categoryCode, catNode);
+    }
+
+    const total = [...roots.values()].reduce((sum, n) => sum + n.amountTiyin, 0n);
+
+    /** Map ni massivga ogiradi va ulushni hisoblaydi */
+    const toArray = (nodes: Map<string, Node>, parentTotal: bigint): unknown[] =>
+      [...nodes.values()]
+        .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1))
+        .map((node) => ({
+          key: node.key,
+          label: node.label,
+          amountTiyin: node.amountTiyin,
+          count: node.count,
+          sharePercent:
+            parentTotal > 0n
+              ? Number((node.amountTiyin * 10000n) / parentTotal) / 100
+              : 0,
+          children: toArray(node.children, node.amountTiyin),
+        }));
+
+    return {
+      rows: toArray(roots, total),
+      totalTiyin: total,
+    };
   }
 
   async summaryByRegion(query: QueryExpenseDto) {

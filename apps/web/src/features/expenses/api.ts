@@ -15,6 +15,9 @@ export interface ExpenseFilters {
   period?: string;
   periodFrom?: string;
   periodTo?: string;
+  /** Sana oraligi - eng aniq filtr */
+  dateFrom?: string;
+  dateTo?: string;
   departmentId?: string;
   regionCode?: number;
   categoryCode?: string;
@@ -133,6 +136,16 @@ export interface GroupSummaryRow {
   changePercent: number | null;
 }
 
+/** Daraxt korinishidagi tarkib */
+export interface BreakdownNode {
+  key: string;
+  label: string;
+  amountTiyin: string;
+  count: number;
+  sharePercent: number;
+  children: BreakdownNode[];
+}
+
 export const expensesApi = {
   list: (filters: ExpenseFilters) =>
     api.get<PaginatedResponse<Expense> & { meta: ExpenseListMeta }>("/expenses", {
@@ -198,6 +211,13 @@ export const expensesApi = {
     ),
 
   /** Ildiz guruhlar kesimi */
+  /** Daraxt korinishidagi tarkib */
+  breakdown: (filters: ExpenseFilters) =>
+    api.get<ApiResponse<{ rows: BreakdownNode[]; totalTiyin: string }>>(
+      "/expenses/breakdown",
+      { params: filters },
+    ),
+
   summaryByGroup: (filters: ExpenseFilters) =>
     api.get<ApiResponse<{ rows: GroupSummaryRow[]; totalTiyin: string }>>(
       "/expenses/summary/group",
