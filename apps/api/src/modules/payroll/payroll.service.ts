@@ -387,6 +387,29 @@ export class PayrollService {
       },
     });
 
+    if (entries.length === 0) {
+      throw new BadRequestException(
+        "Qoralamada yozuv yoq. Faylni qaytadan yuklang",
+      );
+    }
+
+    // Qatorlar yigindisi yuklash summasiga teng bolishi kerak
+    const entriesTotal = entries.reduce(
+      (sum, item) => sum + item.totalTiyin,
+      0n,
+    );
+
+    if (entriesTotal !== batch.totalTiyin) {
+      const expected = Number(batch.totalTiyin) / 100;
+      const actual = Number(entriesTotal) / 100;
+
+      throw new BadRequestException(
+        `Malumot nomuvofiq: yuklashda ${expected.toLocaleString("uz-UZ")} som, ` +
+          `qatorlarda ${actual.toLocaleString("uz-UZ")} som. ` +
+          "Faylni qaytadan yuklang",
+      );
+    }
+
     const groups = new Map<
       string,
       {
@@ -436,24 +459,54 @@ export class PayrollService {
 
     const date = this.periodEndDate(batch.period);
 
-    // Xarajat yozuvlarini yaratamiz
-    for (const group of groups.values()) {
-      await this.prisma.expense.create({
-        data: {
-          date,
-          period: batch.period,
-          amountTiyin: group.totalTiyin,
-          categoryCode: PAYROLL_CATEGORY,
-          departmentId: group.departmentId,
-          regionCode: group.regionCode,
-          description: `${group.label} (${group.count} xodim)`,
-          paymentMethod: 'BANK',
-          paymentStatus: 'PAID',
-          source: 'PAYROLL',
-          payrollBatchId: batch.id,
-          createdById: userId,
-        },
+    if (groups.size === 0) {
+      throw new BadRequestException("Xarajat guruhi shakllanmadi");
+    }
+
+    // Guruhlar yigindisi ham tekshiriladi
+    const groupsTotal = [...groups.values()].reduce(
+      (sum, group) => sum + group.totalTiyin,
+      0n,
+    );
+
+    if (groupsTotal !== entriesTotal) {
+      throw new BadRequestException("Guruhlash xatosi: summalar mos kelmadi");
+    }
+
+    // Xarajat yozuvlarini birdan yaratamiz
+    await this.prisma.expense.createMany({
+      data: [...groups.values()].map((group) => ({
+        date,
+        period: batch.period,
+        amountTiyin: group.totalTiyin,
+        categoryCode: PAYROLL_CATEGORY,
+        departmentId: group.departmentId,
+        regionCode: group.regionCode,
+        description: `${group.label} (${group.count} xodim)`,
+        paymentMethod: "BANK" as const,
+        paymentStatus: "PAID" as const,
+        source: "PAYROLL" as const,
+        payrollBatchId: batch.id,
+        createdById: userId,
+      })),
+    });
+
+    // Yaratilganini tekshiramiz
+    const created = await this.prisma.expense.aggregate({
+      where: { payrollBatchId: batch.id, deletedAt: null },
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    if ((created._sum.amountTiyin ?? 0n) !== groupsTotal) {
+      // Yaratilganlarni bekor qilamiz
+      await this.prisma.expense.deleteMany({
+        where: { payrollBatchId: batch.id },
       });
+
+      throw new BadRequestException(
+        "Xarajat yaratishda xato. Amal bekor qilindi",
+      );
     }
 
     await this.prisma.payrollBatch.update({
@@ -463,8 +516,9 @@ export class PayrollService {
 
     return {
       success: true,
-      expensesCreated: groups.size,
-      totalTiyin: batch.totalTiyin,
+      expensesCreated: created._count._all,
+      totalTiyin: created._sum.amountTiyin ?? 0n,
+      entriesCount: entries.length,
       replacedPrevious: Boolean(previous && replacePrevious),
     };
   }
