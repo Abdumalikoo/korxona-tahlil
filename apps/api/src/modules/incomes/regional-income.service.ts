@@ -342,6 +342,34 @@ export class RegionalIncomeService {
       throw new BadRequestException('Saqlash uchun malumot yoq');
     }
 
+    // Kelgan qatorlarni tekshiramiz - hudud va xizmat mavjudmi
+    const [regions, services] = await Promise.all([
+      this.prisma.region.findMany({ select: { code: true } }),
+      this.prisma.incomeCategory.findMany({
+        where: { isActive: true },
+        select: { code: true },
+      }),
+    ]);
+
+    const regionCodes = new Set(regions.map((r) => r.code));
+    const serviceCodes = new Set(services.map((s) => s.code));
+
+    for (const row of rows) {
+      if (!regionCodes.has(row.regionCode)) {
+        throw new BadRequestException(`Hudud topilmadi: ${row.regionCode}`);
+      }
+      if (!serviceCodes.has(row.categoryCode)) {
+        throw new BadRequestException(
+          `Xizmat turi topilmadi: ${row.categoryCode}`,
+        );
+      }
+      if (row.amountTiyin <= 0n) {
+        throw new BadRequestException(
+          `Notogri summa: ${row.regionName} - ${row.categoryLabel}`,
+        );
+      }
+    }
+
     if (replacePrevious) {
       await this.prisma.income.updateMany({
         where: {
@@ -373,12 +401,32 @@ export class RegionalIncomeService {
       })),
     });
 
-    const totalTiyin = rows.reduce((sum, row) => sum + row.amountTiyin, 0n);
+    const expectedTotal = rows.reduce((sum, row) => sum + row.amountTiyin, 0n);
+
+    // Haqiqatda yaratilganini tekshiramiz
+    const created = await this.prisma.income.aggregate({
+      where: {
+        deletedAt: null,
+        period,
+        source: "IMPORT",
+        regionCode: { not: null },
+        createdAt: { gte: new Date(Date.now() - 60000) },
+      },
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    if (created._count._all !== rows.length) {
+      throw new BadRequestException(
+        `Yaratishda xato: kutilgan ${rows.length} ta, ` +
+          `yaratilgan ${created._count._all} ta`,
+      );
+    }
 
     return {
       success: true,
-      created: rows.length,
-      totalTiyin,
+      created: created._count._all,
+      totalTiyin: created._sum.amountTiyin ?? expectedTotal,
       replacedPrevious: replacePrevious,
     };
   }
