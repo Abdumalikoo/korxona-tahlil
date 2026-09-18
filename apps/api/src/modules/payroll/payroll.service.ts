@@ -359,19 +359,20 @@ export class PayrollService {
     });
 
     if (previous && replacePrevious) {
-      await this.prisma.expense.updateMany({
-        where: { payrollBatchId: previous.id },
-        data: { deletedAt: new Date() },
-      });
-
-      await this.prisma.payrollEntry.deleteMany({
-        where: { batchId: previous.id },
-      });
-
-      await this.prisma.payrollBatch.update({
-        where: { id: previous.id },
-        data: { status: 'CANCELLED' },
-      });
+      // Uch amal birga bajariladi - biri buzilsa hammasi bekor
+      await this.prisma.$transaction([
+        this.prisma.expense.updateMany({
+          where: { payrollBatchId: previous.id, deletedAt: null },
+          data: { deletedAt: new Date() },
+        }),
+        this.prisma.payrollEntry.deleteMany({
+          where: { batchId: previous.id },
+        }),
+        this.prisma.payrollBatch.update({
+          where: { id: previous.id },
+          data: { status: 'CANCELLED' },
+        }),
+      ]);
     }
 
     // Guruhlarni qayta yigamiz
@@ -473,51 +474,55 @@ export class PayrollService {
       throw new BadRequestException("Guruhlash xatosi: summalar mos kelmadi");
     }
 
-    // Xarajat yozuvlarini birdan yaratamiz
-    await this.prisma.expense.createMany({
-      data: [...groups.values()].map((group) => ({
-        date,
-        period: batch.period,
-        amountTiyin: group.totalTiyin,
-        categoryCode: PAYROLL_CATEGORY,
-        departmentId: group.departmentId,
-        regionCode: group.regionCode,
-        description: `${group.label} (${group.count} xodim)`,
-        paymentMethod: "BANK" as const,
-        paymentStatus: "PAID" as const,
-        source: "PAYROLL" as const,
-        payrollBatchId: batch.id,
-        createdById: userId,
-      })),
-    });
-
-    // Yaratilganini tekshiramiz
-    const created = await this.prisma.expense.aggregate({
-      where: { payrollBatchId: batch.id, deletedAt: null },
-      _sum: { amountTiyin: true },
-      _count: { _all: true },
-    });
-
-    if ((created._sum.amountTiyin ?? 0n) !== groupsTotal) {
-      // Yaratilganlarni bekor qilamiz
-      await this.prisma.expense.deleteMany({
-        where: { payrollBatchId: batch.id },
+    // Xarajat yaratish va statusni yangilash - birga
+    // Xarajat yaratish, tekshirish va status - bitta tranzaksiyada.
+    // Xato bolsa hech narsa saqlanmaydi.
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.expense.createMany({
+        data: [...groups.values()].map((group) => ({
+          date,
+          period: batch.period,
+          amountTiyin: group.totalTiyin,
+          categoryCode: PAYROLL_CATEGORY,
+          departmentId: group.departmentId,
+          regionCode: group.regionCode,
+          description: `${group.label} (${group.count} xodim)`,
+          paymentMethod: "BANK" as const,
+          paymentStatus: "PAID" as const,
+          source: "PAYROLL" as const,
+          payrollBatchId: batch.id,
+          createdById: userId,
+        })),
       });
 
-      throw new BadRequestException(
-        "Xarajat yaratishda xato. Amal bekor qilindi",
-      );
-    }
+      const created = await tx.expense.aggregate({
+        where: { payrollBatchId: batch.id, deletedAt: null },
+        _sum: { amountTiyin: true },
+        _count: { _all: true },
+      });
 
-    await this.prisma.payrollBatch.update({
-      where: { id: batch.id },
-      data: { status: 'COMMITTED', committedAt: new Date() },
+      if ((created._sum.amountTiyin ?? 0n) !== groupsTotal) {
+        // Tranzaksiya avtomatik bekor qilinadi
+        throw new BadRequestException(
+          "Xarajat yaratishda xato. Amal bekor qilindi",
+        );
+      }
+
+      await tx.payrollBatch.update({
+        where: { id: batch.id },
+        data: { status: 'COMMITTED', committedAt: new Date() },
+      });
+
+      return {
+        expensesCreated: created._count._all,
+        totalTiyin: created._sum.amountTiyin ?? 0n,
+      };
     });
 
     return {
       success: true,
-      expensesCreated: created._count._all,
-      totalTiyin: created._sum.amountTiyin ?? 0n,
+      expensesCreated: result.expensesCreated,
+      totalTiyin: result.totalTiyin,
       entriesCount: entries.length,
       replacedPrevious: Boolean(previous && replacePrevious),
     };

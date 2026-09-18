@@ -370,58 +370,62 @@ export class RegionalIncomeService {
       }
     }
 
-    if (replacePrevious) {
-      await this.prisma.income.updateMany({
+    const date = this.periodEndDate(period);
+    const expectedTotal = rows.reduce((sum, row) => sum + row.amountTiyin, 0n);
+    const startedAt = new Date();
+
+    // Eski yozuvlarni ochirish va yangilarini yaratish - birga
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (replacePrevious) {
+        await tx.income.updateMany({
+          where: {
+            deletedAt: null,
+            period,
+            source: 'IMPORT',
+            regionCode: { not: null },
+          },
+          data: { deletedAt: new Date() },
+        });
+      }
+
+      await tx.income.createMany({
+        data: rows.map((row) => ({
+          date,
+          period,
+          amountTiyin: row.amountTiyin,
+          paidTiyin: row.amountTiyin,
+          paymentStatus: 'PAID' as const,
+          paymentMethod: 'BANK' as const,
+          categoryCode: row.categoryCode,
+          regionCode: row.regionCode,
+          quantity: row.quantity,
+          description: `${row.regionName} \u2014 ${row.categoryLabel}`,
+          source: 'IMPORT' as const,
+          createdById: userId,
+        })),
+      });
+
+      const result = await tx.income.aggregate({
         where: {
           deletedAt: null,
           period,
-          source: 'IMPORT',
+          source: "IMPORT",
           regionCode: { not: null },
+          createdAt: { gte: startedAt },
         },
-        data: { deletedAt: new Date() },
+        _sum: { amountTiyin: true },
+        _count: { _all: true },
       });
-    }
 
-    const date = this.periodEndDate(period);
+      if (result._count._all !== rows.length) {
+        throw new BadRequestException(
+          `Yaratishda xato: kutilgan ${rows.length} ta, ` +
+            `yaratilgan ${result._count._all} ta`,
+        );
+      }
 
-    await this.prisma.income.createMany({
-      data: rows.map((row) => ({
-        date,
-        period,
-        amountTiyin: row.amountTiyin,
-        paidTiyin: row.amountTiyin,
-        paymentStatus: 'PAID' as const,
-        paymentMethod: 'BANK' as const,
-        categoryCode: row.categoryCode,
-        regionCode: row.regionCode,
-        quantity: row.quantity,
-        description: `${row.regionName} \u2014 ${row.categoryLabel}`,
-        source: 'IMPORT' as const,
-        createdById: userId,
-      })),
+      return result;
     });
-
-    const expectedTotal = rows.reduce((sum, row) => sum + row.amountTiyin, 0n);
-
-    // Haqiqatda yaratilganini tekshiramiz
-    const created = await this.prisma.income.aggregate({
-      where: {
-        deletedAt: null,
-        period,
-        source: "IMPORT",
-        regionCode: { not: null },
-        createdAt: { gte: new Date(Date.now() - 60000) },
-      },
-      _sum: { amountTiyin: true },
-      _count: { _all: true },
-    });
-
-    if (created._count._all !== rows.length) {
-      throw new BadRequestException(
-        `Yaratishda xato: kutilgan ${rows.length} ta, ` +
-          `yaratilgan ${created._count._all} ta`,
-      );
-    }
 
     return {
       success: true,
