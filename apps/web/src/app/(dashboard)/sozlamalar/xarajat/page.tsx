@@ -23,6 +23,7 @@ const tabs = [
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
   { href: '/sozlamalar/savat', label: 'Savat' },
   { href: '/sozlamalar/tarix', label: 'Tarix' },
+  { href: '/sozlamalar/tekshiruv', label: 'Tekshiruv' },
 ];
 
 export default function ExpenseSettingsPage() {

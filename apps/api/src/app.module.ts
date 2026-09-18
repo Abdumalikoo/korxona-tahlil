@@ -15,6 +15,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { CleanupModule } from './modules/cleanup/cleanup.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { IntegrityModule } from './modules/integrity/integrity.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 
 @Module({
@@ -37,6 +38,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
     DashboardModule,
     CleanupModule,
     AuditModule,
+    IntegrityModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

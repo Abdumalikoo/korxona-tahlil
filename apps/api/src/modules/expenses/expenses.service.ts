@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import type { Prisma, Expense } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { AuditService } from "../audit/audit.service";
 import type { CreateExpenseDto } from "./dto/create-expense.dto";
 import type { UpdateExpenseDto } from "./dto/update-expense.dto";
 import type { QueryExpenseDto } from "./dto/query-expense.dto";
