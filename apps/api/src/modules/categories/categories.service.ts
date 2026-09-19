@@ -152,6 +152,47 @@ export class CategoriesService {
     });
   }
 
+  /** Yangi daromad xizmat turi yaratadi */
+  async createIncomeCategory(dto: { label: string; code?: string }) {
+    const code = dto.code ?? (await this.uniqueIncomeCode(this.slugify(dto.label)));
+
+    const existing = await this.prisma.incomeCategory.findUnique({
+      where: { code },
+    });
+
+    if (existing) {
+      throw new ConflictException("Bu kod bilan xizmat turi allaqachon mavjud");
+    }
+
+    // Tartib raqami - oxirgisidan keyin
+    const last = await this.prisma.incomeCategory.findFirst({
+      orderBy: { order: "desc" },
+      select: { order: true },
+    });
+
+    return this.prisma.incomeCategory.create({
+      data: {
+        code,
+        label: dto.label.trim(),
+        order: (last?.order ?? 0) + 10,
+      },
+    });
+  }
+
+  /** Xizmat turi uchun takrorlanmas kod */
+  private async uniqueIncomeCode(base: string): Promise<string> {
+    let code = base;
+    let counter = 2;
+
+    while (await this.prisma.incomeCategory.findUnique({ where: { code } })) {
+      code = `${base}_${counter}`;
+      counter += 1;
+      if (counter > 50) break;
+    }
+
+    return code;
+  }
+
   /** Kategoriyani arxivlaydi - eski yozuvlar saqlanadi */
   async archive(code: string): Promise<Category> {
     await this.findOne(code);

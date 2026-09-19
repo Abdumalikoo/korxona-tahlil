@@ -5,7 +5,11 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
 import { errorMessage } from '@/lib/error-message';
-import { incomesApi, type IncomeFilters } from '@/features/incomes/api';
+import {
+  incomesApi,
+  downloadIncomesExcel,
+  type IncomeFilters,
+} from '@/features/incomes/api';
 import { IncomeDrawer } from '@/features/incomes/income-drawer';
 import { referencesApi } from '@/features/shared/references';
 import { currentPeriod, formatDate, formatPeriod } from '@/lib/format';
@@ -25,7 +29,8 @@ import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/table';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { IconPlus, IconTrendUp, IconEdit, IconTrash } from '@/components/ui/icons';
+import { SimpleImportDialog } from '@/components/shared/simple-import-dialog';
+import { IconPlus, IconTrendUp, IconEdit, IconTrash, IconUpload, IconDownload } from '@/components/ui/icons';
 import type { Income, PaymentStatus } from '@/lib/types';
 
 const PAGE_LIMIT = 25;
@@ -52,6 +57,20 @@ export default function IncomesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkConfirm, setBulkConfirm] = useState<'selected' | 'filter' | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  /** Excel faylni yuklab olish */
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadIncomesExcel(filters);
+    } catch (err) {
+      setToast(errorMessage(err, 'Faylni yuklab bolmadi'));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   /** Bitta qatorni belgilash */
   function toggleOne(id: string) {
@@ -156,10 +175,32 @@ export default function IncomesPage() {
         description={formatPeriod(period)}
         actions={
           isAdmin && (
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <IconPlus className="size-4" />
-              Yangi daromad
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleExport()}
+                loading={exporting}
+                disabled={items.length === 0}
+              >
+                <IconDownload className="size-4" />
+                Excel
+              </Button>
+
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setImportOpen(true)}
+              >
+                <IconUpload className="size-4" />
+                Yuklash
+              </Button>
+
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <IconPlus className="size-4" />
+                Yangi daromad
+              </Button>
+            </>
           )
         }
       />
@@ -431,6 +472,7 @@ export default function IncomesPage() {
           setCreating(false);
         }}
         onSaved={handleSaved}
+        onCategoriesChanged={categories.reload}
       />
 
       <ConfirmDialog
@@ -446,6 +488,17 @@ export default function IncomesPage() {
         loading={bulkDeleting}
         onConfirm={() => void handleBulkDelete()}
         onCancel={() => setBulkConfirm(null)}
+      />
+
+      <SimpleImportDialog
+        open={importOpen}
+        kind="income"
+        onClose={() => setImportOpen(false)}
+        onImported={(message) => {
+          setToast(message);
+          list.reload();
+          comparison.reload();
+        }}
       />
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}

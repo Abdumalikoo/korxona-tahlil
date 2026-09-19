@@ -16,6 +16,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { CleanupModule } from './modules/cleanup/cleanup.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { IntegrityModule } from './modules/integrity/integrity.module';
+import { BackupModule } from './modules/backup/backup.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 
 @Module({
@@ -39,6 +40,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
     CleanupModule,
     AuditModule,
     IntegrityModule,
+    BackupModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

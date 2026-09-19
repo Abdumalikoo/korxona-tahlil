@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAsync } from '@/lib/use-async';
 import { dashboardApi } from '@/features/dashboard/api';
-import { currentPeriod, formatPeriod, formatPercent, formatTiyin } from '@/lib/format';
+import { formatPeriod, formatPercent, formatTiyin, formatDate } from '@/lib/format';
 
 import { PageHeader } from '@/components/layout/page-header';
 import {

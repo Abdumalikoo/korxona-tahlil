@@ -72,6 +72,14 @@ export class CategoriesController {
     return { data };
   }
 
+  /** Yangi daromad xizmat turi */
+  @Roles(UserRole.ADMIN)
+  @Post('income')
+  async createIncome(@Body() dto: { label: string; code?: string }) {
+    const data = await this.categories.createIncomeCategory(dto);
+    return { data };
+  }
+
   @Roles(UserRole.ADMIN)
   @Post()
   async create(@Body() dto: CreateCategoryDto) {

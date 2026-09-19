@@ -21,6 +21,7 @@ const tabs = [
   { href: '/sozlamalar/savat', label: 'Savat' },
   { href: '/sozlamalar/tarix', label: 'Tarix' },
   { href: '/sozlamalar/tekshiruv', label: 'Tekshiruv' },
+  { href: '/sozlamalar/zaxira', label: 'Zaxira' },
 ];
 
 const actionLabels: Record<AuditAction, string> = {

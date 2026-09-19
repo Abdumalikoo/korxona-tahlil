@@ -1,25 +1,32 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
+import {
+  formatDateTime,
+  formatTiyin,
+  sumToTiyin,
+  tiyinToSum,
+  todayInput,
+} from '@/lib/format';
+import { useEffect, useState } from 'react';
 import { incomesApi } from './api';
-import { todayInput, sumToTiyin, tiyinToSum, formatDateTime, formatTiyin } from '@/lib/format';
 
-import { Drawer } from '@/components/ui/drawer';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { MoneyInput } from '@/components/shared/money-input';
+import { QuickServiceDialog } from '@/components/shared/quick-service-dialog';
+import { PaymentBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Drawer } from '@/components/ui/drawer';
+import { IconChevronDown, IconPlus, IconTrash } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { MoneyInput } from '@/components/shared/money-input';
-import { PaymentBadge } from '@/components/ui/badge';
-import { IconTrash } from '@/components/ui/icons';
+import { cn } from '@/lib/utils';
 
 import type {
+  Department,
   Income,
   IncomeCategory,
-  Department,
   PaymentMethod,
   PaymentStatus,
 } from '@/lib/types';
@@ -44,6 +51,8 @@ interface IncomeDrawerProps {
   departments: Department[];
   onClose: () => void;
   onSaved: (message: string) => void;
+  /** Yangi xizmat turi qo'shilganda ro'yxatni yangilash */
+  onCategoriesChanged?: () => void;
 }
 
 interface FormState {
@@ -87,6 +96,7 @@ export function IncomeDrawer({
   departments,
   onClose,
   onSaved,
+  onCategoriesChanged,
 }: IncomeDrawerProps) {
   const { isAdmin } = useAuth();
 
@@ -96,6 +106,8 @@ export function IncomeDrawer({
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [extraOpen, setExtraOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
 
   const isOpen = income !== null || creating;
   const isEditing = income !== null;
@@ -114,9 +126,21 @@ export function IncomeDrawer({
         contractNo: income.contractNo ?? '',
         description: income.description ?? '',
       });
+
+      // Tahrirlashda qo'shimcha maydonlar to'ldirilgan bo'lsa — ochiq
+      setExtraOpen(
+        Boolean(
+          income.clientName ||
+            income.contractNo ||
+            income.description ||
+            income.paymentStatus !== 'PAID',
+        ),
+      );
     } else {
       setForm(emptyForm());
+      setExtraOpen(false);
     }
+
     setErrors({});
     setServerError(null);
   }, [income, creating]);
@@ -127,13 +151,11 @@ export function IncomeDrawer({
     setForm((state) => {
       const next = { ...state, [key]: value };
 
-      // To'lov holati o'zgarsa - to'langan summani moslashtiramiz
       if (key === 'paymentStatus') {
         if (value === 'PAID') next.paid = next.amount;
         else if (value === 'UNPAID') next.paid = 0;
       }
 
-      // Summa o'zgarsa va to'liq to'langan bo'lsa - tushgan ham o'zgaradi
       if (key === 'amount' && next.paymentStatus === 'PAID') {
         next.paid = value as number | null;
       }
@@ -160,7 +182,7 @@ export function IncomeDrawer({
       if (form.paid === null || form.paid <= 0) {
         found.paid = 'Tushgan summani kiriting';
       } else if (form.amount !== null && form.paid >= form.amount) {
-        found.paid = 'Qisman to\u2019lov shartnoma summasidan kam bo\u2019lishi kerak';
+        found.paid = 'Qisman to\u2019lov shartnoma summasidan kam bo\u2019lsin';
       }
     }
 
@@ -243,7 +265,7 @@ export function IncomeDrawer({
         description={
           income
             ? `${income.createdBy?.fullName ?? ''} \u00B7 ${formatDateTime(income.createdAt)}`
-            : 'Yulduzcha bilan belgilanganlar majburiy'
+            : undefined
         }
         footer={
           readOnly ? (
@@ -286,12 +308,13 @@ export function IncomeDrawer({
             <div className="rounded-[--radius-control] bg-[--color-surface-sunken] px-4 py-3">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
-                  Shartnoma summasi
+                  Summa
                 </span>
                 <span className="money text-lg font-semibold text-[--color-income]">
                   {formatTiyin(income.amountTiyin, { currency: true })}
                 </span>
               </div>
+
               <div className="mt-1 flex items-center gap-2 text-xs text-[--color-text-muted]">
                 <span>{income.category.label}</span>
                 <PaymentBadge status={income.paymentStatus} />
@@ -299,30 +322,47 @@ export function IncomeDrawer({
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="Sana"
-              type="date"
-              value={form.date}
-              onChange={(event) => update('date', event.target.value)}
-              error={errors.date}
-              required
-              disabled={saving || readOnly}
-            />
+          {/* ─────── Asosiy maydonlar ─────── */}
+
+          <Input
+            label="Sana"
+            type="date"
+            value={form.date}
+            onChange={(event) => update('date', event.target.value)}
+            error={errors.date}
+            required
+            disabled={saving || readOnly}
+          />
+
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label className="text-sm font-medium text-[--color-text]">
+                Xizmat turi <span className="text-[--color-expense]">*</span>
+              </label>
+
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => setQuickOpen(true)}
+                  className="flex items-center gap-1 text-xs font-medium text-brand-700 hover:underline"
+                >
+                  <IconPlus className="size-3.5" />
+                  Yangi qo&rsquo;shish
+                </button>
+              )}
+            </div>
 
             <Select
-              label="Xizmat turi"
               options={categoryOptions}
               value={form.categoryCode}
               onChange={(event) => update('categoryCode', event.target.value)}
               error={errors.categoryCode}
-              required
               disabled={saving || readOnly}
             />
           </div>
 
           <MoneyInput
-            label="Shartnoma summasi"
+            label="Summa"
             value={form.amount}
             onChange={(value) => update('amount', value)}
             error={errors.amount}
@@ -330,82 +370,110 @@ export function IncomeDrawer({
             disabled={saving || readOnly}
           />
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Select
-              label="To&apos;lov holati"
-              options={paymentStatuses}
-              value={form.paymentStatus}
-              onChange={(event) =>
-                update('paymentStatus', event.target.value as PaymentStatus)
-              }
-              disabled={saving || readOnly}
-            />
+          <Select
+            label="Bo&apos;lim"
+            options={departmentOptions}
+            value={form.departmentId}
+            onChange={(event) => update('departmentId', event.target.value)}
+            disabled={saving || readOnly}
+          />
 
-            {isPartial && (
-              <MoneyInput
-                label="Tushgan summa"
-                value={form.paid}
-                onChange={(value) => update('paid', value)}
-                error={errors.paid}
-                required
-                disabled={saving || readOnly}
+          {/* ─────── Qo'shimcha ─────── */}
+
+          <div className="rounded-[--radius-control] border border-[--color-line]">
+            <button
+              type="button"
+              onClick={() => setExtraOpen((state) => !state)}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-[--color-surface-muted]"
+            >
+              <IconChevronDown
+                className={cn(
+                  'size-4 text-[--color-text-muted] transition-transform',
+                  !extraOpen && '-rotate-90',
+                )}
               />
+              Qo&rsquo;shimcha ma&rsquo;lumot
+            </button>
+
+            {extraOpen && (
+              <div className="space-y-4 border-t border-[--color-line] px-3 py-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Select
+                    label="To&apos;lov holati"
+                    options={paymentStatuses}
+                    value={form.paymentStatus}
+                    onChange={(event) =>
+                      update('paymentStatus', event.target.value as PaymentStatus)
+                    }
+                    disabled={saving || readOnly}
+                  />
+
+                  {isPartial && (
+                    <MoneyInput
+                      label="Tushgan summa"
+                      value={form.paid}
+                      onChange={(value) => update('paid', value)}
+                      error={errors.paid}
+                      required
+                      disabled={saving || readOnly}
+                    />
+                  )}
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Input
+                    label="Mijoz"
+                    value={form.clientName}
+                    onChange={(event) => update('clientName', event.target.value)}
+                    placeholder="Tashkilot yoki shaxs"
+                    disabled={saving || readOnly}
+                  />
+
+                  <Input
+                    label="Shartnoma raqami"
+                    value={form.contractNo}
+                    onChange={(event) => update('contractNo', event.target.value)}
+                    disabled={saving || readOnly}
+                  />
+                </div>
+
+                <Select
+                  label="To&apos;lov usuli"
+                  options={paymentMethods}
+                  value={form.paymentMethod}
+                  onChange={(event) =>
+                    update('paymentMethod', event.target.value as PaymentMethod)
+                  }
+                  disabled={saving || readOnly}
+                />
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-[--color-text]">
+                    Tavsif
+                  </label>
+                  <textarea
+                    value={form.description}
+                    onChange={(event) => update('description', event.target.value)}
+                    rows={3}
+                    maxLength={500}
+                    disabled={saving || readOnly}
+                    className="w-full rounded-[--radius-control] border border-[--color-line-strong] bg-white px-3 py-2 text-sm focus:border-brand-600 disabled:bg-[--color-surface-sunken]"
+                  />
+                </div>
+              </div>
             )}
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="Mijoz"
-              value={form.clientName}
-              onChange={(event) => update('clientName', event.target.value)}
-              placeholder="Tashkilot yoki shaxs nomi"
-              disabled={saving || readOnly}
-            />
-
-            <Input
-              label="Shartnoma raqami"
-              value={form.contractNo}
-              onChange={(event) => update('contractNo', event.target.value)}
-              disabled={saving || readOnly}
-            />
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Select
-              label="Bo&apos;lim"
-              options={departmentOptions}
-              value={form.departmentId}
-              onChange={(event) => update('departmentId', event.target.value)}
-              disabled={saving || readOnly}
-            />
-
-            <Select
-              label="To&apos;lov usuli"
-              options={paymentMethods}
-              value={form.paymentMethod}
-              onChange={(event) =>
-                update('paymentMethod', event.target.value as PaymentMethod)
-              }
-              disabled={saving || readOnly}
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-[--color-text]">
-              Tavsif
-            </label>
-            <textarea
-              value={form.description}
-              onChange={(event) => update('description', event.target.value)}
-              rows={3}
-              maxLength={500}
-              disabled={saving || readOnly}
-              className="w-full rounded-[--radius-control] border border-[--color-line-strong] bg-white px-3 py-2 text-sm focus:border-brand-600 disabled:bg-[--color-surface-sunken]"
-              placeholder="Qo&apos;shimcha izoh"
-            />
           </div>
         </div>
       </Drawer>
+
+      <QuickServiceDialog
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        onCreated={(category) => {
+          onCategoriesChanged?.();
+          update('categoryCode', category.code);
+        }}
+      />
 
       <ConfirmDialog
         open={confirmOpen}

@@ -11,21 +11,43 @@ import {
     Patch,
     Post,
     Query,
+  Res,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { CreateIncomeDto } from './dto/create-income.dto';
 import { QueryIncomeDto } from './dto/query-income.dto';
 import { UpdateIncomeDto } from './dto/update-income.dto';
+import type { Response } from 'express';
 import { IncomesService } from './incomes.service';
+import { IncomesExportService } from './incomes-export.service';
 
 @Controller('incomes')
 export class IncomesController {
-  constructor(private readonly incomes: IncomesService) {}
+  constructor(
+    private readonly incomes: IncomesService,
+    private readonly exportService: IncomesExportService,
+  ) {}
 
   // ─────────── Tahlil (":id" dan oldin) ───────────
 
   /** Savatdagi yozuvlar */
+  /** Excel eksport */
+  @Get('export')
+  async exportExcel(@Query() query: QueryIncomeDto, @Res() response: Response) {
+    const { buffer, filename } = await this.exportService.build(query);
+
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"`,
+    );
+    response.send(buffer);
+  }
+
   @Get('deleted')
   async deleted(@Query('period') period?: string) {
     const data = await this.incomes.findDeleted(period);

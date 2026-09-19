@@ -19,7 +19,7 @@ import { StatCard } from '@/components/shared/stat-card';
 import { BehaviorBadge, PaymentBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { IconPlus, IconWallet, IconDownload, IconEdit, IconTrash } from '@/components/ui/icons';
+import { IconPlus, IconWallet, IconDownload, IconEdit, IconTrash, IconUpload } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
@@ -28,6 +28,7 @@ import { Tabs } from '@/components/ui/tabs';
 import { SortableTh } from '@/components/ui/sortable-th';
 import { Toast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { SimpleImportDialog } from '@/components/shared/simple-import-dialog';
 import type { Expense, PaymentStatus } from '@/lib/types';
 
 const PAGE_LIMIT = 25;
@@ -46,6 +47,7 @@ export default function ExpensesPage() {
   const [selected, setSelected] = useState<Expense | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [sortBy, setSortBy] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -197,6 +199,17 @@ export default function ExpensesPage() {
               <IconDownload className="size-4" />
               Excel
             </Button>
+
+            {isAdmin && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setImportOpen(true)}
+              >
+                <IconUpload className="size-4" />
+                Yuklash
+              </Button>
+            )}
 
             {isAdmin && (
               <Link href="/xarajatlar/yangi">
@@ -554,6 +567,17 @@ export default function ExpensesPage() {
         loading={bulkDeleting}
         onConfirm={() => void handleBulkDelete()}
         onCancel={() => setBulkConfirm(null)}
+      />
+
+      <SimpleImportDialog
+        open={importOpen}
+        kind="expense"
+        onClose={() => setImportOpen(false)}
+        onImported={(message) => {
+          setToast(message);
+          list.reload();
+          comparison.reload();
+        }}
       />
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}

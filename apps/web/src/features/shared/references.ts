@@ -45,6 +45,10 @@ export const categoriesApi = {
   archive: (code: string) =>
     api.patch<ApiResponse<Category>>(`/categories/${code}/archive`),
 
+  /** Yangi daromad xizmat turi */
+  createIncome: (payload: { label: string; code?: string }) =>
+    api.post<ApiResponse<IncomeCategory>>("/categories/income", payload),
+
   usage: (code: string) =>
     api.get<ApiResponse<{ expenses: number }>>(`/categories/${code}/usage`),
 };
