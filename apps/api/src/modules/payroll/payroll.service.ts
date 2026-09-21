@@ -1,98 +1,194 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import ExcelJS from 'exceljs';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
 const CENTRAL_REGION = 0;
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
 const TASHKENT_OFFSET_HOURS = 5;
 
-/** Faylning bitta qatori */
-interface ParsedRow {
-  rowIndex: number;
+/** Saqlash uchun qator */
+export interface PayrollRow {
   pinfl: string;
   amountTiyin: bigint;
 }
 
-/** Xodim bilan bog'langan qator */
-interface MatchedRow extends ParsedRow {
+export interface MissingRow {
+  rowIndex: number;
+  pinfl: string;
+}
+
+interface GroupEmployee {
+  pinfl: string;
   fullName: string;
   regionCode: number;
-  regionName: string;
-  districtName: string | null;
-  departmentId: string | null;
-  departmentName: string | null;
   employmentType: string;
-  /** Guruh kaliti - xarajatlarni yigish uchun */
-  groupKey: string;
-  groupLabel: string;
+  departmentId: string | null;
+  region: { name: string };
+  district: { name: string } | null;
+  department: { name: string } | null;
 }
+
+interface ExpenseGroup {
+  label: string;
+  departmentId: string | null;
+  regionCode: number | null;
+  totalTiyin: bigint;
+  count: number;
+  zeroCount: number;
+}
+
+const EMPLOYEE_INCLUDE = {
+  region: { select: { name: true } },
+  district: { select: { name: true } },
+  department: { select: { name: true } },
+} as const;
 
 @Injectable()
 export class PayrollService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // --------- Yordamchilar ---------
+  // ═══════════ Yordamchilar ═══════════
 
-  /** Davr oxirgi kunini qaytaradi - xarajat sanasi shu boladi */
-  private periodEndDate(period: string): Date {
-    const match = /^(\d{4})-(\d{2})$/.exec(period);
-    if (!match) {
+  private assertPeriod(period: string): void {
+    if (!/^\d{4}-\d{2}$/.test(period ?? '')) {
       throw new BadRequestException('Davr notogri formatda');
     }
+  }
 
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-
-    // Keyingi oyning birinchi kunidan bir kun oldin
-    const nextMonth = month === 12 ? 1 : month + 1;
-    const nextYear = month === 12 ? year + 1 : year;
+  /** Davr oxirgi kuni — xarajat sanasi */
+  private periodEndDate(period: string): Date {
+    const [year, month] = period.split('-').map(Number);
+    const nextMonth = month === 12 ? 1 : (month ?? 1) + 1;
+    const nextYear = month === 12 ? (year ?? 2026) + 1 : (year ?? 2026);
 
     return new Date(
-      Date.UTC(nextYear, nextMonth - 1, 1, -TASHKENT_OFFSET_HOURS) - 86400000,
+      Date.UTC(nextYear, nextMonth - 1, 1, -TASHKENT_OFFSET_HOURS) - 86_400_000,
     );
   }
 
-  /** Matndan summani ajratadi - "1 250 000" va "1250000.50" ishlaydi */
+  /** Formula, boy matn va oddiy qiymatni bir xil ko'rinishga keltiradi */
+  private cellValue(value: ExcelJS.CellValue): unknown {
+    if (value && typeof value === 'object') {
+      const record = value as unknown as Record<string, unknown>;
+
+      if ('result' in record) return record.result;
+      if ('text' in record) return record.text;
+      if ('richText' in record && Array.isArray(record.richText)) {
+        return (record.richText as { text: string }[]).map((part) => part.text).join('');
+      }
+    }
+    return value;
+  }
+
+  private isBlank(value: unknown): boolean {
+    return value === null || value === undefined || String(value).trim() === '';
+  }
+
+  private parsePinfl(value: unknown): string | null {
+    if (this.isBlank(value)) return null;
+    const digits = String(value).replace(/\D/g, '');
+    return /^\d{14}$/.test(digits) ? digits : null;
+  }
+
+  /**
+   * Summa. Bo'sh katak yoki 0 — nol (ish haqi hisoblanmagan).
+   * Manfiy yoki son bo'lmagan qiymat — null (xato qator).
+   */
   private parseAmount(value: unknown): bigint | null {
-    if (value === null || value === undefined || value === '') return null;
+    if (this.isBlank(value)) return 0n;
 
     if (typeof value === 'number') {
-      if (!Number.isFinite(value) || value <= 0) return null;
+      if (!Number.isFinite(value) || value < 0) return null;
       return BigInt(Math.round(value * 100));
     }
 
-    const text = String(value)
-      .replace(/[\s\u00A0\u202F]/g, '')
-      .replace(',', '.');
-
+    const text = String(value).replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
     const parsed = Number(text);
-    if (!Number.isFinite(parsed) || parsed <= 0) return null;
 
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
     return BigInt(Math.round(parsed * 100));
   }
 
-  /** PINFL ni tozalaydi va tekshiradi */
-  private parsePinfl(value: unknown): string | null {
-    if (value === null || value === undefined) return null;
-
-    const text = String(value).replace(/\D/g, '');
-    return /^\d{14}$/.test(text) ? text : null;
+  private placeOf(employee: GroupEmployee): string {
+    if (employee.regionCode === CENTRAL_REGION) {
+      return employee.department?.name ?? 'Markaz';
+    }
+    return employee.district
+      ? `${employee.region.name} / ${employee.district.name}`
+      : employee.region.name;
   }
 
-  // --------- Shablon ---------
+  /**
+   * Xodimlarni xarajat guruhlariga ajratadi.
+   * Shartnoma alohida, markaz bo'lim bo'yicha, viloyat yaxlit.
+   */
+  private buildGroups(
+    items: { amountTiyin: bigint; employee: GroupEmployee }[],
+  ): Map<string, ExpenseGroup> {
+    const groups = new Map<string, ExpenseGroup>();
+
+    for (const { amountTiyin, employee } of items) {
+      const isContract = employee.employmentType === 'SHARTNOMA';
+      const isCentral = employee.regionCode === CENTRAL_REGION;
+
+      let key: string;
+      let label: string;
+      let departmentId: string | null = null;
+      let regionCode: number | null = null;
+
+      if (isContract) {
+        key = 'shartnoma';
+        label = 'Shartnoma asosidagi ish haqi';
+      } else if (isCentral) {
+        key = `markaz-${employee.departmentId ?? 'none'}`;
+        label = `Ish haqi \u2014 ${employee.department?.name ?? 'bolimsiz'}`;
+        departmentId = employee.departmentId;
+        regionCode = CENTRAL_REGION;
+      } else {
+        key = `region-${employee.regionCode}`;
+        label = `Ish haqi \u2014 ${employee.region.name}`;
+        regionCode = employee.regionCode;
+      }
+
+      const group = groups.get(key) ?? {
+        label,
+        departmentId,
+        regionCode,
+        totalTiyin: 0n,
+        count: 0,
+        zeroCount: 0,
+      };
+
+      group.totalTiyin += amountTiyin;
+      group.count += 1;
+      if (amountTiyin === 0n) group.zeroCount += 1;
+
+      groups.set(key, group);
+    }
+
+    return groups;
+  }
+
+  private formatSum(tiyin: bigint): string {
+    return `${(Number(tiyin) / 100).toLocaleString('uz-UZ')} som`;
+  }
+
+  // ═══════════ Shablon ═══════════
 
   /**
-   * Bosh shablon yasaydi.
-   *
-   * Ikki ustun: PINFL va summa. Qolgan malumot reestrdan tortiladi.
-   * Yordamchi varaqda faol xodimlar royxati bor - nusxalash uchun.
+   * Sodda shablon: PINFL va summa.
+   * Ikkinchi varaqda faol xodimlar ro'yxati — nusxalash uchun.
    */
   async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
+    this.assertPeriod(period);
+
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Korxona tahlil';
 
-    const sheet = workbook.addWorksheet('Ish haqi');
+    const sheet = workbook.addWorksheet('Ish haqi', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
 
     sheet.columns = [
       { header: 'PINFL', key: 'pinfl', width: 20 },
@@ -107,19 +203,10 @@ export class PayrollService {
     sheet.getColumn('A').numFmt = '@';
     sheet.getColumn('B').numFmt = '#,##0';
 
-    // Namuna qator
-    sheet.addRow({ pinfl: '12345678901234', amount: 5000000 });
-    sheet.getRow(2).font = { color: { argb: 'FF94A3B8' }, italic: true };
-
-    // Yordamchi varaq - faol xodimlar
     const employees = await this.prisma.employee.findMany({
       where: { isActive: true },
-      orderBy: { fullName: 'asc' },
-      include: {
-        region: { select: { name: true } },
-        district: { select: { name: true } },
-        department: { select: { name: true } },
-      },
+      orderBy: [{ regionCode: 'asc' }, { fullName: 'asc' }],
+      include: EMPLOYEE_INCLUDE,
     });
 
     const ref = workbook.addWorksheet('Xodimlar');
@@ -133,47 +220,31 @@ export class PayrollService {
     const refHeader = ref.getRow(1);
     refHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     refHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
-
     ref.getColumn('A').numFmt = '@';
 
-    for (const emp of employees) {
+    for (const employee of employees) {
       ref.addRow({
-        pinfl: emp.pinfl,
-        fullName: emp.fullName,
-        type: emp.employmentType === 'SHTAT' ? 'Shtat' : 'Shartnoma',
-        place:
-          emp.regionCode === CENTRAL_REGION
-            ? (emp.department?.name ?? 'Markaz')
-            : `${emp.region.name}${emp.district ? ` / ${emp.district.name}` : ''}`,
+        pinfl: employee.pinfl,
+        fullName: employee.fullName,
+        type: employee.employmentType === 'SHTAT' ? 'Shtat' : 'Shartnoma',
+        place: this.placeOf(employee as unknown as GroupEmployee),
       });
     }
 
     ref.autoFilter = { from: 'A1', to: `D${ref.rowCount}` };
 
-    const arrayBuffer = await workbook.xlsx.writeBuffer();
-    return {
-      buffer: Buffer.from(arrayBuffer),
-      filename: `Ish-haqi-${period}.xlsx`,
-    };
+    const data = await workbook.xlsx.writeBuffer();
+    return { buffer: Buffer.from(data), filename: `Ish-haqi-${period}.xlsx` };
   }
 
-  // --------- Yuklash va tahlil ---------
+  // ═══════════ Tahlil — bazaga hech narsa yozilmaydi ═══════════
 
-  /**
-   * Faylni oqiydi va reestr bilan solishtiradi.
-   * Hech narsa saqlanmaydi - faqat natija qaytariladi.
-   */
-  async analyze(period: string, file: Express.Multer.File, userId: string) {
+  async analyze(period: string, file: Express.Multer.File) {
+    this.assertPeriod(period);
+
     if (!file) {
       throw new BadRequestException('Fayl yuklanmadi');
     }
-
-    const fileHash = createHash('sha256').update(file.buffer).digest('hex');
-
-    // Bu davr uchun tasdiqlangan yuklash bormi
-    const existing = await this.prisma.payrollBatch.findFirst({
-      where: { period, status: 'COMMITTED' },
-    });
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
@@ -183,530 +254,340 @@ export class PayrollService {
       throw new BadRequestException('Faylda varaq topilmadi');
     }
 
-    // Qatorlarni oqiymiz
-    const rows: ParsedRow[] = [];
+    const parsed = new Map<string, { rowIndex: number; amountTiyin: bigint }>();
     const invalidRows: { rowIndex: number; reason: string }[] = [];
+    const duplicates: string[] = [];
 
     sheet.eachRow((row, rowIndex) => {
-      if (rowIndex === 1) return; // sarlavha
+      if (rowIndex === 1) return;
 
-      const pinfl = this.parsePinfl(row.getCell(1).value);
-      const amount = this.parseAmount(row.getCell(2).value);
+      const rawPinfl = this.cellValue(row.getCell(1).value);
+      const rawAmount = this.cellValue(row.getCell(2).value);
 
-      if (!pinfl && !amount) return; // bosh qator
+      if (this.isBlank(rawPinfl) && this.isBlank(rawAmount)) return;
 
+      const pinfl = this.parsePinfl(rawPinfl);
       if (!pinfl) {
         invalidRows.push({ rowIndex, reason: 'PINFL notogri' });
         return;
       }
-      if (!amount) {
+
+      const amount = this.parseAmount(rawAmount);
+      if (amount === null) {
         invalidRows.push({ rowIndex, reason: 'Summa notogri' });
         return;
       }
 
-      rows.push({ rowIndex, pinfl, amountTiyin: amount });
+      // Bir xodim ikki marta yozilgan bo'lsa — summalar qo'shiladi
+      const existing = parsed.get(pinfl);
+      if (existing) {
+        existing.amountTiyin += amount;
+        duplicates.push(pinfl);
+        return;
+      }
+
+      parsed.set(pinfl, { rowIndex, amountTiyin: amount });
     });
 
-    if (rows.length === 0) {
+    if (parsed.size === 0) {
       throw new BadRequestException('Faylda yaroqli qator topilmadi');
     }
 
-    // Reestrdan xodimlarni tortamiz
-    const pinfls = [...new Set(rows.map((r) => r.pinfl))];
     const employees = await this.prisma.employee.findMany({
-      where: { pinfl: { in: pinfls } },
-      include: {
-        region: { select: { code: true, name: true } },
-        district: { select: { name: true } },
-        department: { select: { id: true, name: true } },
-      },
+      where: { pinfl: { in: [...parsed.keys()] } },
+      include: EMPLOYEE_INCLUDE,
     });
 
-    const empMap = new Map(employees.map((e) => [e.pinfl, e]));
+    const employeeMap = new Map(
+      employees.map((item) => [item.pinfl, item as unknown as GroupEmployee]),
+    );
 
-    const matched: MatchedRow[] = [];
-    const missing: { rowIndex: number; pinfl: string }[] = [];
+    const matched: { amountTiyin: bigint; employee: GroupEmployee }[] = [];
+    const missing: MissingRow[] = [];
 
-    for (const row of rows) {
-      const emp = empMap.get(row.pinfl);
+    for (const [pinfl, row] of parsed) {
+      const employee = employeeMap.get(pinfl);
 
-      if (!emp) {
-        missing.push({ rowIndex: row.rowIndex, pinfl: row.pinfl });
+      if (!employee) {
+        missing.push({ rowIndex: row.rowIndex, pinfl });
         continue;
       }
 
-      const isCentral = emp.regionCode === CENTRAL_REGION;
-      const isContract = emp.employmentType === 'SHARTNOMA';
-
-      // Guruh kaliti: shartnoma alohida, markaz bolim boyicha, viloyat yaxlit
-      let groupKey: string;
-      let groupLabel: string;
-
-      if (isContract) {
-        groupKey = 'shartnoma';
-        groupLabel = 'Shartnoma';
-      } else if (isCentral) {
-        groupKey = `markaz-${emp.departmentId ?? 'none'}`;
-        groupLabel = `Markaz \u2014 ${emp.department?.name ?? 'bolimsiz'}`;
-      } else {
-        groupKey = `region-${emp.regionCode}`;
-        groupLabel = emp.region.name;
-      }
-
-      matched.push({
-        ...row,
-        fullName: emp.fullName,
-        regionCode: emp.regionCode,
-        regionName: emp.region.name,
-        districtName: emp.district?.name ?? null,
-        departmentId: emp.departmentId,
-        departmentName: emp.department?.name ?? null,
-        employmentType: emp.employmentType,
-        groupKey,
-        groupLabel,
-      });
+      matched.push({ amountTiyin: row.amountTiyin, employee });
     }
 
-    // Guruhlar boyicha yigamiz
-    const groups = new Map<
-      string,
-      { label: string; departmentId: string | null; count: number; totalTiyin: bigint }
-    >();
+    const groups = this.buildGroups(matched);
+    const totalTiyin = matched.reduce((sum, item) => sum + item.amountTiyin, 0n);
 
-    for (const row of matched) {
-      const current = groups.get(row.groupKey) ?? {
-        label: row.groupLabel,
-        departmentId: row.groupKey.startsWith('markaz-') ? row.departmentId : null,
-        count: 0,
-        totalTiyin: 0n,
-      };
+    const zeroEmployees = matched
+      .filter((item) => item.amountTiyin === 0n)
+      .map((item) => ({
+        pinfl: item.employee.pinfl,
+        fullName: item.employee.fullName,
+        place: this.placeOf(item.employee),
+      }));
 
-      current.count += 1;
-      current.totalTiyin += row.amountTiyin;
-      groups.set(row.groupKey, current);
-    }
-
-    const totalTiyin = matched.reduce((sum, row) => sum + row.amountTiyin, 0n);
-
-    // Qoralama saqlaymiz - tasdiqlash uchun kerak
-    const batch = await this.prisma.payrollBatch.create({
-      data: {
-        period,
-        status: 'DRAFT',
-        fileName: file.originalname,
-        fileHash,
-        totalRows: rows.length,
-        matchedRows: matched.length,
-        missingRows: missing.length,
-        totalTiyin,
-        missingPinfls: missing,
-        uploadedById: userId,
-      },
-    });
-
-    // Qatorlarni vaqtincha saqlaymiz
-    await this.prisma.payrollEntry.createMany({
-      data: matched.map((row) => ({
-        employeePinfl: row.pinfl,
-        period,
-        baseTiyin: row.amountTiyin,
-        totalTiyin: row.amountTiyin,
-        batchId: batch.id,
-      })),
-      skipDuplicates: true,
+    const previousCount = await this.prisma.payrollBatch.count({
+      where: { period, status: 'COMMITTED' },
     });
 
     return {
-      batchId: batch.id,
       period,
       fileName: file.originalname,
-      totalRows: rows.length,
+      totalRows: parsed.size + invalidRows.length,
       matchedRows: matched.length,
+      paidRows: matched.length - zeroEmployees.length,
+      zeroRows: zeroEmployees.length,
       missingRows: missing.length,
       invalidRows,
       missing,
+      duplicates: [...new Set(duplicates)],
+      zeroEmployees,
       totalTiyin,
-      hasPrevious: Boolean(existing),
-      previousBatchId: existing?.id ?? null,
-      groups: [...groups.values()].sort((a, b) =>
-        b.totalTiyin > a.totalTiyin ? 1 : -1,
-      ),
-    };
-  }
-
-  // --------- Tasdiqlash ---------
-
-  /**
-   * Qoralamani tasdiqlaydi va xarajat yozuvlarini yaratadi.
-   * Bu davr uchun eski tasdiqlangan yuklash bolsa - bekor qilinadi.
-   */
-  async commit(batchId: string, userId: string, replacePrevious = false) {
-    const batch = await this.prisma.payrollBatch.findUnique({
-      where: { id: batchId },
-      include: { entries: true },
-    });
-
-    if (!batch) {
-      throw new NotFoundException('Yuklash topilmadi');
-    }
-    if (batch.status !== 'DRAFT') {
-      throw new BadRequestException('Bu yuklash allaqachon qayta ishlangan');
-    }
-
-    // Eski tasdiqlangan yuklashni bekor qilamiz
-    const previous = await this.prisma.payrollBatch.findFirst({
-      where: { period: batch.period, status: 'COMMITTED' },
-    });
-
-    if (previous && replacePrevious) {
-      // Uch amal birga bajariladi - biri buzilsa hammasi bekor
-      await this.prisma.$transaction([
-        this.prisma.expense.updateMany({
-          where: { payrollBatchId: previous.id, deletedAt: null },
-          data: { deletedAt: new Date() },
-        }),
-        this.prisma.payrollEntry.deleteMany({
-          where: { batchId: previous.id },
-        }),
-        this.prisma.payrollBatch.update({
-          where: { id: previous.id },
-          data: { status: 'CANCELLED' },
-        }),
-      ]);
-    }
-
-    // Guruhlarni qayta yigamiz
-    const entries = await this.prisma.payrollEntry.findMany({
-      where: { batchId: batch.id },
-      include: {
-        employee: {
-          include: {
-            region: { select: { code: true, name: true } },
-            department: { select: { id: true, name: true } },
-          },
-        },
-      },
-    });
-
-    if (entries.length === 0) {
-      throw new BadRequestException(
-        "Qoralamada yozuv yoq. Faylni qaytadan yuklang",
-      );
-    }
-
-    // Qatorlar yigindisi yuklash summasiga teng bolishi kerak
-    const entriesTotal = entries.reduce(
-      (sum, item) => sum + item.totalTiyin,
-      0n,
-    );
-
-    if (entriesTotal !== batch.totalTiyin) {
-      const expected = Number(batch.totalTiyin) / 100;
-      const actual = Number(entriesTotal) / 100;
-
-      throw new BadRequestException(
-        `Malumot nomuvofiq: yuklashda ${expected.toLocaleString("uz-UZ")} som, ` +
-          `qatorlarda ${actual.toLocaleString("uz-UZ")} som. ` +
-          "Faylni qaytadan yuklang",
-      );
-    }
-
-    const groups = new Map<
-      string,
-      {
-        label: string;
-        departmentId: string | null;
-        regionCode: number | null;
-        totalTiyin: bigint;
-        count: number;
-      }
-    >();
-
-    for (const entry of entries) {
-      const emp = entry.employee;
-      const isCentral = emp.regionCode === CENTRAL_REGION;
-      const isContract = emp.employmentType === 'SHARTNOMA';
-
-      let key: string;
-      let label: string;
-      let departmentId: string | null = null;
-      let regionCode: number | null = null;
-
-      if (isContract) {
-        key = 'shartnoma';
-        label = 'Shartnoma asosidagi ish haqi';
-      } else if (isCentral) {
-        key = `markaz-${emp.departmentId ?? 'none'}`;
-        label = `Ish haqi \u2014 ${emp.department?.name ?? 'bolimsiz'}`;
-        departmentId = emp.departmentId;
-        regionCode = 0;
-      } else {
-        key = `region-${emp.regionCode}`;
-        label = `Ish haqi \u2014 ${emp.region.name}`;
-        regionCode = emp.regionCode;
-      }
-
-      const current = groups.get(key) ?? {
-        label,
-        departmentId,
-        regionCode,
-        totalTiyin: 0n,
-        count: 0,
-      };
-      current.totalTiyin += entry.totalTiyin;
-      current.count += 1;
-      groups.set(key, current);
-    }
-
-    const date = this.periodEndDate(batch.period);
-
-    if (groups.size === 0) {
-      throw new BadRequestException("Xarajat guruhi shakllanmadi");
-    }
-
-    // Guruhlar yigindisi ham tekshiriladi
-    const groupsTotal = [...groups.values()].reduce(
-      (sum, group) => sum + group.totalTiyin,
-      0n,
-    );
-
-    if (groupsTotal !== entriesTotal) {
-      throw new BadRequestException("Guruhlash xatosi: summalar mos kelmadi");
-    }
-
-    // Xarajat yaratish va statusni yangilash - birga
-    // Xarajat yaratish, tekshirish va status - bitta tranzaksiyada.
-    // Xato bolsa hech narsa saqlanmaydi.
-    const result = await this.prisma.$transaction(async (tx) => {
-      await tx.expense.createMany({
-        data: [...groups.values()].map((group) => ({
-          date,
-          period: batch.period,
-          amountTiyin: group.totalTiyin,
-          categoryCode: PAYROLL_CATEGORY,
+      hasPrevious: previousCount > 0,
+      previousCount,
+      groups: [...groups.values()]
+        .map((group) => ({
+          label: group.label,
           departmentId: group.departmentId,
           regionCode: group.regionCode,
-          description: `${group.label} (${group.count} xodim)`,
-          paymentMethod: "BANK" as const,
-          paymentStatus: "PAID" as const,
-          source: "PAYROLL" as const,
-          payrollBatchId: batch.id,
-          createdById: userId,
-        })),
-      });
-
-      const created = await tx.expense.aggregate({
-        where: { payrollBatchId: batch.id, deletedAt: null },
-        _sum: { amountTiyin: true },
-        _count: { _all: true },
-      });
-
-      if ((created._sum.amountTiyin ?? 0n) !== groupsTotal) {
-        // Tranzaksiya avtomatik bekor qilinadi
-        throw new BadRequestException(
-          "Xarajat yaratishda xato. Amal bekor qilindi",
-        );
-      }
-
-      await tx.payrollBatch.update({
-        where: { id: batch.id },
-        data: { status: 'COMMITTED', committedAt: new Date() },
-      });
-
-      return {
-        expensesCreated: created._count._all,
-        totalTiyin: created._sum.amountTiyin ?? 0n,
-      };
-    });
-
-    return {
-      success: true,
-      expensesCreated: result.expensesCreated,
-      totalTiyin: result.totalTiyin,
-      entriesCount: entries.length,
-      replacedPrevious: Boolean(previous && replacePrevious),
+          count: group.count,
+          zeroCount: group.zeroCount,
+          totalTiyin: group.totalTiyin,
+        }))
+        .sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1)),
+      /** Saqlash uchun — frontend shuni qaytarib yuboradi */
+      rows: matched.map((item) => ({
+        pinfl: item.employee.pinfl,
+        amountTiyin: item.amountTiyin,
+      })),
     };
   }
 
-  /** Qoralamani bekor qiladi */
+  // ═══════════ Saqlash — bitta tranzaksiyada ═══════════
+
+  async commit(params: {
+    period: string;
+    rows: PayrollRow[];
+    userId: string;
+    replacePrevious: boolean;
+    fileName: string;
+    missing: MissingRow[];
+  }) {
+    const { period, userId, replacePrevious, fileName, missing } = params;
+    this.assertPeriod(period);
+
+    if (params.rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const merged = new Map<string, bigint>();
+    for (const row of params.rows) {
+      if (!/^\d{14}$/.test(row.pinfl)) {
+        throw new BadRequestException(`Notogri PINFL: ${row.pinfl}`);
+      }
+      if (row.amountTiyin < 0n) {
+        throw new BadRequestException(`Manfiy summa: ${row.pinfl}`);
+      }
+      merged.set(row.pinfl, (merged.get(row.pinfl) ?? 0n) + row.amountTiyin);
+    }
+
+    // Reestrni qayta tekshiramiz — frontendga ishonmaymiz
+    const employees = await this.prisma.employee.findMany({
+      where: { pinfl: { in: [...merged.keys()] } },
+      include: EMPLOYEE_INCLUDE,
+    });
+
+    if (employees.length !== merged.size) {
+      throw new BadRequestException(
+        `${merged.size - employees.length} ta xodim reestrda topilmadi. Faylni qaytadan yuklang`,
+      );
+    }
+
+    const items = employees.map((employee) => ({
+      amountTiyin: merged.get(employee.pinfl) ?? 0n,
+      employee: employee as unknown as GroupEmployee,
+    }));
+
+    const groups = this.buildGroups(items);
+    const totalTiyin = items.reduce((sum, item) => sum + item.amountTiyin, 0n);
+    const zeroCount = items.filter((item) => item.amountTiyin === 0n).length;
+
+    const date = this.periodEndDate(period);
+    const fileHash = createHash('sha256')
+      .update(
+        `${period}:${fileName}:${JSON.stringify(
+          [...merged.entries()].map(([pinfl, amount]) => [pinfl, amount.toString()]),
+        )}`,
+      )
+      .digest('hex');
+
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        let replaced = 0;
+
+        if (replacePrevious) {
+          const previous = await tx.payrollBatch.findMany({
+            where: { period, status: 'COMMITTED' },
+            select: { id: true },
+          });
+          const ids = previous.map((item) => item.id);
+
+          if (ids.length > 0) {
+            await tx.expense.updateMany({
+              where: { payrollBatchId: { in: ids }, deletedAt: null },
+              data: { deletedAt: new Date() },
+            });
+            await tx.payrollEntry.deleteMany({ where: { batchId: { in: ids } } });
+            await tx.payrollBatch.updateMany({
+              where: { id: { in: ids } },
+              data: { status: 'CANCELLED' },
+            });
+            replaced = ids.length;
+          }
+        }
+
+        const batch = await tx.payrollBatch.create({
+          data: {
+            period,
+            status: 'COMMITTED',
+            fileName,
+            fileHash,
+            totalRows: merged.size + missing.length,
+            matchedRows: merged.size,
+            missingRows: missing.length,
+            missingPinfls: missing as unknown as object,
+            totalTiyin,
+            uploadedById: userId,
+            committedAt: new Date(),
+          },
+        });
+
+        // Nol summali xodimlar ham yoziladi — tahlilda ko'rinishi uchun
+        await tx.payrollEntry.createMany({
+          data: items.map((item) => ({
+            employeePinfl: item.employee.pinfl,
+            period,
+            baseTiyin: item.amountTiyin,
+            totalTiyin: item.amountTiyin,
+            batchId: batch.id,
+          })),
+        });
+
+        // Xarajat faqat summasi bor guruhlar uchun
+        const expenseGroups = [...groups.values()].filter((group) => group.totalTiyin > 0n);
+
+        if (expenseGroups.length > 0) {
+          await tx.expense.createMany({
+            data: expenseGroups.map((group) => ({
+              date,
+              period,
+              amountTiyin: group.totalTiyin,
+              categoryCode: PAYROLL_CATEGORY,
+              departmentId: group.departmentId,
+              regionCode: group.regionCode,
+              description: `${group.label} (${group.count - group.zeroCount} xodim)`,
+              paymentMethod: 'BANK' as const,
+              paymentStatus: 'PAID' as const,
+              source: 'PAYROLL' as const,
+              payrollBatchId: batch.id,
+              createdById: userId,
+            })),
+          });
+        }
+
+        const created = await tx.expense.aggregate({
+          where: { payrollBatchId: batch.id, deletedAt: null },
+          _sum: { amountTiyin: true },
+          _count: { _all: true },
+        });
+
+        const createdTotal = created._sum.amountTiyin ?? 0n;
+
+        if (createdTotal !== totalTiyin) {
+          throw new BadRequestException(
+            `Summa mos kelmadi: kutilgan ${this.formatSum(totalTiyin)}, ` +
+              `yaratilgan ${this.formatSum(createdTotal)}. Hech narsa saqlanmadi`,
+          );
+        }
+
+        return { batchId: batch.id, expensesCreated: created._count._all, replaced };
+      },
+      { timeout: 60_000 },
+    );
+
+    return {
+      success: true as const,
+      batchId: result.batchId,
+      expensesCreated: result.expensesCreated,
+      employees: items.length,
+      zeroCount,
+      totalTiyin,
+      replacedPrevious: result.replaced > 0,
+    };
+  }
+
+  // ═══════════ Bekor qilish ═══════════
+
+  /** Tasdiqlangan yuklashni bekor qiladi — xarajatlar savatga tushadi */
   async cancel(batchId: string) {
     const batch = await this.prisma.payrollBatch.findUnique({ where: { id: batchId } });
 
     if (!batch) {
       throw new NotFoundException('Yuklash topilmadi');
     }
-    if (batch.status !== 'DRAFT') {
-      throw new BadRequestException('Faqat qoralama bekor qilinadi');
+    if (batch.status === 'CANCELLED') {
+      throw new BadRequestException('Bu yuklash allaqachon bekor qilingan');
     }
 
-    await this.prisma.payrollEntry.deleteMany({ where: { batchId } });
-    await this.prisma.payrollBatch.update({
-      where: { id: batchId },
-      data: { status: 'CANCELLED' },
-    });
+    await this.prisma.$transaction([
+      this.prisma.expense.updateMany({
+        where: { payrollBatchId: batchId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      }),
+      this.prisma.payrollEntry.deleteMany({ where: { batchId } }),
+      this.prisma.payrollBatch.update({
+        where: { id: batchId },
+        data: { status: 'CANCELLED' },
+      }),
+    ]);
 
-    return { success: true };
+    return { success: true as const };
   }
 
-  /**
-   * Xarajat yozuvi ortidagi xodimlar royxati.
-   *
-   * Markaz xarajati bolsa - bolim xodimlari.
-   * Viloyat xarajati bolsa - tumanlar boyicha guruhlangan.
-   */
-  async expenseDetail(expenseId: string) {
-    const expense = await this.prisma.expense.findUnique({
-      where: { id: expenseId },
-      include: {
-        department: { select: { id: true, name: true } },
-        region: { select: { code: true, name: true } },
-      },
-    });
+  // ═══════════ Topilmaganlar Excel ═══════════
 
-    if (!expense) {
-      throw new NotFoundException("Xarajat topilmadi");
-    }
-
-    if (expense.source !== "PAYROLL" || !expense.payrollBatchId) {
-      return { isPayroll: false, expense, groups: [], entries: [] };
-    }
-
-    // Shu xarajatga tegishli xodimlarni topamiz
-    const isCentral = expense.regionCode === CENTRAL_REGION;
-
-    const entries = await this.prisma.payrollEntry.findMany({
-      where: {
-        batchId: expense.payrollBatchId,
-        employee: isCentral
-          ? {
-              regionCode: CENTRAL_REGION,
-              departmentId: expense.departmentId,
-              employmentType: "SHTAT",
-            }
-          : {
-              regionCode: expense.regionCode ?? undefined,
-              employmentType: "SHTAT",
-            },
-      },
-      orderBy: { totalTiyin: "desc" },
-      include: {
-        employee: {
-          select: {
-            pinfl: true,
-            fullName: true,
-            position: true,
-            regionCode: true,
-            districtId: true,
-            district: { select: { id: true, code: true, name: true } },
-            department: { select: { name: true } },
-          },
-        },
-      },
-    });
-
-    // Viloyat bolsa tumanlar boyicha guruhlaymiz
-    const groups: {
-      key: string;
-      label: string;
-      count: number;
-      totalTiyin: bigint;
-    }[] = [];
-
-    if (!isCentral) {
-      const byDistrict = new Map<string, { label: string; count: number; total: bigint }>();
-
-      for (const entry of entries) {
-        const key = entry.employee.districtId ?? "none";
-        const label = entry.employee.district?.name ?? "Tuman korsatilmagan";
-
-        const current = byDistrict.get(key) ?? { label, count: 0, total: 0n };
-        current.count += 1;
-        current.total += entry.totalTiyin;
-        byDistrict.set(key, current);
-      }
-
-      for (const [key, value] of byDistrict.entries()) {
-        groups.push({
-          key,
-          label: value.label,
-          count: value.count,
-          totalTiyin: value.total,
-        });
-      }
-
-      groups.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
-    }
-
-    const totalTiyin = entries.reduce((sum, e) => sum + e.totalTiyin, 0n);
-
-    return {
-      isPayroll: true,
-      expense,
-      isCentral,
-      groups,
-      entries,
-      count: entries.length,
-      totalTiyin,
-    };
-  }
-
-  /**
-   * Topilmagan PINFL larni Excel faylga chiqaradi.
-   * Ular reestrda yoq, shuning uchun faqat PINFL va qator raqami boladi.
-   */
-  async exportMissing(batchId: string): Promise<{ buffer: Buffer; filename: string }> {
-    const batch = await this.prisma.payrollBatch.findUnique({
-      where: { id: batchId },
-    });
-
-    if (!batch) {
-      throw new NotFoundException("Yuklash topilmadi");
-    }
-
-    const missing = (batch.missingPinfls ?? []) as { rowIndex: number; pinfl: string }[];
-
+  async buildMissingExcel(
+    period: string,
+    missing: MissingRow[],
+  ): Promise<{ buffer: Buffer; filename: string }> {
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Korxona tahlil";
-
-    const sheet = workbook.addWorksheet("Topilmaganlar");
+    const sheet = workbook.addWorksheet('Topilmaganlar');
 
     sheet.columns = [
-      { header: "Qator", key: "rowIndex", width: 10 },
-      { header: "PINFL", key: "pinfl", width: 20 },
-      { header: "F.I.Sh.", key: "fullName", width: 45 },
-      { header: "Izoh", key: "note", width: 40 },
+      { header: 'Qator', key: 'rowIndex', width: 10 },
+      { header: 'PINFL', key: 'pinfl', width: 20 },
+      { header: 'Izoh', key: 'note', width: 40 },
     ];
 
     const header = sheet.getRow(1);
-    header.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDC2626" } };
-    header.height = 22;
-
-    sheet.getColumn("B").numFmt = "@";
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } };
+    sheet.getColumn('B').numFmt = '@';
 
     for (const item of missing) {
       sheet.addRow({
         rowIndex: item.rowIndex,
         pinfl: item.pinfl,
-        fullName: "",
-        note: "Reestrda topilmadi",
+        note: 'Xodimlar reestrida topilmadi',
       });
     }
 
-    if (missing.length === 0) {
-      sheet.addRow({ rowIndex: "", pinfl: "", fullName: "", note: "Hammasi topildi" });
-    }
-
-    sheet.autoFilter = { from: "A1", to: `D${sheet.rowCount}` };
-
-    const arrayBuffer = await workbook.xlsx.writeBuffer();
-    return {
-      buffer: Buffer.from(arrayBuffer),
-      filename: `Topilmaganlar-${batch.period}.xlsx`,
-    };
+    const data = await workbook.xlsx.writeBuffer();
+    return { buffer: Buffer.from(data), filename: `Topilmaganlar-${period}.xlsx` };
   }
 
-  // --------- Royxat ---------
+  // ═══════════ Ro'yxat va tafsilot ═══════════
 
   async findBatches(period?: string) {
     return this.prisma.payrollBatch.findMany({
@@ -720,7 +601,6 @@ export class PayrollService {
     });
   }
 
-  /** Bitta yuklash tafsiloti - xodimlar royxati bilan */
   async findBatch(batchId: string) {
     const batch = await this.prisma.payrollBatch.findUnique({
       where: { id: batchId },
@@ -749,5 +629,87 @@ export class PayrollService {
     }
 
     return batch;
+  }
+
+  /** Xarajat yozuvi ortidagi xodimlar */
+  async expenseDetail(expenseId: string) {
+    const expense = await this.prisma.expense.findUnique({
+      where: { id: expenseId },
+      include: {
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+
+    if (!expense) {
+      throw new NotFoundException('Xarajat topilmadi');
+    }
+
+    if (expense.source !== 'PAYROLL' || !expense.payrollBatchId) {
+      return { isPayroll: false, expense, groups: [], entries: [] };
+    }
+
+    const isContract = expense.regionCode === null && expense.departmentId === null;
+    const isCentral = expense.regionCode === CENTRAL_REGION;
+
+    const employeeFilter = isContract
+      ? { employmentType: 'SHARTNOMA' as const }
+      : isCentral
+        ? {
+            regionCode: CENTRAL_REGION,
+            departmentId: expense.departmentId,
+            employmentType: 'SHTAT' as const,
+          }
+        : { regionCode: expense.regionCode ?? undefined, employmentType: 'SHTAT' as const };
+
+    const entries = await this.prisma.payrollEntry.findMany({
+      where: { batchId: expense.payrollBatchId, employee: employeeFilter },
+      orderBy: { totalTiyin: 'desc' },
+      include: {
+        employee: {
+          select: {
+            pinfl: true,
+            fullName: true,
+            position: true,
+            regionCode: true,
+            districtId: true,
+            district: { select: { id: true, code: true, name: true } },
+            department: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    const groups: { key: string; label: string; count: number; totalTiyin: bigint }[] = [];
+
+    if (!isCentral && !isContract) {
+      const byDistrict = new Map<string, { label: string; count: number; total: bigint }>();
+
+      for (const entry of entries) {
+        const key = entry.employee.districtId ?? 'none';
+        const label = entry.employee.district?.name ?? 'Tuman korsatilmagan';
+
+        const item = byDistrict.get(key) ?? { label, count: 0, total: 0n };
+        item.count += 1;
+        item.total += entry.totalTiyin;
+        byDistrict.set(key, item);
+      }
+
+      for (const [key, value] of byDistrict) {
+        groups.push({ key, label: value.label, count: value.count, totalTiyin: value.total });
+      }
+
+      groups.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
+    }
+
+    return {
+      isPayroll: true,
+      expense,
+      isCentral: isCentral || isContract,
+      groups,
+      entries,
+      count: entries.length,
+      totalTiyin: entries.reduce((sum, entry) => sum + entry.totalTiyin, 0n),
+    };
   }
 }

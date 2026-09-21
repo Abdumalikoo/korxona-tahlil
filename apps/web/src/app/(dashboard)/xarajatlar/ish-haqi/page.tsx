@@ -1,36 +1,31 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { useAuth } from '@/lib/auth-context';
-import { useAsync } from '@/lib/use-async';
-import { errorMessage } from '@/lib/error-message';
-import { ApiError } from '@/lib/api';
 import {
-  payrollApi,
-  downloadTemplate,
   analyzeFile,
   downloadMissing,
+  downloadTemplate,
+  payrollApi,
   type AnalyzeResult,
+  type PayrollBatch,
 } from '@/features/payroll/api';
-import { currentPeriod, formatPeriod, formatTiyin, formatDateTime } from '@/lib/format';
+import { useAuth } from '@/lib/auth-context';
+import { errorMessage } from '@/lib/error-message';
+import { currentPeriod, formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
+import { useAsync } from '@/lib/use-async';
+import { useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { Tabs } from '@/components/ui/tabs';
 import { PeriodPicker } from '@/components/shared/period-picker';
-import { Card, CardHeader, CardBody } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Money } from '@/components/ui/money';
-import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
-import { EmptyState, LoadingState } from '@/components/ui/states';
-import { Toast } from '@/components/ui/toast';
+import { Button } from '@/components/ui/button';
+import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import {
-  IconDownload,
-  IconUpload,
-  IconAlert,
-  IconSpinner,
-} from '@/components/ui/icons';
+import { IconAlert, IconDownload, IconSpinner, IconUpload } from '@/components/ui/icons';
+import { Money } from '@/components/ui/money';
+import { EmptyState, LoadingState } from '@/components/ui/states';
+import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
+import { Tabs } from '@/components/ui/tabs';
+import { Toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 
 const tabs = [
@@ -39,36 +34,40 @@ const tabs = [
   { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
 ];
 
+type ToastState = { message: string; tone: 'success' | 'error' } | null;
+
 export default function PayrollPage() {
   const { isAdmin } = useAuth();
 
   const [period, setPeriod] = useState(currentPeriod());
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
+  const [replacePrevious, setReplacePrevious] = useState(false);
+
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [committing, setCommitting] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [replacePrevious, setReplacePrevious] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(
-    null,
-  );
 
+  const [cancelTarget, setCancelTarget] = useState<PayrollBatch | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  const [toast, setToast] = useState<ToastState>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const batches = useAsync(() => payrollApi.batches(period), [period]);
 
-  const reset = useCallback(() => {
+  function reset() {
     setAnalysis(null);
+    setReplacePrevious(false);
     if (inputRef.current) inputRef.current.value = '';
-  }, []);
+  }
 
   async function handleTemplate() {
     setDownloading(true);
     try {
       await downloadTemplate(period);
-    } catch {
-      setToast({ message: 'Shablonni yuklab bo\u2018lmadi', tone: 'error' });
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Shablonni yuklab bo\u2018lmadi'), tone: 'error' });
     } finally {
       setDownloading(false);
     }
@@ -84,51 +83,57 @@ export default function PayrollPage() {
     setAnalysis(null);
 
     try {
-      const result = await analyzeFile(period, file);
-      setAnalysis(result);
+      setAnalysis(await analyzeFile(period, file));
     } catch (err) {
-      setToast({
-        message: errorMessage(err),
-        tone: 'error',
-      });
+      setToast({ message: errorMessage(err, 'Faylni o\u2018qib bo\u2018lmadi'), tone: 'error' });
     } finally {
       setUploading(false);
     }
   }
 
-  async function handleCommit() {
+  async function handleSave() {
     if (!analysis) return;
 
-    setCommitting(true);
+    setSaving(true);
 
     try {
-      const result = await payrollApi.commit(analysis.batchId, replacePrevious);
+      const result = await payrollApi.commit(
+        period,
+        { rows: analysis.rows, fileName: analysis.fileName, missing: analysis.missing },
+        replacePrevious,
+      );
+
+      const data = result.data;
       setToast({
-        message: `${result.data.expensesCreated} ta xarajat yozuvi yaratildi`,
+        message:
+          `${data.employees} xodim saqlandi, ${data.expensesCreated} ta xarajat yaratildi` +
+          (data.zeroCount > 0 ? ` \u00B7 ${data.zeroCount} tasiga hisoblanmagan` : ''),
         tone: 'success',
       });
+
       reset();
       batches.reload();
     } catch (err) {
-      setToast({
-        message: errorMessage(err, 'Tasdiqlashda xatolik'),
-        tone: 'error',
-      });
+      setToast({ message: errorMessage(err, 'Saqlashda xatolik'), tone: 'error' });
     } finally {
-      setCommitting(false);
-      setConfirmOpen(false);
+      setSaving(false);
     }
   }
 
-  async function handleCancel() {
-    if (!analysis) return;
+  async function handleCancelBatch() {
+    if (!cancelTarget) return;
+
+    setCancelling(true);
 
     try {
-      await payrollApi.cancel(analysis.batchId);
-      reset();
+      await payrollApi.cancel(cancelTarget.id);
+      setToast({ message: 'Yuklash bekor qilindi, xarajatlar savatga tushdi', tone: 'success' });
       batches.reload();
-    } catch {
-      setToast({ message: 'Bekor qilishda xatolik', tone: 'error' });
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Bekor qilishda xatolik'), tone: 'error' });
+    } finally {
+      setCancelling(false);
+      setCancelTarget(null);
     }
   }
 
@@ -156,7 +161,7 @@ export default function PayrollPage() {
             loading={downloading}
           >
             <IconDownload className="size-4" />
-            Shablon yuklab olish
+            Shablon
           </Button>
         </div>
 
@@ -187,18 +192,15 @@ export default function PayrollPage() {
                 {uploading ? (
                   <>
                     <IconSpinner className="size-8 animate-spin text-brand-700" />
-                    <p className="text-sm text-[--color-text-muted]">
-                      Fayl tahlil qilinmoqda&hellip;
-                    </p>
+                    <p className="text-sm text-[--color-text-muted]">O&rsquo;qilmoqda&hellip;</p>
                   </>
                 ) : (
                   <>
                     <IconUpload className="size-8 text-[--color-text-faint]" strokeWidth={1.5} />
-                    <p className="text-sm font-medium text-[--color-text]">
-                      Excel faylni shu yerga tashlang
-                    </p>
+                    <p className="text-sm font-medium">Excel faylni shu yerga tashlang</p>
                     <p className="text-xs text-[--color-text-muted]">
-                      yoki bosib tanlang &middot; PINFL va summa ustunlari yetarli
+                      yoki bosib tanlang &middot; PINFL va summa. Summa bo&rsquo;sh yoki 0 &mdash;
+                      &ldquo;hisoblanmagan&rdquo;
                     </p>
                   </>
                 )}
@@ -222,11 +224,13 @@ export default function PayrollPage() {
         {analysis && (
           <AnalysisView
             analysis={analysis}
+            period={period}
             replacePrevious={replacePrevious}
             onReplaceChange={setReplacePrevious}
-            onCommit={() => setConfirmOpen(true)}
-            onCancel={() => void handleCancel()}
-            committing={committing}
+            onSave={() => void handleSave()}
+            onCancel={reset}
+            saving={saving}
+            onError={(message) => setToast({ message, tone: 'error' })}
           />
         )}
 
@@ -245,18 +249,19 @@ export default function PayrollPage() {
                   <Th>Fayl</Th>
                   <Th className="w-32">Holat</Th>
                   <Th align="center" className="w-24">
-                    Qatorlar
+                    Xodim
                   </Th>
                   <Th align="right" className="w-40">
                     Summa
                   </Th>
-                  <Th className="w-44">Yuklagan</Th>
+                  <Th className="w-40">Yuklagan</Th>
+                  <Th className="w-28" />
                 </Tr>
               </THead>
 
               <TBody>
                 {batches.data?.data.map((batch) => (
-                  <Tr key={batch.id}>
+                  <Tr key={batch.id} className={cn(batch.status === 'CANCELLED' && 'opacity-50')}>
                     <Td>
                       <span className="truncate">{batch.fileName}</span>
                       <p className="text-xs text-[--color-text-muted]">
@@ -265,39 +270,32 @@ export default function PayrollPage() {
                     </Td>
 
                     <Td>
-                      <Badge
-                        tone={
-                          batch.status === 'COMMITTED'
-                            ? 'income'
-                            : batch.status === 'DRAFT'
-                              ? 'warn'
-                              : 'neutral'
-                        }
-                      >
-                        {batch.status === 'COMMITTED'
-                          ? 'Tasdiqlangan'
-                          : batch.status === 'DRAFT'
-                            ? 'Qoralama'
-                            : 'Bekor qilingan'}
+                      <Badge tone={batch.status === 'COMMITTED' ? 'income' : 'neutral'}>
+                        {batch.status === 'COMMITTED' ? 'Saqlangan' : 'Bekor qilingan'}
                       </Badge>
                     </Td>
 
                     <Td align="center" className="money text-[--color-text-muted]">
-                      {batch.matchedRows}
-                      {batch.missingRows > 0 && (
-                        <span className="text-[--color-expense]">
-                          {' '}
-                          / {batch.missingRows}
-                        </span>
-                      )}
+                      {batch._count?.entries ?? batch.matchedRows}
                     </Td>
 
                     <Td money>
                       <Money tiyin={batch.totalTiyin} tone="expense" />
                     </Td>
 
-                    <Td className="text-[--color-text-muted]">
-                      {batch.uploadedBy.fullName}
+                    <Td className="text-[--color-text-muted]">{batch.uploadedBy.fullName}</Td>
+
+                    <Td>
+                      {isAdmin && batch.status === 'COMMITTED' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCancelTarget(batch)}
+                          className="text-[--color-text-muted] hover:text-[--color-expense]"
+                        >
+                          Bekor qilish
+                        </Button>
+                      )}
                     </Td>
                   </Tr>
                 ))}
@@ -308,18 +306,14 @@ export default function PayrollPage() {
       </div>
 
       <ConfirmDialog
-        open={confirmOpen}
-        title="Yuklashni tasdiqlash"
-        message={
-          analysis?.hasPrevious && replacePrevious
-            ? `Eski xarajatlar bekor qilinadi va ${analysis?.groups.length ?? 0} ta yangi yozuv yaratiladi.`
-            : `${analysis?.groups.length ?? 0} ta xarajat yozuvi yaratiladi. Davom etamizmi?`
-        }
-        confirmLabel="Tasdiqlash"
-        danger={analysis?.hasPrevious && replacePrevious}
-        loading={committing}
-        onConfirm={() => void handleCommit()}
-        onCancel={() => setConfirmOpen(false)}
+        open={cancelTarget !== null}
+        title="Yuklashni bekor qilish"
+        message={`${cancelTarget?.fileName ?? ''} bekor qilinadi. Undan yaratilgan xarajatlar savatga tushadi.`}
+        confirmLabel="Bekor qilish"
+        danger
+        loading={cancelling}
+        onConfirm={() => void handleCancelBatch()}
+        onCancel={() => setCancelTarget(null)}
       />
 
       {toast && (
@@ -329,107 +323,115 @@ export default function PayrollPage() {
   );
 }
 
-// ─────────── Tahlil natijasi ───────────
+// ─────── Tahlil natijasi ───────
 
 function AnalysisView({
   analysis,
+  period,
   replacePrevious,
   onReplaceChange,
-  onCommit,
+  onSave,
   onCancel,
-  committing,
+  saving,
+  onError,
 }: {
   analysis: AnalyzeResult;
+  period: string;
   replacePrevious: boolean;
   onReplaceChange: (value: boolean) => void;
-  onCommit: () => void;
+  onSave: () => void;
   onCancel: () => void;
-  committing: boolean;
+  saving: boolean;
+  onError: (message: string) => void;
 }) {
+  const [showZero, setShowZero] = useState(false);
+
+  async function handleMissing() {
+    try {
+      await downloadMissing(period, analysis.missing);
+    } catch (err) {
+      onError(errorMessage(err, 'Faylni yuklab bo\u2018lmadi'));
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Yig'indi */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryBox label="Jami qator" value={String(analysis.totalRows)} />
-        <SummaryBox label="Topildi" value={String(analysis.matchedRows)} tone="income" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <SummaryBox label="Topildi" value={String(analysis.matchedRows)} />
+        <SummaryBox label="Hisoblangan" value={String(analysis.paidRows)} tone="income" />
+        <SummaryBox
+          label="Hisoblanmagan"
+          value={String(analysis.zeroRows)}
+          tone={analysis.zeroRows > 0 ? 'warn' : 'neutral'}
+        />
         <SummaryBox
           label="Topilmadi"
           value={String(analysis.missingRows)}
           tone={analysis.missingRows > 0 ? 'expense' : 'neutral'}
         />
-        <SummaryBox
-          label="Jami summa"
-          value={formatTiyin(analysis.totalTiyin)}
-          money
-        />
+        <SummaryBox label="Jami summa" value={formatTiyin(analysis.totalTiyin)} />
       </div>
 
-      {/* Ogohlantirishlar */}
-      {analysis.hasPrevious && (
+      {/* Hisoblanmaganlar */}
+      {analysis.zeroEmployees.length > 0 && (
         <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
           <div className="flex items-start gap-2.5">
             <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-[--color-warn]">
-                Bu davr uchun oldin yuklash tasdiqlangan
-              </p>
-              <p className="mt-0.5 text-xs text-[--color-text-muted]">
-                Nima qilishni tanlang
-              </p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-[--color-warn]">
+                  {analysis.zeroEmployees.length} ta xodimga ish haqi hisoblanmagan
+                </p>
 
-              <div className="mt-3 space-y-2">
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] bg-white px-3 py-2.5">
-                  <input
-                    type="radio"
-                    checked={!replacePrevious}
-                    onChange={() => onReplaceChange(false)}
-                    className="mt-0.5 size-4"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">Qo&rsquo;shish</span>
-                    <span className="block text-xs text-[--color-text-muted]">
-                      Eski xarajatlar joyida qoladi, yangilari ustiga qo&rsquo;shiladi
-                    </span>
-                  </span>
-                </label>
-
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] bg-white px-3 py-2.5">
-                  <input
-                    type="radio"
-                    checked={replacePrevious}
-                    onChange={() => onReplaceChange(true)}
-                    className="mt-0.5 size-4"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">Almashtirish</span>
-                    <span className="block text-xs text-[--color-text-muted]">
-                      Eski xarajatlar bekor qilinadi, faqat yangilari qoladi
-                    </span>
-                  </span>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowZero((state) => !state)}
+                  className="text-xs font-medium text-[--color-text-muted] hover:text-[--color-text]"
+                >
+                  {showZero ? 'Yashirish' : 'Ro\u2018yxatni ko\u2018rish'}
+                </button>
               </div>
+
+              <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                Ular saqlanadi va tahlilda &ldquo;hisoblanmagan&rdquo; deb ko&rsquo;rinadi
+              </p>
+
+              {showZero && (
+                <div className="mt-3 max-h-60 space-y-1 overflow-y-auto">
+                  {analysis.zeroEmployees.map((employee) => (
+                    <div
+                      key={employee.pinfl}
+                      className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-1.5 text-xs"
+                    >
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {employee.fullName}
+                      </span>
+                      <span className="shrink-0 text-[--color-text-muted]">{employee.place}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
+      {/* Topilmaganlar */}
       {analysis.missing.length > 0 && (
         <Card className="overflow-hidden">
           <CardHeader
             title={`Reestrda topilmadi \u2014 ${analysis.missing.length} ta`}
-            description="Bu PINFL lar xodimlar ro'yxatida yo'q. Ular hisobga olinmaydi."
+            description="Bu PINFL lar xodimlar ro'yxatida yo'q va saqlanmaydi"
             actions={
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => void downloadMissing(analysis.batchId)}
-              >
+              <Button variant="secondary" size="sm" onClick={() => void handleMissing()}>
                 <IconDownload className="size-4" />
                 Excel
               </Button>
             }
           />
-          <CardBody className="max-h-48 overflow-y-auto">
+          <CardBody className="max-h-40 overflow-y-auto">
             <div className="flex flex-wrap gap-2">
               {analysis.missing.map((row) => (
                 <span
@@ -445,10 +447,12 @@ function AnalysisView({
         </Card>
       )}
 
+      {/* Xato qatorlar */}
       {analysis.invalidRows.length > 0 && (
         <Card className="overflow-hidden">
           <CardHeader
             title={`Xato qatorlar \u2014 ${analysis.invalidRows.length} ta`}
+            description="O'tkazib yuboriladi"
           />
           <CardBody className="max-h-40 overflow-y-auto">
             <ul className="space-y-1 text-sm text-[--color-text-muted]">
@@ -462,19 +466,54 @@ function AnalysisView({
         </Card>
       )}
 
-      {/* Shakllanadigan xarajatlar */}
+      {/* Takroriy PINFL */}
+      {analysis.duplicates.length > 0 && (
+        <p className="text-xs text-[--color-text-muted]">
+          {analysis.duplicates.length} ta xodim faylda bir necha marta uchradi &mdash; summalari
+          qo&rsquo;shildi.
+        </p>
+      )}
+
+      {/* Oldingi yuklash */}
+      {analysis.hasPrevious && (
+        <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+          <p className="text-sm font-medium text-[--color-warn]">
+            Bu oy uchun {analysis.previousCount} ta yuklash allaqachon saqlangan
+          </p>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <ChoiceCard
+              checked={!replacePrevious}
+              onChange={() => onReplaceChange(false)}
+              title="Qo'shish"
+              description="Eski yuklash qoladi, bu ham qo'shiladi (masalan mukofot)"
+            />
+            <ChoiceCard
+              checked={replacePrevious}
+              onChange={() => onReplaceChange(true)}
+              title="Almashtirish"
+              description="Eski yuklash bekor qilinadi, faqat bu qoladi"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Guruhlar */}
       <Card className="overflow-hidden">
         <CardHeader
           title="Shakllanadigan xarajatlar"
-          description="Tasdiqlangandan keyin shu yozuvlar yaratiladi"
+          description="Saqlanganda shu yozuvlar yaratiladi"
         />
 
         <Table>
           <THead>
             <Tr>
               <Th>Guruh</Th>
-              <Th align="center" className="w-28">
-                Xodimlar
+              <Th align="center" className="w-24">
+                Xodim
+              </Th>
+              <Th align="center" className="w-32">
+                Hisoblanmagan
               </Th>
               <Th align="right" className="w-44">
                 Summa
@@ -489,6 +528,13 @@ function AnalysisView({
                 <Td align="center" className="money text-[--color-text-muted]">
                   {group.count}
                 </Td>
+                <Td align="center" className="money">
+                  {group.zeroCount > 0 ? (
+                    <span className="text-[--color-warn]">{group.zeroCount}</span>
+                  ) : (
+                    <span className="text-[--color-text-faint]">&mdash;</span>
+                  )}
+                </Td>
                 <Td money>
                   <Money tiyin={group.totalTiyin} tone="expense" />
                 </Td>
@@ -498,13 +544,9 @@ function AnalysisView({
 
           <TFoot>
             <Tr>
-              <Td colSpan={2}>Jami</Td>
+              <Td colSpan={3}>Jami</Td>
               <Td money>
-                <Money
-                  tiyin={analysis.totalTiyin}
-                  tone="expense"
-                  className="font-semibold"
-                />
+                <Money tiyin={analysis.totalTiyin} tone="expense" className="font-semibold" />
               </Td>
             </Tr>
           </TFoot>
@@ -513,11 +555,11 @@ function AnalysisView({
 
       {/* Amallar */}
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={onCancel} disabled={committing}>
-          Bekor qilish
+        <Button variant="secondary" onClick={onCancel} disabled={saving}>
+          Boshqa fayl
         </Button>
-        <Button onClick={onCommit} loading={committing}>
-          Tasdiqlash va saqlash
+        <Button onClick={onSave} loading={saving} disabled={analysis.matchedRows === 0}>
+          Saqlash
         </Button>
       </div>
     </div>
@@ -528,17 +570,16 @@ function SummaryBox({
   label,
   value,
   tone = 'neutral',
-  money,
 }: {
   label: string;
   value: string;
-  tone?: 'neutral' | 'income' | 'expense';
-  money?: boolean;
+  tone?: 'neutral' | 'income' | 'expense' | 'warn';
 }) {
   const colors = {
     neutral: 'text-[--color-text]',
     income: 'text-[--color-income]',
     expense: 'text-[--color-expense]',
+    warn: 'text-[--color-warn]',
   };
 
   return (
@@ -548,5 +589,32 @@ function SummaryBox({
       </p>
       <p className={cn('money mt-2 text-xl font-semibold', colors[tone])}>{value}</p>
     </div>
+  );
+}
+
+function ChoiceCard({
+  checked,
+  onChange,
+  title,
+  description,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  title: string;
+  description: string;
+}) {
+  return (
+    <label
+      className={cn(
+        'flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] border bg-white px-3 py-2.5',
+        checked ? 'border-brand-600' : 'border-transparent',
+      )}
+    >
+      <input type="radio" checked={checked} onChange={onChange} className="mt-0.5 size-4" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="block text-xs text-[--color-text-muted]">{description}</span>
+      </span>
+    </label>
   );
 }

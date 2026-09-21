@@ -5,7 +5,9 @@ export type BatchStatus = 'DRAFT' | 'COMMITTED' | 'CANCELLED';
 export interface PayrollGroup {
   label: string;
   departmentId: string | null;
+  regionCode: number | null;
   count: number;
+  zeroCount: number;
   totalTiyin: string;
 }
 
@@ -19,26 +21,43 @@ export interface InvalidRow {
   reason: string;
 }
 
-/** Fayl tahlili natijasi - hali saqlanmagan */
+export interface ZeroEmployee {
+  pinfl: string;
+  fullName: string;
+  place: string;
+}
+
+export interface PayrollRow {
+  pinfl: string;
+  amountTiyin: string;
+}
+
+/** Fayl tahlili — bazaga hali hech narsa yozilmagan */
 export interface AnalyzeResult {
-  batchId: string;
   period: string;
   fileName: string;
   totalRows: number;
   matchedRows: number;
+  paidRows: number;
+  zeroRows: number;
   missingRows: number;
   invalidRows: InvalidRow[];
   missing: MissingRow[];
+  duplicates: string[];
+  zeroEmployees: ZeroEmployee[];
   totalTiyin: string;
-  /** Bu davr uchun oldin tasdiqlangan yuklash bormi */
   hasPrevious: boolean;
-  previousBatchId: string | null;
+  previousCount: number;
   groups: PayrollGroup[];
+  rows: PayrollRow[];
 }
 
 export interface CommitResult {
   success: true;
+  batchId: string;
   expensesCreated: number;
+  employees: number;
+  zeroCount: number;
   totalTiyin: string;
   replacedPrevious: boolean;
 }
@@ -77,77 +96,6 @@ export interface PayrollBatchDetail extends PayrollBatch {
   entries: PayrollEntryRow[];
 }
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
-
-/**
- * Bo'sh shablonni yuklab oladi.
- * Ikkinchi varaqda barcha faol xodimlar ro'yxati bo'ladi.
- */
-export async function downloadTemplate(period: string): Promise<void> {
-  const token = getToken();
-
-  const response = await fetch(`${BASE}/payroll/template?period=${period}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-
-  if (!response.ok) {
-    throw new Error('Shablonni yuklab bo\u2018lmadi');
-  }
-
-  const disposition = response.headers.get('Content-Disposition') ?? '';
-  const match = /filename="?([^";]+)"?/.exec(disposition);
-  const filename = match?.[1] ? decodeURIComponent(match[1]) : `Ish-haqi-${period}.xlsx`;
-
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-
-  URL.revokeObjectURL(url);
-}
-
-/**
- * Faylni yuklaydi va tahlil qiladi.
- * Natija qaytadi, lekin xarajatlar hali yaratilmaydi.
- */
-export async function analyzeFile(
-  period: string,
-  file: File,
-): Promise<AnalyzeResult> {
-  const token = getToken();
-
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await fetch(`${BASE}/payroll/analyze?period=${period}`, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
-
-  if (!response.ok) {
-    let message = 'Faylni tahlil qilib bo\u2018lmadi';
-    try {
-      const parsed = (await response.json()) as {
-        error?: { message?: string | string[] };
-      };
-      const raw = parsed.error?.message;
-      message = Array.isArray(raw) ? (raw[0] ?? message) : (raw ?? message);
-    } catch {
-      // JSON emas
-    }
-    throw new Error(message);
-  }
-
-  const result = (await response.json()) as ApiResponse<AnalyzeResult>;
-  return result.data;
-}
-
 /** Xarajat ortidagi xodimlar */
 export interface ExpenseDetailEntry {
   id: string;
@@ -179,23 +127,29 @@ export interface ExpenseDetail {
   totalTiyin?: string;
 }
 
-/** Topilmagan PINFL larni Excel faylga yuklab oladi */
-export async function downloadMissing(batchId: string): Promise<void> {
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
+
+function authHeaders(): Record<string, string> {
   const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
-  const response = await fetch(`${BASE}/payroll/${batchId}/missing`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-
-  if (!response.ok) {
-    throw new Error('Faylni yuklab bolmadi');
+/** Server xato xabarini o'qiydi */
+async function readError(response: Response, fallback: string): Promise<string> {
+  try {
+    const parsed = (await response.json()) as { error?: { message?: string | string[] } };
+    const raw = parsed.error?.message;
+    return Array.isArray(raw) ? (raw[0] ?? fallback) : (raw ?? fallback);
+  } catch {
+    return fallback;
   }
+}
 
+/** Javobdagi faylni brauzerga yuklab beradi */
+async function saveFile(response: Response, fallbackName: string): Promise<void> {
   const disposition = response.headers.get('Content-Disposition') ?? '';
   const match = /filename="?([^";]+)"?/.exec(disposition);
-  const filename = match?.[1]
-    ? decodeURIComponent(match[1])
-    : 'Topilmaganlar.xlsx';
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : fallbackName;
 
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
@@ -210,25 +164,74 @@ export async function downloadMissing(batchId: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export async function downloadTemplate(period: string): Promise<void> {
+  const response = await fetch(`${BASE}/payroll/template?period=${period}`, {
+    headers: authHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response, 'Shablonni yuklab bo\u2018lmadi'));
+  }
+
+  await saveFile(response, `Ish-haqi-${period}.xlsx`);
+}
+
+/** Faylni tahlil qiladi — hali hech narsa saqlanmaydi */
+export async function analyzeFile(period: string, file: File): Promise<AnalyzeResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${BASE}/payroll/analyze?period=${period}`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response, 'Faylni tahlil qilib bo\u2018lmadi'));
+  }
+
+  const result = (await response.json()) as ApiResponse<AnalyzeResult>;
+  return result.data;
+}
+
+/** Topilmagan PINFL larni Excel faylga yuklab oladi */
+export async function downloadMissing(period: string, missing: MissingRow[]): Promise<void> {
+  const response = await fetch(`${BASE}/payroll/missing/export`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ period, missing }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response, 'Faylni yuklab bo\u2018lmadi'));
+  }
+
+  await saveFile(response, `Topilmaganlar-${period}.xlsx`);
+}
+
 export const payrollApi = {
-  /** replace=true bo'lsa eski yuklash bekor qilinadi */
-  commit: (batchId: string, replace = false) =>
+  /** Tahlil natijasini saqlaydi */
+  commit: (
+    period: string,
+    payload: { rows: PayrollRow[]; fileName: string; missing: MissingRow[] },
+    replace = false,
+  ) =>
     api.post<ApiResponse<CommitResult>>(
-      `/payroll/${batchId}/commit?replace=${replace}`,
+      `/payroll/commit?period=${period}&replace=${replace}`,
+      payload,
     ),
 
+  /** Tasdiqlangan yuklashni bekor qiladi */
   cancel: (batchId: string) =>
     api.post<ApiResponse<{ success: true }>>(`/payroll/${batchId}/cancel`),
 
-  /** Xarajat ortidagi xodimlar royxati */
-  expenseDetail: (expenseId: string) =>
-    api.get<ApiResponse<ExpenseDetail>>(`/payroll/expense/${expenseId}`),
-
   batches: (period?: string) =>
-    api.get<ApiResponse<PayrollBatch[]>>('/payroll/batches', {
-      params: { period },
-    }),
+    api.get<ApiResponse<PayrollBatch[]>>('/payroll/batches', { params: { period } }),
 
   batch: (batchId: string) =>
     api.get<ApiResponse<PayrollBatchDetail>>(`/payroll/batches/${batchId}`),
+
+  expenseDetail: (expenseId: string) =>
+    api.get<ApiResponse<ExpenseDetail>>(`/payroll/expense/${expenseId}`),
 };

@@ -21,14 +21,8 @@ export default function DashboardPage() {
 
   const filters = { dateFrom: range.from, dateTo: range.to, limit: 1 };
 
-  const expenses = useAsync(
-    () => expensesApi.list(filters),
-    [range.from, range.to],
-  );
-  const incomes = useAsync(
-    () => incomesApi.list(filters),
-    [range.from, range.to],
-  );
+  const expenses = useAsync(() => expensesApi.list(filters), [range.from, range.to]);
+  const incomes = useAsync(() => incomesApi.list(filters), [range.from, range.to]);
 
   const expenseTotal = expenses.data?.meta.sumTiyin ?? '0';
   const incomeTotal = incomes.data?.meta.sumTiyin ?? '0';
@@ -39,13 +33,11 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center p-6">
       <div className="mx-auto w-full max-w-5xl">
-        {/* Davr */}
         <div className="mb-8 flex flex-col items-center gap-3">
           <p className="text-sm text-[--color-text-muted]">{user?.fullName}</p>
           <DateRangePicker value={range} onChange={setRange} />
         </div>
 
-        {/* Uchta bo'lim */}
         <div className="grid gap-5 sm:grid-cols-3">
           <SectionCard
             href={`/tahlil/daromad${query}`}

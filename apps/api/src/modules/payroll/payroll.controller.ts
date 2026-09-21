@@ -1,39 +1,38 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
-  Post,
+  HttpCode,
+  HttpStatus,
   Param,
+  Post,
   Query,
   Res,
   UploadedFile,
   UseInterceptors,
-  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
 import { UserRole } from '@prisma/client';
-import { PayrollService } from './payroll.service';
-import { Roles, CurrentUser } from '../../common/decorators';
+import type { Response } from 'express';
+import { CurrentUser, Roles } from '../../common/decorators';
+import { PayrollService, type MissingRow } from './payroll.service';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+interface CommitBody {
+  fileName?: string;
+  rows: { pinfl: string; amountTiyin: string }[];
+  missing?: MissingRow[];
+}
 
 @Controller('payroll')
 export class PayrollController {
   constructor(private readonly payroll: PayrollService) {}
 
-  /** Bosh shablon yuklab olish */
-  @Get('template')
-  async template(@Query('period') period: string, @Res() response: Response) {
-    if (!/^\d{4}-\d{2}$/.test(period ?? '')) {
-      throw new BadRequestException('Davr notogri formatda');
-    }
-
-    const { buffer, filename } = await this.payroll.buildTemplate(period);
-
-    response.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
+  private sendFile(response: Response, buffer: Buffer, filename: string): void {
+    response.setHeader('Content-Type', XLSX_TYPE);
     response.setHeader(
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(filename)}"`,
@@ -41,70 +40,82 @@ export class PayrollController {
     response.send(buffer);
   }
 
-  /** Faylni yuklash va tahlil qilish - hali saqlanmaydi */
+  @Get('template')
+  async template(@Query('period') period: string, @Res() response: Response) {
+    const { buffer, filename } = await this.payroll.buildTemplate(period);
+    this.sendFile(response, buffer, filename);
+  }
+
+  /** Faylni tahlil qilish — hech narsa saqlanmaydi */
   @Roles(UserRole.ADMIN)
   @Post('analyze')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: MAX_FILE_SIZE },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
   async analyze(
     @Query('period') period: string,
     @UploadedFile() file: Express.Multer.File,
-    @CurrentUser('id') userId: string,
   ) {
-    if (!/^\d{4}-\d{2}$/.test(period ?? '')) {
-      throw new BadRequestException('Davr notogri formatda');
-    }
-
-    const data = await this.payroll.analyze(period, file, userId);
+    const data = await this.payroll.analyze(period, file);
     return { data };
   }
 
-  /** Qoralamani tasdiqlash - xarajatlar yaratiladi */
+  /** Saqlash — bitta tranzaksiyada */
   @Roles(UserRole.ADMIN)
-  @Post(':batchId/commit')
+  @Post('commit')
+  @HttpCode(HttpStatus.OK)
   async commit(
-    @Param('batchId') batchId: string,
+    @Query('period') period: string,
+    @Query('replace') replace: string,
+    @Body() body: CommitBody,
     @CurrentUser('id') userId: string,
-    @Query('replace') replace?: string,
   ) {
-    const data = await this.payroll.commit(batchId, userId, replace === 'true');
+    if (!Array.isArray(body?.rows) || body.rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const rows = body.rows.map((row) => {
+      try {
+        return { pinfl: String(row.pinfl), amountTiyin: BigInt(row.amountTiyin) };
+      } catch {
+        throw new BadRequestException(`Notogri summa: ${row.pinfl}`);
+      }
+    });
+
+    const data = await this.payroll.commit({
+      period,
+      rows,
+      userId,
+      replacePrevious: replace === 'true',
+      fileName: body.fileName ?? 'ish-haqi.xlsx',
+      missing: Array.isArray(body.missing) ? body.missing : [],
+    });
+
     return { data };
+  }
+
+  @Post('missing/export')
+  async exportMissing(
+    @Body() body: { period: string; missing: MissingRow[] },
+    @Res() response: Response,
+  ) {
+    const { buffer, filename } = await this.payroll.buildMissingExcel(
+      body?.period ?? 'davr',
+      Array.isArray(body?.missing) ? body.missing : [],
+    );
+    this.sendFile(response, buffer, filename);
   }
 
   @Roles(UserRole.ADMIN)
   @Post(':batchId/cancel')
+  @HttpCode(HttpStatus.OK)
   async cancel(@Param('batchId') batchId: string) {
     const data = await this.payroll.cancel(batchId);
     return { data };
   }
 
-  /** Xarajat ortidagi xodimlar royxati */
   @Get('expense/:expenseId')
   async expenseDetail(@Param('expenseId') expenseId: string) {
     const data = await this.payroll.expenseDetail(expenseId);
     return { data };
-  }
-
-  /** Topilmagan PINFL larni Excel faylga chiqarish */
-  @Get(':batchId/missing')
-  async exportMissing(
-    @Param('batchId') batchId: string,
-    @Res() response: Response,
-  ) {
-    const { buffer, filename } = await this.payroll.exportMissing(batchId);
-
-    response.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    response.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(filename)}"`,
-    );
-    response.send(buffer);
   }
 
   @Get('batches')

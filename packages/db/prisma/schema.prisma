@@ -316,7 +316,7 @@ model PayrollEntry {
   employee Employee      @relation(fields: [employeePinfl], references: [pinfl])
   batch    PayrollBatch? @relation(fields: [batchId], references: [id])
 
-  @@unique([employeePinfl, period])
+  @@unique([employeePinfl, period, batchId])
   @@index([period])
   @@index([batchId])
   @@map("payroll_entries")

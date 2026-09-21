@@ -101,7 +101,93 @@ export interface ExpenseStructure {
   totalTiyin: string;
 }
 
+// ─────── Nima ozgardi ───────
+
+export type InsightKind = 'up' | 'down' | 'new' | 'gone';
+export type InsightArea = 'expense' | 'income';
+
+export interface Insight {
+  kind: InsightKind;
+  area: InsightArea;
+  subject: string;
+  message: string;
+  currentTiyin: string;
+  previousTiyin: string;
+  diffTiyin: string;
+  changePercent: number | null;
+}
+
+export interface InsightsResult {
+  insights: Insight[];
+  currentRange: { from: string; to: string };
+  previousRange: { from: string; to: string };
+}
+
+// ─────── Bolim reytingi ───────
+
+export interface DepartmentRating {
+  departmentId: string | null;
+  name: string;
+  incomeTiyin: string;
+  expenseTiyin: string;
+  profitTiyin: string;
+  marginPercent: number | null;
+  employeeCount: number;
+  perEmployeeTiyin: string | null;
+}
+
+export interface RatingResult {
+  rows: DepartmentRating[];
+  best: DepartmentRating | null;
+  worst: DepartmentRating | null;
+}
+
+// ─────── Xodim boshiga ───────
+
+export interface PerEmployeeMetrics {
+  employeeCount: number;
+  incomePerEmployeeTiyin: string;
+  expensePerEmployeeTiyin: string;
+  payrollPerEmployeeTiyin: string;
+  payrollSharePercent: number | null;
+  totalIncomeTiyin: string;
+  totalExpenseTiyin: string;
+  totalPayrollTiyin: string;
+}
+
+// ─────── Savollar ───────
+
+export interface AnswerResult {
+  question: string;
+  answer: string;
+  details: { label: string; value: string }[];
+}
+
 export const dashboardApi = {
+  /** Nima ozgardi */
+  insights: (dateFrom: string, dateTo: string) =>
+    api.get<ApiResponse<InsightsResult>>("/dashboard/insights", {
+      params: { dateFrom, dateTo },
+    }),
+
+  /** Bolimlar reytingi */
+  rating: (dateFrom: string, dateTo: string) =>
+    api.get<ApiResponse<RatingResult>>("/dashboard/rating", {
+      params: { dateFrom, dateTo },
+    }),
+
+  /** Xodim boshiga korsatkichlar */
+  perEmployee: (dateFrom: string, dateTo: string) =>
+    api.get<ApiResponse<PerEmployeeMetrics>>("/dashboard/per-employee", {
+      params: { dateFrom, dateTo },
+    }),
+
+  /** Tayyor savolga javob */
+  answer: (question: string, dateFrom: string, dateTo: string) =>
+    api.get<ApiResponse<AnswerResult>>(`/dashboard/answer/${question}`, {
+      params: { dateFrom, dateTo },
+    }),
+
   overview: (period: string) =>
     api.get<ApiResponse<Overview>>('/dashboard/overview', { params: { period } }),
 
