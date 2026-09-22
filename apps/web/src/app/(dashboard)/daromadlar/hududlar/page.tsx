@@ -218,7 +218,7 @@ export default function RegionalIncomePage() {
                       To&rsquo;ldirilgan faylni shu yerga tashlang
                     </p>
                     <p className="text-xs text-[--color-text-muted]">
-                      Har hudud alohida varaq &middot; Soni va Summasi
+                      Bitta varaq, hududlar ustunlarda &middot; Soni va Summasi
                     </p>
                   </>
                 )}
@@ -472,10 +472,10 @@ function AnalysisView({
           <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
           <div>
             <p className="text-sm font-medium text-[--color-warn]">
-              Tanilmagan varaqlar
+              Tanilmagan ustunlar
             </p>
             <p className="mt-0.5 text-xs text-[--color-text-muted]">
-              {analysis.unknownSheets.join(', ')} &mdash; bu varaqlar o&rsquo;tkazib
+              {analysis.unknownSheets.join(', ')} &mdash; bu ustunlar o&rsquo;tkazib
               yuborildi
             </p>
           </div>
