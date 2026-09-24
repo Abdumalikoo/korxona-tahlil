@@ -19,6 +19,7 @@ import { CurrentUser, Roles } from '../../common/decorators';
 import { ResultsService, type EmploymentKind, type ResultRow } from './results.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 interface CommitBody {
   fileName?: string;
@@ -37,20 +38,38 @@ interface CommitBody {
 export class ResultsController {
   constructor(private readonly results: ResultsService) {}
 
-  /** Shablon — formulalar va kodlar varag'i bilan */
-  @Get('template')
-  async template(@Query('period') period: string, @Res() response: Response) {
-    const { buffer, filename } = await this.results.buildTemplate(period);
-
-    response.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
+  private sendFile(response: Response, buffer: Buffer, filename: string): void {
+    response.setHeader('Content-Type', XLSX_TYPE);
     response.setHeader(
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(filename)}"`,
     );
     response.send(buffer);
+  }
+
+  private parseRegion(value?: string): number | undefined {
+    return value === undefined || value === '' ? undefined : Number(value);
+  }
+
+  /** Shablon — formulalar va kodlar varag'i bilan */
+  @Get('template')
+  async template(@Query('period') period: string, @Res() response: Response) {
+    const { buffer, filename } = await this.results.buildTemplate(period);
+    this.sendFile(response, buffer, filename);
+  }
+
+  /** Oy natijalari Excel'da — hudud filtri bilan */
+  @Get('export')
+  async exportExcel(
+    @Query('period') period: string,
+    @Query('regionCode') regionCode: string | undefined,
+    @Res() response: Response,
+  ) {
+    const { buffer, filename } = await this.results.exportExcel(
+      period,
+      this.parseRegion(regionCode),
+    );
+    this.sendFile(response, buffer, filename);
   }
 
   /** Faylni tahlil qilish — hech narsa saqlanmaydi */
@@ -121,8 +140,7 @@ export class ResultsController {
   /** Oy natijalari */
   @Get()
   async list(@Query('period') period: string, @Query('regionCode') regionCode?: string) {
-    const code = regionCode === undefined || regionCode === '' ? undefined : Number(regionCode);
-    const data = await this.results.findResults(period, code);
+    const data = await this.results.findResults(period, this.parseRegion(regionCode));
     return { data };
   }
 }

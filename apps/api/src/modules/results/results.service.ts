@@ -993,4 +993,181 @@ export class ResultsService {
       totals: { ...totals, percent: this.percentOf(totals.planTiyin, totals.factTiyin) },
     };
   }
+
+  // ═══════════ Excel eksport ═══════════
+
+  /** Oy natijalari — xodimlar va hududlar varag'i, shablon ko'rinishida */
+  async exportExcel(period: string, regionCode?: number): Promise<{ buffer: Buffer; filename: string }> {
+    const { rows, regions, totals } = await this.findResults(period, regionCode);
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Bu oy uchun natijalar yoq');
+    }
+
+    const toSum = (tiyin: bigint) => Number(tiyin) / 100;
+    const round = (value: number | null) => (value === null ? '' : Math.round(value * 10) / 10);
+
+    const percentFont = (value: number | null) => {
+      if (value === null) return undefined;
+      if (value < LOW_PERCENT) return { bold: true, color: { argb: 'FFDC2626' } };
+      if (value <= HIGH_PERCENT) return { bold: true, color: { argb: 'FFD97706' } };
+      return { bold: true, color: { argb: 'FF059669' } };
+    };
+
+    const thin = { style: 'thin' as const, color: { argb: 'FF94A3B8' } };
+    const border = { top: thin, left: thin, bottom: thin, right: thin };
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+
+    // ─── 1-varaq: Natijalar ───
+    const sheet = workbook.addWorksheet('Natijalar', {
+      views: [{ state: 'frozen', ySplit: 2 }],
+    });
+
+    const headers = [
+      '№',
+      'Hudud',
+      'Tuman',
+      'PINFL',
+      'Xodim F.I.Sh',
+      'Turi\n(1 - asosiy shtat,\n2 - shartnoma)',
+      'Oylik reja',
+      'Reja bajarilishi\n(tushum)',
+      'Foizda',
+      "Ustama miqdori\n(tushum rejaga nisbatan 80%dan past bo'lganda=0, " +
+        "80-95% bo'lganda = tushumning 25%, 95%dan ortiq bo'lganda tushumning 45%)",
+    ];
+    const widths = [6, 22, 24, 18, 40, 14, 16, 18, 10, 26];
+
+    widths.forEach((width, index) => {
+      sheet.getColumn(index + 1).width = width;
+    });
+
+    const headerRow = sheet.getRow(1);
+    headers.forEach((label, index) => {
+      const cell = headerRow.getCell(index + 1);
+      cell.value = label;
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBFBFBF' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = border;
+    });
+    headerRow.height = 95;
+
+    const totalRow = sheet.getRow(2);
+    totalRow.getCell(1).value = 'Jami';
+    totalRow.getCell(7).value = toSum(totals.planTiyin);
+    totalRow.getCell(8).value = toSum(totals.factTiyin);
+    totalRow.getCell(9).value = round(totals.percent);
+    totalRow.getCell(10).value = toSum(totals.bonusTiyin);
+
+    for (let col = 1; col <= 10; col++) {
+      const cell = totalRow.getCell(col);
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF28A745' } };
+      cell.border = border;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    }
+    totalRow.getCell(7).numFmt = '#,##0';
+    totalRow.getCell(8).numFmt = '#,##0';
+    totalRow.getCell(9).numFmt = '0.0';
+    totalRow.getCell(10).numFmt = '#,##0';
+
+    rows.forEach((item, index) => {
+      const row = sheet.getRow(index + 3);
+
+      row.getCell(1).value = index + 1;
+      row.getCell(2).value = item.regionName;
+      row.getCell(3).value = item.districtName ?? '';
+      row.getCell(4).value = item.pinfl;
+      row.getCell(5).value = item.fullName;
+      row.getCell(6).value = item.employmentType === 'SHTAT' ? 1 : 2;
+      row.getCell(7).value = toSum(item.planTiyin);
+      row.getCell(8).value = toSum(item.factTiyin);
+      row.getCell(9).value = round(item.percent);
+      row.getCell(10).value = toSum(item.bonusTiyin);
+
+      row.getCell(4).numFmt = '@';
+      row.getCell(7).numFmt = '#,##0';
+      row.getCell(8).numFmt = '#,##0';
+      row.getCell(9).numFmt = '0.0';
+      row.getCell(10).numFmt = '#,##0';
+
+      row.getCell(1).alignment = { horizontal: 'center' };
+      row.getCell(6).alignment = { horizontal: 'center' };
+      row.getCell(9).alignment = { horizontal: 'center' };
+
+      const font = percentFont(item.percent);
+      if (font) row.getCell(9).font = font;
+
+      for (let col = 1; col <= 10; col++) {
+        row.getCell(col).border = border;
+      }
+    });
+
+    // ─── 2-varaq: Hududlar ───
+    const summary = workbook.addWorksheet('Hududlar', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+
+    summary.columns = [
+      { header: 'Hudud', key: 'name', width: 32 },
+      { header: 'Xodim', key: 'count', width: 10 },
+      { header: 'Oylik reja', key: 'plan', width: 18 },
+      { header: 'Tushum', key: 'fact', width: 18 },
+      { header: 'Foizda', key: 'percent', width: 10 },
+      { header: 'Ustama', key: 'bonus', width: 18 },
+    ];
+
+    const summaryHeader = summary.getRow(1);
+    summaryHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    summaryHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
+    summaryHeader.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    for (const region of regions) {
+      const row = summary.addRow({
+        name: region.name,
+        count: region.count,
+        plan: toSum(region.planTiyin),
+        fact: toSum(region.factTiyin),
+        percent: round(region.percent),
+        bonus: toSum(region.bonusTiyin),
+      });
+
+      const font = percentFont(region.percent);
+      if (font) row.getCell('percent').font = font;
+    }
+
+    const summaryTotal = summary.addRow({
+      name: 'Jami',
+      count: rows.length,
+      plan: toSum(totals.planTiyin),
+      fact: toSum(totals.factTiyin),
+      percent: round(totals.percent),
+      bonus: toSum(totals.bonusTiyin),
+    });
+
+    summaryTotal.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    summaryTotal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF28A745' } };
+
+    summary.getColumn('plan').numFmt = '#,##0';
+    summary.getColumn('fact').numFmt = '#,##0';
+    summary.getColumn('percent').numFmt = '0.0';
+    summary.getColumn('bonus').numFmt = '#,##0';
+    summary.getColumn('count').alignment = { horizontal: 'center' };
+    summary.getColumn('percent').alignment = { horizontal: 'center' };
+
+    summary.eachRow((row) => {
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.border = border;
+      });
+    });
+
+    const suffix = regionCode !== undefined && regions[0] ? `-${regions[0].name}` : '';
+    const data = await workbook.xlsx.writeBuffer();
+
+    return { buffer: Buffer.from(data), filename: `Xodim-natijalari-${period}${suffix}.xlsx` };
+  }
+
 }

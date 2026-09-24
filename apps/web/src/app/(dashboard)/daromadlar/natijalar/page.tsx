@@ -3,6 +3,7 @@
 import {
     analyzeResultsFile,
     downloadResultsTemplate,
+  downloadResultsExcel,
     EMPLOYMENT_LABELS,
     resultsApi,
     type CommitResult,
@@ -70,6 +71,7 @@ export default function EmployeeResultsPage() {
 
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dragging, setDragging] = useState(false);
 
@@ -115,6 +117,17 @@ export default function EmployeeResultsPage() {
       setToast({ message: errorMessage(err, 'Shablonni yuklab bo\u2018lmadi'), tone: 'error' });
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadResultsExcel(period, regionCode);
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Faylni yuklab bo\u2018lmadi'), tone: 'error' });
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -230,6 +243,17 @@ export default function EmployeeResultsPage() {
             <IconDownload className="size-4" />
             Shablon
           </Button>
+          {data && data.rows.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleExport()}
+              loading={exporting}
+            >
+              <IconDownload className="size-4" />
+              Excel{regionCode !== undefined ? ' (hudud)' : ''}
+            </Button>
+          )}
         </div>
 
         {/* Yuklash zonasi */}

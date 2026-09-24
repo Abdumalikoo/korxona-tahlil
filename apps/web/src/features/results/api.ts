@@ -190,6 +190,36 @@ export async function analyzeResultsFile(period: string, file: File): Promise<Re
   return result.data;
 }
 
+/** Oy natijalarini Excel faylga yuklab oladi — hudud filtri bilan */
+export async function downloadResultsExcel(period: string, regionCode?: number): Promise<void> {
+  const params = new URLSearchParams({ period });
+  if (regionCode !== undefined) params.set('regionCode', String(regionCode));
+
+  const response = await fetch(`${BASE}/results/export?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response, 'Faylni yuklab bo\u2018lmadi'));
+  }
+
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : `Xodim-natijalari-${period}.xlsx`;
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+}
+
 export const resultsApi = {
   commit: (period: string, fileName: string, rows: AnalyzedRow[]) =>
     api.post<ApiResponse<CommitResult>>(`/results/commit?period=${period}`, {
