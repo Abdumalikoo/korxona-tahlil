@@ -7,6 +7,14 @@ export const EMPLOYMENT_LABELS: Record<EmploymentKind, string> = {
   SHARTNOMA: 'Shartnoma',
 };
 
+/**
+ * Ish haqi holati:
+ * ok — summa bor, zero — hisoblanmagan (0),
+ * missing — ish haqi yuklangan, lekin xodim unda yo'q,
+ * not_uploaded — shu oyga ish haqi umuman yuklanmagan
+ */
+export type SalaryStatus = 'ok' | 'zero' | 'missing' | 'not_uploaded';
+
 /** Tahlildagi qator */
 export interface AnalyzedRow {
   rowIndex: number;
@@ -31,7 +39,12 @@ export interface RegionTotal {
   planTiyin: string;
   factTiyin: string;
   bonusTiyin: string;
+  salaryTiyin: string;
   percent: number | null;
+  /** Tushum / ish haqi */
+  ratio: number | null;
+  /** Ish haqi / tushum × 100 */
+  salaryShare: number | null;
 }
 
 export interface ChangeRow {
@@ -124,12 +137,36 @@ export interface ResultListRow {
   factTiyin: string;
   bonusTiyin: string;
   percent: number | null;
+  salaryTiyin: string | null;
+  salaryStatus: SalaryStatus;
+  ratio: number | null;
+  salaryShare: number | null;
+}
+
+/** Maosh olgan, lekin natijalar faylida yo'q xodim */
+export interface PayrollOnlyRow {
+  pinfl: string;
+  fullName: string;
+  place: string;
+  salaryTiyin: string;
+}
+
+export interface ResultTotals {
+  planTiyin: string;
+  factTiyin: string;
+  bonusTiyin: string;
+  salaryTiyin: string;
+  percent: number | null;
+  ratio: number | null;
+  salaryShare: number | null;
 }
 
 export interface ResultList {
   rows: ResultListRow[];
   regions: RegionTotal[];
-  totals: { planTiyin: string; factTiyin: string; bonusTiyin: string; percent: number | null };
+  payrollUploaded: boolean;
+  payrollOnly: PayrollOnlyRow[];
+  totals: ResultTotals;
 }
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
@@ -149,6 +186,25 @@ async function readError(response: Response, fallback: string): Promise<string> 
   }
 }
 
+/** Javobdagi faylni brauzerga yuklab beradi */
+async function saveFile(response: Response, fallbackName: string): Promise<void> {
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : fallbackName;
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+}
+
 export async function downloadResultsTemplate(period: string): Promise<void> {
   const response = await fetch(`${BASE}/results/template?period=${period}`, {
     headers: authHeaders(),
@@ -158,17 +214,23 @@ export async function downloadResultsTemplate(period: string): Promise<void> {
     throw new Error(await readError(response, 'Shablonni yuklab bo\u2018lmadi'));
   }
 
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
+  await saveFile(response, `Xodim-natijalari-${period}.xlsx`);
+}
 
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `Xodim-natijalari-${period}.xlsx`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+/** Oy natijalarini Excel faylga yuklab oladi — hudud filtri bilan */
+export async function downloadResultsExcel(period: string, regionCode?: number): Promise<void> {
+  const params = new URLSearchParams({ period });
+  if (regionCode !== undefined) params.set('regionCode', String(regionCode));
 
-  URL.revokeObjectURL(url);
+  const response = await fetch(`${BASE}/results/export?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response, 'Faylni yuklab bo\u2018lmadi'));
+  }
+
+  await saveFile(response, `Xodim-natijalari-${period}.xlsx`);
 }
 
 /** Faylni tahlil qiladi — hali hech narsa saqlanmaydi */
@@ -188,36 +250,6 @@ export async function analyzeResultsFile(period: string, file: File): Promise<Re
 
   const result = (await response.json()) as ApiResponse<ResultsAnalysis>;
   return result.data;
-}
-
-/** Oy natijalarini Excel faylga yuklab oladi — hudud filtri bilan */
-export async function downloadResultsExcel(period: string, regionCode?: number): Promise<void> {
-  const params = new URLSearchParams({ period });
-  if (regionCode !== undefined) params.set('regionCode', String(regionCode));
-
-  const response = await fetch(`${BASE}/results/export?${params.toString()}`, {
-    headers: authHeaders(),
-  });
-
-  if (!response.ok) {
-    throw new Error(await readError(response, 'Faylni yuklab bo\u2018lmadi'));
-  }
-
-  const disposition = response.headers.get('Content-Disposition') ?? '';
-  const match = /filename="?([^";]+)"?/.exec(disposition);
-  const filename = match?.[1] ? decodeURIComponent(match[1]) : `Xodim-natijalari-${period}.xlsx`;
-
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-
-  URL.revokeObjectURL(url);
 }
 
 export const resultsApi = {

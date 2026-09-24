@@ -2,14 +2,16 @@
 
 import {
     analyzeResultsFile,
+    downloadResultsExcel,
     downloadResultsTemplate,
-  downloadResultsExcel,
     EMPLOYMENT_LABELS,
     resultsApi,
     type CommitResult,
     type RegionTotal,
     type ResultBatch,
+    type ResultListRow,
     type ResultsAnalysis,
+    type ResultTotals,
 } from '@/features/results/api';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
@@ -56,10 +58,22 @@ type ToastState = { message: string; tone: 'success' | 'error' } | null;
 
 /** Bajarilish rangi: <80 qizil, 80–95 sariq, >95 yashil */
 function percentColor(percent: number | null): string {
-  if (percent === null) return 'text-[--color-text-faint]';
+  if (percent == null) return 'text-[--color-text-faint]';
   if (percent < 80) return 'text-[--color-expense]';
   if (percent <= 95) return 'text-[--color-warn]';
   return 'text-[--color-income]';
+}
+
+/** Nisbat rangi: maosh tushumdan katta bo'lsa (1 dan kichik) — qizil */
+function ratioColor(ratio: number | null): string {
+  if (ratio == null) return 'text-[--color-text-faint]';
+  if (ratio < 1) return 'text-[--color-expense]';
+  return 'text-[--color-text]';
+}
+
+function formatRatio(ratio: number | null): string {
+  if (ratio == null) return '\u2014';
+  return `${ratio.toFixed(2).replace('.', ',')}\u00D7`;
 }
 
 export default function EmployeeResultsPage() {
@@ -218,11 +232,10 @@ export default function EmployeeResultsPage() {
       <div className="space-y-4 p-6">
         <p className="text-xs text-[--color-text-muted]">
           Xodimlar tushirgan tushum &mdash; daromadga qo&rsquo;shilmaydi, hududiy daromadning
-          xodimlar kesimi. Fayldagi hudud va tur shu oy uchun haqiqiy hisoblanadi va ish haqi
-          shunga qarab guruhlanadi.
+          xodimlar kesimi. Shu oy ish haqisi bilan PINFL bo&rsquo;yicha solishtiriladi.
         </p>
 
-        {/* Davr va shablon */}
+        {/* Davr, shablon, eksport */}
         <div className="flex flex-wrap items-center gap-3">
           <PeriodPicker
             value={period}
@@ -243,6 +256,7 @@ export default function EmployeeResultsPage() {
             <IconDownload className="size-4" />
             Shablon
           </Button>
+
           {data && data.rows.length > 0 && (
             <Button
               variant="secondary"
@@ -337,8 +351,24 @@ export default function EmployeeResultsPage() {
           </Card>
         ) : (
           <>
+            {/* Ish haqi yuklanmagan */}
+            {!data.payrollUploaded && (
+              <div className="flex items-start gap-2.5 rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+                <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+                <div>
+                  <p className="text-sm font-medium text-[--color-warn]">
+                    {formatPeriod(period)} uchun ish haqi yuklanmagan
+                  </p>
+                  <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                    Solishtirish uchun <b>Xarajatlar &rarr; Ish haqi</b> bo&rsquo;limidan shu oy
+                    faylini yuklang &mdash; ustunlar o&rsquo;zi to&rsquo;ladi.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Yig'indi */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <SummaryBox label="Xodimlar" value={String(data.rows.length)} />
               <SummaryBox label="Reja" value={formatTiyin(data.totals.planTiyin)} />
               <SummaryBox
@@ -352,10 +382,48 @@ export default function EmployeeResultsPage() {
                 className={percentColor(data.totals.percent)}
               />
               <SummaryBox label="Ustama" value={formatTiyin(data.totals.bonusTiyin)} />
+              <SummaryBox
+                label="Ish haqi"
+                value={data.payrollUploaded ? formatTiyin(data.totals.salaryTiyin) : 'yuklanmagan'}
+                className={data.payrollUploaded ? 'text-[--color-expense]' : 'text-[--color-warn]'}
+              />
+              <SummaryBox
+                label="Tushum / ish haqi"
+                value={formatRatio(data.totals.ratio)}
+                hint="Har 1 so'm maoshga tushum"
+                className={ratioColor(data.totals.ratio)}
+              />
+              <SummaryBox
+                label="Ish haqi ulushi"
+                value={formatPercent(data.totals.salaryShare)}
+                hint="Tushumning maoshga ketgan qismi"
+              />
             </div>
 
+            {/* Maosh olgan, natijasi yo'q */}
+            <IssueBlock
+              tone="warn"
+              title="Maosh olgan, lekin natijalar faylida yo'q"
+              description="Shu oy ish haqi olgan viloyat xodimlari — markaz xodimlari kirmaydi"
+              count={(data.payrollOnly ?? []).length}
+            >
+              {(data.payrollOnly ?? []).map((item) => (
+                <IssueLine
+                  key={item.pinfl}
+                  left={`${item.fullName} · ${item.place}`}
+                  right={formatTiyin(item.salaryTiyin)}
+                />
+              ))}
+            </IssueBlock>
+
             {/* Hududlar */}
-            {regionCode === undefined && <RegionTable regions={data.regions} totals={data.totals} />}
+            {regionCode === undefined && (
+              <RegionTable
+                regions={data.regions}
+                totals={data.totals}
+                showSalary={data.payrollUploaded}
+              />
+            )}
 
             {/* Xodimlar */}
             <Card className="overflow-hidden">
@@ -390,19 +458,28 @@ export default function EmployeeResultsPage() {
                     <THead>
                       <Tr>
                         <Th>Xodim</Th>
-                        <Th className="w-56">Hudud / Tuman</Th>
+                        <Th className="w-48">Hudud / Tuman</Th>
                         <Th className="w-28">Turi</Th>
-                        <Th align="right" className="w-36">
+                        <Th align="right" className="w-32">
                           Reja
                         </Th>
-                        <Th align="right" className="w-36">
+                        <Th align="right" className="w-32">
                           Tushum
                         </Th>
-                        <Th align="right" className="w-24">
+                        <Th align="right" className="w-20">
                           Foiz
                         </Th>
-                        <Th align="right" className="w-36">
+                        <Th align="right" className="w-32">
                           Ustama
+                        </Th>
+                        <Th align="right" className="w-32 bg-brand-50">
+                          Ish haqi
+                        </Th>
+                        <Th align="right" className="w-24 bg-brand-50">
+                          Nisbat
+                        </Th>
+                        <Th align="right" className="w-20 bg-brand-50">
+                          Ulush
                         </Th>
                       </Tr>
                     </THead>
@@ -441,6 +518,18 @@ export default function EmployeeResultsPage() {
                           </Td>
                           <Td money>
                             <Money tiyin={row.bonusTiyin} />
+                          </Td>
+                          <Td align="right" className="bg-brand-50/40">
+                            <SalaryCell row={row} />
+                          </Td>
+                          <Td
+                            align="right"
+                            className={cn('money bg-brand-50/40 font-medium', ratioColor(row.ratio))}
+                          >
+                            {formatRatio(row.ratio)}
+                          </Td>
+                          <Td align="right" className="money bg-brand-50/40 text-[--color-text-muted]">
+                            {row.salaryShare == null ? '\u2014' : formatPercent(row.salaryShare)}
                           </Td>
                         </Tr>
                       ))}
@@ -546,6 +635,33 @@ export default function EmployeeResultsPage() {
   );
 }
 
+// ═══════════ Ish haqi katagi ═══════════
+
+function SalaryCell({ row }: { row: ResultListRow }) {
+  if (row.salaryStatus === 'ok' && row.salaryTiyin !== null) {
+    return <Money tiyin={row.salaryTiyin} tone="expense" />;
+  }
+
+  const labels: Record<Exclude<ResultListRow['salaryStatus'], 'ok'>, string> = {
+    zero: 'hisoblanmagan',
+    missing: "yo'q",
+    not_uploaded: '\u2014',
+  };
+
+  return (
+    <span
+      className={cn(
+        'text-xs',
+        row.salaryStatus === 'not_uploaded'
+          ? 'text-[--color-text-faint]'
+          : 'italic text-[--color-warn]',
+      )}
+    >
+      {labels[row.salaryStatus as Exclude<ResultListRow['salaryStatus'], 'ok'>]}
+    </span>
+  );
+}
+
 // ═══════════ Tahlil natijasi ═══════════
 
 function AnalysisView({
@@ -593,7 +709,6 @@ function AnalysisView({
           </div>
         )}
 
-      {/* Xatolar */}
       <IssueBlock
         tone="expense"
         title="Reestrda topilmadi — saqlanmaydi"
@@ -618,7 +733,6 @@ function AnalysisView({
         ))}
       </IssueBlock>
 
-      {/* Ogohlantirishlar */}
       <IssueBlock
         tone="warn"
         title="Ustama qoidaga mos emas"
@@ -663,7 +777,6 @@ function AnalysisView({
         ))}
       </IssueBlock>
 
-      {/* O'zgarishlar */}
       <IssueBlock
         tone="info"
         title="Hudud o'zgargan"
@@ -698,8 +811,12 @@ function AnalysisView({
           planTiyin: analysis.planTiyin,
           factTiyin: analysis.factTiyin,
           bonusTiyin: analysis.bonusTiyin,
+          salaryTiyin: '0',
           percent: analysis.percent,
+          ratio: null,
+          salaryShare: null,
         }}
+        showSalary={false}
         title="Saqlanadigan natijalar"
       />
 
@@ -786,15 +903,17 @@ function CommitReport({ report, onClose }: { report: CommitResult; onClose: () =
   );
 }
 
-// ═══════════ Yordamchi komponentlar ═══════════
+// ═══════════ Hududlar jadvali ═══════════
 
 function RegionTable({
   regions,
   totals,
+  showSalary,
   title = 'Hududlar bo\u2018yicha',
 }: {
   regions: RegionTotal[];
-  totals: { planTiyin: string; factTiyin: string; bonusTiyin: string; percent: number | null };
+  totals: ResultTotals;
+  showSalary: boolean;
   title?: string;
 }) {
   return (
@@ -809,18 +928,31 @@ function RegionTable({
               <Th align="center" className="w-20">
                 Xodim
               </Th>
-              <Th align="right" className="w-40">
+              <Th align="right" className="w-36">
                 Reja
               </Th>
-              <Th align="right" className="w-40">
+              <Th align="right" className="w-36">
                 Tushum
               </Th>
-              <Th align="right" className="w-24">
+              <Th align="right" className="w-20">
                 Foiz
               </Th>
-              <Th align="right" className="w-40">
+              <Th align="right" className="w-36">
                 Ustama
               </Th>
+              {showSalary && (
+                <>
+                  <Th align="right" className="w-36 bg-brand-50">
+                    Ish haqi
+                  </Th>
+                  <Th align="right" className="w-24 bg-brand-50">
+                    Nisbat
+                  </Th>
+                  <Th align="right" className="w-20 bg-brand-50">
+                    Ulush
+                  </Th>
+                </>
+              )}
             </Tr>
           </THead>
 
@@ -843,6 +975,22 @@ function RegionTable({
                 <Td money>
                   <Money tiyin={region.bonusTiyin} />
                 </Td>
+                {showSalary && (
+                  <>
+                    <Td money className="bg-brand-50/40">
+                      <Money tiyin={region.salaryTiyin} tone="expense" />
+                    </Td>
+                    <Td
+                      align="right"
+                      className={cn('money bg-brand-50/40 font-medium', ratioColor(region.ratio))}
+                    >
+                      {formatRatio(region.ratio)}
+                    </Td>
+                    <Td align="right" className="money bg-brand-50/40 text-[--color-text-muted]">
+                      {region.salaryShare == null ? '\u2014' : formatPercent(region.salaryShare)}
+                    </Td>
+                  </>
+                )}
               </Tr>
             ))}
           </TBody>
@@ -865,6 +1013,22 @@ function RegionTable({
               <Td money>
                 <Money tiyin={totals.bonusTiyin} className="font-semibold" />
               </Td>
+              {showSalary && (
+                <>
+                  <Td money>
+                    <Money tiyin={totals.salaryTiyin} tone="expense" className="font-semibold" />
+                  </Td>
+                  <Td
+                    align="right"
+                    className={cn('money font-semibold', ratioColor(totals.ratio))}
+                  >
+                    {formatRatio(totals.ratio)}
+                  </Td>
+                  <Td align="right" className="money font-semibold">
+                    {totals.salaryShare == null ? '\u2014' : formatPercent(totals.salaryShare)}
+                  </Td>
+                </>
+              )}
             </Tr>
           </TFoot>
         </Table>
@@ -872,6 +1036,8 @@ function RegionTable({
     </Card>
   );
 }
+
+// ═══════════ Yordamchi komponentlar ═══════════
 
 function IssueBlock({
   tone,
@@ -936,10 +1102,12 @@ function IssueLine({ left, right }: { left: string; right: string }) {
 function SummaryBox({
   label,
   value,
+  hint,
   className,
 }: {
   label: string;
   value: string;
+  hint?: string;
   className?: string;
 }) {
   return (
@@ -948,6 +1116,7 @@ function SummaryBox({
         {label}
       </p>
       <p className={cn('money mt-2 text-xl font-semibold', className)}>{value}</p>
+      {hint && <p className="mt-1 text-xs text-[--color-text-faint]">{hint}</p>}
     </div>
   );
 }
