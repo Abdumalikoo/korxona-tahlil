@@ -18,6 +18,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { IntegrityModule } from './modules/integrity/integrity.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
+import { ResultsModule } from './modules/results/results.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
     DashboardModule,
     CleanupModule,
     AuditModule,
+    ResultsModule,
     IntegrityModule,
     BackupModule,
   ],

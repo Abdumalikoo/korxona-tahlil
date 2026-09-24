@@ -16,6 +16,8 @@ enum UserRole {
 }
 
 model User {
+  resultBatches     ResultBatch[]
+
   id           String   @id @default(cuid())
   username     String   @unique
   passwordHash String
@@ -249,6 +251,9 @@ enum EmploymentType {
 }
 
 model Employee {
+  results           EmployeeResult[]
+  locations         EmployeeLocation[]
+
   /// PINFL - 14 raqamli shaxsiy identifikator, birlamchi kalit
   pinfl String @id
 
@@ -437,6 +442,9 @@ model AuditLog {
 // ═══════════ HUDUDLAR ═══════════
 
 model Region {
+  employeeResults   EmployeeResult[]
+  employeeLocations EmployeeLocation[]
+
   /// Rasmiy klassifikator kodi: 0 - Markaz, 3 - Andijon, 33 - Xorazm
   code Int    @id
   name String
@@ -455,6 +463,9 @@ model Region {
 }
 
 model District {
+  employeeResults   EmployeeResult[]
+  employeeLocations EmployeeLocation[]
+
   /// Tarkibli kalit: "33-1" - viloyat va tuman kodi birga
   id         String @id
   regionCode Int
@@ -525,4 +536,72 @@ model Setting {
   updatedAt DateTime @updatedAt
 
   @@map("settings")
+}
+
+
+/// Xodim natijalari yuklashi - oylik fayl
+model ResultBatch {
+  id           String    @id @default(cuid())
+  period       String
+  fileName     String
+  totalRows    Int
+  planTiyin    BigInt    @default(0)
+  factTiyin    BigInt    @default(0)
+  bonusTiyin     BigInt  @default(0)
+  /// Hududi tuzatilgan xodimlar soni
+  movedCount   Int       @default(0)
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  cancelledAt  DateTime?
+
+  uploadedBy User             @relation(fields: [uploadedById], references: [id])
+  results    EmployeeResult[]
+
+  @@index([period])
+  @@map("result_batches")
+}
+
+/// Xodim natijasi - reja va fakt. Daromadga qo'shilmaydi
+model EmployeeResult {
+  id            String  @id @default(cuid())
+  batchId       String
+  period        String
+  employeePinfl String
+  regionCode    Int
+  districtId    String?
+  employmentType String  @default("SHTAT")
+  planTiyin     BigInt  @default(0)
+  factTiyin     BigInt  @default(0)
+  bonusTiyin     BigInt  @default(0)
+
+  batch    ResultBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employee Employee    @relation(fields: [employeePinfl], references: [pinfl])
+  region   Region      @relation(fields: [regionCode], references: [code])
+  district District?   @relation(fields: [districtId], references: [id])
+
+  @@unique([batchId, employeePinfl])
+  @@index([period, regionCode])
+  @@index([employeePinfl, period])
+  @@map("employee_results")
+}
+
+/// Xodim qaysi oyda qayerda ishlagani - natijalar faylidan
+model EmployeeLocation {
+  id            String   @id @default(cuid())
+  employeePinfl String
+  period        String
+  regionCode    Int
+  districtId    String?
+  employmentType String  @default("SHTAT")
+  source        String   @default("RESULTS")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee Employee  @relation(fields: [employeePinfl], references: [pinfl])
+  region   Region    @relation(fields: [regionCode], references: [code])
+  district District? @relation(fields: [districtId], references: [id])
+
+  @@unique([employeePinfl, period])
+  @@index([period, regionCode])
+  @@map("employee_locations")
 }
