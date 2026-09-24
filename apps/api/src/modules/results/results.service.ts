@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
+import { PayrollService } from '../payroll/payroll.service';
 
 // ─────── Ustama qoidasi ───────
 const LOW_PERCENT = 80;
@@ -90,7 +91,10 @@ const TYPE_LABELS: Record<EmploymentKind, string> = {
 
 @Injectable()
 export class ResultsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly payroll: PayrollService,
+  ) {}
 
   // ═══════════ Yordamchilar ═══════════
 
@@ -877,9 +881,15 @@ export class ResultsService {
       { timeout: 60_000 },
     );
 
+    // Ish haqi yangi hudud va turga qarab qayta guruhlanadi
+
+    const payroll = await this.payroll.regroup(period);
+
+
     return {
       success: true as const,
       batchId: result.batchId,
+      payroll,
       saved: rows.length,
       movedCount,
       replacedPrevious: result.replaced > 0,
@@ -915,7 +925,8 @@ export class ResultsService {
       }),
     ]);
 
-    return { success: true as const };
+    const payroll = await this.payroll.regroup(batch.period);
+    return { success: true as const, payroll };
   }
 
   // ═══════════ Ro'yxatlar ═══════════

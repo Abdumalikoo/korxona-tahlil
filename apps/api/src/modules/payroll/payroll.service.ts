@@ -18,7 +18,8 @@ export interface MissingRow {
   pinfl: string;
 }
 
-interface GroupEmployee {
+/** Guruhlash uchun xodim — hudud va turi tarixga qarab almashtirilgan bo'lishi mumkin */
+export interface GroupEmployee {
   pinfl: string;
   fullName: string;
   regionCode: number;
@@ -29,13 +30,40 @@ interface GroupEmployee {
   department: { name: string } | null;
 }
 
-interface ExpenseGroup {
+/** Shu oy hudud tarixi yozuvi */
+export interface LocationRef {
+  employeePinfl: string;
+  regionCode: number;
+  districtId: string | null;
+  employmentType: string;
+  region: { name: string };
+  district: { id: string; code: number; name: string } | null;
+}
+
+export interface ExpenseGroup {
+  key: string;
   label: string;
   departmentId: string | null;
   regionCode: number | null;
   totalTiyin: bigint;
   count: number;
   zeroCount: number;
+}
+
+/** Qayta guruhlashda ko'chgan xodim */
+export interface MovedEmployee {
+  pinfl: string;
+  fullName: string;
+  amountTiyin: bigint;
+  from: string;
+  to: string;
+}
+
+export interface RegroupReport {
+  period: string;
+  batches: number;
+  changedBatches: number;
+  moved: MovedEmployee[];
 }
 
 const EMPLOYEE_INCLUDE = {
@@ -67,7 +95,6 @@ export class PayrollService {
     );
   }
 
-  /** Formula, boy matn va oddiy qiymatni bir xil ko'rinishga keltiradi */
   private cellValue(value: ExcelJS.CellValue): unknown {
     if (value && typeof value === 'object') {
       const record = value as unknown as Record<string, unknown>;
@@ -91,10 +118,7 @@ export class PayrollService {
     return /^\d{14}$/.test(digits) ? digits : null;
   }
 
-  /**
-   * Summa. Bo'sh katak yoki 0 — nol (ish haqi hisoblanmagan).
-   * Manfiy yoki son bo'lmagan qiymat — null (xato qator).
-   */
+  /** Bo'sh yoki 0 — nol (hisoblanmagan). Manfiy yoki matn — null (xato) */
   private parseAmount(value: unknown): bigint | null {
     if (this.isBlank(value)) return 0n;
 
@@ -110,6 +134,48 @@ export class PayrollService {
     return BigInt(Math.round(parsed * 100));
   }
 
+  private formatSum(tiyin: bigint): string {
+    return `${(Number(tiyin) / 100).toLocaleString('uz-UZ')} som`;
+  }
+
+  // ═══════════ Hudud tarixi ═══════════
+
+  /** Shu oy uchun hudud tarixi — natijalar faylidan */
+  private async loadLocations(
+    period: string,
+    pinfls?: string[],
+  ): Promise<Map<string, LocationRef>> {
+    const locations = await this.prisma.employeeLocation.findMany({
+      where: {
+        period,
+        ...(pinfls ? { employeePinfl: { in: pinfls } } : {}),
+      },
+      select: {
+        employeePinfl: true,
+        regionCode: true,
+        districtId: true,
+        employmentType: true,
+        region: { select: { name: true } },
+        district: { select: { id: true, code: true, name: true } },
+      },
+    });
+
+    return new Map<string, LocationRef>(locations.map((item) => [item.employeePinfl, item]));
+  }
+
+  /** Tarixda yozuv bo'lsa — hudud, tuman va tur shundan olinadi */
+  private applyLocation(employee: GroupEmployee, location?: LocationRef): GroupEmployee {
+    if (!location) return employee;
+
+    return {
+      ...employee,
+      regionCode: location.regionCode,
+      employmentType: location.employmentType,
+      region: { name: location.region.name },
+      district: location.district ? { name: location.district.name } : null,
+    };
+  }
+
   private placeOf(employee: GroupEmployee): string {
     if (employee.regionCode === CENTRAL_REGION) {
       return employee.department?.name ?? 'Markaz';
@@ -119,42 +185,58 @@ export class PayrollService {
       : employee.region.name;
   }
 
-  /**
-   * Xodimlarni xarajat guruhlariga ajratadi.
-   * Shartnoma alohida, markaz bo'lim bo'yicha, viloyat yaxlit.
-   */
+  // ═══════════ Guruhlash ═══════════
+
+  /** Xodim qaysi xarajat guruhiga tushishi */
+  private groupOf(employee: GroupEmployee): {
+    key: string;
+    label: string;
+    departmentId: string | null;
+    regionCode: number | null;
+  } {
+    if (employee.employmentType === 'SHARTNOMA') {
+      return {
+        key: 'shartnoma',
+        label: 'Shartnoma asosidagi ish haqi',
+        departmentId: null,
+        regionCode: null,
+      };
+    }
+
+    if (employee.regionCode === CENTRAL_REGION) {
+      return {
+        key: `markaz-${employee.departmentId ?? 'none'}`,
+        label: `Ish haqi \u2014 ${employee.department?.name ?? 'bolimsiz'}`,
+        departmentId: employee.departmentId,
+        regionCode: CENTRAL_REGION,
+      };
+    }
+
+    return {
+      key: `region-${employee.regionCode}`,
+      label: `Ish haqi \u2014 ${employee.region.name}`,
+      departmentId: null,
+      regionCode: employee.regionCode,
+    };
+  }
+
+  /** Xarajat yozuvi qaysi guruhga tegishli */
+  private expenseKey(expense: { regionCode: number | null; departmentId: string | null }): string {
+    if (expense.regionCode === null && expense.departmentId === null) return 'shartnoma';
+    if (expense.regionCode === CENTRAL_REGION) return `markaz-${expense.departmentId ?? 'none'}`;
+    return `region-${expense.regionCode}`;
+  }
+
   private buildGroups(
     items: { amountTiyin: bigint; employee: GroupEmployee }[],
   ): Map<string, ExpenseGroup> {
     const groups = new Map<string, ExpenseGroup>();
 
     for (const { amountTiyin, employee } of items) {
-      const isContract = employee.employmentType === 'SHARTNOMA';
-      const isCentral = employee.regionCode === CENTRAL_REGION;
+      const target = this.groupOf(employee);
 
-      let key: string;
-      let label: string;
-      let departmentId: string | null = null;
-      let regionCode: number | null = null;
-
-      if (isContract) {
-        key = 'shartnoma';
-        label = 'Shartnoma asosidagi ish haqi';
-      } else if (isCentral) {
-        key = `markaz-${employee.departmentId ?? 'none'}`;
-        label = `Ish haqi \u2014 ${employee.department?.name ?? 'bolimsiz'}`;
-        departmentId = employee.departmentId;
-        regionCode = CENTRAL_REGION;
-      } else {
-        key = `region-${employee.regionCode}`;
-        label = `Ish haqi \u2014 ${employee.region.name}`;
-        regionCode = employee.regionCode;
-      }
-
-      const group = groups.get(key) ?? {
-        label,
-        departmentId,
-        regionCode,
+      const group = groups.get(target.key) ?? {
+        ...target,
         totalTiyin: 0n,
         count: 0,
         zeroCount: 0,
@@ -164,22 +246,14 @@ export class PayrollService {
       group.count += 1;
       if (amountTiyin === 0n) group.zeroCount += 1;
 
-      groups.set(key, group);
+      groups.set(target.key, group);
     }
 
     return groups;
   }
 
-  private formatSum(tiyin: bigint): string {
-    return `${(Number(tiyin) / 100).toLocaleString('uz-UZ')} som`;
-  }
-
   // ═══════════ Shablon ═══════════
 
-  /**
-   * Sodda shablon: PINFL va summa.
-   * Ikkinchi varaqda faol xodimlar ro'yxati — nusxalash uchun.
-   */
   async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
     this.assertPeriod(period);
 
@@ -209,6 +283,8 @@ export class PayrollService {
       include: EMPLOYEE_INCLUDE,
     });
 
+    const locations = await this.loadLocations(period);
+
     const ref = workbook.addWorksheet('Xodimlar');
     ref.columns = [
       { header: 'PINFL', key: 'pinfl', width: 20 },
@@ -223,11 +299,16 @@ export class PayrollService {
     ref.getColumn('A').numFmt = '@';
 
     for (const employee of employees) {
+      const effective = this.applyLocation(
+        employee as unknown as GroupEmployee,
+        locations.get(employee.pinfl),
+      );
+
       ref.addRow({
         pinfl: employee.pinfl,
         fullName: employee.fullName,
-        type: employee.employmentType === 'SHTAT' ? 'Shtat' : 'Shartnoma',
-        place: this.placeOf(employee as unknown as GroupEmployee),
+        type: effective.employmentType === 'SHTAT' ? 'Shtat' : 'Shartnoma',
+        place: this.placeOf(effective),
       });
     }
 
@@ -278,7 +359,6 @@ export class PayrollService {
         return;
       }
 
-      // Bir xodim ikki marta yozilgan bo'lsa — summalar qo'shiladi
       const existing = parsed.get(pinfl);
       if (existing) {
         existing.amountTiyin += amount;
@@ -293,13 +373,21 @@ export class PayrollService {
       throw new BadRequestException('Faylda yaroqli qator topilmadi');
     }
 
-    const employees = await this.prisma.employee.findMany({
-      where: { pinfl: { in: [...parsed.keys()] } },
-      include: EMPLOYEE_INCLUDE,
-    });
+    const pinfls = [...parsed.keys()];
 
-    const employeeMap = new Map(
-      employees.map((item) => [item.pinfl, item as unknown as GroupEmployee]),
+    const [employees, locations] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { pinfl: { in: pinfls } },
+        include: EMPLOYEE_INCLUDE,
+      }),
+      this.loadLocations(period, pinfls),
+    ]);
+
+    const employeeMap = new Map<string, GroupEmployee>(
+      employees.map((item) => [
+        item.pinfl,
+        this.applyLocation(item as unknown as GroupEmployee, locations.get(item.pinfl)),
+      ]),
     );
 
     const matched: { amountTiyin: bigint; employee: GroupEmployee }[] = [];
@@ -339,6 +427,8 @@ export class PayrollService {
       paidRows: matched.length - zeroEmployees.length,
       zeroRows: zeroEmployees.length,
       missingRows: missing.length,
+      /** Shu oy hudud tarixiga qarab joylashtirilgan xodimlar */
+      locatedRows: [...locations.keys()].filter((pinfl) => employeeMap.has(pinfl)).length,
       invalidRows,
       missing,
       duplicates: [...new Set(duplicates)],
@@ -356,7 +446,6 @@ export class PayrollService {
           totalTiyin: group.totalTiyin,
         }))
         .sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1)),
-      /** Saqlash uchun — frontend shuni qaytarib yuboradi */
       rows: matched.map((item) => ({
         pinfl: item.employee.pinfl,
         amountTiyin: item.amountTiyin,
@@ -392,11 +481,15 @@ export class PayrollService {
       merged.set(row.pinfl, (merged.get(row.pinfl) ?? 0n) + row.amountTiyin);
     }
 
-    // Reestrni qayta tekshiramiz — frontendga ishonmaymiz
-    const employees = await this.prisma.employee.findMany({
-      where: { pinfl: { in: [...merged.keys()] } },
-      include: EMPLOYEE_INCLUDE,
-    });
+    const pinfls = [...merged.keys()];
+
+    const [employees, locations] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { pinfl: { in: pinfls } },
+        include: EMPLOYEE_INCLUDE,
+      }),
+      this.loadLocations(period, pinfls),
+    ]);
 
     if (employees.length !== merged.size) {
       throw new BadRequestException(
@@ -406,7 +499,10 @@ export class PayrollService {
 
     const items = employees.map((employee) => ({
       amountTiyin: merged.get(employee.pinfl) ?? 0n,
-      employee: employee as unknown as GroupEmployee,
+      employee: this.applyLocation(
+        employee as unknown as GroupEmployee,
+        locations.get(employee.pinfl),
+      ),
     }));
 
     const groups = this.buildGroups(items);
@@ -463,7 +559,6 @@ export class PayrollService {
           },
         });
 
-        // Nol summali xodimlar ham yoziladi — tahlilda ko'rinishi uchun
         await tx.payrollEntry.createMany({
           data: items.map((item) => ({
             employeePinfl: item.employee.pinfl,
@@ -474,7 +569,6 @@ export class PayrollService {
           })),
         });
 
-        // Xarajat faqat summasi bor guruhlar uchun
         const expenseGroups = [...groups.values()].filter((group) => group.totalTiyin > 0n);
 
         if (expenseGroups.length > 0) {
@@ -527,9 +621,137 @@ export class PayrollService {
     };
   }
 
+  // ═══════════ Qayta guruhlash ═══════════
+
+  /**
+   * Shu oyning tasdiqlangan ish haqisini hudud tarixiga qarab qayta guruhlaydi.
+   *
+   * Natijalar fayli saqlanganda yoki bekor qilinganda chaqiriladi.
+   * Jami summa o'zgarmaydi — xarajat faqat guruhlar orasida ko'chadi.
+   */
+  async regroup(period: string): Promise<RegroupReport> {
+    this.assertPeriod(period);
+
+    const [batches, locations] = await Promise.all([
+      this.prisma.payrollBatch.findMany({
+        where: { period, status: 'COMMITTED' },
+        include: {
+          entries: {
+            include: { employee: { include: EMPLOYEE_INCLUDE } },
+          },
+        },
+      }),
+      this.loadLocations(period),
+    ]);
+
+    const report: RegroupReport = { period, batches: batches.length, changedBatches: 0, moved: [] };
+    const movedMap = new Map<string, MovedEmployee>();
+
+    for (const batch of batches) {
+      const items = batch.entries.map((entry) => {
+        const registry = entry.employee as unknown as GroupEmployee;
+        const effective = this.applyLocation(registry, locations.get(entry.employeePinfl));
+
+        const before = this.groupOf(registry);
+        const after = this.groupOf(effective);
+
+        if (before.key !== after.key && entry.totalTiyin > 0n) {
+          const existing = movedMap.get(entry.employeePinfl);
+          if (existing) {
+            existing.amountTiyin += entry.totalTiyin;
+          } else {
+            movedMap.set(entry.employeePinfl, {
+              pinfl: entry.employeePinfl,
+              fullName: registry.fullName,
+              amountTiyin: entry.totalTiyin,
+              from: before.label,
+              to: after.label,
+            });
+          }
+        }
+
+        return { amountTiyin: entry.totalTiyin, employee: effective };
+      });
+
+      const groups = [...this.buildGroups(items).values()].filter(
+        (group) => group.totalTiyin > 0n,
+      );
+
+      const current = await this.prisma.expense.findMany({
+        where: { payrollBatchId: batch.id, deletedAt: null },
+        select: { regionCode: true, departmentId: true, amountTiyin: true },
+      });
+
+      // Guruhlar o'zgarmagan bo'lsa — tegmaymiz
+      const signature = (list: { key: string; amount: bigint }[]) =>
+        list
+          .map((item) => `${item.key}:${item.amount}`)
+          .sort()
+          .join('|');
+
+      const currentSignature = signature(
+        current.map((item) => ({ key: this.expenseKey(item), amount: item.amountTiyin })),
+      );
+      const nextSignature = signature(
+        groups.map((group) => ({ key: group.key, amount: group.totalTiyin })),
+      );
+
+      if (currentSignature === nextSignature) continue;
+
+      const total = items.reduce((sum, item) => sum + item.amountTiyin, 0n);
+      const date = this.periodEndDate(period);
+
+      await this.prisma.$transaction(
+        async (tx) => {
+          await tx.expense.deleteMany({
+            where: { payrollBatchId: batch.id, deletedAt: null },
+          });
+
+          if (groups.length > 0) {
+            await tx.expense.createMany({
+              data: groups.map((group) => ({
+                date,
+                period,
+                amountTiyin: group.totalTiyin,
+                categoryCode: PAYROLL_CATEGORY,
+                departmentId: group.departmentId,
+                regionCode: group.regionCode,
+                description: `${group.label} (${group.count - group.zeroCount} xodim)`,
+                paymentMethod: 'BANK' as const,
+                paymentStatus: 'PAID' as const,
+                source: 'PAYROLL' as const,
+                payrollBatchId: batch.id,
+                createdById: batch.uploadedById,
+              })),
+            });
+          }
+
+          const created = await tx.expense.aggregate({
+            where: { payrollBatchId: batch.id, deletedAt: null },
+            _sum: { amountTiyin: true },
+          });
+
+          if ((created._sum.amountTiyin ?? 0n) !== total) {
+            throw new BadRequestException(
+              `Qayta guruhlashda summa mos kelmadi (${batch.fileName}). Hech narsa ozgarmadi`,
+            );
+          }
+        },
+        { timeout: 60_000 },
+      );
+
+      report.changedBatches += 1;
+    }
+
+    report.moved = [...movedMap.values()].sort((a, b) =>
+      b.amountTiyin > a.amountTiyin ? 1 : -1,
+    );
+
+    return report;
+  }
+
   // ═══════════ Bekor qilish ═══════════
 
-  /** Tasdiqlangan yuklashni bekor qiladi — xarajatlar savatga tushadi */
   async cancel(batchId: string) {
     const batch = await this.prisma.payrollBatch.findUnique({ where: { id: batchId } });
 
@@ -631,7 +853,10 @@ export class PayrollService {
     return batch;
   }
 
-  /** Xarajat yozuvi ortidagi xodimlar */
+  /**
+   * Xarajat yozuvi ortidagi xodimlar.
+   * Guruh hudud tarixiga qarab aniqlanadi — xarajat bilan bir xil qoida.
+   */
   async expenseDetail(expenseId: string) {
     const expense = await this.prisma.expense.findUnique({
       where: { id: expenseId },
@@ -649,36 +874,58 @@ export class PayrollService {
       return { isPayroll: false, expense, groups: [], entries: [] };
     }
 
-    const isContract = expense.regionCode === null && expense.departmentId === null;
+    const key = this.expenseKey(expense);
+    const isContract = key === 'shartnoma';
     const isCentral = expense.regionCode === CENTRAL_REGION;
 
-    const employeeFilter = isContract
-      ? { employmentType: 'SHARTNOMA' as const }
-      : isCentral
-        ? {
-            regionCode: CENTRAL_REGION,
-            departmentId: expense.departmentId,
-            employmentType: 'SHTAT' as const,
-          }
-        : { regionCode: expense.regionCode ?? undefined, employmentType: 'SHTAT' as const };
-
-    const entries = await this.prisma.payrollEntry.findMany({
-      where: { batchId: expense.payrollBatchId, employee: employeeFilter },
-      orderBy: { totalTiyin: 'desc' },
-      include: {
-        employee: {
-          select: {
-            pinfl: true,
-            fullName: true,
-            position: true,
-            regionCode: true,
-            districtId: true,
-            district: { select: { id: true, code: true, name: true } },
-            department: { select: { name: true } },
+    const [allEntries, locations] = await Promise.all([
+      this.prisma.payrollEntry.findMany({
+        where: { batchId: expense.payrollBatchId },
+        orderBy: { totalTiyin: 'desc' },
+        include: {
+          employee: {
+            select: {
+              pinfl: true,
+              fullName: true,
+              position: true,
+              regionCode: true,
+              districtId: true,
+              departmentId: true,
+              employmentType: true,
+              region: { select: { name: true } },
+              district: { select: { id: true, code: true, name: true } },
+              department: { select: { name: true } },
+            },
           },
         },
-      },
-    });
+      }),
+      this.loadLocations(expense.period),
+    ]);
+
+    const entries = allEntries
+      .map((entry) => {
+        const location = locations.get(entry.employeePinfl);
+        const effective = this.applyLocation(
+          entry.employee as unknown as GroupEmployee,
+          location,
+        );
+
+        return { entry, location, effective };
+      })
+      .filter(({ effective }) => this.groupOf(effective).key === key)
+      .map(({ entry, location, effective }) => ({
+        id: entry.id,
+        totalTiyin: entry.totalTiyin,
+        employee: {
+          pinfl: entry.employee.pinfl,
+          fullName: entry.employee.fullName,
+          position: entry.employee.position,
+          regionCode: effective.regionCode,
+          districtId: location ? location.districtId : entry.employee.districtId,
+          district: location ? location.district : entry.employee.district,
+          department: entry.employee.department,
+        },
+      }));
 
     const groups: { key: string; label: string; count: number; totalTiyin: bigint }[] = [];
 
@@ -686,17 +933,22 @@ export class PayrollService {
       const byDistrict = new Map<string, { label: string; count: number; total: bigint }>();
 
       for (const entry of entries) {
-        const key = entry.employee.districtId ?? 'none';
+        const districtKey = entry.employee.districtId ?? 'none';
         const label = entry.employee.district?.name ?? 'Tuman korsatilmagan';
 
-        const item = byDistrict.get(key) ?? { label, count: 0, total: 0n };
+        const item = byDistrict.get(districtKey) ?? { label, count: 0, total: 0n };
         item.count += 1;
         item.total += entry.totalTiyin;
-        byDistrict.set(key, item);
+        byDistrict.set(districtKey, item);
       }
 
-      for (const [key, value] of byDistrict) {
-        groups.push({ key, label: value.label, count: value.count, totalTiyin: value.total });
+      for (const [districtKey, value] of byDistrict) {
+        groups.push({
+          key: districtKey,
+          label: value.label,
+          count: value.count,
+          totalTiyin: value.total,
+        });
       }
 
       groups.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));

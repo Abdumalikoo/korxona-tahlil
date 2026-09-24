@@ -21,6 +21,7 @@ const tabs = [
   { href: '/daromadlar', label: "Ro'yxat" },
   { href: '/daromadlar/tahlil', label: 'Tahlil' },
   { href: '/daromadlar/hududlar', label: 'Hududlar' },
+  { href: '/daromadlar/natijalar', label: 'Xodim natijalari' },
 ];
 
 export default function IncomeAnalysisPage() {

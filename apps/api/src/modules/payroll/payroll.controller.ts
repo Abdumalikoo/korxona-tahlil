@@ -92,6 +92,15 @@ export class PayrollController {
     return { data };
   }
 
+  /** Shu oy ish haqisini hudud tarixiga qarab qayta guruhlash */
+  @Roles(UserRole.ADMIN)
+  @Post('regroup')
+  @HttpCode(HttpStatus.OK)
+  async regroup(@Query('period') period: string) {
+    const data = await this.payroll.regroup(period);
+    return { data };
+  }
+
   @Post('missing/export')
   async exportMissing(
     @Body() body: { period: string; missing: MissingRow[] },
