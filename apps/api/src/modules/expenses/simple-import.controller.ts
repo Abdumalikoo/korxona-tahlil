@@ -7,6 +7,7 @@ import {
     HttpStatus,
     Param,
     Post,
+    Query,
     Res,
     UploadedFile,
     UseInterceptors,
@@ -63,6 +64,7 @@ export class SimpleImportController {
   async commit(
     @Param('kind') kind: string,
     @Body() body: { rows: { rowIndex: number; name: string; amountTiyin: string }[] },
+    @Query('section') section: string | undefined,
     @CurrentUser('id') userId: string,
   ) {
     const type = this.assertKind(kind);
@@ -77,7 +79,7 @@ export class SimpleImportController {
       amountTiyin: BigInt(row.amountTiyin),
     }));
 
-    const data = await this.service.commit(type, rows, userId);
+    const data = await this.service.commit(type, rows, userId, section === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY');
     return { data };
   }
 }

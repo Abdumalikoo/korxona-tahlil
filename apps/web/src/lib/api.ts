@@ -60,7 +60,7 @@ interface ApiErrorBody {
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
   /** So'rov parametrlari - undefined qiymatlar tashlab yuboriladi */
-  params?: Record<string, string | number | boolean | undefined | null>;
+  params?: object;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {

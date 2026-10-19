@@ -3,6 +3,9 @@ import { api, getToken, type ApiResponse } from '@/lib/api';
 export interface RegionalRow {
   regionCode: number;
   regionName: string;
+  /** Tuman kaliti "3-1"; null — faqat viloyat bo'yicha */
+  districtId: string | null;
+  districtName: string | null;
   categoryCode: string;
   categoryLabel: string;
   quantity: number | null;
@@ -15,6 +18,10 @@ export interface RegionalGroup {
   count: number;
   quantity: number;
   totalTiyin: string;
+  /** Nechta tumandan tushum bor */
+  districtCount: number;
+  /** Tumanga bo'linmagan qismi */
+  unassignedTiyin: string;
 }
 
 export interface RegionalAnalyzeResult {
@@ -23,8 +30,12 @@ export interface RegionalAnalyzeResult {
   fileHash: string;
   totalRows: number;
   totalTiyin: string;
+  /** Tuman kesimidagi yozuvlar soni */
+  districtRows: number;
   unknownSheets: string[];
   unknownServices: { sheet: string; rowIndex: number; label: string }[];
+  /** Tanilmagan viloyat/tuman (ro'yxat ko'rinishidagi faylda) */
+  unknownPlaces: { sheet: string; rowIndex: number; value: string }[];
   hasPrevious: boolean;
   previousCount: number;
   regions: RegionalGroup[];
@@ -35,7 +46,18 @@ export interface RegionalCommitResult {
   success: true;
   created: number;
   totalTiyin: string;
+  districtRows: number;
   replacedPrevious: boolean;
+}
+
+export interface DistrictSummaryRow {
+  /** null — tumanga bo'linmagan */
+  districtId: string | null;
+  name: string;
+  amountTiyin: string;
+  quantity: number;
+  count: number;
+  sharePercent: number;
 }
 
 export interface RegionSummaryRow {
@@ -59,7 +81,7 @@ export interface ServiceSummaryRow {
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
-/** Bo'sh shablonni yuklab oladi — 15 varaq, har birida 39 xizmat */
+/** Bo'sh shablonni yuklab oladi — har bir viloyat alohida varaqda, ustunlarda tumanlar */
 export async function downloadRegionalTemplate(period: string): Promise<void> {
   const token = getToken();
 
@@ -75,7 +97,7 @@ export async function downloadRegionalTemplate(period: string): Promise<void> {
   const match = /filename="?([^";]+)"?/.exec(disposition);
   const filename = match?.[1]
     ? decodeURIComponent(match[1])
-    : `Hududiy-daromadlar-${period}.xlsx`;
+    : `Hududiy-daromadlar-tumanlar-${period}.xlsx`;
 
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
@@ -137,9 +159,16 @@ export const regionalIncomeApi = {
       { params: { period } },
     ),
 
-  summaryByService: (period: string, regionCode?: number) =>
+  summaryByDistrict: (period: string, regionCode: number) =>
+    api.get<ApiResponse<{ rows: DistrictSummaryRow[]; totalTiyin: string }>>(
+      '/incomes/regional/summary/district',
+      { params: { period, regionCode } },
+    ),
+
+  /** districtId: tuman kaliti yoki "-" (tumanga bo'linmagan) */
+  summaryByService: (period: string, regionCode?: number, districtId?: string) =>
     api.get<ApiResponse<{ rows: ServiceSummaryRow[]; totalTiyin: string }>>(
       '/incomes/regional/summary/service',
-      { params: { period, regionCode } },
+      { params: { period, regionCode, districtId } },
     ),
 };

@@ -17,6 +17,8 @@ export interface EmployeeFilters {
   /** markaz-shtat | tuman-shtat | shartnoma */
   group?: string;
   includeInactive?: boolean;
+  /** Shu kuni ishlayotganlar (YYYY-MM-DD) — umumiy «Davr» oxiri o'tgan kun bo'lsa */
+  activeOn?: string;
   page?: number;
   limit?: number;
 }

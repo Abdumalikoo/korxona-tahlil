@@ -1,0 +1,238 @@
+// ═══════════════════════════════════════════════════════════
+// Sahifa tepasidagi qisqa tushuntirish: bu sahifa nima ko'rsatadi, ma'lumot qayerdan,
+// qanday ishlatiladi. Manzil bo'yicha (aniq moslik; /munosabat/[id] kabi — prefiks bilan).
+// ═══════════════════════════════════════════════════════════
+
+export interface PageIntro {
+  /** Bu sahifa nima ko'rsatadi */
+  what: string;
+  /** Ma'lumot qayerdan olinadi */
+  from: string;
+  /** Qanday ishlatiladi (ixtiyoriy) */
+  how?: string;
+}
+
+const INCOME_SRC = "Daromadlar bo'limidagi yozuvlar";
+const EXPENSE_SRC = "Xarajatlar bo'limidagi yozuvlar";
+const BOTH_SRC = "Daromadlar va Xarajatlar bo'limlaridagi yozuvlar";
+
+export const INTROS: Record<string, PageIntro> = {
+  '/': {
+    what: 'Tanlangan davrdagi daromad, xarajat va foyda bir qarashda, muhokama talab qiladigan holatlar bilan.',
+    from: BOTH_SRC,
+    how: "Kartochkani bosing — batafsil tahlil ochiladi. Davrni yuqoridagi «Davr» tugmasidan o'zgartiring.",
+  },
+  '/tahlil/daromad': {
+    what: 'Daromad qayerdan va qancha keldi: turlar, hududlar, oylar va o‘tgan davrga nisbatan o‘zgarish.',
+    from: INCOME_SRC,
+    how: 'Qatorni bosing — ichidagi qismlar va aniq yozuvlar ochiladi.',
+  },
+  '/tahlil/xarajat': {
+    what: 'Pul nimaga sarflandi: yo‘nalishlar, turlar, hududlar, oylar va o‘tgan davrga nisbatan o‘zgarish.',
+    from: EXPENSE_SRC,
+    how: 'Qatorni bosing — ichidagi qismlar va aniq yozuvlar ochiladi.',
+  },
+  '/tahlil/umumiy': {
+    what: 'Korxona foydada ishlayaptimi: foyda, rentabellik, foyda nima uchun o‘zgargani va xavfli holatlar.',
+    from: BOTH_SRC,
+    how: 'Yuqoridagi yorliqlar orqali dinamika, samaradorlik va tarkibga o‘ting.',
+  },
+  '/solishtirma': {
+    what: 'Hududlar va Markaz yonma-yon: kim qancha daromad keltirdi, qancha xarajat qildi va natijasi.',
+    from: `${BOTH_SRC}, Xodimlar bo'limi`,
+    how: "Viloyatni bosing — tumanlar, tumanni bosing — xizmatlar va xodimlar ochiladi. Markaz — yuqoridagi «Markaz» yorlig'ida.",
+  },
+  '/solishtirma/ozgarishlar': {
+    what: "Xodimlar o'zgarishi: bu oy nechta xodimga oylik hisoblandi (hududlar va Markaz), o'tgan oyga nisbatan kim ishga olindi, bo'shadi, ishlamadi yoki ko'chdi.",
+    from: "Ish haqi vedomostlari, Xodimlar reestri (ishga kirgan va bo'shagan sana), natijalar faylidagi hudud tarixi",
+    how: "Oyni tanlang; hudud qatorini bossangiz — pastdagi ro'yxat shu hudud bo'yicha, holat tugmalari bilan saralanadi.",
+  },
+  '/solishtirma/markaz': {
+    what: "Markaz: daromad manbalari, o'z xarajati, hududlar uchun to'langan xarajat va sof natija.",
+    from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
+    how: "Bo'limni bosing — xodimlari, xodimni bosing — oylar bo'yicha ish haqi ochiladi.",
+  },
+  '/tahlil/markaz': {
+    what: "Markaz hisobraqamlari bo'yicha oylik tushum (kunlik ma'lumotnomadan).",
+    from: "Buxgalteriya › Kunlik tushum va qoldiq (qo'lda yoki fayldan)",
+    how: "Oy daromadi — oyning oxirgi ma'lumotnomasidagi «Oy boshidan» + «Kunlik tushum».",
+  },
+  '/daromadlar/markaz': {
+    what: "Markaz tushumi: kunlik tushum va qoldiq faylini yuklash, oylik Markaz daromadi.",
+    from: "«Kunlik tushum va qoldiq» Excel fayli yoki Buxgalter kiritgan ma'lumotnoma",
+    how: "Faylni tashlang — ko'rib chiqib saqlang; Markaz daromadi Daromadlarga avtomatik yoziladi.",
+  },
+  '/daromadlar/reja-tushum': {
+    what: "Xodimlar reja va tushumi: daromadni xodimlarga bo'lib beradi, ustama — hudud ish haqi.",
+    from: "Reja/tushum Excel fayli (Xodim F.I.Sh, JShShIR, Shtat, Hudud nomi, reja, tushum, ustama)",
+    how: "Oyni tanlab faylni tashlang; olinmaydigan qatorlar ko'rsatiladi, reestrda yo'q xodimni shu yerdan qo'shasiz.",
+  },
+  '/xarajatlar/soliqlar': {
+    what: "Soliqlar: hamma soliqlar bir joyda — Markaz va hududlar bo'yicha oyma-oy; soliq turlarini o'zingiz qo'shasiz.",
+    from: "Qo'lda yoki Excel shablondan kiritilgan summalar; ish haqidan foizli soliqlar (ijtimoiy soliq) — ish haqi vedomostidan avtomatik",
+    how: "Oyni tanlang, kataklarga summani yozib «Saqlash»; yangi soliq — pastdagi «Soliq turlari»da. «Markaz hisobidan» belgilangan soliq qaysi hududda yozilsa ham Markaz xarajati.",
+  },
+  '/xarajatlar/asosiy-vositalar': {
+    what: "Asosiy vositalar: xarid balansda turadi, xarajatga har oy faqat sarfi (eskirishi) o'tadi.",
+    from: "Ombor › Kirim (asosiy vosita), asosiy vosita moddasidagi xarajatlar va qo'lda kiritilganlar",
+    how: "Moddalar va xizmat muddatini belgilang; sarf har oy avtomatik yoziladi, hisobdan chiqarilsa qolgan qiymat o'sha oy sarfga o'tadi.",
+  },
+  '/xarajatlar/siyosat': {
+    what: "Xarajatlar siyosati: qaysi moddalar hudud o'rniga Markaz hisobidan to'lanadi.",
+    from: "Xarajatlar bo'limidagi moddalar",
+    how: "Moddani belgilang — Solishtirma, Markaz paneli, Munosabat va hisobotlarda u Markaz xarajati bo'ladi.",
+  },
+  '/daromadlar': {
+    what: 'Daromadlar bo‘limi: tanlangan oyda Doimiy va Boshqa daromadlar jami va dinamikasi.',
+    from: 'Siz kiritgan va Excel orqali yuklangan daromad yozuvlari',
+    how: 'Yozuvlarni ko‘rish va qo‘shish uchun «Doimiy» yoki «Boshqa» yorlig‘iga o‘ting.',
+  },
+  '/daromadlar/doimiy': {
+    what: 'Har oy takrorlanadigan daromadlar ro‘yxati — qo‘shish, tahrirlash, Excel’dan yuklash.',
+    from: 'Siz kiritgan yozuvlar',
+    how: 'Yozuvni bosing — tahrirlash oynasi ochiladi. Oyni yuqoridan o‘zgartiring.',
+  },
+  '/daromadlar/boshqa': {
+    what: 'Bir martalik daromadlar ro‘yxati — qo‘shish, tahrirlash, Excel’dan yuklash.',
+    from: 'Siz kiritgan yozuvlar',
+  },
+  '/daromadlar/hududlar': {
+    what: 'Hududlardan Excel orqali keladigan tushum: shablon, yuklash va hududlar bo‘yicha jami.',
+    from: 'Yuklangan Excel fayllar',
+    how: 'Shablonni yuklab oling → to‘ldiring → «Yuklash». Tekshiruvdan keyin saqlanadi.',
+  },
+  '/daromadlar/natijalar': {
+    what: 'Xodimlarning oylik natijalari (reja va fakt) — yuklash va hisobot.',
+    from: 'Yuklangan Excel fayllar, Xodimlar bo‘limi',
+  },
+  '/daromadlar/tahlil': {
+    what: 'Tanlangan oyda daromadning bo‘limlar va xulq-atvor bo‘yicha taqsimoti.',
+    from: INCOME_SRC,
+  },
+  '/xarajatlar': {
+    what: 'Xarajatlar bo‘limi: tanlangan oyda Doimiy va Boshqa xarajatlar jami va dinamikasi.',
+    from: 'Siz kiritgan va yuklangan xarajat yozuvlari (ish haqi, ijara, mashinalar ham)',
+    how: 'Yozuvlarni ko‘rish va qo‘shish uchun «Doimiy» yoki «Boshqa» yorlig‘iga o‘ting.',
+  },
+  '/xarajatlar/doimiy': {
+    what: 'Har oy takrorlanadigan xarajatlar ro‘yxati — qo‘shish, tahrirlash, Excel’dan yuklash.',
+    from: 'Siz kiritgan yozuvlar',
+  },
+  '/xarajatlar/boshqa': {
+    what: 'Bir martalik xarajatlar ro‘yxati — qo‘shish, tahrirlash, Excel’dan yuklash.',
+    from: 'Siz kiritgan yozuvlar',
+  },
+  '/xarajatlar/ish-haqi': {
+    what: 'Oylik ish haqi qaydnomasi: yuklash, tekshiruv va xarajatlarga yozish.',
+    from: 'Yuklangan Excel qaydnoma, Xodimlar bo‘limi',
+    how: 'Shablonni yuklab oling → to‘ldiring → «Yuklash». Xatolar ko‘rsatiladi, keyin saqlanadi.',
+  },
+  '/xarajatlar/tarkib': {
+    what: 'Ish haqi tarkibi: har xodim bo‘yicha komponentlar (oklad, ustama, mukofot…).',
+    from: 'Yuklangan Excel fayl',
+  },
+  '/mashinalar/tahlil': {
+    what: 'Mashinalar xarajatlari: yoqilg‘i, ta’mir, probeg va 100 km ga sarf.',
+    from: 'Mashina yozuvlari (ular Xarajatlarga ham yoziladi)',
+  },
+  '/xarajatlar/ijara': {
+    what: 'Ijara shartnomalari va oylik to‘lovlar: oyni yopish, muddati tugayotganlar.',
+    from: 'Ijara shartnomalari (to‘lovlar Xarajatlarga yoziladi)',
+  },
+  '/xarajatlar/tahlil': {
+    what: 'Tanlangan oyda xarajatning bo‘limlar, xulq-atvori va keskin oshgan moddalar bo‘yicha tahlili.',
+    from: EXPENSE_SRC,
+  },
+  '/xodimlar': {
+    what: 'Xodimlar ro‘yxati: hudud, bo‘lim, lavozim; o‘tkazmalar (kim qayerdan qayerga o‘tgan).',
+    from: 'Siz kiritgan va qaydnomadan olingan xodimlar',
+    how: 'Davr oxiri o‘tgan kun bo‘lsa — ro‘yxat o‘sha kundagi holat bo‘yicha.',
+  },
+  '/dashbord/ombor': {
+    what: 'Ombor dashbordi: qoldiq qiymati, davr kirimi va chiqimi, kimda nima bor, kam qolganlar, inventarizatsiya va pochta.',
+    from: 'Omborchi o‘z bo‘limida kiritgan hujjatlar (kirim summasi Xarajatlarga o‘zi tushadi)',
+    how: 'Bu yerda kiritilmaydi — faqat ko‘rish. Xato hujjatni ochib bekor qilish mumkin.',
+  },
+  '/dashbord/mashinalar': {
+    what: 'Mashinalar dashbordi: oy xarajati turlar va guruhlar bo‘yicha, 100 km ga sarf, me’yordan oshganlar, 12 oylik grafik.',
+    from: 'Omborchi o‘z bo‘limida kiritgan mashina xarajatlari (har biri Xarajatlarga ham tushadi)',
+    how: 'Bu yerda yangi yozuv qo‘shilmaydi. Xato yozuvni bosib tuzatish yoki o‘chirish mumkin.',
+  },
+  '/kiritish': {
+    what: 'Umumiy hudud kiritadiganlari bitta joyda: xarajat, daromad, Excel yuklash. O‘ngda — bugun kim nima kiritgani (rollar kiritgani ham).',
+    from: 'Kiritilgan har yozuv o‘z bo‘limiga tushadi (Xarajatlar, Daromadlar). Ombor, mashina, pochta — Omborchi bo‘limida',
+    how: 'Istalgan sahifada N tugmasi yoki yuqoridagi «+ Kiritish» — shu ro‘yxat. Yozib qidirish mumkin: «benzin», «pochta», «oylik».',
+  },
+  '/ombor': {
+    what: 'Ombor bir qarashda: qoldiq qiymati, davrdagi kirim va chiqim, kam qolgan buyumlar, qaysi bo‘lim va hududda nima borligi.',
+    from: 'Ombor hujjatlari (kirim, chiqim, qaytarish, ko‘chirish, hisobdan chiqarish)',
+    how: 'Kirim summasi o‘sha zahoti Xarajatlarga yoziladi — Bosh sahifa va Tahlilda ko‘rinadi.',
+  },
+  '/ombor/hujjatlar': {
+    what: 'Barcha ombor hujjatlari davr bo‘yicha. Har biri uchun Word dalolatnoma yuklab olinadi.',
+    from: 'Siz kiritgan ombor hujjatlari',
+    how: 'Yuqoridagi tugmalardan hujjat turini tanlang. Qatorni bosing — tafsilot, dalolatnoma, bekor qilish.',
+  },
+  '/ombor/qoldiq': {
+    what: 'Buyumlar ma’lumotnomasi va hozirgi qoldiq: omborda qancha, o‘rtacha narx, qiymati, kam qolganlari.',
+    from: 'Kirim − chiqim − hisobdan chiqarish + qaytarish (bekor qilinmagan hujjatlar)',
+    how: 'Yangi buyumni bir marta qo‘shing — keyin kirim va chiqimda tanlanadi.',
+  },
+  '/ombor/asosiy-vositalar': {
+    what: 'Har bir asosiy vosita inventar raqami bilan: hozir kimda va qayerda, qayerlardan o‘tgan.',
+    from: 'Kirim (har donasiga inventar raqami), chiqim, ko‘chirish, qaytarish hujjatlari',
+    how: 'Qatorni bosing — harakat tarixi va «Ko‘chirish», «Qaytarish» tugmalari ochiladi.',
+  },
+  '/modellar': {
+    what: 'Matematik formulalar: o‘sish, ulush, barqarorlik, bog‘liqlik — korxona ma’lumotlari ustida.',
+    from: `${BOTH_SRC}, Xodimlar bo'limi`,
+    how: 'Chapdan formulani tanlang, parametrlarni belgilang — natija va izoh pastda chiqadi.',
+  },
+  '/katta-modellar': {
+    what: 'Prognoz, omillar, samaradorlik, zararsizlik, stsenariy va risk — kelajak va sabablar.',
+    from: `${BOTH_SRC}, Xodimlar bo'limi`,
+    how: "O'tgan oy tanlansa — modellar o'sha oy oxiridagi holat bo'yicha (prognozni haqiqat bilan solishtirish uchun).",
+  },
+  '/munosabat': {
+    what: 'Muhokamaga qo‘yilgan moddalar: muddat, mas’ullar va avvalgi sur’atga nisbatan natija.',
+    from: BOTH_SRC,
+    how: 'Yuqoridagi sariq «+ Munosabat» bilan sahifalardan moddalarni belgilang va munosabat yarating.',
+  },
+  '/munosabat/ogohlantirish': {
+    what: 'Tizim o‘zi topgan holatlar: xarajat keskin o‘sgan, daromad tushgan, zarar, reja bajarilmagan, qarz.',
+    from: BOTH_SRC,
+    how: 'Holatni bosing — hisob-kitobi ochiladi; kerak bo‘lsa munosabat yarating yoki «Ko‘rildi» deb belgilang.',
+  },
+  '/nazorat': {
+    what: 'Oylik chegaralar: har oy avtomatik tekshiriladi, buzilgan va xavf ostidagilar ajratiladi.',
+    from: BOTH_SRC,
+  },
+  '/hisobotlar': {
+    what: 'Tayyor hisobotlar: ekranda ko‘ring yoki Excel, PowerPoint, PDF yuklab oling.',
+    from: `${BOTH_SRC}, Xodimlar bo'limi`,
+    how: 'Tepada hisobotni tanlang; davr yuqori paneldagi «Davr» tugmasidan.',
+  },
+  '/formulalar': {
+    what: 'Dasturdagi har bir raqam qanday hisoblanadi: formula, ma’nosi va misol.',
+    from: 'Saytda, Excel va slaydlarda ishlatiladigan formulalar',
+  },
+};
+
+/** Munosabat sahifasi kabi ichki sahifalar */
+const PREFIX: { prefix: string; intro: PageIntro }[] = [
+  {
+    prefix: '/munosabat/',
+    intro: {
+      what: 'Bitta munosabat: har modda avvalgi sur’at bilan solishtiriladi — ta’sir, holat, grafiklar, mas’ullar.',
+      from: BOTH_SRC,
+      how: 'Excel va slaydlarda har modda bo‘yicha hisob-kitob bor.',
+    },
+  },
+];
+
+export function introFor(pathname: string): PageIntro | null {
+  const exact = INTROS[pathname];
+  if (exact) return exact;
+  // /munosabat/ogohlantirish aniq ro'yxatda — prefiks faqat qolganlari uchun
+  return PREFIX.find((p) => pathname.startsWith(p.prefix))?.intro ?? null;
+}

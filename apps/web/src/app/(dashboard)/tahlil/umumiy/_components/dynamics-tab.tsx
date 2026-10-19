@@ -3,6 +3,8 @@
 import { dashboardApi } from '@/features/dashboard/api';
 import { formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
+import { CalcValue } from '@/components/ui/calc';
+import { calcDivide, calcMean, calcResult, decimalText, moneyText, Q, type Calc } from '@/lib/calc';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
 import { LineChart } from '@/components/shared/line-chart';
@@ -41,7 +43,7 @@ export function DynamicsTab({ range }: { range: DateRange }) {
   if (active.length === 0) {
     return (
       <Card>
-        <EmptyState title="Oxirgi 12 oyda ma'lumot yo'q" />
+        <EmptyState title="Oxirgi 12 oyda ma'lumot yo'q" hint="period" />
       </Card>
     );
   }
@@ -54,30 +56,68 @@ export function DynamicsTab({ range }: { range: DateRange }) {
   const best = active.reduce((a, b) => (b.profit > a.profit ? b : a));
   const worst = active.reduce((a, b) => (b.profit < a.profit ? b : a));
 
+  // ─────── «Qanday hisoblandi?» ───────
+  const meanNote = "Faqat daromadi yoki xarajati bor oylar olinadi (bo'sh oylar o'rtachani buzmasligi uchun).";
+  const avgIncomeCalc = calcMean("O'rtacha oylik daromad", active.map((r) => Q.money(formatPeriod(r.period), r.income)), { note: meanNote });
+  const avgExpenseCalc = calcMean("O'rtacha oylik xarajat", active.map((r) => Q.money(formatPeriod(r.period), r.expense)), { note: meanNote });
+  const profitableCalc: Calc = {
+    title: 'Foydali oylar',
+    formula: "Oy foydali, agar Daromad − Xarajat > 0. Hisob: foydali oylar / ma'lumoti bor oylar",
+    inputs: active.map((r) => Q.money(`${formatPeriod(r.period)} foydasi`, r.profit)),
+    steps: [
+      `Ma'lumoti bor oylar: ${count} ta`,
+      `Foydali: ${active.filter((r) => r.profit > 0).map((r) => formatPeriod(r.period)).join(', ') || "yo'q"}`,
+      `= ${profitable} / ${count}`,
+    ],
+    result: `${profitable} / ${count}`,
+  };
+  const bestWorstCalc: Calc = {
+    title: 'Eng yaxshi va eng yomon oy',
+    formula: 'Har oy foydasi = Daromad − Xarajat; eng kattasi — eng yaxshi, eng kichigi — eng yomon',
+    inputs: active.map((r) => Q.money(`${formatPeriod(r.period)} foydasi`, r.profit)),
+    steps: [
+      `Eng yaxshi: ${formatPeriod(best.period)} = ${moneyText(best.income)} − ${moneyText(best.expense)} = ${moneyText(best.profit)}`,
+      `Eng yomon: ${formatPeriod(worst.period)} = ${moneyText(worst.income)} − ${moneyText(worst.expense)} = ${moneyText(worst.profit)}`,
+    ],
+    result: `${formatPeriod(best.period)} / ${formatPeriod(worst.period)}`,
+  };
+  const ratioCalc = (period: string, income: number, expense: number): Calc => {
+    const c = calcDivide(`${formatPeriod(period)}: xarajat / daromad`, Q.money('Xarajat', expense), Q.money('Daromad', income), 'ratio', {
+      note: "Har 1 so'm daromadga necha so'm xarajat. 1 dan kichik — foyda.",
+    });
+    if (income <= 0) return c;
+    const value = decimalText(expense / income, 2);
+    return { ...c, steps: [...c.steps.slice(0, -1), `= ${value}`], result: value };
+  };
+
   return (
     <div className="space-y-4">
       {/* Qisqa xulosa */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryBox label="O'rtacha oylik daromad">
-          <Money tiyin={String(Math.round(avgIncome))} tone="income" />
+          <CalcValue calc={avgIncomeCalc}>
+            <Money tiyin={String(Math.round(avgIncome))} tone="income" />
+          </CalcValue>
         </SummaryBox>
 
         <SummaryBox label="O'rtacha oylik xarajat">
-          <Money tiyin={String(Math.round(avgExpense))} tone="expense" />
+          <CalcValue calc={avgExpenseCalc}>
+            <Money tiyin={String(Math.round(avgExpense))} tone="expense" />
+          </CalcValue>
         </SummaryBox>
 
         <SummaryBox label="Foydali oylar">
-          <span className="money">
+          <CalcValue calc={profitableCalc} className="money">
             {profitable} / {count}
-          </span>
+          </CalcValue>
         </SummaryBox>
 
         <SummaryBox label="Eng yaxshi / eng yomon">
-          <span className="text-sm">
-            <span className="text-[--color-income]">{formatPeriod(best.period)}</span>
-            <span className="text-[--color-text-faint]"> / </span>
-            <span className="text-[--color-expense]">{formatPeriod(worst.period)}</span>
-          </span>
+          <CalcValue calc={bestWorstCalc} className="text-sm">
+            <span className="text-(--color-income)">{formatPeriod(best.period)}</span>
+            <span className="text-(--color-text-faint)"> / </span>
+            <span className="text-(--color-expense)">{formatPeriod(worst.period)}</span>
+          </CalcValue>
         </SummaryBox>
       </div>
 
@@ -118,7 +158,7 @@ export function DynamicsTab({ range }: { range: DateRange }) {
 
               return (
                 <Tr key={row.period} className={cn(isEmpty && 'opacity-40')}>
-                  <Td className="text-[--color-text-muted]">{formatPeriod(row.period)}</Td>
+                  <Td className="text-(--color-text-muted)">{formatPeriod(row.period)}</Td>
                   <Td money>
                     <Money tiyin={row.incomeTiyin} tone="income" />
                   </Td>
@@ -126,20 +166,22 @@ export function DynamicsTab({ range }: { range: DateRange }) {
                     <Money tiyin={row.expenseTiyin} tone="expense" />
                   </Td>
                   <Td money>
-                    <Money tiyin={row.profitTiyin} tone="auto" />
+                    <CalcValue calc={isEmpty ? null : calcResult(income, expense, { title: `${formatPeriod(row.period)}: foyda` })}>
+                      <Money tiyin={row.profitTiyin} tone="auto" />
+                    </CalcValue>
                   </Td>
                   <Td
                     align="right"
                     className={cn(
                       'money text-xs',
                       ratio === null
-                        ? 'text-[--color-text-faint]'
+                        ? 'text-(--color-text-faint)'
                         : ratio < 1
-                          ? 'text-[--color-income]'
-                          : 'text-[--color-expense]',
+                          ? 'text-(--color-income)'
+                          : 'text-(--color-expense)',
                     )}
                   >
-                    {ratio === null ? '\u2014' : ratio.toFixed(2)}
+                    {ratio === null ? '\u2014' : <CalcValue calc={ratioCalc(row.period, income, expense)}>{ratio.toFixed(2).replace('.', ',')}</CalcValue>}
                   </Td>
                 </Tr>
               );
@@ -153,8 +195,8 @@ export function DynamicsTab({ range }: { range: DateRange }) {
 
 function SummaryBox({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
         {label}
       </p>
       <div className="mt-2 text-lg font-semibold">{children}</div>

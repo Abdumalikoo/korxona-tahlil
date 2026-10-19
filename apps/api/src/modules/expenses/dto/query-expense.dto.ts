@@ -84,4 +84,9 @@ export class QueryExpenseDto {
   @Min(1)
   @Max(200)
   limit?: number;
+
+  /** Bo'lim: DOIMIY yoki BOSHQA */
+  @IsOptional()
+  @IsString()
+  section?: 'DOIMIY' | 'BOSHQA';
 }

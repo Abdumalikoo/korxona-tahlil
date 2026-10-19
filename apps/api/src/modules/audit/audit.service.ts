@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'IMPORT';
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'IMPORT' | 'LOGIN' | 'EXPORT';
 
 interface LogParams {
   userId: string;
@@ -129,4 +129,3 @@ export class AuditService {
     };
   }
 }
-

@@ -111,15 +111,15 @@ export function QuickCategoryDialog({
       <div
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-md rounded-[--radius-card] bg-white shadow-xl"
+        className="relative w-full max-w-md rounded-(--radius-card) bg-white shadow-xl"
       >
-        <div className="flex items-center justify-between border-b border-[--color-line] px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-(--color-line) px-5 py-3.5">
           <h3 className="text-sm font-semibold">Yangi kategoriya</h3>
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="flex size-7 items-center justify-center rounded text-[--color-text-muted] transition-colors hover:bg-[--color-surface-sunken] hover:text-[--color-text]"
+            className="flex size-7 items-center justify-center rounded text-(--color-text-muted) transition-colors hover:bg-(--color-surface-sunken) hover:text-(--color-text)"
             aria-label="Yopish"
           >
             <IconClose className="size-4" />
@@ -128,7 +128,7 @@ export function QuickCategoryDialog({
 
         <div className="space-y-4 px-5 py-4">
           {error && (
-            <div className="rounded-[--radius-control] bg-[--color-expense-soft] px-3 py-2 text-sm text-[--color-expense]">
+            <div className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2 text-sm text-(--color-expense)">
               {error}
             </div>
           )}
@@ -172,12 +172,12 @@ export function QuickCategoryDialog({
             disabled={saving}
           />
 
-          <p className="text-xs text-[--color-text-muted]">
+          <p className="text-xs text-(--color-text-muted)">
             Qolgan sozlamalarni keyinroq Sozlamalar bo&rsquo;limida o&rsquo;zgartirasiz.
           </p>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-[--color-line] bg-[--color-surface-muted] px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-(--color-line) bg-(--color-surface-muted) px-5 py-3">
           <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
             Bekor qilish
           </Button>

@@ -1,0 +1,38 @@
+Audit 2026-10-16 23:16
+OK   Markaz tushumi (kunlik ma'lumotnoma -> daromad)
+OK   Kunlik tushum: tayanch kun
+OK   Reja/tushum: yangi shakl, ustama = ish haqi
+OK   Hudud vedomosti: shartnoma xodimlari hududga
+OK   Tuman: hudud vedomosti shartnoma xodimlari
+OK   Solishtirma > Markaz (server)
+OK   Munosabat = Solishtirma hisobi
+OK   Hisobotlar: xarajatlar siyosati
+OK   Prognoz: xarajatlar siyosati
+OK   Ogohlantirishlar: xarajatlar siyosati
+OK   Markaz tushumi yozuvlari himoyasi
+OK   Yagona O'chirish tugmasi
+OK   Xarajatlar siyosati
+OK   Qisqa rejim
+OK   Qisqa rejim: modellar faqat To'liq
+OK   Menyu: Solishtirma > Hududlar | Markaz
+OK   Markaz paneli + belgilash
+OK   Solishtirma: Markaz paneli rejimi
+OK   Markaz tushumi sahifasi
+OK   Reja/tushum: reestrga qo'shish
+OK   Tahlil > Markaz tushumi
+OK   Buxgalteriya > Markaz daromadi
+OK   tsc api
+XATO tsc web (12)
+src/app/(dashboard)/sozlamalar/savat/page.tsx(159,33): error TS2339: Property 'deletedAt' does not exist on type 'Expense'.
+src/app/(dashboard)/sozlamalar/savat/page.tsx(159,65): error TS2339: Property 'deletedAt' does not exist on type 'Expense'.
+src/app/(dashboard)/sozlamalar/savat/page.tsx(223,33): error TS2339: Property 'deletedAt' does not exist on type 'Income'.
+src/app/(dashboard)/sozlamalar/savat/page.tsx(223,65): error TS2339: Property 'deletedAt' does not exist on type 'Income'.
+src/app/(dashboard)/tahlil/daromad/page.tsx(105,40): error TS2339: Property 'count' does not exist on type '{ period: string; amountTiyin: string; }'.
+src/app/(dashboard)/tahlil/daromad/page.tsx(326,48): error TS2339: Property 'region' does not exist on type 'Income'.
+src/app/(dashboard)/tahlil/xarajat/page.tsx(78,26): error TS2339: Property 'count' does not exist on type '{ period: string; amountTiyin: string; }'.
+src/features/incomes/income-list.tsx(40,47): error TS2339: Property 'regionCode' does not exist on type 'Income'.
+src/features/incomes/income-list.tsx(40,77): error TS2339: Property 'regionCode' does not exist on type 'Income'.
+src/features/incomes/income-list.tsx(433,59): error TS2339: Property 'regionCode' does not exist on type 'Income'.
+src/features/incomes/income-list.tsx(447,62): error TS2339: Property 'region' does not exist on type 'Income'.
+src/features/incomes/income-list.tsx(502,9): error TS2322: Type '{ income: Income | null; creating: boolean; section: SectionValue; categories: IncomeCategory[]; departments: Department[]; onClose: () => void; onSaved: (message: string) => void; onCategoriesChanged: () => void; }' is not assignable to type 'IntrinsicAttributes & IncomeDrawerProps'.
+  Property 'section' does not exist on type 'IntrinsicAttributes & IncomeDrawerProps'.

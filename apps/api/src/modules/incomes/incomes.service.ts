@@ -9,6 +9,10 @@ import type { UpdateIncomeDto } from './dto/update-income.dto';
 const DEFAULT_LIMIT = 50;
 const TASHKENT_OFFSET_HOURS = 5;
 
+/** Markaz tushumi: kunlik ma'lumotnomadan yozilgan daromadlar (importBatchId = «kassa:YYYY-MM») */
+const KASSA_PREFIX = 'kassa:';
+const NOT_KASSA: Prisma.IncomeWhereInput = { OR: [{ importBatchId: null }, { NOT: { importBatchId: { startsWith: KASSA_PREFIX } } }] };
+
 @Injectable()
 export class IncomesService {
   constructor(
@@ -103,11 +107,13 @@ export class IncomesService {
   private async buildWhere(query: QueryIncomeDto): Promise<Prisma.IncomeWhereInput> {
     const where: Prisma.IncomeWhereInput = { deletedAt: null };
 
+    if (query.section === 'DOIMIY' || query.section === 'BOSHQA') where.section = query.section;
+
     // Sana oraligi eng aniq filtr - u boshqalardan ustun
     if (query.dateFrom || query.dateTo) {
       where.date = {
         ...(query.dateFrom ? { gte: this.toStoredDate(query.dateFrom) } : {}),
-        ...(query.dateTo ? { lte: this.toStoredDate(query.dateTo) } : {}),
+        ...(query.dateTo ? { lt: new Date(this.toStoredDate(query.dateTo).getTime() + 86_400_000) } : {}),
       };
     } else if (query.period) {
       where.period = query.period;
@@ -161,6 +167,7 @@ export class IncomesService {
         contractNo: dto.contractNo ?? null,
         paymentMethod: dto.paymentMethod ?? 'BANK',
         source: 'MANUAL',
+        section: dto.section === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY',
         createdById: userId,
       },
       include: {
@@ -229,8 +236,18 @@ export class IncomesService {
     return income;
   }
 
+  /** Markaz tushumi (kunlik ma'lumotnomadan avtomatik) — bu yerda o'zgartirilmaydi, aks holda keyingi hisobda qaytadi */
+  private assertNotKassa(row: { importBatchId?: string | null }) {
+    if (row.importBatchId?.startsWith(KASSA_PREFIX)) {
+      throw new BadRequestException(
+        "Bu yozuv Markaz tushumidan (kunlik ma'lumotnoma) avtomatik yozilgan — Buxgalteriya › Kunlik tushum yoki Daromadlar › Markaz tushumi sahifasida tuzating",
+      );
+    }
+  }
+
   async update(id: string, dto: UpdateIncomeDto): Promise<Income> {
     const existing = await this.findOne(id);
+    this.assertNotKassa(existing);
 
     if (dto.categoryCode) await this.assertCategory(dto.categoryCode);
     if (dto.departmentId) await this.assertDepartment(dto.departmentId);
@@ -284,7 +301,7 @@ export class IncomesService {
   }
 
   async remove(id: string): Promise<{ success: true }> {
-    await this.findOne(id);
+    this.assertNotKassa(await this.findOne(id));
     await this.prisma.income.update({
       where: { id },
       data: { deletedAt: new Date() },
@@ -301,13 +318,15 @@ export class IncomesService {
       throw new BadRequestException("Ochirish uchun yozuv tanlanmadi");
     }
 
+    // Markaz tushumi yozuvlari o'chirilmaydi (kunlik ma'lumotnomada tuzatiladi)
+    const own = { id: { in: ids }, deletedAt: null, ...NOT_KASSA };
     const before = await this.prisma.income.aggregate({
-      where: { id: { in: ids }, deletedAt: null },
+      where: own,
       _sum: { amountTiyin: true },
     });
 
     const result = await this.prisma.income.updateMany({
-      where: { id: { in: ids }, deletedAt: null },
+      where: own,
       data: { deletedAt: new Date() },
     });
 
@@ -336,7 +355,7 @@ export class IncomesService {
     query: QueryIncomeDto,
     userId?: string,
   ): Promise<{ count: number }> {
-    const where = await this.buildWhere(query);
+    const where: Prisma.IncomeWhereInput = { AND: [await this.buildWhere(query), NOT_KASSA] };
 
     const before = await this.prisma.income.aggregate({
       where,

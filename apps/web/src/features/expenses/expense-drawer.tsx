@@ -2,6 +2,8 @@
 
 import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
+import { DiscussMenu } from '@/features/reactions/discuss';
+import { categoryMark, counterpartyMark, recordMark } from '@/features/reactions/marks';
 import { useAuth } from '@/lib/auth-context';
 import {
     formatDateTime,
@@ -10,6 +12,7 @@ import {
     tiyinToSum,
     todayInput,
 } from '@/lib/format';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { expensesApi, type UpdateExpensePayload } from './api';
 
@@ -203,7 +206,13 @@ export function ExpenseDrawer({
     ...departments.map((item) => ({ value: item.id, label: item.name })),
   ];
 
-  const readOnly = !isAdmin;
+  /** Ombor kirimidan yozilgan — o'zgartirish va o'chirish faqat Ombor › Hujjatlar orqali */
+  const fromWarehouse = expense.source === 'WAREHOUSE';
+  /** Asosiy vositalar sarfi — reestrdan avtomatik hisoblanadi */
+  const fromAssets = (expense.source as string) === 'ASSET';
+  /** Soliqlar — Xarajatlar › Soliqlar sahifasida yuritiladi */
+  const fromTaxes = (expense.source as string) === 'TAX';
+  const readOnly = !isAdmin || fromWarehouse || fromAssets || fromTaxes;
   /** Ish haqi xarajati - tahrirlanmaydi, faqat tafsilot korsatiladi */
   const isPayroll = expense.source === 'PAYROLL';
 
@@ -220,20 +229,44 @@ export function ExpenseDrawer({
         }
         footer={
           isPayroll || readOnly ? (
-            <Button variant="secondary" onClick={onClose}>
-              Yopish
-            </Button>
+            <>
+              <DiscussMenu
+                label="Muhokama"
+                direction="up"
+                className="mr-auto"
+                items={[
+                  recordMark('EXPENSE', expense, 'Xarajatlar › yozuv'),
+                  categoryMark('EXPENSE', expense.categoryCode, expense.category.label, 'Xarajatlar'),
+                  counterpartyMark(expense.counterparty, 'Xarajatlar'),
+                ]}
+              />
+              <Button variant="secondary" onClick={onClose}>
+                Yopish
+              </Button>
+            </>
           ) : (
             <>
               <Button
                 variant="ghost"
                 onClick={() => setConfirmOpen(true)}
                 disabled={saving}
-                className="mr-auto text-[--color-expense] hover:bg-[--color-expense-soft]"
+                className="mr-auto text-(--color-expense) hover:bg-(--color-expense-soft)"
               >
                 <IconTrash className="size-4" />
                 O&apos;chirish
               </Button>
+
+              {expense && (
+                <DiscussMenu
+                  label="Muhokama"
+                  direction="up"
+                  items={[
+                    recordMark('EXPENSE', expense, 'Xarajatlar › yozuv'),
+                    categoryMark('EXPENSE', expense.categoryCode, expense.category.label, 'Xarajatlar'),
+                    counterpartyMark(expense.counterparty, 'Xarajatlar'),
+                  ]}
+                />
+              )}
 
               <Button variant="secondary" onClick={onClose} disabled={saving}>
                 Bekor qilish
@@ -248,28 +281,55 @@ export function ExpenseDrawer({
       >
         <div className="space-y-4">
           {serverError && (
-            <div className="rounded-[--radius-control] bg-[--color-expense-soft] px-3 py-2.5 text-sm text-[--color-expense]">
+            <div className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2.5 text-sm text-(--color-expense)">
               {serverError}
             </div>
           )}
 
           {/* Joriy holat - tez ko'rish uchun */}
-          <div className="rounded-[--radius-control] bg-[--color-surface-sunken] px-4 py-3">
+          <div className="rounded-(--radius-control) bg-(--color-surface-sunken) px-4 py-3">
             <div className="flex items-baseline justify-between gap-3">
-              <span className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+              <span className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
                 Joriy summa
               </span>
-              <span className="money text-lg font-semibold text-[--color-expense]">
+              <span className="money text-lg font-semibold text-(--color-expense)">
                 {formatTiyin(expense.amountTiyin, { currency: true })}
               </span>
             </div>
-            <div className="mt-1 flex items-center gap-2 text-xs text-[--color-text-muted]">
+            <div className="mt-1 flex items-center gap-2 text-xs text-(--color-text-muted)">
               <span>{expense.category.label}</span>
               {expense.category.behavior && (
                 <BehaviorBadge behavior={expense.category.behavior} />
               )}
             </div>
           </div>
+
+          {fromWarehouse && (
+            <div className="rounded-(--radius-control) border border-brand-200 bg-brand-50 px-3 py-2 text-sm">
+              Bu xarajat <b>Ombor kirimidan</b> yozilgan{expense.documentNo ? ` (${expense.documentNo})` : ''}. O&apos;zgartirish yoki o&apos;chirish — Ombor › Hujjatlar orqali.{' '}
+              <Link href="/dashbord/ombor" className="font-semibold text-brand-700 hover:underline">
+                Ombor hujjatlari →
+              </Link>
+            </div>
+          )}
+
+          {fromAssets && (
+            <div className="rounded-(--radius-control) border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+              Bu <b>asosiy vositalar sarfi (eskirish)</b> — balansdagi vositalardan har oy avtomatik hisoblanadi. Muddat yoki hisobdan chiqarish — Asosiy vositalar sahifasida.{' '}
+              <Link href="/xarajatlar/asosiy-vositalar" className="font-semibold text-brand-700 hover:underline">
+                Asosiy vositalar →
+              </Link>
+            </div>
+          )}
+
+          {fromTaxes && (
+            <div className="rounded-(--radius-control) border border-brand-200 bg-brand-50 px-3 py-2 text-sm">
+              Bu <b>soliq</b> yozuvi — Xarajatlar › Soliqlar sahifasida yuritiladi (ish haqidan foizli soliqlar avtomatik hisoblanadi).{' '}
+              <Link href="/xarajatlar/soliqlar" className="font-semibold text-brand-700 hover:underline">
+                Soliqlar →
+              </Link>
+            </div>
+          )}
 
           {isPayroll ? (
             <ExpensePayrollDetail expenseId={expense.id} />
@@ -377,7 +437,7 @@ export function ExpenseDrawer({
           />
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-[--color-text]">
+            <label className="mb-1.5 block text-sm font-medium text-(--color-text)">
               Tavsif
             </label>
             <textarea
@@ -386,7 +446,7 @@ export function ExpenseDrawer({
               rows={3}
               maxLength={500}
               disabled={saving || readOnly}
-              className="w-full rounded-[--radius-control] border border-[--color-line-strong] bg-white px-3 py-2 text-sm focus:border-brand-600 disabled:bg-[--color-surface-sunken]"
+              className="w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3 py-2 text-sm focus:border-brand-600 disabled:bg-(--color-surface-sunken)"
             />
           </div>
           </>

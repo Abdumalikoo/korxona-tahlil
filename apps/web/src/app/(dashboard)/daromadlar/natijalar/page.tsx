@@ -1,5 +1,7 @@
 'use client';
 
+import { useMonthChange, usePeriod } from '@/lib/period';
+import { DeleteDataButton } from '@/components/shared/delete-data';
 import {
     analyzeResultsFile,
     downloadResultsExcel,
@@ -15,18 +17,11 @@ import {
 } from '@/features/results/api';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
-import {
-    currentPeriod,
-    formatDateTime,
-    formatPercent,
-    formatPeriod,
-    formatTiyin,
-} from '@/lib/format';
+import { formatDateTime, formatPercent, formatPeriod, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { useMemo, useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { PeriodPicker } from '@/components/shared/period-picker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -43,32 +38,26 @@ import { Money } from '@/components/ui/money';
 import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
-import { Tabs } from '@/components/ui/tabs';
+import { SectionTabs } from '@/features/sections/section-tabs';
 import { Toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 
-const tabs = [
-  { href: '/daromadlar', label: "Ro'yxat" },
-  { href: '/daromadlar/tahlil', label: 'Tahlil' },
-  { href: '/daromadlar/hududlar', label: 'Hududlar' },
-  { href: '/daromadlar/natijalar', label: 'Xodim natijalari' },
-];
 
 type ToastState = { message: string; tone: 'success' | 'error' } | null;
 
 /** Bajarilish rangi: <80 qizil, 80–95 sariq, >95 yashil */
 function percentColor(percent: number | null): string {
-  if (percent == null) return 'text-[--color-text-faint]';
-  if (percent < 80) return 'text-[--color-expense]';
-  if (percent <= 95) return 'text-[--color-warn]';
-  return 'text-[--color-income]';
+  if (percent == null) return 'text-(--color-text-faint)';
+  if (percent < 80) return 'text-(--color-expense)';
+  if (percent <= 95) return 'text-(--color-warn)';
+  return 'text-(--color-income)';
 }
 
 /** Nisbat rangi: maosh tushumdan katta bo'lsa (1 dan kichik) — qizil */
 function ratioColor(ratio: number | null): string {
-  if (ratio == null) return 'text-[--color-text-faint]';
-  if (ratio < 1) return 'text-[--color-expense]';
-  return 'text-[--color-text]';
+  if (ratio == null) return 'text-(--color-text-faint)';
+  if (ratio < 1) return 'text-(--color-expense)';
+  return 'text-(--color-text)';
 }
 
 function formatRatio(ratio: number | null): string {
@@ -79,7 +68,8 @@ function formatRatio(ratio: number | null): string {
 export default function EmployeeResultsPage() {
   const { isAdmin } = useAuth();
 
-  const [period, setPeriod] = useState(currentPeriod());
+  /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
+  const { month: period } = usePeriod();
   const [analysis, setAnalysis] = useState<ResultsAnalysis | null>(null);
   const [report, setReport] = useState<CommitResult | null>(null);
 
@@ -220,33 +210,41 @@ export default function EmployeeResultsPage() {
     })),
   ];
 
+  // Oy almashganda: yuklash oynasi va tanlovlar tozalanadi
+  useMonthChange(period, () => {
+    setRegionFilter('');
+    resetUpload();
+    setReport(null);
+  });
+
   return (
     <>
       <PageHeader
         title="Daromadlar"
         description={`Xodim natijalari \u00B7 ${formatPeriod(period)}`}
+        actions={
+          <DeleteDataButton
+            target="RESULTS"
+            month={period}
+            place="Daromadlar › Natijalar"
+            onDone={() => {
+              list.reload();
+              batches.reload();
+            }}
+          />
+        }
       />
 
-      <Tabs items={tabs} className="bg-white px-6" />
+      <SectionTabs kind="income" section="DOIMIY" />
 
       <div className="space-y-4 p-6">
-        <p className="text-xs text-[--color-text-muted]">
+        <p className="text-xs text-(--color-text-muted)">
           Xodimlar tushirgan tushum &mdash; daromadga qo&rsquo;shilmaydi, hududiy daromadning
           xodimlar kesimi. Shu oy ish haqisi bilan PINFL bo&rsquo;yicha solishtiriladi.
         </p>
 
-        {/* Davr, shablon, eksport */}
+        {/* Shablon va eksport (oy — yuqori panelda) */}
         <div className="flex flex-wrap items-center gap-3">
-          <PeriodPicker
-            value={period}
-            onChange={(value) => {
-              setPeriod(value);
-              setRegionFilter('');
-              resetUpload();
-              setReport(null);
-            }}
-          />
-
           <Button
             variant="secondary"
             size="sm"
@@ -288,22 +286,22 @@ export default function EmployeeResultsPage() {
                 }}
                 onClick={() => inputRef.current?.click()}
                 className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[--radius-card] border-2 border-dashed px-6 py-10 transition-colors',
+                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-(--radius-card) border-2 border-dashed px-6 py-10 transition-colors',
                   dragging
                     ? 'border-brand-600 bg-brand-50'
-                    : 'border-[--color-line-strong] hover:border-brand-400 hover:bg-[--color-surface-muted]',
+                    : 'border-(--color-line-strong) hover:border-brand-400 hover:bg-(--color-surface-muted)',
                 )}
               >
                 {uploading ? (
                   <>
                     <IconSpinner className="size-8 animate-spin text-brand-700" />
-                    <p className="text-sm text-[--color-text-muted]">Tekshirilmoqda&hellip;</p>
+                    <p className="text-sm text-(--color-text-muted)">Tekshirilmoqda&hellip;</p>
                   </>
                 ) : (
                   <>
-                    <IconUpload className="size-8 text-[--color-text-faint]" strokeWidth={1.5} />
+                    <IconUpload className="size-8 text-(--color-text-faint)" strokeWidth={1.5} />
                     <p className="text-sm font-medium">Natijalar faylini shu yerga tashlang</p>
-                    <p className="text-xs text-[--color-text-muted]">
+                    <p className="text-xs text-(--color-text-muted)">
                       Hudud va tuman kodi, PINFL, turi (1/2), reja, tushum, ustama
                     </p>
                   </>
@@ -353,13 +351,13 @@ export default function EmployeeResultsPage() {
           <>
             {/* Ish haqi yuklanmagan */}
             {!data.payrollUploaded && (
-              <div className="flex items-start gap-2.5 rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
-                <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+              <div className="flex items-start gap-2.5 rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
+                <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
                 <div>
-                  <p className="text-sm font-medium text-[--color-warn]">
+                  <p className="text-sm font-medium text-(--color-warn)">
                     {formatPeriod(period)} uchun ish haqi yuklanmagan
                   </p>
-                  <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                  <p className="mt-0.5 text-xs text-(--color-text-muted)">
                     Solishtirish uchun <b>Xarajatlar &rarr; Ish haqi</b> bo&rsquo;limidan shu oy
                     faylini yuklang &mdash; ustunlar o&rsquo;zi to&rsquo;ladi.
                   </p>
@@ -374,7 +372,7 @@ export default function EmployeeResultsPage() {
               <SummaryBox
                 label="Tushum"
                 value={formatTiyin(data.totals.factTiyin)}
-                className="text-[--color-income]"
+                className="text-(--color-income)"
               />
               <SummaryBox
                 label="Bajarilish"
@@ -385,7 +383,7 @@ export default function EmployeeResultsPage() {
               <SummaryBox
                 label="Ish haqi"
                 value={data.payrollUploaded ? formatTiyin(data.totals.salaryTiyin) : 'yuklanmagan'}
-                className={data.payrollUploaded ? 'text-[--color-expense]' : 'text-[--color-warn]'}
+                className={data.payrollUploaded ? 'text-(--color-expense)' : 'text-(--color-warn)'}
               />
               <SummaryBox
                 label="Tushum / ish haqi"
@@ -436,7 +434,7 @@ export default function EmployeeResultsPage() {
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder="Ism, PINFL yoki tuman"
-                      className="h-9 w-56 rounded-[--radius-control] border border-[--color-line-strong] px-3 text-sm focus:border-brand-600 focus:outline-none"
+                      className="h-9 w-56 rounded-(--radius-control) border border-(--color-line-strong) px-3 text-sm focus:border-brand-600 focus:outline-none"
                     />
                     <div className="w-52">
                       <Select
@@ -451,7 +449,7 @@ export default function EmployeeResultsPage() {
               />
 
               {filteredRows.length === 0 ? (
-                <EmptyState title="Topilmadi" />
+                <EmptyState title="Topilmadi" hint="search" />
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
@@ -489,12 +487,12 @@ export default function EmployeeResultsPage() {
                         <Tr key={row.pinfl}>
                           <Td>
                             <span className="font-medium">{row.fullName}</span>
-                            <p className="money text-xs text-[--color-text-faint]">{row.pinfl}</p>
+                            <p className="money text-xs text-(--color-text-faint)">{row.pinfl}</p>
                           </Td>
-                          <Td className="text-[--color-text-muted]">
+                          <Td className="text-(--color-text-muted)">
                             {row.regionName}
                             {row.districtName && (
-                              <p className="text-xs text-[--color-text-faint]">
+                              <p className="text-xs text-(--color-text-faint)">
                                 {row.districtName}
                               </p>
                             )}
@@ -504,7 +502,7 @@ export default function EmployeeResultsPage() {
                               {EMPLOYMENT_LABELS[row.employmentType]}
                             </Badge>
                           </Td>
-                          <Td money className="text-[--color-text-muted]">
+                          <Td money className="text-(--color-text-muted)">
                             <Money tiyin={row.planTiyin} />
                           </Td>
                           <Td money>
@@ -528,7 +526,7 @@ export default function EmployeeResultsPage() {
                           >
                             {formatRatio(row.ratio)}
                           </Td>
-                          <Td align="right" className="money bg-brand-50/40 text-[--color-text-muted]">
+                          <Td align="right" className="money bg-brand-50/40 text-(--color-text-muted)">
                             {row.salaryShare == null ? '\u2014' : formatPercent(row.salaryShare)}
                           </Td>
                         </Tr>
@@ -548,7 +546,7 @@ export default function EmployeeResultsPage() {
           {batches.loading ? (
             <LoadingState />
           ) : (batches.data?.data.length ?? 0) === 0 ? (
-            <EmptyState title="Bu oy uchun yuklash yo'q" />
+            <EmptyState title="Bu oy uchun yuklash yo'q" hint="upload" />
           ) : (
             <Table>
               <THead>
@@ -574,7 +572,7 @@ export default function EmployeeResultsPage() {
                   <Tr key={batch.id} className={cn(batch.cancelledAt && 'opacity-50')}>
                     <Td>
                       {batch.fileName}
-                      <p className="text-xs text-[--color-text-muted]">
+                      <p className="text-xs text-(--color-text-muted)">
                         {formatDateTime(batch.createdAt)}
                       </p>
                     </Td>
@@ -583,27 +581,27 @@ export default function EmployeeResultsPage() {
                         {batch.cancelledAt ? 'Bekor qilingan' : 'Amalda'}
                       </Badge>
                     </Td>
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {batch.totalRows}
                     </Td>
                     <Td align="center" className="money">
                       {batch.movedCount > 0 ? (
-                        <span className="text-[--color-warn]">{batch.movedCount}</span>
+                        <span className="text-(--color-warn)">{batch.movedCount}</span>
                       ) : (
-                        <span className="text-[--color-text-faint]">&mdash;</span>
+                        <span className="text-(--color-text-faint)">&mdash;</span>
                       )}
                     </Td>
                     <Td money>
                       <Money tiyin={batch.factTiyin} tone="income" />
                     </Td>
-                    <Td className="text-[--color-text-muted]">{batch.uploadedBy.fullName}</Td>
+                    <Td className="text-(--color-text-muted)">{batch.uploadedBy.fullName}</Td>
                     <Td>
                       {isAdmin && !batch.cancelledAt && (
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => setCancelTarget(batch)}
-                          className="text-[--color-text-muted] hover:text-[--color-expense]"
+                          className="text-(--color-text-muted) hover:text-(--color-expense)"
                         >
                           Bekor qilish
                         </Button>
@@ -653,8 +651,8 @@ function SalaryCell({ row }: { row: ResultListRow }) {
       className={cn(
         'text-xs',
         row.salaryStatus === 'not_uploaded'
-          ? 'text-[--color-text-faint]'
-          : 'italic text-[--color-warn]',
+          ? 'text-(--color-text-faint)'
+          : 'italic text-(--color-warn)',
       )}
     >
       {labels[row.salaryStatus as Exclude<ResultListRow['salaryStatus'], 'ok'>]}
@@ -690,7 +688,7 @@ function AnalysisView({
         <SummaryBox
           label="Tushum"
           value={formatTiyin(analysis.factTiyin)}
-          className="text-[--color-income]"
+          className="text-(--color-income)"
         />
         <SummaryBox
           label="Bajarilish"
@@ -703,7 +701,7 @@ function AnalysisView({
       {warnings === 0 &&
         analysis.locationChanges.length === 0 &&
         analysis.typeChanges.length === 0 && (
-          <div className="flex items-center gap-2 rounded-[--radius-card] border border-[--color-income] bg-[--color-income-soft] px-4 py-3 text-sm text-[--color-income]">
+          <div className="flex items-center gap-2 rounded-(--radius-card) border border-(--color-income) bg-(--color-income-soft) px-4 py-3 text-sm text-(--color-income)">
             <IconCheck className="size-4" />
             Fayl toza &mdash; hech qanday nomuvofiqlik topilmadi
           </div>
@@ -800,7 +798,7 @@ function AnalysisView({
       </IssueBlock>
 
       {analysis.hasPrevious && (
-        <p className="text-xs text-[--color-warn]">
+        <p className="text-xs text-(--color-warn)">
           Bu oy uchun natijalar allaqachon saqlangan &mdash; saqlasangiz, oldingisi almashtiriladi.
         </p>
       )}
@@ -852,12 +850,12 @@ function CommitReport({ report, onClose }: { report: CommitResult; onClose: () =
 
       <CardBody className="space-y-3">
         {report.payroll.batches === 0 ? (
-          <p className="text-sm text-[--color-text-muted]">
+          <p className="text-sm text-(--color-text-muted)">
             Bu oy uchun ish haqi hali yuklanmagan. Yuklanganda fayldagi hudud va turga qarab
             darhol to&rsquo;g&rsquo;ri guruhlanadi.
           </p>
         ) : moved.length === 0 ? (
-          <div className="flex items-center gap-2 text-sm text-[--color-income]">
+          <div className="flex items-center gap-2 text-sm text-(--color-income)">
             <IconCheck className="size-4" />
             Ish haqi to&rsquo;g&rsquo;ri joylashgan &mdash; hech narsa ko&rsquo;chmadi
           </div>
@@ -870,7 +868,7 @@ function CommitReport({ report, onClose }: { report: CommitResult; onClose: () =
               boshqa guruhga ko&rsquo;chdi. Jami ish haqi o&rsquo;zgarmadi.
             </p>
 
-            <div className="max-h-72 overflow-y-auto rounded-[--radius-control] border border-[--color-line]">
+            <div className="max-h-72 overflow-y-auto rounded-(--radius-control) border border-(--color-line)">
               <Table>
                 <THead>
                   <Tr>
@@ -886,7 +884,7 @@ function CommitReport({ report, onClose }: { report: CommitResult; onClose: () =
                   {moved.map((item) => (
                     <Tr key={item.pinfl}>
                       <Td className="font-medium">{item.fullName}</Td>
-                      <Td className="text-[--color-text-muted]">{item.from}</Td>
+                      <Td className="text-(--color-text-muted)">{item.from}</Td>
                       <Td>{item.to}</Td>
                       <Td money>
                         <Money tiyin={item.amountTiyin} tone="expense" />
@@ -960,10 +958,10 @@ function RegionTable({
             {regions.map((region) => (
               <Tr key={region.regionCode}>
                 <Td className="font-medium">{region.name}</Td>
-                <Td align="center" className="money text-[--color-text-muted]">
+                <Td align="center" className="money text-(--color-text-muted)">
                   {region.count}
                 </Td>
-                <Td money className="text-[--color-text-muted]">
+                <Td money className="text-(--color-text-muted)">
                   <Money tiyin={region.planTiyin} />
                 </Td>
                 <Td money>
@@ -986,7 +984,7 @@ function RegionTable({
                     >
                       {formatRatio(region.ratio)}
                     </Td>
-                    <Td align="right" className="money bg-brand-50/40 text-[--color-text-muted]">
+                    <Td align="right" className="money bg-brand-50/40 text-(--color-text-muted)">
                       {region.salaryShare == null ? '\u2014' : formatPercent(region.salaryShare)}
                     </Td>
                   </>
@@ -1057,13 +1055,13 @@ function IssueBlock({
   if (count === 0) return null;
 
   const styles = {
-    expense: 'border-[--color-expense] bg-[--color-expense-soft] text-[--color-expense]',
-    warn: 'border-[--color-warn] bg-[--color-warn-soft] text-[--color-warn]',
+    expense: 'border-(--color-expense) bg-(--color-expense-soft) text-(--color-expense)',
+    warn: 'border-(--color-warn) bg-(--color-warn-soft) text-(--color-warn)',
     info: 'border-brand-200 bg-brand-50 text-brand-800',
   };
 
   return (
-    <div className={cn('rounded-[--radius-card] border px-4 py-3', styles[tone])}>
+    <div className={cn('rounded-(--radius-card) border px-4 py-3', styles[tone])}>
       <button
         type="button"
         onClick={() => setOpen((state) => !state)}
@@ -1076,7 +1074,7 @@ function IssueBlock({
             {title} &mdash; {count} ta
           </span>
           {description && (
-            <span className="mt-0.5 block text-xs text-[--color-text-muted]">{description}</span>
+            <span className="mt-0.5 block text-xs text-(--color-text-muted)">{description}</span>
           )}
         </span>
 
@@ -1092,9 +1090,9 @@ function IssueBlock({
 
 function IssueLine({ left, right }: { left: string; right: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-1.5 text-xs text-[--color-text]">
+    <div className="flex items-center justify-between gap-3 rounded-(--radius-control) bg-white px-3 py-1.5 text-xs text-(--color-text)">
       <span className="min-w-0 flex-1 truncate font-medium">{left}</span>
-      <span className="shrink-0 text-[--color-text-muted]">{right}</span>
+      <span className="shrink-0 text-(--color-text-muted)">{right}</span>
     </div>
   );
 }
@@ -1111,12 +1109,12 @@ function SummaryBox({
   className?: string;
 }) {
   return (
-    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
         {label}
       </p>
       <p className={cn('money mt-2 text-xl font-semibold', className)}>{value}</p>
-      {hint && <p className="mt-1 text-xs text-[--color-text-faint]">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-(--color-text-faint)">{hint}</p>}
     </div>
   );
 }

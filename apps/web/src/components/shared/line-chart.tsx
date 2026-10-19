@@ -45,7 +45,7 @@ export function LineChart({ data, height = 280 }: LineChartProps) {
   if (data.length === 0) {
     return (
       <div
-        className="flex items-center justify-center text-sm text-[--color-text-muted]"
+        className="flex items-center justify-center text-sm text-(--color-text-muted)"
         style={{ height }}
       >
         Ma&apos;lumot yo&apos;q
@@ -144,7 +144,7 @@ export function LineChart({ data, height = 280 }: LineChartProps) {
                 x={PADDING.left - 10}
                 y={y + 4}
                 textAnchor="end"
-                className="fill-[--color-text-faint] text-[10px]"
+                className="fill-(--color-text-faint) text-[10px]"
                 style={{ fontFamily: 'var(--font-mono)' }}
               >
                 {ratio === 0 ? '0' : formatCompact(String(max * ratio))}
@@ -235,8 +235,8 @@ export function LineChart({ data, height = 280 }: LineChartProps) {
             textAnchor="middle"
             className={
               hovered === index
-                ? 'fill-[--color-text] text-[10px] font-semibold'
-                : 'fill-[--color-text-muted] text-[10px]'
+                ? 'fill-(--color-text) text-[10px] font-semibold'
+                : 'fill-(--color-text-muted) text-[10px]'
             }
           >
             {formatPeriodShort(point.period)}
@@ -256,11 +256,11 @@ export function LineChart({ data, height = 280 }: LineChartProps) {
         >
           <p className="mb-1.5 font-medium">{formatPeriodShort(active.period)}</p>
           <p className="flex items-center gap-2 whitespace-nowrap">
-            <span className="size-2 rounded-full bg-[--color-income]" />
+            <span className="size-2 rounded-full bg-(--color-income)" />
             <span className="money">{formatTiyin(active.incomeTiyin)}</span>
           </p>
           <p className="mt-0.5 flex items-center gap-2 whitespace-nowrap">
-            <span className="size-2 rounded-full bg-[--color-expense]" />
+            <span className="size-2 rounded-full bg-(--color-expense)" />
             <span className="money">{formatTiyin(active.expenseTiyin)}</span>
           </p>
         </div>
@@ -268,12 +268,12 @@ export function LineChart({ data, height = 280 }: LineChartProps) {
 
       {/* Izoh */}
       <div className="mt-2 flex items-center gap-4 pl-14">
-        <span className="flex items-center gap-1.5 text-xs text-[--color-text-muted]">
-          <span className="h-0.5 w-4 rounded bg-[--color-income]" />
+        <span className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
+          <span className="h-0.5 w-4 rounded bg-(--color-income)" />
           Daromad
         </span>
-        <span className="flex items-center gap-1.5 text-xs text-[--color-text-muted]">
-          <span className="h-0.5 w-4 rounded bg-[--color-expense]" />
+        <span className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
+          <span className="h-0.5 w-4 rounded bg-(--color-expense)" />
           Xarajat
         </span>
       </div>

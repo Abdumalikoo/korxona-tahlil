@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { useAsync } from '@/lib/use-async';
+import { usePeriod } from '@/lib/period';
+import { BriefNote, useBrief } from '@/lib/view-mode';
+import { BriefAnalysis } from '@/features/brief/brief-analysis';
+import { CalcValue } from '@/components/ui/calc';
+import { calcChange, calcDiff, calcDivide, calcRecords, calcShare, calcSum, Q, type Calc } from '@/lib/calc';
 import { incomesApi } from '@/features/incomes/api';
 import { regionalIncomeApi } from '@/features/incomes/regional-api';
 import {
@@ -15,11 +18,6 @@ import {
 } from '@/lib/format';
 
 import { PageHeader } from '@/components/layout/page-header';
-import {
-  DateRangePicker,
-  defaultRange,
-  type DateRange,
-} from '@/components/shared/date-range-picker';
 import { BarChart } from '@/components/shared/bar-chart';
 import { ShareBar } from '@/components/shared/share-bar';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
@@ -27,14 +25,30 @@ import { Money, Change } from '@/components/ui/money';
 import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
 import { EmptyState, LoadingState } from '@/components/ui/states';
 
+/**
+ * Qisqa rejimda — rahbar uchun qisqa ko'rinish (Daromad va Xarajatda bir xil qolip:
+ * features/brief/brief-analysis.tsx), to'liq rejimda — hamma tafsilot.
+ */
 export default function IncomeAnalysisPage() {
-  const searchParams = useSearchParams();
+  const brief = useBrief();
+  if (!brief) return <FullIncomeAnalysis />;
+  return (
+    <>
+      {/* Davr yuqori paneldagi «Davr» tugmasida ko'rinadi */}
+      <PageHeader title="Daromad" />
+      <div className="space-y-4 p-6">
+        <BriefNote shows="Daromad: jami, asosiy daromadlar (bosilsa ichi ochiladi) va eng ko'p o'zgarganlar" hidden="oylik grafik, to'lov holati, hududlar, xizmat turlari, eng katta yozuvlar, bo'limlar" />
+        <BriefAnalysis kind="income" />
+      </div>
+    </>
+  );
+}
 
-  const [range, setRange] = useState<DateRange>(() => {
-    const from = searchParams.get("dateFrom");
-    const to = searchParams.get("dateTo");
-    return from && to ? { from, to } : defaultRange();
-  });
+/** To'liq ko'rinish */
+function FullIncomeAnalysis() {
+
+  /** Davr — yuqori paneldagi «Davr» tugmasidan (manzildagi ?dateFrom=&dateTo= ham hisobga olinadi) */
+  const { range } = usePeriod();
 
   // Solishtirish uchun oxirgi oy
   const period = range.to.slice(0, 7);
@@ -71,10 +85,9 @@ export default function IncomeAnalysisPage() {
         description={`${formatDate(range.from)} — ${formatDate(range.to)}`}
         actions={
           <div className="flex items-center gap-3">
-            <DateRangePicker value={range} onChange={setRange} />
             <Link
               href="/"
-              className="text-sm text-[--color-text-muted] hover:text-[--color-text]"
+              className="text-sm text-(--color-text-muted) hover:text-(--color-text)"
             >
               Bosh sahifa
             </Link>
@@ -83,12 +96,14 @@ export default function IncomeAnalysisPage() {
       />
 
       <div className="space-y-4 p-6">
+
         {/* Ko'rsatkichlar */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard
             label="Jami daromad"
             tiyin={current?.amountTiyin ?? 0}
             hint={current ? `${current.count} ta yozuv` : undefined}
+            calc={pointCalc('Jami daromad', current, "Daromadlar ro'yxati")}
           />
 
           <MetricCard
@@ -96,6 +111,8 @@ export default function IncomeAnalysisPage() {
             tiyin={previous?.amountTiyin ?? 0}
             change={previous?.changePercent}
             hint={previous ? formatPeriod(previous.period) : undefined}
+            calc={pointCalc('O\'tgan oy daromadi', previous, 'Daromadlar ro\'yxati')}
+            changeCalc={pointChange('O\'tgan oyga nisbatan o\'zgarish', current, previous, true)}
           />
 
           <MetricCard
@@ -103,19 +120,31 @@ export default function IncomeAnalysisPage() {
             tiyin={lastYear?.amountTiyin ?? 0}
             change={lastYear?.changePercent}
             hint={lastYear ? formatPeriod(lastYear.period) : undefined}
+            calc={pointCalc('O\'tgan yilning shu oyi', lastYear, 'Daromadlar ro\'yxati')}
+            changeCalc={pointChange('O\'tgan yilning shu oyiga nisbatan o\'zgarish', current, lastYear, true)}
           />
 
-          <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+          <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
               Ko&rsquo;rsatilgan xizmat
             </p>
             <p className="money mt-2 text-xl font-semibold">
-              {totalQuantity > 0 ? totalQuantity.toLocaleString('uz') : '\u2014'}
+              {totalQuantity > 0 ? (
+                <CalcValue calc={calcSum("Ko'rsatilgan xizmat", serviceRows.map((r) => Q.count(r.label, r.quantity, 'Hududlar tushumi, «Soni»')), { kind: 'count' })}>
+                  {totalQuantity.toLocaleString('uz')}
+                </CalcValue>
+              ) : (
+                '\u2014'
+              )}
             </p>
-            <p className="mt-1.5 text-xs text-[--color-text-muted]">
-              {totalQuantity > 0 && total > 0
-                ? `O'rtacha ${formatTiyin(String(Math.round(total / totalQuantity)))}`
-                : 'Hududiy hisobotdan'}
+            <p className="mt-1.5 text-xs text-(--color-text-muted)">
+              {totalQuantity > 0 && total > 0 ? (
+                <CalcValue calc={calcDivide("Bitta xizmatning o'rtacha narxi", Q.money('Jami daromad', total), Q.count("Xizmatlar soni", totalQuantity), 'money', { formulaId: 'average' })}>
+                  {`O'rtacha ${formatTiyin(String(Math.round(total / totalQuantity)))}`}
+                </CalcValue>
+              ) : (
+                'Hududiy hisobotdan'
+              )}
             </p>
           </div>
         </div>
@@ -129,30 +158,34 @@ export default function IncomeAnalysisPage() {
             />
             <CardBody>
               <div className="space-y-3">
-                <div className="flex h-2.5 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+                <div className="flex h-2.5 overflow-hidden rounded-full bg-(--color-surface-sunken)">
                   <div
-                    className="bg-[--color-income] transition-all"
+                    className="bg-(--color-income) transition-all"
                     style={{ width: `${paidPercent}%` }}
                   />
                 </div>
 
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-[--color-income]" />
-                    <span className="text-[--color-text-muted]">Tushgan</span>
+                    <span className="size-2 rounded-full bg-(--color-income)" />
+                    <span className="text-(--color-text-muted)">Tushgan</span>
                     <Money tiyin={String(paid)} tone="income" className="font-medium" />
-                    <span className="money text-xs text-[--color-text-faint]">
-                      {formatPercent(paidPercent)}
+                    <span className="money text-xs text-(--color-text-faint)">
+                      <CalcValue calc={calcShare('Tushgan ulushi', Q.money('Tushgan', paid, "Yozuvlardagi «to'langan» summa"), Q.money('Hisoblangan daromad', total))}>
+                        {formatPercent(paidPercent)}
+                      </CalcValue>
                     </span>
                   </span>
 
                   <span className="flex items-center gap-2">
-                    <span className="text-[--color-text-muted]">Qarzda</span>
-                    <Money
-                      tiyin={String(total - paid)}
-                      tone="expense"
-                      className="font-medium"
-                    />
+                    <span className="text-(--color-text-muted)">Qarzda</span>
+                    <CalcValue calc={calcDiff('Qarzda', Q.money('Hisoblangan daromad', total), Q.money('Tushgan', paid))}>
+                      <Money
+                        tiyin={String(total - paid)}
+                        tone="expense"
+                        className="font-medium"
+                      />
+                    </CalcValue>
                   </span>
                 </div>
               </div>
@@ -182,7 +215,7 @@ export default function IncomeAnalysisPage() {
           {byRegion.loading ? (
             <LoadingState />
           ) : (byRegion.data?.data.rows.length ?? 0) === 0 ? (
-            <EmptyState title="Hududiy daromad yo'q" />
+            <EmptyState title="Hududiy daromad yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -206,11 +239,11 @@ export default function IncomeAnalysisPage() {
                   <Tr key={row.regionCode ?? 'none'}>
                     <Td className="font-medium">{row.name}</Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.count}
                     </Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.quantity || '\u2014'}
                     </Td>
 
@@ -220,8 +253,8 @@ export default function IncomeAnalysisPage() {
                           percent={row.sharePercent}
                           color="var(--color-income)"
                         />
-                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
-                          {formatPercent(row.sharePercent)}
+                        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-muted)">
+                          <CalcValue calc={shareCalc(row, byRegion.data?.data.totalTiyin)}>{formatPercent(row.sharePercent)}</CalcValue>
                         </span>
                       </div>
                     </Td>
@@ -237,11 +270,13 @@ export default function IncomeAnalysisPage() {
                 <Tr>
                   <Td colSpan={4}>Jami</Td>
                   <Td money>
+                    <CalcValue calc={totalCalc('Jami', byRegion.data?.data.rows)}>
                     <Money
                       tiyin={byRegion.data?.data.totalTiyin ?? 0}
                       tone="income"
                       className="font-semibold"
                     />
+                    </CalcValue>
                   </Td>
                 </Tr>
               </TFoot>
@@ -259,7 +294,7 @@ export default function IncomeAnalysisPage() {
           {top.loading ? (
             <LoadingState />
           ) : (top.data?.data.length ?? 0) === 0 ? (
-            <EmptyState title="Yozuv yo'q" />
+            <EmptyState title="Yozuv yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -277,17 +312,17 @@ export default function IncomeAnalysisPage() {
               <TBody>
                 {top.data?.data.map((item, index) => (
                   <Tr key={item.id}>
-                    <Td className="money text-center text-[--color-text-faint]">
+                    <Td className="money text-center text-(--color-text-faint)">
                       {index + 1}
                     </Td>
 
-                    <Td className="money text-[--color-text-muted]">
+                    <Td className="money text-(--color-text-muted)">
                       {formatDate(item.date)}
                     </Td>
 
                     <Td className="max-w-md truncate">{item.category.label}</Td>
 
-                    <Td className="text-[--color-text-muted]">
+                    <Td className="text-(--color-text-muted)">
                       {item.clientName ?? item.region?.name ?? '\u2014'}
                     </Td>
 
@@ -311,7 +346,7 @@ export default function IncomeAnalysisPage() {
           {byService.loading ? (
             <LoadingState />
           ) : serviceRows.length === 0 ? (
-            <EmptyState title="Ma'lumot yo'q" />
+            <EmptyState title="Ma'lumot yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -337,12 +372,18 @@ export default function IncomeAnalysisPage() {
                       {row.label}
                     </Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.quantity || '\u2014'}
                     </Td>
 
-                    <Td money className="text-[--color-text-muted]">
-                      {row.averageTiyin ? formatTiyin(row.averageTiyin) : '\u2014'}
+                    <Td money className="text-(--color-text-muted)">
+                      {row.averageTiyin ? (
+                        <CalcValue calc={calcDivide(`${row.label}: o'rtacha narx`, Q.money('Summa', row.amountTiyin), Q.count('Soni', row.quantity), 'money', { formulaId: 'average' })}>
+                          {formatTiyin(row.averageTiyin)}
+                        </CalcValue>
+                      ) : (
+                        '\u2014'
+                      )}
                     </Td>
 
                     <Td>
@@ -351,8 +392,8 @@ export default function IncomeAnalysisPage() {
                           percent={row.sharePercent}
                           color="var(--color-income)"
                         />
-                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
-                          {formatPercent(row.sharePercent)}
+                        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-muted)">
+                          <CalcValue calc={shareCalc(row, byService.data?.data.totalTiyin)}>{formatPercent(row.sharePercent)}</CalcValue>
                         </span>
                       </div>
                     </Td>
@@ -368,11 +409,13 @@ export default function IncomeAnalysisPage() {
                 <Tr>
                   <Td colSpan={4}>Jami</Td>
                   <Td money>
+                    <CalcValue calc={totalCalc('Jami', serviceRows)}>
                     <Money
                       tiyin={byService.data?.data.totalTiyin ?? 0}
                       tone="income"
                       className="font-semibold"
                     />
+                    </CalcValue>
                   </Td>
                 </Tr>
               </TFoot>
@@ -387,7 +430,7 @@ export default function IncomeAnalysisPage() {
           {byDepartment.loading ? (
             <LoadingState />
           ) : (byDepartment.data?.data.rows.length ?? 0) === 0 ? (
-            <EmptyState title="Ma'lumot yo'q" />
+            <EmptyState title="Ma'lumot yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -408,7 +451,7 @@ export default function IncomeAnalysisPage() {
                   <Tr key={row.departmentId ?? 'none'}>
                     <Td className="truncate">{row.name}</Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.count}
                     </Td>
 
@@ -418,8 +461,8 @@ export default function IncomeAnalysisPage() {
                           percent={row.sharePercent}
                           color="var(--color-income)"
                         />
-                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
-                          {formatPercent(row.sharePercent)}
+                        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-muted)">
+                          <CalcValue calc={shareCalc(row, byDepartment.data?.data.totalTiyin)}>{formatPercent(row.sharePercent)}</CalcValue>
                         </span>
                       </div>
                     </Td>
@@ -435,11 +478,13 @@ export default function IncomeAnalysisPage() {
                 <Tr>
                   <Td colSpan={3}>Jami</Td>
                   <Td money>
+                    <CalcValue calc={totalCalc('Jami', byDepartment.data?.data.rows)}>
                     <Money
                       tiyin={byDepartment.data?.data.totalTiyin ?? 0}
                       tone="income"
                       className="font-semibold"
                     />
+                    </CalcValue>
                   </Td>
                 </Tr>
               </TFoot>
@@ -456,26 +501,64 @@ function MetricCard({
   tiyin,
   change,
   hint,
+  calc,
+  changeCalc,
 }: {
   label: string;
   tiyin: string | number;
   change?: number | null;
   hint?: string;
+  calc?: Calc | null;
+  changeCalc?: Calc | null;
 }) {
   return (
-    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
         {label}
       </p>
 
       <div className="mt-2">
-        <Money tiyin={tiyin} tone="income" className="text-xl font-semibold" />
+        <CalcValue calc={calc}>
+          <Money tiyin={tiyin} tone="income" className="text-xl font-semibold" />
+        </CalcValue>
       </div>
 
       <div className="mt-1.5 flex items-center gap-2">
-        {change !== undefined && <Change percent={change} positiveIsGood />}
-        {hint && <span className="text-xs text-[--color-text-muted]">{hint}</span>}
+        {change !== undefined && <Change percent={change} positiveIsGood calc={changeCalc} />}
+        {hint && <span className="text-xs text-(--color-text-muted)">{hint}</span>}
       </div>
     </div>
   );
+}
+
+// ─────── «Qanday hisoblandi?» yordamchilari ───────
+
+type NamedRow = { label?: string; name?: string; amountTiyin: string };
+
+function rowName(row: NamedRow): string {
+  return row.label ?? row.name ?? '—';
+}
+
+/** Jami = qatorlar yig'indisi */
+function totalCalc(title: string, rows: NamedRow[] | undefined): Calc | null {
+  if (!rows || rows.length === 0) return null;
+  return calcSum(title, rows.map((r) => Q.money(rowName(r), r.amountTiyin)));
+}
+
+/** Qator ulushi = qator summasi ÷ jami × 100 */
+function shareCalc(row: NamedRow, total: string | number | undefined): Calc {
+  return calcShare(`${rowName(row)}: ulush`, Q.money(rowName(row), row.amountTiyin), Q.money('Jami', Number(total ?? 0)));
+}
+
+/** Oy daromadi/xarajati — taqqoslash nuqtasi (comparison javobidan) */
+type Point = { period: string; amountTiyin: string; count?: number; changePercent?: number | null } | undefined;
+
+function pointCalc(title: string, point: Point, source: string): Calc | null {
+  if (!point) return null;
+  return calcRecords(title, point.amountTiyin, point.count, formatPeriod(point.period), source);
+}
+
+function pointChange(title: string, current: Point, base: Point, growthGood: boolean): Calc | null {
+  if (!current || !base) return null;
+  return calcChange(title, Q.money(formatPeriod(current.period), current.amountTiyin), Q.money(formatPeriod(base.period), base.amountTiyin), { growthGood });
 }

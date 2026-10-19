@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import { createHash } from 'node:crypto';
+import { ensureCenterCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, payrollCenterCategory, readPolicy } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { TaxesService } from '../taxes/taxes.service';
 
 const CENTRAL_REGION = 0;
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
@@ -64,6 +66,39 @@ export interface RegroupReport {
   batches: number;
   changedBatches: number;
   moved: MovedEmployee[];
+  /** Hudud xodimlari ish haqidan Markaz hisobiga o'tgan qism (bayram, choraklik …) */
+  centerTiyin: bigint;
+  /** Markazga o'tgan xodimlar soni */
+  centerEmployees: number;
+}
+
+/** Xodim ish haqidan Markazga o'tadigan qism: modda → summa */
+export type CenterParts = Map<string, bigint>;
+
+/** Modda tartibi: avval bayram, keyin choraklik, keyin boshqalar */
+const CENTER_ORDER = [...Object.values(PAYROLL_CENTER_CATEGORY).map((c) => c.code), PAYROLL_CENTER_OTHER.code];
+
+/**
+ * Markazga o'tadigan qismni ish haqi bilan cheklaydi (tarkib soliq hisobotidan katta bo'lsa — ish haqidan oshmaydi).
+ * Natija: modda → summa (nol bo'lganlar tashlanadi).
+ */
+export function capCenterParts(base: bigint, parts: CenterParts | undefined): CenterParts {
+  const out: CenterParts = new Map();
+  if (!parts || base <= 0n) return out;
+  let left = base;
+  const codes = [...parts.keys()].sort((a, b) => {
+    const ia = CENTER_ORDER.indexOf(a);
+    const ib = CENTER_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  });
+  for (const code of codes) {
+    const want = parts.get(code) ?? 0n;
+    if (want <= 0n || left <= 0n) continue;
+    const take = want < left ? want : left;
+    out.set(code, take);
+    left -= take;
+  }
+  return out;
 }
 
 const EMPLOYEE_INCLUDE = {
@@ -74,7 +109,18 @@ const EMPLOYEE_INCLUDE = {
 
 @Injectable()
 export class PayrollService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PayrollService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    /** Ish haqidan foiz soliqlar (ijtimoiy soliq …) — vedomost o'zgarganda qayta hisoblanadi */
+    @Optional() private readonly taxes?: TaxesService,
+  ) {}
+
+  private retax(period: string): void {
+    if (!this.taxes) return;
+    void this.taxes.syncPeriod(period).catch((e: unknown) => this.logger.warn(`Soliqlar (${period}): ${(e as Error).message}`));
+  }
 
   // ═══════════ Yordamchilar ═══════════
 
@@ -188,13 +234,17 @@ export class PayrollService {
   // ═══════════ Guruhlash ═══════════
 
   /** Xodim qaysi xarajat guruhiga tushishi */
-  private groupOf(employee: GroupEmployee): {
+  /**
+   * scope REGIONS (hududlar vedomosti) — shartnoma asosidagi hudud xodimlari ham o'z hududi ish haqiga yoziladi
+   * (hudud vedomostida faqat hudud xodimlari bo'ladi; umumiy vedomostda shartnoma — alohida guruh).
+   */
+  private groupOf(employee: GroupEmployee, scope: string = 'ALL'): {
     key: string;
     label: string;
     departmentId: string | null;
     regionCode: number | null;
   } {
-    if (employee.employmentType === 'SHARTNOMA') {
+    if (employee.employmentType === 'SHARTNOMA' && !(scope === 'REGIONS' && employee.regionCode !== CENTRAL_REGION)) {
       return {
         key: 'shartnoma',
         label: 'Shartnoma asosidagi ish haqi',
@@ -229,11 +279,12 @@ export class PayrollService {
 
   private buildGroups(
     items: { amountTiyin: bigint; employee: GroupEmployee }[],
+    scope: string = 'ALL',
   ): Map<string, ExpenseGroup> {
     const groups = new Map<string, ExpenseGroup>();
 
     for (const { amountTiyin, employee } of items) {
-      const target = this.groupOf(employee);
+      const target = this.groupOf(employee, scope);
 
       const group = groups.get(target.key) ?? {
         ...target,
@@ -462,8 +513,11 @@ export class PayrollService {
     replacePrevious: boolean;
     fileName: string;
     missing: MissingRow[];
+    /** ALL — umumiy (administrator), REGIONS — hududlar vedomosti (Hududchi) */
+    scope?: 'ALL' | 'REGIONS';
   }) {
     const { period, userId, replacePrevious, fileName, missing } = params;
+    const scope = params.scope ?? 'ALL';
     this.assertPeriod(period);
 
     if (params.rows.length === 0) {
@@ -505,7 +559,7 @@ export class PayrollService {
       ),
     }));
 
-    const groups = this.buildGroups(items);
+    const groups = this.buildGroups(items, scope);
     const totalTiyin = items.reduce((sum, item) => sum + item.amountTiyin, 0n);
     const zeroCount = items.filter((item) => item.amountTiyin === 0n).length;
 
@@ -522,9 +576,24 @@ export class PayrollService {
       async (tx) => {
         let replaced = 0;
 
+        // Bir xodim bir oyda ikki vedomostda (umumiy va hudud) bo'lmasin — ish haqi ikki marta sanalmasin
+        const overlap = await tx.payrollEntry.findMany({
+          where: { period, employeePinfl: { in: pinfls }, batch: { status: 'COMMITTED', scope: { not: scope } } },
+          select: { employeePinfl: true },
+          take: 2000,
+        });
+        if (overlap.length > 0) {
+          const n = new Set(overlap.map((o) => o.employeePinfl)).size;
+          throw new BadRequestException(
+            scope === 'REGIONS'
+              ? `${n} ta xodimning shu oy ish haqisi umumiy vedomostda (administrator) allaqachon bor. Ularni fayldan olib tashlang`
+              : `${n} ta xodimning shu oy ish haqisi hududlar vedomostida (Hududchi) yuklangan. Ularni fayldan olib tashlang yoki hudud vedomostini bekor qiling`,
+          );
+        }
+
         if (replacePrevious) {
           const previous = await tx.payrollBatch.findMany({
-            where: { period, status: 'COMMITTED' },
+            where: { period, status: 'COMMITTED', scope },
             select: { id: true },
           });
           const ids = previous.map((item) => item.id);
@@ -543,10 +612,23 @@ export class PayrollService {
           }
         }
 
+        if (!replacePrevious) {
+          const dup = await tx.payrollBatch.findFirst({
+            where: { period, fileHash, status: 'COMMITTED', scope },
+            select: { id: true },
+          });
+          if (dup) {
+            throw new BadRequestException(
+              "Bu vedomost shu davr uchun allaqachon saqlangan (xuddi shu ma'lumotlar). Ikki marta yozilmaydi",
+            );
+          }
+        }
+
         const batch = await tx.payrollBatch.create({
           data: {
             period,
             status: 'COMMITTED',
+            scope,
             fileName,
             fileHash,
             totalRows: merged.size + missing.length,
@@ -610,6 +692,12 @@ export class PayrollService {
       { timeout: 60_000 },
     );
 
+    // Hudud xodimlari: bayram, choraklik pullar (ish haqi tarkibidan) — Markaz hisobiga, sof oylik — hududga
+    const split = await this.regroup(period).catch((error: unknown) => {
+      this.logger.warn(`Ish haqi Markaz ulushi hisoblanmadi (${period}): ${(error as Error).message}`);
+      return null;
+    });
+
     return {
       success: true as const,
       batchId: result.batchId,
@@ -618,21 +706,76 @@ export class PayrollService {
       zeroCount,
       totalTiyin,
       replacedPrevious: result.replaced > 0,
+      centerTiyin: split?.centerTiyin ?? 0n,
+      centerEmployees: split?.centerEmployees ?? 0,
     };
+  }
+
+  // ═══════════ Markaz hisobidagi ish haqi qismi ═══════════
+
+  /**
+   * Shu oy ish haqi tarkibidan (faol yuklama) Markazga o'tadigan komponentlar: xodim → modda → summa.
+   * Komponentlar xarajatlar siyosatida belgilanadi (standart: bayram va choraklik pullar).
+   */
+  async centerShares(period: string): Promise<Map<string, CenterParts>> {
+    const out = new Map<string, CenterParts>();
+    const policy = await readPolicy(this.prisma);
+    if (!policy.payrollComponents.length) return out;
+    const batch = await this.prisma.salaryCompositionBatch.findFirst({
+      where: { period, cancelledAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!batch) return out;
+    const components = await this.prisma.salaryComponent.findMany({
+      where: { code: { in: policy.payrollComponents } },
+      select: { code: true, sign: true },
+    });
+    // Ayiriladigan (jarima) komponent Markazga o'tmaydi
+    const codes = components.filter((c) => c.sign > 0).map((c) => c.code);
+    if (!codes.length) return out;
+    const items = await this.prisma.salaryCompositionItem.findMany({
+      where: { batchId: batch.id, componentCode: { in: codes } },
+      select: { componentCode: true, amountTiyin: true, row: { select: { employeePinfl: true } } },
+    });
+    for (const item of items) {
+      if (item.amountTiyin <= 0n) continue;
+      const pinfl = item.row.employeePinfl;
+      const parts = out.get(pinfl) ?? new Map<string, bigint>();
+      const code = payrollCenterCategory(item.componentCode);
+      parts.set(code, (parts.get(code) ?? 0n) + item.amountTiyin);
+      out.set(pinfl, parts);
+    }
+    return out;
+  }
+
+  /** Yozuvdagi to'liq (soliq hisobotidagi) summa — eski yozuvlarda baseTiyin = totalTiyin */
+  private fullOf(entry: { baseTiyin: bigint; bonusTiyin: bigint; totalTiyin: bigint }): bigint {
+    if (entry.baseTiyin === 0n && entry.totalTiyin + entry.bonusTiyin > 0n) return entry.totalTiyin + entry.bonusTiyin;
+    return entry.baseTiyin;
+  }
+
+  /** Davrlar: tasdiqlangan ish haqi bor oylar (qayta hisoblash uchun) */
+  async committedPeriods(): Promise<string[]> {
+    const rows = await this.prisma.payrollBatch.findMany({ where: { status: 'COMMITTED' }, select: { period: true }, distinct: ['period'], orderBy: { period: 'asc' } });
+    return rows.map((r) => r.period);
   }
 
   // ═══════════ Qayta guruhlash ═══════════
 
   /**
-   * Shu oyning tasdiqlangan ish haqisini hudud tarixiga qarab qayta guruhlaydi.
+   * Shu oyning tasdiqlangan ish haqisini hudud tarixiga qarab qayta guruhlaydi va Markaz ulushini ajratadi.
    *
-   * Natijalar fayli saqlanganda yoki bekor qilinganda chaqiriladi.
+   * Natijalar fayli, ish haqi tarkibi saqlanganda yoki bekor qilinganda, vedomost yuklanganda chaqiriladi.
+   * Hudud xodimi: sof oylik (to'liq − bayram − choraklik …) — hudud ish haqiga; ajratilgan qism — alohida
+   * xarajat (HM_BAYRAM, HM_CHORAK …) bo'lib Markaz hisobiga (hudud kodi saqlanadi — «kim uchun» ko'rinadi).
+   * Yozuvda: baseTiyin — to'liq, bonusTiyin — Markazga o'tgan qism, totalTiyin — hududda qolgani.
    * Jami summa o'zgarmaydi — xarajat faqat guruhlar orasida ko'chadi.
    */
   async regroup(period: string): Promise<RegroupReport> {
     this.assertPeriod(period);
 
-    const [batches, locations] = await Promise.all([
+    const [batches, locations, shares] = await Promise.all([
       this.prisma.payrollBatch.findMany({
         where: { period, status: 'COMMITTED' },
         include: {
@@ -642,44 +785,69 @@ export class PayrollService {
         },
       }),
       this.loadLocations(period),
+      this.centerShares(period),
     ]);
 
-    const report: RegroupReport = { period, batches: batches.length, changedBatches: 0, moved: [] };
+    const report: RegroupReport = { period, batches: batches.length, changedBatches: 0, moved: [], centerTiyin: 0n, centerEmployees: 0 };
     const movedMap = new Map<string, MovedEmployee>();
+    const centerPins = new Set<string>();
+    let categoriesReady = false;
+    const categoryLabels = new Map<string, string>();
 
     for (const batch of batches) {
       const items = batch.entries.map((entry) => {
         const registry = entry.employee as unknown as GroupEmployee;
         const effective = this.applyLocation(registry, locations.get(entry.employeePinfl));
+        const full = this.fullOf(entry);
 
-        const before = this.groupOf(registry);
-        const after = this.groupOf(effective);
+        const before = this.groupOf(registry, batch.scope);
+        const after = this.groupOf(effective, batch.scope);
 
-        if (before.key !== after.key && entry.totalTiyin > 0n) {
+        if (before.key !== after.key && full > 0n) {
           const existing = movedMap.get(entry.employeePinfl);
           if (existing) {
-            existing.amountTiyin += entry.totalTiyin;
+            existing.amountTiyin += full;
           } else {
             movedMap.set(entry.employeePinfl, {
               pinfl: entry.employeePinfl,
               fullName: registry.fullName,
-              amountTiyin: entry.totalTiyin,
+              amountTiyin: full,
               from: before.label,
               to: after.label,
             });
           }
         }
 
-        return { amountTiyin: entry.totalTiyin, employee: effective };
+        // Faqat hudud ish haqi guruhidagi xodim (Markaz va umumiy shartnoma — o'zgarmaydi)
+        const isRegion = after.regionCode !== null && after.regionCode !== CENTRAL_REGION;
+        const parts = isRegion ? capCenterParts(full, shares.get(entry.employeePinfl)) : new Map<string, bigint>();
+        let center = 0n;
+        for (const v of parts.values()) center += v;
+        if (center > 0n) centerPins.add(entry.employeePinfl);
+        report.centerTiyin += center;
+
+        return { entry, full, center, net: full - center, parts, group: after, employee: effective };
       });
 
-      const groups = [...this.buildGroups(items).values()].filter(
+      const groups = [...this.buildGroups(items.map((i) => ({ amountTiyin: i.net, employee: i.employee })), batch.scope).values()].filter(
         (group) => group.totalTiyin > 0n,
       );
+      // Markaz hisobidagi qism: hudud × modda
+      const centerRows = new Map<string, { regionCode: number; regionName: string; categoryCode: string; amount: bigint; count: number }>();
+      for (const i of items) {
+        if (i.group.regionCode === null) continue;
+        for (const [code, amount] of i.parts) {
+          const key = `${i.group.regionCode}|${code}`;
+          const row = centerRows.get(key) ?? { regionCode: i.group.regionCode, regionName: i.employee.region.name, categoryCode: code, amount: 0n, count: 0 };
+          row.amount += amount;
+          row.count += 1;
+          centerRows.set(key, row);
+        }
+      }
 
       const current = await this.prisma.expense.findMany({
         where: { payrollBatchId: batch.id, deletedAt: null },
-        select: { regionCode: true, departmentId: true, amountTiyin: true },
+        select: { regionCode: true, departmentId: true, amountTiyin: true, categoryCode: true },
       });
 
       // Guruhlar o'zgarmagan bo'lsa — tegmaymiz
@@ -690,40 +858,78 @@ export class PayrollService {
           .join('|');
 
       const currentSignature = signature(
-        current.map((item) => ({ key: this.expenseKey(item), amount: item.amountTiyin })),
+        current.map((item) => ({ key: `${this.expenseKey(item)}#${item.categoryCode}`, amount: item.amountTiyin })),
       );
-      const nextSignature = signature(
-        groups.map((group) => ({ key: group.key, amount: group.totalTiyin })),
-      );
+      const nextSignature = signature([
+        ...groups.map((group) => ({ key: `${group.key}#${PAYROLL_CATEGORY}`, amount: group.totalTiyin })),
+        ...[...centerRows.values()].map((row) => ({ key: `region-${row.regionCode}#${row.categoryCode}`, amount: row.amount })),
+      ]);
 
-      if (currentSignature === nextSignature) continue;
+      const changedEntries = items.filter((i) => i.entry.baseTiyin !== i.full || i.entry.bonusTiyin !== i.center || i.entry.totalTiyin !== i.net);
+      if (currentSignature === nextSignature && changedEntries.length === 0) continue;
 
-      const total = items.reduce((sum, item) => sum + item.amountTiyin, 0n);
+      if (centerRows.size > 0 && !categoriesReady) {
+        await ensureCenterCategories(this.prisma);
+        const cats = await this.prisma.category.findMany({ where: { code: { in: [...new Set([...centerRows.values()].map((r) => r.categoryCode))] } }, select: { code: true, label: true } });
+        for (const c of cats) categoryLabels.set(c.code, c.label);
+        categoriesReady = true;
+      }
+
+      const total = items.reduce((sum, item) => sum + item.full, 0n);
       const date = this.periodEndDate(period);
 
       await this.prisma.$transaction(
         async (tx) => {
-          await tx.expense.deleteMany({
-            where: { payrollBatchId: batch.id, deletedAt: null },
-          });
-
-          if (groups.length > 0) {
-            await tx.expense.createMany({
-              data: groups.map((group) => ({
-                date,
-                period,
-                amountTiyin: group.totalTiyin,
-                categoryCode: PAYROLL_CATEGORY,
-                departmentId: group.departmentId,
-                regionCode: group.regionCode,
-                description: `${group.label} (${group.count - group.zeroCount} xodim)`,
-                paymentMethod: 'BANK' as const,
-                paymentStatus: 'PAID' as const,
-                source: 'PAYROLL' as const,
-                payrollBatchId: batch.id,
-                createdById: batch.uploadedById,
-              })),
+          // Yozuvlar: to'liq / Markazga / hududda
+          for (const i of changedEntries) {
+            await tx.payrollEntry.update({
+              where: { id: i.entry.id },
+              data: { baseTiyin: i.full, bonusTiyin: i.center, totalTiyin: i.net },
             });
+          }
+
+          if (currentSignature !== nextSignature) {
+            await tx.expense.deleteMany({
+              where: { payrollBatchId: batch.id, deletedAt: null },
+            });
+
+            if (groups.length > 0) {
+              await tx.expense.createMany({
+                data: groups.map((group) => ({
+                  date,
+                  period,
+                  amountTiyin: group.totalTiyin,
+                  categoryCode: PAYROLL_CATEGORY,
+                  departmentId: group.departmentId,
+                  regionCode: group.regionCode,
+                  description: `${group.label} (${group.count - group.zeroCount} xodim)`,
+                  paymentMethod: 'BANK' as const,
+                  paymentStatus: 'PAID' as const,
+                  source: 'PAYROLL' as const,
+                  payrollBatchId: batch.id,
+                  createdById: batch.uploadedById,
+                })),
+              });
+            }
+
+            if (centerRows.size > 0) {
+              await tx.expense.createMany({
+                data: [...centerRows.values()].map((row) => ({
+                  date,
+                  period,
+                  amountTiyin: row.amount,
+                  categoryCode: row.categoryCode,
+                  departmentId: null,
+                  regionCode: row.regionCode,
+                  description: `${categoryLabels.get(row.categoryCode) ?? row.categoryCode} \u2014 ${row.regionName} xodimlari (${row.count} xodim) \u00b7 Markaz hisobidan, ish haqi tarkibidan`.slice(0, 500),
+                  paymentMethod: 'BANK' as const,
+                  paymentStatus: 'PAID' as const,
+                  source: 'PAYROLL' as const,
+                  payrollBatchId: batch.id,
+                  createdById: batch.uploadedById,
+                })),
+              });
+            }
           }
 
           const created = await tx.expense.aggregate({
@@ -737,17 +943,32 @@ export class PayrollService {
             );
           }
         },
-        { timeout: 60_000 },
+        { timeout: 120_000 },
       );
 
       report.changedBatches += 1;
     }
 
+    report.centerEmployees = centerPins.size;
+    this.retax(period);
     report.moved = [...movedMap.values()].sort((a, b) =>
       b.amountTiyin > a.amountTiyin ? 1 : -1,
     );
 
     return report;
+  }
+
+  /** Hamma oylar uchun qayta hisoblash (siyosat o'zgarganda) */
+  async regroupAll(): Promise<{ periods: number; changedBatches: number; centerTiyin: string }> {
+    let changed = 0;
+    let center = 0n;
+    const periods = await this.committedPeriods();
+    for (const period of periods) {
+      const r = await this.regroup(period);
+      changed += r.changedBatches;
+      center += r.centerTiyin;
+    }
+    return { periods: periods.length, changedBatches: changed, centerTiyin: center.toString() };
   }
 
   // ═══════════ Bekor qilish ═══════════
@@ -773,6 +994,7 @@ export class PayrollService {
         data: { status: 'CANCELLED' },
       }),
     ]);
+    this.retax(batch.period);
 
     return { success: true as const };
   }
@@ -876,6 +1098,10 @@ export class PayrollService {
 
     const key = this.expenseKey(expense);
     const isContract = key === 'shartnoma';
+    // Markaz hisobidagi qism (bayram, choraklik …) — hudud xodimlari bo'yicha, shu modda summasi
+    const centerPart = expense.categoryCode !== PAYROLL_CATEGORY;
+    const shares = centerPart ? await this.centerShares(expense.period) : null;
+    const batchScope = (await this.prisma.payrollBatch.findUnique({ where: { id: expense.payrollBatchId }, select: { scope: true } }))?.scope ?? 'ALL';
     const isCentral = expense.regionCode === CENTRAL_REGION;
 
     const [allEntries, locations] = await Promise.all([
@@ -912,10 +1138,20 @@ export class PayrollService {
 
         return { entry, location, effective };
       })
-      .filter(({ effective }) => this.groupOf(effective).key === key)
+      .filter(({ effective }) => this.groupOf(effective, batchScope).key === key)
       .map(({ entry, location, effective }) => ({
+        entry,
+        location,
+        effective,
+        amount: shares ? (capCenterParts(this.fullOf(entry), shares.get(entry.employeePinfl)).get(expense.categoryCode) ?? 0n) : entry.totalTiyin,
+      }))
+      .filter((x) => !shares || x.amount > 0n)
+      .map(({ entry, location, effective, amount }) => ({
         id: entry.id,
-        totalTiyin: entry.totalTiyin,
+        totalTiyin: amount,
+        /** To'liq ish haqi (soliq hisobotidagi) va Markazga o'tgan qism */
+        fullTiyin: this.fullOf(entry),
+        centerTiyin: entry.bonusTiyin,
         employee: {
           pinfl: entry.employee.pinfl,
           fullName: entry.employee.fullName,
@@ -954,9 +1190,13 @@ export class PayrollService {
       groups.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
     }
 
+    if (shares) entries.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
+
     return {
       isPayroll: true,
       expense,
+      /** Markaz hisobidagi qism (bayram, choraklik …) — hudud xodimlari ish haqi tarkibidan */
+      centerPart,
       isCentral: isCentral || isContract,
       groups,
       entries,

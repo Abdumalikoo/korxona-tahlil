@@ -32,7 +32,7 @@ export function BarChart({
   if (data.length === 0) {
     return (
       <div
-        className="flex items-center justify-center text-sm text-[--color-text-muted]"
+        className="flex items-center justify-center text-sm text-(--color-text-muted)"
         style={{ height }}
       >
         Ma&apos;lumot yo&apos;q
@@ -86,11 +86,11 @@ export function BarChart({
       </div>
 
       {/* O'q yorliqlari */}
-      <div className="mt-2 flex gap-1 border-t border-[--color-line] pt-2">
+      <div className="mt-2 flex gap-1 border-t border-(--color-line) pt-2">
         {data.map((point, index) => (
           <div
             key={point.period}
-            className="flex-1 text-center text-[10px] text-[--color-text-muted]"
+            className="flex-1 text-center text-[10px] text-(--color-text-muted)"
             style={{ fontWeight: hovered === index ? 600 : 400 }}
           >
             {formatPeriodShort(point.period)}
@@ -99,7 +99,7 @@ export function BarChart({
       </div>
 
       {/* Eng katta qiymat */}
-      <div className="mt-1 text-right text-xs text-[--color-text-faint]">
+      <div className="mt-1 text-right text-xs text-(--color-text-faint)">
         Eng yuqori: <span className="money">{formatCompact(String(max))}</span>
       </div>
     </div>

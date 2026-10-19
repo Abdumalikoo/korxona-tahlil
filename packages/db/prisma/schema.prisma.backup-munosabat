@@ -1,0 +1,964 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ FOYDALANUVCHILAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum UserRole {
+  ADMIN
+  VIEWER
+}
+
+model User {
+  resultBatches     ResultBatch[]
+
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  fullName     String
+  role         UserRole @default(VIEWER)
+  isActive     Boolean  @default(true)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  expenses      Expense[]
+  incomes       Income[]
+  importBatches ImportBatch[]
+  auditLogs     AuditLog[]
+  payrollBatches PayrollBatch[]
+
+  @@map("users")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ BO'LIMLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+model Department {
+  id       String  @id @default(cuid())
+  code     String  @unique
+  name     String
+  /// Foydalanuvchi koradigan raqamli indeks: 1, 2, 3...
+  index    Int     @unique
+  isActive Boolean @default(true)
+  order    Int     @default(0)
+
+  /// Umumiy xarajatlarni taqsimlash ogirligi
+  allocationWeight Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expenses  Expense[]
+  incomes   Income[]
+  employees Employee[]
+
+  @@index([isActive, order])
+  @@map("departments")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ KATEGORIYALAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum CostBehavior {
+  FIXED
+  VARIABLE
+  MIXED
+}
+
+enum CostScope {
+  DEPARTMENT
+  GENERAL
+}
+
+model Category {
+  code       String       @id
+  label      String
+  parentCode String?
+  isLeaf     Boolean      @default(true)
+  behavior   CostBehavior @default(VARIABLE)
+  scope      CostScope    @default(GENERAL)
+  keywords   String[]     @default([])
+  model3d    String?
+  isActive   Boolean      @default(true)
+  order      Int          @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Category?  @relation("CategoryTree", fields: [parentCode], references: [code], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+  expenses Expense[]
+
+  @@index([parentCode])
+  @@index([isActive, order])
+  @@map("categories")
+}
+
+model IncomeCategory {
+  code     String  @id
+  label    String
+  isActive Boolean @default(true)
+  order    Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  incomes Income[]
+
+  @@index([isActive, order])
+  @@map("income_categories")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ XARAJATLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum PaymentMethod {
+  CASH
+  BANK
+  CARD
+  OTHER
+}
+
+enum EntrySource {
+  MANUAL
+  IMPORT
+  PAYROLL
+  LEASE
+  VEHICLE
+}
+
+/// Bo'lim: DOIMIY - doimiy (ish haqi, ijara va h.k.), BOSHQA - bir martalik
+enum EntrySection {
+  DOIMIY
+  BOSHQA
+}
+
+model Expense {
+  id String @id @default(cuid())
+
+  date   DateTime
+  /// "2026-09"
+  period String
+
+  /// TIYIN'da: 1 000 000 so'm = 100 000 000
+  amountTiyin BigInt
+
+  categoryCode String
+  departmentId String?
+  /// Hudud kodi - ish haqi va hududiy xarajatlar uchun
+  regionCode   Int?
+
+  description   String?
+  paymentMethod PaymentMethod @default(BANK)
+  documentNo    String?
+  counterparty  String?
+
+  /// To'lov holati вЂ” kreditorlik qarzini kuzatish uchun
+  paymentStatus PaymentStatus @default(PAID)
+  /// Qachongacha to'lanishi kerak
+  dueDate       DateTime?
+  /// Javobgar shaxs
+  responsible   String?
+  /// Summa ichidagi QQS, tiyinda
+  vatTiyin      BigInt?
+
+  source         EntrySource @default(MANUAL)
+  section       EntrySection @default(DOIMIY)
+  importBatchId  String?
+  payrollBatchId String?
+
+  categoryConfidence Int?
+  categoryOverridden Boolean @default(false)
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  category    Category     @relation(fields: [categoryCode], references: [code])
+  department  Department?  @relation(fields: [departmentId], references: [id])
+  region      Region?      @relation(fields: [regionCode], references: [code])
+  createdBy   User         @relation(fields: [createdById], references: [id])
+  importBatch  ImportBatch?  @relation(fields: [importBatchId], references: [id])
+  payrollBatch PayrollBatch? @relation(fields: [payrollBatchId], references: [id])
+
+  @@index([period, deletedAt])
+  @@index([date])
+  @@index([categoryCode, period])
+  @@index([departmentId, period])
+  @@index([importBatchId])
+  @@index([paymentStatus])
+  @@index([regionCode, period])
+  @@index([section, period])
+  @@map("expenses")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ DAROMADLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  UNPAID
+}
+
+model Income {
+  id String @id @default(cuid())
+
+  date   DateTime
+  period String
+
+  amountTiyin BigInt
+  paidTiyin   BigInt @default(0)
+
+  categoryCode String
+  departmentId String?
+  /// Hudud kodi - hududiy daromadlar uchun
+  regionCode  Int?
+  /// Xizmat korsatilgan soni
+  quantity    Int?
+
+  clientName  String?
+  description String?
+  contractNo  String?
+
+  paymentStatus PaymentStatus @default(PAID)
+  paymentMethod PaymentMethod @default(BANK)
+
+  source        EntrySource @default(MANUAL)
+  section       EntrySection @default(DOIMIY)
+  importBatchId String?
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  category   IncomeCategory @relation(fields: [categoryCode], references: [code])
+  department Department?    @relation(fields: [departmentId], references: [id])
+  region     Region?        @relation(fields: [regionCode], references: [code])
+  createdBy  User           @relation(fields: [createdById], references: [id])
+
+  @@index([period, deletedAt])
+  @@index([date])
+  @@index([categoryCode, period])
+  @@index([departmentId, period])
+  @@index([paymentStatus])
+  @@index([regionCode, period])
+  @@index([section, period])
+  @@map("incomes")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ XODIMLAR VA ISH HAQI РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+// ═══════════ XODIMLAR REESTRI ═══════════
+
+enum EmploymentType {
+  SHTAT      // Asosiy shtat
+  SHARTNOMA  // Shartnoma asosida
+}
+
+model Employee {
+  results           EmployeeResult[]
+  locations         EmployeeLocation[]
+
+  /// PINFL - 14 raqamli shaxsiy identifikator, birlamchi kalit
+  pinfl String @id
+
+  lastName   String
+  firstName  String
+  middleName String?
+
+  /// Toliq ism - qidiruv va hisobotlar uchun
+  fullName String
+
+  employmentType EmploymentType
+
+  /// Hudud kodi: 0 - Markaz, 3 - Andijon, 33 - Xorazm
+  regionCode Int
+  /// Tuman kaliti: "33-1". Markaz (region=0) uchun null
+  districtId String?
+  /// Bolim - faqat markaz xodimlari uchun
+  departmentId String?
+
+  position String?
+
+  hiredAt  DateTime?
+  firedAt  DateTime?
+  isActive Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  region     Region      @relation(fields: [regionCode], references: [code])
+  district   District?   @relation(fields: [districtId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  payrollEntries PayrollEntry[]
+
+  @@index([regionCode, isActive])
+  @@index([departmentId, isActive])
+  @@index([employmentType])
+  @@index([fullName])
+  @@map("employees")
+}
+
+model PayrollEntry {
+  id String @id @default(cuid())
+
+  employeePinfl String
+  period        String
+
+  /// Barcha summalar tiyinda
+  baseTiyin      BigInt @default(0)
+  bonusTiyin     BigInt @default(0)
+  vacationTiyin  BigInt @default(0)
+  deductionTiyin BigInt @default(0)
+  taxTiyin       BigInt @default(0)
+  totalTiyin     BigInt @default(0)
+
+  workedDays Int?
+
+  /// Qaysi yuklashdan kelgani
+  batchId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  employee Employee      @relation(fields: [employeePinfl], references: [pinfl])
+  batch    PayrollBatch? @relation(fields: [batchId], references: [id])
+
+  @@unique([employeePinfl, period, batchId])
+  @@index([period])
+  @@index([batchId])
+  @@map("payroll_entries")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ IMPORT QUVURI РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum ImportType {
+  PAYROLL
+  EXPENSE
+  INCOME
+}
+
+enum ImportStatus {
+  PENDING
+  READY
+  COMMITTED
+  CANCELLED
+  FAILED
+}
+
+model ImportBatch {
+  id String @id @default(cuid())
+
+  type   ImportType
+  status ImportStatus @default(PENDING)
+
+  fileName String
+  /// SHA-256 РІР‚вЂќ dublikat yuklashni oldini oladi
+  fileHash String
+  fileSize Int
+
+  period String?
+
+  totalRows     Int @default(0)
+  validRows     Int @default(0)
+  warningRows   Int @default(0)
+  errorRows     Int @default(0)
+  committedRows Int @default(0)
+
+  errorMessage String?
+
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  committedAt  DateTime?
+
+  uploadedBy     User           @relation(fields: [uploadedById], references: [id])
+  stagingRows    StagingRow[]
+  expenses       Expense[]
+
+  @@index([type, status])
+  @@index([fileHash])
+  @@map("import_batches")
+}
+
+enum RowStatus {
+  VALID
+  WARNING
+  ERROR
+}
+
+model StagingRow {
+  id String @id @default(cuid())
+
+  batchId  String
+  rowIndex Int
+
+  rawData    Json
+  parsedData Json?
+
+  status   RowStatus @default(VALID)
+  messages Json      @default("[]")
+
+  batch ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, status])
+  @@map("staging_rows")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ AUDIT РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  LOGIN
+  IMPORT
+  EXPORT
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  userId     String
+  action     AuditAction
+  entityType String
+  entityId   String?
+
+  changes Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ SOZLAMALAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+
+// ═══════════ HUDUDLAR ═══════════
+
+model Region {
+  employeeResults   EmployeeResult[]
+  employeeLocations EmployeeLocation[]
+
+  /// Rasmiy klassifikator kodi: 0 - Markaz, 3 - Andijon, 33 - Xorazm
+  code Int    @id
+  name String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  districts District[]
+  employees Employee[]
+  expenses  Expense[]
+  incomes   Income[]
+
+  @@map("regions")
+}
+
+model District {
+  employeeResults   EmployeeResult[]
+  employeeLocations EmployeeLocation[]
+
+  /// Tarkibli kalit: "33-1" - viloyat va tuman kodi birga
+  id         String @id
+  regionCode Int
+  /// Tuman kodi - viloyat ichida noyob, yolgiz ozida emas
+  code       Int
+  name       String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  region    Region     @relation(fields: [regionCode], references: [code])
+  employees Employee[]
+
+  @@unique([regionCode, code])
+  @@index([regionCode])
+  @@map("districts")
+}
+
+// ═══════════ ISH HAQI YUKLASH ═══════════
+
+enum PayrollBatchStatus {
+  DRAFT      // Yuklandi, korib chiqilmoqda
+  COMMITTED  // Tasdiqlandi, xarajatlar yaratildi
+  CANCELLED  // Bekor qilindi
+}
+
+model PayrollBatch {
+  id String @id @default(cuid())
+
+  /// "2026-09"
+  period String
+  status PayrollBatchStatus @default(DRAFT)
+
+  fileName String
+  /// SHA-256 - bir xil faylni ikki marta yuklashni oldini oladi
+  fileHash String
+
+  totalRows   Int @default(0)
+  matchedRows Int @default(0)
+  /// PINFL reestrda topilmagan qatorlar
+  missingRows Int @default(0)
+
+  /// Jami summa, tiyinda
+  totalTiyin BigInt @default(0)
+
+  /// Topilmagan PINFL lar royxati
+  missingPinfls Json @default("[]")
+
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  committedAt  DateTime?
+
+  uploadedBy User           @relation(fields: [uploadedById], references: [id])
+  entries    PayrollEntry[]
+  expenses   Expense[]
+
+  @@index([period, status])
+  @@index([fileHash])
+  @@map("payroll_batches")
+}
+
+model Setting {
+  key   String @id
+  value Json
+
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+
+/// Xodim natijalari yuklashi - oylik fayl
+model ResultBatch {
+  id           String    @id @default(cuid())
+  period       String
+  fileName     String
+  totalRows    Int
+  planTiyin    BigInt    @default(0)
+  factTiyin    BigInt    @default(0)
+  bonusTiyin     BigInt  @default(0)
+  /// Hududi tuzatilgan xodimlar soni
+  movedCount   Int       @default(0)
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  cancelledAt  DateTime?
+
+  uploadedBy User             @relation(fields: [uploadedById], references: [id])
+  results    EmployeeResult[]
+
+  @@index([period])
+  @@map("result_batches")
+}
+
+/// Xodim natijasi - reja va fakt. Daromadga qo'shilmaydi
+model EmployeeResult {
+  id            String  @id @default(cuid())
+  batchId       String
+  period        String
+  employeePinfl String
+  regionCode    Int
+  districtId    String?
+  employmentType String  @default("SHTAT")
+  planTiyin     BigInt  @default(0)
+  factTiyin     BigInt  @default(0)
+  bonusTiyin     BigInt  @default(0)
+
+  batch    ResultBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employee Employee    @relation(fields: [employeePinfl], references: [pinfl])
+  region   Region      @relation(fields: [regionCode], references: [code])
+  district District?   @relation(fields: [districtId], references: [id])
+
+  @@unique([batchId, employeePinfl])
+  @@index([period, regionCode])
+  @@index([employeePinfl, period])
+  @@map("employee_results")
+}
+
+/// Xodim qaysi oyda qayerda ishlagani - natijalar faylidan
+model EmployeeLocation {
+  id            String   @id @default(cuid())
+  employeePinfl String
+  period        String
+  regionCode    Int
+  districtId    String?
+  employmentType String  @default("SHTAT")
+  source        String   @default("RESULTS")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee Employee  @relation(fields: [employeePinfl], references: [pinfl])
+  region   Region    @relation(fields: [regionCode], references: [code])
+  district District? @relation(fields: [districtId], references: [id])
+
+  @@unique([employeePinfl, period])
+  @@index([period, regionCode])
+  @@map("employee_locations")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ISH HAQI TARKIBI
+// ═══════════════════════════════════════════════════════════
+
+/// Komponent qaysi manbadan to'lanadi
+enum SalaryComponentGroup {
+  BUDGET   // Byudjet hisobidan
+  HOJALIK  // Xo'jalik hisobidan
+}
+
+/// Tahlil uchun yiriklashtirilgan guruh
+enum SalaryComponentCategory {
+  ASOSIY         // Oklad, 40% ustama, staj
+  TATIL          // Ta'til, kompensatsiya, kasallik, dekret
+  PREMIYA        // KPI, bayram, bildirgi
+  KOMPENSATSIYA  // Transport, ovqat, moddiy yordam
+  USTAMA         // Sertifikat, unvon va boshqalar
+  JARIMA         // Minus bilan hisoblanadi
+  BOSHQA
+}
+
+/// Tarkib soliq hisobotiga nisbatan holati
+enum SalaryCompositionStatus {
+  MATCHED     // To'liq mos
+  MISMATCH    // Farq bor
+  NO_PAYROLL  // Shu oy uchun soliq hisoboti yuklanmagan
+}
+
+/// Ish haqi komponentlari ma'lumotnomasi
+model SalaryComponent {
+  code      String                  @id
+  name      String
+  group     SalaryComponentGroup
+  category  SalaryComponentCategory
+  /// 1 = qo'shiladi, -1 = ayiriladi (jarima)
+  sign      Int                     @default(1)
+  sortOrder Int                     @default(0)
+  isActive  Boolean                 @default(true)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  items SalaryCompositionItem[]
+}
+
+/// Bir oylik tarkib yuklamasi
+model SalaryCompositionBatch {
+  id            String                  @id @default(cuid())
+  /// "YYYY-MM"
+  period        String
+  fileName      String?
+  employeeCount Int                     @default(0)
+  /// Tarkib bo'yicha jami (jarima ayirilgan)
+  totalTiyin    BigInt                  @default(0)
+  /// Soliq hisobotidagi jami (yuklash paytida)
+  payrollTiyin  BigInt                  @default(0)
+  status        SalaryCompositionStatus @default(NO_PAYROLL)
+  mismatchCount Int                     @default(0)
+  uploadedById  String?
+  createdAt     DateTime                @default(now())
+  cancelledAt   DateTime?
+
+  rows  SalaryCompositionRow[]
+  items SalaryCompositionItem[]
+
+  @@index([period])
+}
+
+/// Xodimning bir oylik tarkib qatori
+model SalaryCompositionRow {
+  id            String   @id @default(cuid())
+  batchId       String
+  period        String
+  employeePinfl String
+  fullName      String?
+  workedDays    Float?
+  rate          Float?
+  totalTiyin    BigInt   @default(0)
+
+  batch SalaryCompositionBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  items SalaryCompositionItem[]
+
+  @@unique([batchId, employeePinfl])
+  @@index([period, employeePinfl])
+}
+
+/// Xodim x komponent summasi (doim musbat, belgi komponentdan olinadi)
+model SalaryCompositionItem {
+  id            String @id @default(cuid())
+  batchId       String
+  rowId         String
+  componentCode String
+  amountTiyin   BigInt
+
+  batch     SalaryCompositionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  row       SalaryCompositionRow   @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  component SalaryComponent        @relation(fields: [componentCode], references: [code])
+
+  @@unique([rowId, componentCode])
+  @@index([batchId, componentCode])
+}
+
+// ═══════════════════════════════════════════════════════════
+// IJARA
+// ═══════════════════════════════════════════════════════════
+
+/// Ijara turi
+enum LeaseKind {
+  ODDIY     // Bino, ofis, ombor — hudud / tuman yoki Markaz
+  AEROPORT  // Aeroportdagi joy (kassa, ofis)
+}
+
+/// To'lov davriyligi — xarajat baribir har oyga teng bo'linadi
+enum LeasePaymentFrequency {
+  MONTHLY    // Oylik
+  QUARTERLY  // Choraklik
+  YEARLY     // Yillik
+}
+
+enum LeaseDocumentType {
+  SHARTNOMA           // Asosiy shartnoma
+  QOSHIMCHA_KELISHUV  // Qo'shimcha kelishuv (narx o'zgarishi va h.k.)
+  DALOLATNOMA         // Qabul-topshirish dalolatnomasi
+  BOSHQA
+}
+
+/// Ijara shartnomasi — bir marta kiritiladi, har oy o'zi davom etadi
+model Lease {
+  id           String    @id @default(cuid())
+  /// Shartnoma raqami
+  number       String
+  contractDate DateTime?
+  kind         LeaseKind @default(ODDIY)
+  /// Obyekt nomi: "Asaka tuman ofisi", "Toshkent aeroporti kassasi"
+  title        String
+
+  /// Joyi: 0 — Markaz. Aeroport uchun — aeroport joylashgan viloyat
+  regionCode   Int
+  /// Tuman kaliti "33-1" — viloyat ijaralari uchun
+  districtId   String?
+  /// Bo'lim — Markaz ijaralari uchun
+  departmentId String?
+  /// Aeroport nomi — AEROPORT turi uchun
+  airportName  String?
+
+  address      String?
+  /// Maydon, m² — tahlil (1 m² narxi) uchun
+  areaM2       Float?
+  purpose      String?
+
+  // Ijaraga beruvchi
+  lessorName   String
+  lessorTin    String?
+  lessorPhone  String?
+  lessorBank   String?
+
+  vatIncluded      Boolean               @default(true)
+  paymentFrequency LeasePaymentFrequency @default(MONTHLY)
+  /// Oyning qaysi kuni to'lanadi
+  paymentDay       Int?
+
+  /// Birinchi oy "YYYY-MM"
+  startPeriod  String
+  /// Oxirgi oy "YYYY-MM" (shu oy ham kiradi); null — muddatsiz / amalda
+  endPeriod    String?
+  /// Tugash sababi: muddati tugadi, bekor qilindi va h.k.
+  endReason    String?
+  note         String?
+
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  /// O'chirilgan (savat)
+  deletedAt    DateTime?
+
+  terms     LeaseTerm[]
+  documents LeaseDocument[]
+  accruals  LeaseAccrual[]
+
+  @@index([regionCode])
+  @@index([kind])
+  @@index([startPeriod, endPeriod])
+}
+
+/// Narx tarixi — har bir yozuv "shu oydan boshlab oylik summa"
+model LeaseTerm {
+  id           String   @id @default(cuid())
+  leaseId      String
+  /// "YYYY-MM" — shu oydan boshlab amal qiladi
+  validFrom    String
+  /// Oylik summa, tiyinda
+  monthlyTiyin BigInt
+  note         String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  lease     Lease           @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  documents LeaseDocument[]
+
+  @@unique([leaseId, validFrom])
+}
+
+/// Yuklangan hujjat — fayl serverda saqlanadi
+model LeaseDocument {
+  id           String            @id @default(cuid())
+  leaseId      String
+  /// Qaysi narx o'zgarishiga tegishli (qo'shimcha kelishuv)
+  termId       String?
+  type         LeaseDocumentType @default(SHARTNOMA)
+  /// Foydalanuvchi yuklagan asl nom
+  fileName     String
+  /// Diskdagi nom (takrorlanmas)
+  storedName   String
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String?
+  createdAt    DateTime          @default(now())
+
+  lease Lease      @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  term  LeaseTerm? @relation(fields: [termId], references: [id], onDelete: SetNull)
+
+  @@index([leaseId])
+}
+
+/// Oyni yopish — shu oy uchun barcha amaldagi ijaralar xarajatga yoziladi
+model LeaseMonthClose {
+  id          String    @id @default(cuid())
+  /// "YYYY-MM"
+  period      String
+  leaseCount  Int       @default(0)
+  totalTiyin  BigInt    @default(0)
+  closedById  String?
+  closedAt    DateTime  @default(now())
+  /// Qayta yopilganda yoki bekor qilinganda
+  cancelledAt DateTime?
+
+  accruals LeaseAccrual[]
+
+  @@index([period])
+}
+
+/// Oylik hisob — bitta ijara, bitta oy
+model LeaseAccrual {
+  id          String @id @default(cuid())
+  closeId     String
+  leaseId     String
+  period      String
+  amountTiyin BigInt
+  /// Yaratilgan xarajat yozuvi
+  expenseId   String?
+
+  close LeaseMonthClose @relation(fields: [closeId], references: [id], onDelete: Cascade)
+  lease Lease           @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@unique([leaseId, period])
+  @@index([period])
+}
+
+// ═══════════════════════════════════════════════════════════
+// Mashinalar — yoqilg'i, moyka, ta'mirlash
+// ═══════════════════════════════════════════════════════════
+
+/// Yoqilg'i turi
+enum VehicleFuelType {
+  AI80
+  AI92
+  AI95
+  DIZEL
+  METAN
+  PROPAN
+  ELEKTR
+}
+
+/// Mashina xarajati turi
+enum VehicleRecordKind {
+  FUEL     // Yoqilg'i: benzin, gaz, dizel
+  WASH     // Moyka
+  REPAIR   // Ta'mirlash va ehtiyot qismlar
+  SERVICE  // Texnik xizmat: moy, filtr, shina
+  OTHER    // Sug'urta, texko'rik, jarima, to'xtash joyi
+}
+
+/// Korxona mashinasi
+model Vehicle {
+  id                String          @id @default(cuid())
+  /// Davlat raqami: "01 A 123 BC"
+  plateNumber       String
+  /// Rusumi: "Chevrolet Cobalt"
+  model             String
+  year              Int?
+  color             String?
+  fuelType          VehicleFuelType @default(AI92)
+  /// Me'yor: 100 km ga litr (gazda — m³)
+  fuelNorm          Float?
+  /// Joyi: 0 — Markaz
+  regionCode        Int             @default(0)
+  departmentId      String?
+  /// Haydovchi yoki mas'ul xodim
+  driverName        String?
+  driverPhone       String?
+  /// Ro'yxatga olingandagi probeg, km
+  initialOdometerKm Int?
+  /// Faol emas — sotilgan yoki hisobdan chiqarilgan
+  isActive          Boolean         @default(true)
+  note              String?
+  createdById       String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+
+  records VehicleRecord[]
+
+  @@index([isActive])
+}
+
+/// Mashina xarajati — har biri "Xarajatlar"da bitta yozuv yaratadi
+model VehicleRecord {
+  id            String            @id @default(cuid())
+  vehicleId     String
+  kind          VehicleRecordKind
+  date          DateTime
+  /// "YYYY-MM"
+  period        String
+  amountTiyin   BigInt
+  /// Yoqilg'i: litr (gazda — m³)
+  liters        Float?
+  /// Spidometr ko'rsatkichi, km
+  odometerKm    Int?
+  description   String?
+  /// AZS, moyka yoki servis nomi
+  counterparty  String?
+  documentNo    String?
+  paymentMethod PaymentMethod     @default(CASH)
+  /// Yaratilgan xarajat yozuvi (expenses.id)
+  expenseId     String?           @unique
+  createdById   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  deletedAt     DateTime?
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, period])
+  @@index([period, kind])
+}

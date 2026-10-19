@@ -11,7 +11,7 @@ export function ShareBar({ percent, color = 'var(--color-expense)' }: ShareBarPr
   const width = Math.min(Math.max(percent, 0), 100);
 
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[--color-surface-sunken]">
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-(--color-surface-sunken)">
       <div
         className="h-full rounded-full transition-all"
         style={{ width: `${width}%`, backgroundColor: color, opacity: 0.7 }}

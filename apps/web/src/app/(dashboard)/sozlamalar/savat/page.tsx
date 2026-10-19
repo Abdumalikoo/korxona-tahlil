@@ -21,6 +21,7 @@ import { IconTrash } from '@/components/ui/icons';
 
 const tabs = [
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
+  { href: '/sozlamalar/komponentlar', label: 'Ish haqi komponentlari' },
   { href: '/sozlamalar/savat', label: 'Savat' },
   { href: '/sozlamalar/tarix', label: 'Tarix' },
   { href: '/sozlamalar/tekshiruv', label: 'Tekshiruv' },
@@ -144,17 +145,17 @@ export default function TrashPage() {
                   <TBody>
                     {expenseRows.map((item) => (
                       <Tr key={item.id}>
-                        <Td className="money text-[--color-text-muted]">
+                        <Td className="money text-(--color-text-muted)">
                           {formatDate(item.date)}
                         </Td>
 
                         <Td>{item.category.label}</Td>
 
-                        <Td className="max-w-xs truncate text-[--color-text-muted]">
+                        <Td className="max-w-xs truncate text-(--color-text-muted)">
                           {item.description ?? '\u2014'}
                         </Td>
 
-                        <Td className="text-xs text-[--color-text-muted]">
+                        <Td className="text-xs text-(--color-text-muted)">
                           {item.deletedAt ? formatDateTime(item.deletedAt) : '\u2014'}
                         </Td>
 
@@ -208,17 +209,17 @@ export default function TrashPage() {
                   <TBody>
                     {incomeRows.map((item) => (
                       <Tr key={item.id}>
-                        <Td className="money text-[--color-text-muted]">
+                        <Td className="money text-(--color-text-muted)">
                           {formatDate(item.date)}
                         </Td>
 
                         <Td className="max-w-xs truncate">{item.category.label}</Td>
 
-                        <Td className="text-[--color-text-muted]">
+                        <Td className="text-(--color-text-muted)">
                           {item.clientName ?? '\u2014'}
                         </Td>
 
-                        <Td className="text-xs text-[--color-text-muted]">
+                        <Td className="text-xs text-(--color-text-muted)">
                           {item.deletedAt ? formatDateTime(item.deletedAt) : '\u2014'}
                         </Td>
 

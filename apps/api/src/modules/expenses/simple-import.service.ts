@@ -189,6 +189,7 @@ export class SimpleImportService {
     kind: 'expense' | 'income',
     rows: SimpleRow[],
     userId: string,
+    section: 'DOIMIY' | 'BOSHQA' = 'DOIMIY',
   ): Promise<{ created: number; totalTiyin: bigint }> {
     if (rows.length === 0) {
       throw new BadRequestException('Saqlash uchun malumot yoq');
@@ -222,6 +223,7 @@ export class SimpleImportService {
           paymentMethod: 'BANK' as const,
           paymentStatus: 'PAID' as const,
           source: 'IMPORT' as const,
+          section,
           createdById: userId,
         })),
       });
@@ -252,6 +254,7 @@ export class SimpleImportService {
         regionCode: null,
         description: row.name,
         source: 'IMPORT' as const,
+        section,
         createdById: userId,
       })),
     });

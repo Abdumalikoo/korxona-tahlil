@@ -55,4 +55,9 @@ export class CreateIncomeDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+
+  /** Bo'lim: DOIMIY yoki BOSHQA */
+  @IsOptional()
+  @IsString()
+  section?: 'DOIMIY' | 'BOSHQA';
 }

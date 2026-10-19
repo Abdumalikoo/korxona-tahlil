@@ -13,6 +13,14 @@ datasource db {
 enum UserRole {
   ADMIN
   VIEWER
+  /// Omborchi — ID kod + PIN bilan kiradi, faqat Ombor bo'limi
+  SKLADCHI
+  /// Xaridchi — ID kod + PIN bilan kiradi, faqat Xarid bo'limi
+  XARIDCHI
+  /// Buxgalter — ID kod + PIN bilan kiradi, faqat Buxgalteriya (kunlik tushum)
+  BUXGALTER
+  /// Hududchi — ID kod + PIN bilan kiradi: hududlar daromadi (xizmatlar hisoboti), xarajati va ish haqi
+  HUDUDCHI
 }
 
 model User {
@@ -36,6 +44,17 @@ model User {
   payrollBatches PayrollBatch[]
 
   @@map("users")
+
+  /// Ishchi rollar: ID kod ("SK-0001") va 6 xonali PIN (bcrypt)
+  loginCode      String?   @unique
+  pinHash        String?
+  /// Admin bergan/tiklagan PIN — birinchi kirishda o'zgartirilishi shart
+  mustChangePin  Boolean   @default(false)
+  /// Ketma-ket xato PIN soni va vaqtincha yopilish muddati
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  /// Token versiyasi: PIN tiklansa yoki bloklansa — eski sessiyalar yopiladi
+  tokenVersion   Int       @default(0)
 }
 
 // РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ BO'LIMLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
@@ -128,9 +147,27 @@ enum EntrySource {
   MANUAL
   IMPORT
   PAYROLL
+  LEASE
+  VEHICLE
+  /// Ombor kirimi (Ombor › Kirim)
+  WAREHOUSE
+  /// Asosiy vositalar sarfi (eskirish) - har oy avtomatik
+  ASSET
+  /// Soliqlar (Xarajatlar > Soliqlar): qo'lda yoki ish haqidan foiz
+  TAX
+}
+
+/// Bo'lim: DOIMIY - doimiy (ish haqi, ijara va h.k.), BOSHQA - bir martalik
+enum EntrySection {
+  DOIMIY
+  BOSHQA
 }
 
 model Expense {
+  /// Tuman kaliti "3-1" (tuman kesimidagi yozuvlar uchun; bo'lmasa — faqat viloyat)
+  districtId String?
+  district   District? @relation(fields: [districtId], references: [id])
+
   id String @id @default(cuid())
 
   date   DateTime
@@ -160,8 +197,11 @@ model Expense {
   vatTiyin      BigInt?
 
   source         EntrySource @default(MANUAL)
+  section       EntrySection @default(DOIMIY)
   importBatchId  String?
   payrollBatchId String?
+  /// RECURRING — har oy takrorlanadi, ONE_TIME — bir martalik (null — belgilanmagan)
+  recurrence     String?
 
   categoryConfidence Int?
   categoryOverridden Boolean @default(false)
@@ -185,7 +225,11 @@ model Expense {
   @@index([importBatchId])
   @@index([paymentStatus])
   @@index([regionCode, period])
+  @@index([section, period])
   @@map("expenses")
+  @@index([districtId, period])
+  @@index([payrollBatchId])
+  @@index([createdById])
 }
 
 // РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ DAROMADLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
@@ -197,6 +241,10 @@ enum PaymentStatus {
 }
 
 model Income {
+  /// Tuman kaliti "3-1" (tuman kesimidagi yozuvlar uchun; bo'lmasa — faqat viloyat)
+  districtId String?
+  district   District? @relation(fields: [districtId], references: [id])
+
   id String @id @default(cuid())
 
   date   DateTime
@@ -220,6 +268,7 @@ model Income {
   paymentMethod PaymentMethod @default(BANK)
 
   source        EntrySource @default(MANUAL)
+  section       EntrySection @default(DOIMIY)
   importBatchId String?
 
   createdById String
@@ -238,7 +287,9 @@ model Income {
   @@index([departmentId, period])
   @@index([paymentStatus])
   @@index([regionCode, period])
+  @@index([section, period])
   @@map("incomes")
+  @@index([districtId, period])
 }
 
 // РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ XODIMLAR VA ISH HAQI РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
@@ -463,6 +514,10 @@ model Region {
 }
 
 model District {
+  /// Tuman kesimidagi daromad va xarajatlar
+  incomes  Income[]
+  expenses Expense[]
+
   employeeResults   EmployeeResult[]
   employeeLocations EmployeeLocation[]
 
@@ -500,6 +555,8 @@ model PayrollBatch {
   /// "2026-09"
   period String
   status PayrollBatchStatus @default(DRAFT)
+  /// ALL — umumiy vedomost (administrator), REGIONS — hududlar vedomosti (Hududchi)
+  scope  String @default("ALL")
 
   fileName String
   /// SHA-256 - bir xil faylni ikki marta yuklashni oldini oladi
@@ -604,4 +661,1419 @@ model EmployeeLocation {
   @@unique([employeePinfl, period])
   @@index([period, regionCode])
   @@map("employee_locations")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ISH HAQI TARKIBI
+// ═══════════════════════════════════════════════════════════
+
+/// Komponent qaysi manbadan to'lanadi
+enum SalaryComponentGroup {
+  BUDGET   // Byudjet hisobidan
+  HOJALIK  // Xo'jalik hisobidan
+}
+
+/// Tahlil uchun yiriklashtirilgan guruh
+enum SalaryComponentCategory {
+  ASOSIY         // Oklad, 40% ustama, staj
+  TATIL          // Ta'til, kompensatsiya, kasallik, dekret
+  PREMIYA        // KPI, bayram, bildirgi
+  KOMPENSATSIYA  // Transport, ovqat, moddiy yordam
+  USTAMA         // Sertifikat, unvon va boshqalar
+  JARIMA         // Minus bilan hisoblanadi
+  BOSHQA
+}
+
+/// Tarkib soliq hisobotiga nisbatan holati
+enum SalaryCompositionStatus {
+  MATCHED     // To'liq mos
+  MISMATCH    // Farq bor
+  NO_PAYROLL  // Shu oy uchun soliq hisoboti yuklanmagan
+}
+
+/// Ish haqi komponentlari ma'lumotnomasi
+model SalaryComponent {
+  code      String                  @id
+  name      String
+  group     SalaryComponentGroup
+  category  SalaryComponentCategory
+  /// 1 = qo'shiladi, -1 = ayiriladi (jarima)
+  sign      Int                     @default(1)
+  sortOrder Int                     @default(0)
+  isActive  Boolean                 @default(true)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  items SalaryCompositionItem[]
+}
+
+/// Bir oylik tarkib yuklamasi
+model SalaryCompositionBatch {
+  id            String                  @id @default(cuid())
+  /// "YYYY-MM"
+  period        String
+  fileName      String?
+  employeeCount Int                     @default(0)
+  /// Tarkib bo'yicha jami (jarima ayirilgan)
+  totalTiyin    BigInt                  @default(0)
+  /// Soliq hisobotidagi jami (yuklash paytida)
+  payrollTiyin  BigInt                  @default(0)
+  status        SalaryCompositionStatus @default(NO_PAYROLL)
+  mismatchCount Int                     @default(0)
+  uploadedById  String?
+  createdAt     DateTime                @default(now())
+  cancelledAt   DateTime?
+
+  rows  SalaryCompositionRow[]
+  items SalaryCompositionItem[]
+
+  @@index([period])
+}
+
+/// Xodimning bir oylik tarkib qatori
+model SalaryCompositionRow {
+  id            String   @id @default(cuid())
+  batchId       String
+  period        String
+  employeePinfl String
+  fullName      String?
+  workedDays    Float?
+  rate          Float?
+  totalTiyin    BigInt   @default(0)
+
+  batch SalaryCompositionBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  items SalaryCompositionItem[]
+
+  @@unique([batchId, employeePinfl])
+  @@index([period, employeePinfl])
+}
+
+/// Xodim x komponent summasi (doim musbat, belgi komponentdan olinadi)
+model SalaryCompositionItem {
+  id            String @id @default(cuid())
+  batchId       String
+  rowId         String
+  componentCode String
+  amountTiyin   BigInt
+
+  batch     SalaryCompositionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  row       SalaryCompositionRow   @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  component SalaryComponent        @relation(fields: [componentCode], references: [code])
+
+  @@unique([rowId, componentCode])
+  @@index([batchId, componentCode])
+}
+
+// ═══════════════════════════════════════════════════════════
+// IJARA
+// ═══════════════════════════════════════════════════════════
+
+/// Ijara turi
+enum LeaseKind {
+  ODDIY     // Bino, ofis, ombor — hudud / tuman yoki Markaz
+  AEROPORT  // Aeroportdagi joy (kassa, ofis)
+}
+
+/// To'lov davriyligi — xarajat baribir har oyga teng bo'linadi
+enum LeasePaymentFrequency {
+  MONTHLY    // Oylik
+  QUARTERLY  // Choraklik
+  YEARLY     // Yillik
+}
+
+enum LeaseDocumentType {
+  SHARTNOMA           // Asosiy shartnoma
+  QOSHIMCHA_KELISHUV  // Qo'shimcha kelishuv (narx o'zgarishi va h.k.)
+  DALOLATNOMA         // Qabul-topshirish dalolatnomasi
+  BOSHQA
+}
+
+/// Ijara shartnomasi — bir marta kiritiladi, har oy o'zi davom etadi
+model Lease {
+  id           String    @id @default(cuid())
+  /// Shartnoma raqami
+  number       String
+  contractDate DateTime?
+  kind         LeaseKind @default(ODDIY)
+  /// Obyekt nomi: "Asaka tuman ofisi", "Toshkent aeroporti kassasi"
+  title        String
+
+  /// Joyi: 0 — Markaz. Aeroport uchun — aeroport joylashgan viloyat
+  regionCode   Int
+  /// Tuman kaliti "33-1" — viloyat ijaralari uchun
+  districtId   String?
+  /// Bo'lim — Markaz ijaralari uchun
+  departmentId String?
+  /// Aeroport nomi — AEROPORT turi uchun
+  airportName  String?
+
+  address      String?
+  /// Maydon, m² — tahlil (1 m² narxi) uchun
+  areaM2       Float?
+  purpose      String?
+
+  // Ijaraga beruvchi
+  lessorName   String
+  lessorTin    String?
+  lessorPhone  String?
+  lessorBank   String?
+
+  vatIncluded      Boolean               @default(true)
+  paymentFrequency LeasePaymentFrequency @default(MONTHLY)
+  /// Oyning qaysi kuni to'lanadi
+  paymentDay       Int?
+
+  /// Birinchi oy "YYYY-MM"
+  startPeriod  String
+  /// Oxirgi oy "YYYY-MM" (shu oy ham kiradi); null — muddatsiz / amalda
+  endPeriod    String?
+  /// Tugash sababi: muddati tugadi, bekor qilindi va h.k.
+  endReason    String?
+  note         String?
+
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  /// O'chirilgan (savat)
+  deletedAt    DateTime?
+
+  terms     LeaseTerm[]
+  documents LeaseDocument[]
+  accruals  LeaseAccrual[]
+
+  @@index([regionCode])
+  @@index([kind])
+  @@index([startPeriod, endPeriod])
+}
+
+/// Narx tarixi — har bir yozuv "shu oydan boshlab oylik summa"
+model LeaseTerm {
+  id           String   @id @default(cuid())
+  leaseId      String
+  /// "YYYY-MM" — shu oydan boshlab amal qiladi
+  validFrom    String
+  /// Oylik summa, tiyinda
+  monthlyTiyin BigInt
+  note         String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  lease     Lease           @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  documents LeaseDocument[]
+
+  @@unique([leaseId, validFrom])
+}
+
+/// Yuklangan hujjat — fayl serverda saqlanadi
+model LeaseDocument {
+  id           String            @id @default(cuid())
+  leaseId      String
+  /// Qaysi narx o'zgarishiga tegishli (qo'shimcha kelishuv)
+  termId       String?
+  type         LeaseDocumentType @default(SHARTNOMA)
+  /// Foydalanuvchi yuklagan asl nom
+  fileName     String
+  /// Diskdagi nom (takrorlanmas)
+  storedName   String
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String?
+  createdAt    DateTime          @default(now())
+
+  lease Lease      @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  term  LeaseTerm? @relation(fields: [termId], references: [id], onDelete: SetNull)
+
+  @@index([leaseId])
+}
+
+/// Oyni yopish — shu oy uchun barcha amaldagi ijaralar xarajatga yoziladi
+model LeaseMonthClose {
+  id          String    @id @default(cuid())
+  /// "YYYY-MM"
+  period      String
+  leaseCount  Int       @default(0)
+  totalTiyin  BigInt    @default(0)
+  closedById  String?
+  closedAt    DateTime  @default(now())
+  /// Qayta yopilganda yoki bekor qilinganda
+  cancelledAt DateTime?
+
+  accruals LeaseAccrual[]
+
+  @@index([period])
+}
+
+/// Oylik hisob — bitta ijara, bitta oy
+model LeaseAccrual {
+  id          String @id @default(cuid())
+  closeId     String
+  leaseId     String
+  period      String
+  amountTiyin BigInt
+  /// Yaratilgan xarajat yozuvi
+  expenseId   String?
+
+  close LeaseMonthClose @relation(fields: [closeId], references: [id], onDelete: Cascade)
+  lease Lease           @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@unique([leaseId, period])
+  @@index([period])
+  @@index([expenseId])
+}
+
+// ═══════════════════════════════════════════════════════════
+// Mashinalar — yoqilg'i, moyka, ta'mirlash
+// ═══════════════════════════════════════════════════════════
+
+/// Yoqilg'i turi
+enum VehicleFuelType {
+  AI80
+  AI92
+  AI95
+  DIZEL
+  METAN
+  PROPAN
+  ELEKTR
+}
+
+/// Mashina xarajati turi
+enum VehicleRecordKind {
+  FUEL     // Yoqilg'i: benzin, gaz, dizel
+  WASH     // Moyka
+  REPAIR   // Ta'mirlash va ehtiyot qismlar
+  SERVICE  // Texnik xizmat: moy, filtr, shina
+  OTHER    // Sug'urta, texko'rik, jarima, to'xtash joyi
+}
+
+/// Korxona mashinasi
+model Vehicle {
+  id                String          @id @default(cuid())
+  /// Davlat raqami: "01 A 123 BC"
+  plateNumber       String
+  /// Rusumi: "Chevrolet Cobalt"
+  model             String
+  year              Int?
+  color             String?
+  fuelType          VehicleFuelType @default(AI92)
+  /// Me'yor: 100 km ga litr (gazda — m³)
+  fuelNorm          Float?
+  /// Joyi: 0 — Markaz
+  regionCode        Int             @default(0)
+  departmentId      String?
+  /// Haydovchi yoki mas'ul xodim
+  driverName        String?
+  driverPhone       String?
+  /// Ro'yxatga olingandagi probeg, km
+  initialOdometerKm Int?
+  /// Faol emas — sotilgan yoki hisobdan chiqarilgan
+  isActive          Boolean         @default(true)
+  note              String?
+  /// Guruh: TOSHKENT | MARKSHEYDER | RAHBARIYAT | QOSHIMCHA
+  fleetGroup        String?
+  createdById       String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+
+  records VehicleRecord[]
+
+  @@index([isActive])
+}
+
+/// Mashina xarajati — har biri "Xarajatlar"da bitta yozuv yaratadi
+model VehicleRecord {
+  id            String            @id @default(cuid())
+  vehicleId     String
+  kind          VehicleRecordKind
+  date          DateTime
+  /// "YYYY-MM"
+  period        String
+  amountTiyin   BigInt
+  /// Yoqilg'i: litr (gazda — m³)
+  liters        Float?
+  /// Spidometr ko'rsatkichi, km
+  odometerKm    Int?
+  description   String?
+  /// AZS, moyka yoki servis nomi
+  counterparty  String?
+  documentNo    String?
+  paymentMethod PaymentMethod     @default(CASH)
+  /// Yaratilgan xarajat yozuvi (expenses.id)
+  expenseId     String?           @unique
+  createdById   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  deletedAt     DateTime?
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, period])
+  @@index([period, kind])
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Munosabat va Nazorat
+// ═══════════════════════════════════════════════════════════
+
+/// Munosabat holati: OCHIQ — kuzatilmoqda, YOPILDI — tugatildi, NAZORATDA — nazoratga o'tkazildi
+enum ReactionStatus {
+  OPEN
+  CLOSED
+  CONTROL
+}
+
+/// Munosabat — nomlangan "savat": belgilangan moddalar, muddat, mas'ullar
+model Reaction {
+  id    String @id @default(cuid())
+  title String
+  note  String?
+
+  status ReactionStatus @default(OPEN)
+
+  /// Kuzatuv davri: belgilangan kundan muddatgacha (Toshkent kuni boshi)
+  startDate DateTime
+  dueDate   DateTime
+  /// Solishtirish bazasi: belgilashdan oldingi teng davr
+  baseFrom DateTime
+  baseTo   DateTime
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  closedAt    DateTime?
+
+  items     ReactionItem[]
+  assignees ReactionAssignee[]
+  controls  ControlRule[]
+
+  @@index([status, dueDate])
+  @@map("reactions")
+}
+
+/// Belgilangan modda: hudud, xarajat turi, daromad turi, mashina va hokazo
+model ReactionItem {
+  id         String @id @default(cuid())
+  reactionId String
+
+  /// INCOME — daromad, EXPENSE — xarajat, RESULT — natija (daromad − xarajat)
+  kind  String
+  label String
+  /// Filtr: { unit, departmentId, categoryCode, rootCategoryCode, source, section, vehicleId }
+  filter Json
+  /// Belgilangan sahifa (qayerdan olingani)
+  origin String?
+  order  Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  reaction Reaction @relation(fields: [reactionId], references: [id], onDelete: Cascade)
+
+  @@index([reactionId])
+  @@map("reaction_items")
+}
+
+/// Mas'ul xodim (Xodimlar bo'limidan; ism va lavozim biriktirilgan paytdagi holicha saqlanadi)
+model ReactionAssignee {
+  id            String  @id @default(cuid())
+  reactionId    String
+  employeePinfl String
+  fullName      String
+  position      String?
+  /// "Mas'ul" yoki "Ijrochi"
+  role          String  @default("Mas'ul")
+
+  createdAt DateTime @default(now())
+
+  reaction Reaction @relation(fields: [reactionId], references: [id], onDelete: Cascade)
+
+  @@unique([reactionId, employeePinfl])
+  @@map("reaction_assignees")
+}
+
+/// Nazorat qoidasi: modda har oy avtomatik tekshiriladi
+model ControlRule {
+  id         String  @id @default(cuid())
+  reactionId String?
+
+  title  String
+  kind   String
+  label  String
+  filter Json
+
+  /// Oylik chegara, tiyinda. Xarajat — oshmasligi kerak, daromad — kamaymasligi kerak
+  limitTiyin BigInt
+  /// Kuzatuv boshlangan oy: "2026-10"
+  startPeriod String
+  /// Mas'ullar: [{ pinfl, fullName, position }]
+  assignees   Json    @default("[]")
+  note        String?
+  isActive    Boolean @default(true)
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reaction Reaction? @relation(fields: [reactionId], references: [id], onDelete: SetNull)
+
+  @@index([isActive])
+  @@map("control_rules")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Hisobotlar
+// ═══════════════════════════════════════════════════════════
+
+/// Yaratilgan hisobotlar tarixi — fayl bilan birga (qayta yuklab olish uchun)
+model ReportRun {
+  id          String   @id @default(cuid())
+  /// Hisobot turi: financial, regions, ...
+  type        String
+  title       String
+  /// xlsx | pptx | pdf
+  format      String
+  filename    String
+  size        Int
+  /// Parametrlar: davr, hudud
+  params      Json
+  content     Bytes
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("report_runs")
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Ombor: TMZ va asosiy vositalar
+// ═══════════════════════════════════════════════════════════
+
+/// Ombor buyumi turi: TMZ — sarflanadigan tovar-moddiy zaxira (miqdor bilan),
+/// ASSET — asosiy vosita (har biri inventar raqami bilan alohida kuzatiladi)
+enum StockItemKind {
+  TMZ
+  ASSET
+}
+
+/// Ombor hujjati turi
+enum StockDocKind {
+  /// Kirim — omborga keldi (shu zahoti Xarajatlarga yoziladi)
+  RECEIPT
+  /// Chiqim — odamga yoki bo'limga berildi
+  ISSUE
+  /// Qaytarish — omborga qaytib keldi
+  RETURN
+  /// Ko'chirish — asosiy vosita bir bo'lim/odamdan boshqasiga
+  TRANSFER
+  /// Hisobdan chiqarish — yaroqsiz, yo'qolgan, sarflangan
+  WRITE_OFF
+}
+
+/// Asosiy vosita holati
+enum AssetStatus {
+  /// Omborda
+  IN_STOCK
+  /// Foydalanishda (bo'lim yoki odamga biriktirilgan)
+  IN_USE
+  /// Hisobdan chiqarilgan
+  WRITTEN_OFF
+}
+
+/// Ombor ma'lumotnomasi: tovar yoki asosiy vosita turi
+model StockItem {
+  id           String        @id @default(cuid())
+  /// Ichki kod: "TMZ-0001", "AV-0001"
+  code         String        @unique
+  name         String
+  /// O'lchov birligi: dona, kg, litr, metr, pachka, quti
+  unit         String        @default("dona")
+  kind         StockItemKind @default(TMZ)
+  /// Guruh: Kanselyariya, Kompyuter texnikasi, Mebel, Xo'jalik ...
+  group        String?
+  /// Kirim qaysi xarajat moddasiga yoziladi (categories.code)
+  categoryCode String
+  /// Kam qolganda ogohlantirish chegarasi (TMZ)
+  minQty       Float?
+  note         String?
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  lines  StockLine[]
+  assets Asset[]
+
+  @@index([kind, isActive])
+  @@map("stock_items")
+}
+
+/// Ombor hujjati: kirim, chiqim, qaytarish, ko'chirish, hisobdan chiqarish.
+/// Har biriga Word dalolatnoma chiqadi.
+model StockDoc {
+  id           String       @id @default(cuid())
+  /// Hujjat raqami: "KR-2026-0001" (KR — kirim, CH — chiqim, QT — qaytarish, KO — ko'chirish, HC — hisobdan chiqarish)
+  number       String       @unique
+  kind         StockDocKind
+  date         DateTime
+  /// "YYYY-MM"
+  period       String
+
+  /// Kirim: yetkazuvchi va uning hujjati (faktura, shartnoma)
+  counterparty String?
+  documentNo   String?
+
+  /// Qayerga / kimga (chiqim, ko'chirish) yoki qayerdan (qaytarish)
+  departmentId String?
+  regionCode   Int?
+  holderPinfl  String?
+  holderName   String?
+
+  /// Ko'chirishda — qayerdan
+  fromDepartmentId String?
+  fromRegionCode   Int?
+  fromHolderPinfl  String?
+  fromHolderName   String?
+
+  /// Topshiruvchi (omborchi) va qabul qiluvchi / mas'ul shaxs — dalolatnomada imzo uchun
+  issuedBy     String?
+  responsible  String?
+  /// Hisobdan chiqarish sababi yoki izoh
+  reason       String?
+  note         String?
+
+  totalTiyin   BigInt       @default(0)
+
+  createdById  String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  /// Bekor qilingan hujjat
+  deletedAt    DateTime?
+
+  lines StockLine[]
+  moves AssetMove[]
+
+  @@index([kind, period])
+  @@index([date])
+  @@index([departmentId])
+  @@index([regionCode])
+  @@map("stock_docs")
+  /// Kim bekor qilgan
+  cancelledById String?
+}
+
+/// Hujjat qatori: buyum, miqdor, narx
+model StockLine {
+  id          String   @id @default(cuid())
+  docId       String
+  itemId      String
+  /// Miqdor (TMZ — kasr bo'lishi mumkin; asosiy vosita — dona)
+  qty         Float
+  /// Birlik narxi, tiyinda (kirimda — xarid narxi; boshqalarida — o'rtacha tannarx)
+  priceTiyin  BigInt
+  amountTiyin BigInt
+  /// Kirimda yaratilgan xarajat yozuvi (expenses.id)
+  expenseId   String?  @unique
+  note        String?
+
+  doc  StockDoc  @relation(fields: [docId], references: [id], onDelete: Cascade)
+  item StockItem @relation(fields: [itemId], references: [id])
+
+  @@index([docId])
+  @@index([itemId])
+  @@map("stock_lines")
+}
+
+/// Asosiy vosita — har biri inventar raqami bilan
+model Asset {
+  id           String      @id @default(cuid())
+  /// Inventar raqami: "INV-000123"
+  inventoryNo  String      @unique
+  itemId       String
+  name         String
+  serialNo     String?
+  priceTiyin   BigInt
+  acquiredAt   DateTime
+  /// Qaysi kirim qatoridan kelgan
+  receiptLineId String?
+  status       AssetStatus @default(IN_STOCK)
+
+  /// Hozir kimda va qayerda
+  departmentId String?
+  regionCode   Int?
+  holderPinfl  String?
+  holderName   String?
+
+  note         String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  item  StockItem   @relation(fields: [itemId], references: [id])
+  moves AssetMove[]
+
+  @@index([status])
+  @@index([departmentId])
+  @@index([regionCode])
+  @@index([holderPinfl])
+  @@map("assets")
+}
+
+/// Asosiy vosita harakati: qayerdan → qayerga, qachon, qaysi hujjat bilan
+model AssetMove {
+  id      String       @id @default(cuid())
+  assetId String
+  docId   String?
+  kind    StockDocKind
+  date    DateTime
+
+  fromDepartmentId String?
+  fromRegionCode   Int?
+  fromHolderPinfl  String?
+  fromHolderName   String?
+
+  toDepartmentId String?
+  toRegionCode   Int?
+  toHolderPinfl  String?
+  toHolderName   String?
+
+  note        String?
+  /// Topshirilgan paytdagi holati (dalolatnomaning Holati ustuni)
+  condition   String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  asset Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  doc   StockDoc? @relation(fields: [docId], references: [id], onDelete: SetNull)
+
+  @@index([assetId, date])
+  @@map("asset_moves")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Ombor: inventarizatsiya (sanoq)
+// ═══════════════════════════════════════════════════════════
+
+/// Inventarizatsiya holati: DRAFT — sanalmoqda, DONE — yakunlangan (farqlar hujjatlarga o'tgan)
+enum StockCountStatus {
+  DRAFT
+  DONE
+}
+
+/// Inventarizatsiya: omborda haqiqatda nima borligi sanab chiqiladi.
+/// Yakunlanganda kamomad — «Hisobdan chiqarish», ortiqcha — kirim (xarajatsiz) hujjati bo'ladi.
+model StockCount {
+  id            String           @id @default(cuid())
+  /// "SN-2026-0001"
+  number        String           @unique
+  date          DateTime
+  status        StockCountStatus @default(DRAFT)
+  /// Komissiya raisi va a'zolari (dalolatnomada imzo uchun)
+  chairman      String?
+  commission    String?
+  note          String?
+  /// Yakunlanganda yaratilgan hujjatlar
+  writeOffDocId String?
+  receiptDocId  String?
+  createdById   String?
+  finishedById  String?
+  finishedAt    DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  lines  StockCountLine[]
+  assets StockCountAsset[]
+
+  @@index([status])
+  @@map("stock_counts")
+}
+
+/// Sanoq qatori (TMZ): haqiqatda sanalgan miqdor; yakunda — hisobdagi qoldiq va narx
+model StockCountLine {
+  id         String  @id @default(cuid())
+  countId    String
+  itemId     String
+  /// Haqiqatda (null — hali sanalmagan)
+  actualQty  Float?
+  /// Yakunlanganda: hisobdagi qoldiq va o'rtacha narx (tiyin)
+  bookQty    Float?
+  priceTiyin BigInt?
+
+  count StockCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+
+  @@unique([countId, itemId])
+  @@map("stock_count_lines")
+}
+
+/// Ombordagi asosiy vosita: joyida bormi
+model StockCountAsset {
+  id      String   @id @default(cuid())
+  countId String
+  assetId String
+  /// true — bor, false — yo'q (kamomad), null — hali tekshirilmagan
+  found   Boolean?
+
+  count StockCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+
+  @@unique([countId, assetId])
+  @@map("stock_count_assets")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Ombor: pochta to'lovlari
+// ═══════════════════════════════════════════════════════════
+
+/// Pochta korxonasiga to'lov — omborchi kiritadi; Xarajatlarga yoziladi (manba: Ombor, modda: pochta xizmatlari)
+model PostalPayment {
+  id            String        @id @default(cuid())
+  date          DateTime
+  /// "YYYY-MM"
+  period        String
+  /// Pochta korxonasi: "O'zbekiston pochtasi" …
+  company       String
+  amountTiyin   BigInt
+  paymentMethod PaymentMethod @default(CASH)
+  documentNo    String?
+  note          String?
+  /// Yaratilgan xarajat yozuvi (expenses.id)
+  expenseId     String?       @unique
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  /// Bekor qilingan
+  deletedAt     DateTime?
+
+  @@index([period])
+  @@map("postal_payments")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Topshiriqlar va Telegram
+// ═══════════════════════════════════════════════════════════
+
+/// Topshiriq holati: OPEN — bajarilmoqda, DONE — bajarildi, CANCELLED — bekor qilindi
+enum TaskStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+/// Xodimga berilgan muddatli ish — belgilangan soatlarda Telegramga eslatiladi
+model Task {
+  id           String     @id @default(cuid())
+  title        String
+  description  String?
+  /// Muddat (Toshkent vaqti bilan kiritiladi)
+  deadline     DateTime
+  /// Xodim (employees.pinfl) va ismi — o'sha paytdagisi
+  pinfl        String
+  employeeName String
+  /// Muddatdan necha soat oldin eslatiladi: [24, 2]; 0 — muddat vaqtida
+  remindHours  Int[]
+  status       TaskStatus @default(OPEN)
+  createdById  String?
+  doneAt       DateTime?
+  doneById     String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  reminders TaskReminder[]
+
+  @@index([status, deadline])
+  @@index([pinfl])
+  @@map("tasks")
+}
+
+/// Bitta Telegram xabari: qachon yuborilishi kerak va yuborildimi
+model TaskReminder {
+  id          String    @id @default(cuid())
+  taskId      String
+  /// Muddatdan necha soat oldin; -1 — darhol (topshiriq berilganda yoki «Hozir yuborish»)
+  hoursBefore Int
+  dueAt       DateTime
+  sentAt      DateTime?
+  attempts    Int       @default(0)
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([sentAt, dueAt])
+  @@index([taskId])
+  @@map("task_reminders")
+  claimedAt DateTime?
+}
+
+/// Xodim ↔ Telegram chat (xodim botda shaxsiy havola orqali «Start» bosganda)
+model TelegramLink {
+  pinfl     String   @id
+  chatId    String
+  username  String?
+  firstName String?
+  linkedAt  DateTime @default(now())
+
+  @@index([chatId])
+  @@map("telegram_links")
+}
+
+/// Bir martalik ulanish kodi: t.me/<bot>?start=<code> (7 kun amal qiladi)
+model TelegramLinkCode {
+  code      String   @id
+  pinfl     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([pinfl])
+  @@map("telegram_link_codes")
+  @@index([expiresAt])
+}
+
+// ═══════════════════════════════════════════════════════════
+// Xarid: yetkazuvchilar, arizalar, birja va oddiy xaridlar, to'lovlar, omborga qabul
+// ═══════════════════════════════════════════════════════════
+
+/// Xarid turi: EXCHANGE — birja bitimi, DIRECT — oddiy (do'kon, to'g'ridan-to'g'ri)
+enum PurchaseKind {
+  EXCHANGE
+  DIRECT
+}
+
+/// Xarid holati: OPEN — buyurtma berilgan, tovar kelmagan; DELIVERED — tovar kelib kirim yozilgan; CANCELLED — bekor
+enum PurchaseStatus {
+  OPEN
+  DELIVERED
+  CANCELLED
+}
+
+/// Ariza holati
+enum PurchaseRequestStatus {
+  NEW
+  IN_PROGRESS
+  DONE
+  REJECTED
+}
+
+/// Omborga qabul holati: PENDING — omborchi kutilmoqda, ACCEPTED — qabul qilindi (qoldiqqa tushdi), REJECTED — qaytarildi
+enum ReceiptStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+/// Yetkazuvchi (sotuvchi)
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  /// STIR
+  inn       String?
+  phone     String?
+  note      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases Purchase[]
+
+  @@map("suppliers")
+}
+
+/// Xarid arizasi: bo'lim «kerak» deb so'raydi, xaridchi shu bo'yicha sotib oladi
+model PurchaseRequest {
+  id           String                @id @default(cuid())
+  /// "AR-2026-0001"
+  number       String                @unique
+  date         DateTime
+  departmentId String?
+  /// So'rovchi (ism yoki lavozim)
+  requester    String?
+  title        String
+  note         String?
+  status       PurchaseRequestStatus @default(NEW)
+  /// Rad etilsa — sabab
+  rejectReason String?
+  createdById  String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  lines     PurchaseRequestLine[]
+  purchases Purchase[]
+
+  @@index([status, date])
+  @@map("purchase_requests")
+}
+
+model PurchaseRequestLine {
+  id        String  @id @default(cuid())
+  requestId String
+  name      String
+  qty       Float
+  unit      String  @default("dona")
+  /// Ma'lumotnomadagi buyum (bo'lsa)
+  itemId    String?
+
+  request PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("purchase_request_lines")
+}
+
+/// Xarid: birja bitimi yoki oddiy xarid
+model Purchase {
+  id          String         @id @default(cuid())
+  /// "XD-2026-0001"
+  number      String         @unique
+  kind        PurchaseKind
+  date        DateTime
+  /// "YYYY-MM"
+  period      String
+  supplierId  String?
+  supplierName String
+  /// Birja: lot raqami; birja nomi
+  lotNo       String?
+  exchange    String?
+  /// Shartnoma yoki faktura raqami
+  documentNo  String?
+  /// Tovar qachongacha yetkazilishi kerak
+  deliveryDue DateTime?
+  /// To'lov qachongacha
+  paymentDue  DateTime?
+  requestId   String?
+  status      PurchaseStatus @default(OPEN)
+  /// Qatorlar jami (tovar summasi), tiyinda
+  totalTiyin  BigInt         @default(0)
+  /// Birja yig'imi (alohida xarajat), tiyinda
+  feeTiyin    BigInt         @default(0)
+  /// Birja yig'imi uchun yaratilgan xarajat (expenses.id)
+  feeExpenseId String?
+  note        String?
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  deliveredAt DateTime?
+  deletedAt   DateTime?
+
+  supplier Supplier?        @relation(fields: [supplierId], references: [id])
+  request  PurchaseRequest? @relation(fields: [requestId], references: [id])
+  lines    PurchaseLine[]
+  payments PurchasePayment[]
+  receipts GoodsReceipt[]
+
+  @@index([status, date])
+  @@index([supplierId])
+  @@index([kind, period])
+  @@map("purchases")
+}
+
+model PurchaseLine {
+  id          String   @id @default(cuid())
+  purchaseId  String
+  itemId      String
+  qty         Float
+  priceTiyin  BigInt
+  amountTiyin BigInt
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseId])
+  @@map("purchase_lines")
+  @@index([itemId])
+}
+
+/// Yetkazuvchiga to'lov (qisman yoki to'liq)
+model PurchasePayment {
+  id          String    @id @default(cuid())
+  purchaseId  String
+  date        DateTime
+  amountTiyin BigInt
+  method      String    @default("BANK")
+  note        String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseId])
+  @@map("purchase_payments")
+}
+
+/// Omborga qabul: xaridchi yozadi, omborchi qabul qiladi — shundan keyingina qoldiqqa tushadi
+model GoodsReceipt {
+  id           String        @id @default(cuid())
+  /// "QB-2026-0001"
+  number       String        @unique
+  purchaseId   String
+  date         DateTime
+  status       ReceiptStatus @default(PENDING)
+  note         String?
+  /// Qaytarilsa — sabab
+  rejectReason String?
+  createdById  String?
+  createdAt    DateTime      @default(now())
+  decidedById  String?
+  decidedAt    DateTime?
+  /// Qabul qilinganda yaratilgan ombor kirimi (stock_docs.id)
+  stockDocId   String?
+
+  purchase Purchase           @relation(fields: [purchaseId], references: [id])
+  lines    GoodsReceiptLine[]
+
+  @@index([status, date])
+  @@index([purchaseId])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id         String @id @default(cuid())
+  receiptId  String
+  itemId     String
+  qty        Float
+  priceTiyin BigInt
+
+  receipt GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@map("goods_receipt_lines")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Buxgalteriya: hisobraqamlar bo'yicha kunlik tushum va qoldiq (Buxgalter kiritadi)
+// ═══════════════════════════════════════════════════════════
+
+/// Hisobraqam yoki bo'lim sarlavhasi (kunlik ma'lumotnoma qatori)
+model CashAccount {
+  id          String   @id @default(cuid())
+  /// Doimiy kalit (shablondan yaratilganlar uchun): "I", "I.1", "I.1.3" …
+  key         String   @unique
+  /// T/r ustunida ko'rinadigan raqam: "1", "1.3", "II"
+  code        String?
+  name        String
+  /// Hisob raqami (20 xonali)
+  number      String?
+  /// Ekrandagi ierarxiya (ichma-ich ko'rinish)
+  parentId    String?
+  /// Qaysi qatorning jamisiga qo'shiladi (odatda — parentId; yo'q bo'lsa jamiga kirmaydi)
+  rollupId    String?
+  sortOrder   Int      @default(0)
+  /// Kiritiladigan ustunlar: ytd, mtd, refund, daily, balance
+  inputs      String[]
+  /// Ichidagi qatorlardan yig'iladigan ustunlar
+  sums        String[]
+  /// Ertangi qoldiq: ADD (qoldiq + kunlik), SUB (qoldiq − kunlik), KEEP (o'zgarmaydi)
+  balanceRule String   @default("ADD")
+  isHeader    Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines CashReportLine[]
+
+  @@index([parentId])
+  @@index([rollupId])
+  @@map("cash_accounts")
+}
+
+/// Bir kunlik ma'lumotnoma (sana bo'yicha bitta)
+model CashReport {
+  id          String    @id @default(cuid())
+  /// Sana (Toshkent kuni, 00:00 UTC sifatida saqlanadi)
+  date        DateTime  @unique @db.Date
+  note        String?
+  createdById String?
+  updatedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  lines CashReportLine[]
+
+  @@index([updatedAt])
+  @@map("cash_reports")
+}
+
+/// Qator qiymatlari (tiyin; bo'sh katak — null)
+model CashReportLine {
+  id            String  @id @default(cuid())
+  reportId      String
+  accountId     String
+  ytdTiyin      BigInt?
+  mtdTiyin      BigInt?
+  refundTiyin   BigInt?
+  dailyTiyin    BigInt?
+  balanceTiyin  BigInt?
+
+  report  CashReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  account CashAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([reportId, accountId])
+  @@index([accountId])
+  @@map("cash_report_lines")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Hududchi: tahlil uchun ma'lumot asosi (oyni yopish, voqealar, tariflar, shtat-maosh, xarajat rejasi)
+// ═══════════════════════════════════════════════════════════
+
+/// Hududlar oyi yopilishi: yopilgan oyda daromad, ish haqi va xarajat o'zgarmaydi (administrator qayta ochadi)
+model RegionalPeriodClose {
+  id           String    @id @default(cuid())
+  /// "2026-09"
+  period       String    @unique
+  /// CLOSED — yopilgan, OPEN — qayta ochilgan
+  status       String    @default("CLOSED")
+  closedAt     DateTime?
+  closedById   String?
+  reopenedAt   DateTime?
+  reopenedById String?
+  reopenReason String?
+  /// Yopilgan paytdagi tekshiruv natijasi (nusxa)
+  snapshot     Json      @default("{}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("regional_period_closes")
+}
+
+/// Tahlilga ta'sir qiladigan voqealar: tarif o'zgarishi, qayta tuzilish, yangi xizmat …
+model AnalysisEvent {
+  id           String    @id @default(cuid())
+  date         DateTime  @db.Date
+  /// TARIFF, RESTRUCTURE, NEW_SERVICE, STAFF, OTHER
+  kind         String
+  /// null — barcha hududlar
+  regionCode   Int?
+  /// Daromad xizmati (SRV_xx); null — barcha xizmatlar
+  categoryCode String?
+  title        String
+  description  String?
+  /// Prognoz va salohiyat shu sanadan oldingi oylarni hisobga olmaydi (tarkibiy uzilish)
+  isBreak      Boolean   @default(true)
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([date])
+  @@index([regionCode])
+  @@map("analysis_events")
+}
+
+/// Xizmat tarifi (tasdiqlangan narx) — kuchga kirgan sanasi bilan
+model ServiceTariff {
+  id           String    @id @default(cuid())
+  /// Daromad xizmati (SRV_xx)
+  categoryCode String
+  /// null — barcha hududlar uchun
+  regionCode   Int?
+  /// Bir xizmat narxi, tiyin
+  priceTiyin   BigInt
+  validFrom    DateTime  @db.Date
+  /// PROPOSED — taklif, APPROVED — tasdiqlangan, REJECTED — rad etilgan
+  status       String    @default("PROPOSED")
+  note         String?
+  createdById  String
+  decidedById  String?
+  decidedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([categoryCode, validFrom])
+  @@index([status])
+  @@map("service_tariffs")
+}
+
+/// Xodimning shtat stavkasi va lavozim maoshi — amal qilish sanasidan boshlab
+model EmployeeSalary {
+  id              String   @id @default(cuid())
+  employeePinfl   String
+  effectiveFrom   DateTime @db.Date
+  /// Stavka: 1 — to'liq, 0.5 — yarim
+  rate            Float
+  /// Lavozim maoshi oyiga (to'liq stavka uchun), tiyin
+  baseSalaryTiyin BigInt
+  position        String?
+  note            String?
+  /// MANUAL yoki IMPORT
+  source          String   @default("MANUAL")
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([employeePinfl, effectiveFrom])
+  @@index([effectiveFrom])
+  @@map("employee_salaries")
+}
+
+/// Xarajat rejasi (byudjet): oy × hudud × modda
+model ExpenseBudget {
+  id           String   @id @default(cuid())
+  period       String
+  regionCode   Int
+  categoryCode String
+  amountTiyin  BigInt
+  updatedById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([period, regionCode, categoryCode])
+  @@index([period])
+  @@map("expense_budgets")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Markaz xarajatini hududlarga taqsimlash (faoliyatga asoslangan) — qoidalar versiyalari bilan
+// ═══════════════════════════════════════════════════════════
+
+/// Markaz birligi (bo'lim) uchun taqsimlash qoidasi — validFrom oyidan boshlab amal qiladi
+model OverheadRule {
+  id          String   @id @default(cuid())
+  /// departments.id; "CENTER" — Markazning bo'limsiz xarajatlari; "UNASSIGNED" — hech qayerga biriktirilmagan xarajatlar
+  unitKey     String
+  /// SUPPORT — hududlarga taqsimlanadi; REVENUE — daromad keltiruvchi (o'z daromadi bilan Markazda); CORPORATE — Markazda qoladi
+  role        String
+  /// HEADCOUNT, FTE, PAYROLL_RECORDS, REVENUE, TRANSACTIONS, EQUAL, MANUAL (SUPPORT uchun)
+  driver      String?
+  /// "2026-09" — shu oydan boshlab
+  validFrom   String
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@unique([unitKey, validFrom])
+  @@index([unitKey])
+  @@map("overhead_rules")
+}
+
+/// Qo'lda kiritiladigan drayver qiymati (masalan: ichki nazorat tekshiruvlari soni) — oy × birlik × hudud
+model OverheadDriverValue {
+  id          String   @id @default(cuid())
+  period      String
+  unitKey     String
+  regionCode  Int
+  value       Float
+  updatedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([period, unitKey, regionCode])
+  @@index([period, unitKey])
+  @@map("overhead_driver_values")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Hudud prognozi — saqlangan versiyalar (keyin haqiqiy natija bilan solishtiriladi)
+// ═══════════════════════════════════════════════════════════
+
+/// Saqlangan prognoz: qaysi oygacha ma'lumot bilan, necha oy oldinga, har hudud bo'yicha natijalar
+model ForecastRun {
+  id          String   @id @default(cuid())
+  /// Oxirgi haqiqiy oy: "2026-09"
+  lastActual  String
+  horizon     Int
+  note        String?
+  /// Hududlar × oylar: daromad, ish haqi, xarajat, Markaz ulushi, natija (tiyin) va modellar
+  summary     Json
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@index([lastActual])
+  @@index([createdAt])
+  @@map("forecast_runs")
+}
+
+// ═══════════════════════════════════════════════════════════
+// H. Hudud KPI — model taklifi → taklif etilgan → tasdiqlangan → fakt; har bir qadam tarixda
+// ═══════════════════════════════════════════════════════════
+
+/// Hudud × oy × ko'rsatkich bo'yicha maqsad
+model KpiTarget {
+  id             String    @id @default(cuid())
+  /// "2026-10"
+  period         String
+  regionCode     Int
+  /// REVENUE — daromad (≥), EXPENSE — xarajat: ish haqi + boshqa (≤), RESULT — operatsion natija (≥)
+  metric         String
+  /// Model taklifi (salohiyat / prognoz / reja asosida), tiyin
+  suggestedTiyin BigInt
+  /// Taklif qanday hisoblangani (salohiyat, prognoz, reja qiymatlari)
+  suggestBasis   Json      @default("{}")
+  proposedTiyin  BigInt?
+  approvedTiyin  BigInt?
+  /// DRAFT — faqat model taklifi, PROPOSED — taklif etilgan, APPROVED — tasdiqlangan
+  status         String    @default("DRAFT")
+  note           String?
+  approvedById   String?
+  approvedAt     DateTime?
+  updatedById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  logs KpiTargetLog[]
+
+  @@unique([period, regionCode, metric])
+  @@index([period])
+  @@map("kpi_targets")
+}
+
+/// KPI tarixi: kim, qachon, qanday qiymat, nega
+model KpiTargetLog {
+  id         String   @id @default(cuid())
+  targetId   String
+  /// SUGGEST, PROPOSE, APPROVE, REJECT, REOPEN
+  action     String
+  valueTiyin BigInt?
+  note       String?
+  userId     String
+  createdAt  DateTime @default(now())
+
+  target KpiTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([targetId])
+  @@map("kpi_target_logs")
+}
+
+/// Asosiy vosita (balansda): xarid xarajatga birdaniga yozilmaydi — har oy sarfi (eskirish) xarajatga o'tadi.
+/// Manba: ombor kirimidagi asosiy vosita yoki asosiy vosita moddasidagi xarajat (balansga o'tkazilgan).
+model FixedAsset {
+  id           String    @id @default(cuid())
+  name         String
+  /// Xarid moddasi (categories.code) — xizmat muddati shundan olinadi
+  categoryCode String
+  /// Boshlang'ich qiymat, tiyinda
+  costTiyin    BigInt
+  /// Xarid (kirim) sanasi
+  acquiredAt   DateTime
+  /// Xizmat muddati, oy (sarf: qiymat ÷ muddat, xariddan keyingi oydan)
+  lifeMonths   Int
+  /// Muddat qo'lda o'zgartirilgan (siyosat o'zgarsa ham saqlanadi)
+  lifeOverridden Boolean @default(false)
+  /// Qayerda: Markaz bo'limi yoki hudud (ombordagi joyi)
+  regionCode   Int?
+  departmentId String?
+  /// WAREHOUSE — ombor kirimi; EXPENSE — xarajatdan balansga o'tkazilgan
+  source       String
+  /// BALANCE — balansda (har oy sarf); EXPENSE — xarajat sifatida qoldirilgan (sarf yo'q)
+  mode         String    @default("BALANCE")
+  /// Ombor asosiy vositasi (assets.id)
+  assetId      String?   @unique
+  inventoryNo  String?
+  /// Balansga o'tkazilgan xarajat yozuvi (expenses.id) — o'chirilgan holda saqlanadi, qaytarish mumkin
+  expenseId    String?
+  /// Hisobdan chiqarilgan sana — qolgan qiymat shu oy sarfga o'tadi
+  disposedAt   DateTime?
+  disposeReason String?
+  /// Kimga berilgan (qabul qiluvchi xodim)
+  holderName   String?
+  /// Fayldagi joy (bo'lim) nomi - asl ko'rinishida
+  placeText    String?
+  /// Soni (bir qatorda bir nechta dona)
+  quantity     Int       @default(1)
+  /// Excel import partiyasi
+  importBatch  String?
+  note         String?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([deletedAt, mode])
+  @@index([expenseId])
+  @@map("fixed_assets")
 }

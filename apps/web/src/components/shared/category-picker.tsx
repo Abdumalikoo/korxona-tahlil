@@ -123,9 +123,9 @@ export function CategoryPicker({
   return (
     <div className="w-full" ref={containerRef}>
       {label && (
-        <label className="mb-1.5 block text-sm font-medium text-[--color-text]">
+        <label className="mb-1.5 block text-sm font-medium text-(--color-text)">
           {label}
-          {required && <span className="ml-0.5 text-[--color-expense]">*</span>}
+          {required && <span className="ml-0.5 text-(--color-expense)">*</span>}
         </label>
       )}
 
@@ -135,45 +135,45 @@ export function CategoryPicker({
           disabled={disabled}
           onClick={() => setOpen((state) => !state)}
           className={cn(
-            'flex h-10 w-full items-center justify-between gap-2 rounded-[--radius-control]',
+            'flex h-10 w-full items-center justify-between gap-2 rounded-(--radius-control)',
             'border bg-white px-3 text-left text-sm transition-colors',
-            'disabled:cursor-not-allowed disabled:bg-[--color-surface-sunken]',
+            'disabled:cursor-not-allowed disabled:bg-(--color-surface-sunken)',
             error
-              ? 'border-[--color-expense]'
+              ? 'border-(--color-expense)'
               : open
                 ? 'border-brand-600'
-                : 'border-[--color-line-strong]',
+                : 'border-(--color-line-strong)',
           )}
         >
-          <span className={cn('truncate', !selected && 'text-[--color-text-faint]')}>
+          <span className={cn('truncate', !selected && 'text-(--color-text-faint)')}>
             {selected ? selected.label : placeholder}
           </span>
           <IconChevronDown
             className={cn(
-              'size-4 shrink-0 text-[--color-text-muted] transition-transform',
+              'size-4 shrink-0 text-(--color-text-muted) transition-transform',
               open && 'rotate-180',
             )}
           />
         </button>
 
         {open && (
-          <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-[--radius-card] border border-[--color-line-strong] bg-white shadow-lg">
+          <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-(--radius-card) border border-(--color-line-strong) bg-white shadow-lg">
             {/* Qidiruv */}
-            <div className="relative border-b border-[--color-line] p-2">
-              <IconSearch className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[--color-text-faint]" />
+            <div className="relative border-b border-(--color-line) p-2">
+              <IconSearch className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-(--color-text-faint)" />
               <input
                 ref={searchRef}
                 type="text"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Qidirish"
-                className="h-8 w-full rounded border-0 bg-[--color-surface-sunken] pl-8 pr-8 text-sm placeholder:text-[--color-text-faint] focus:outline-none"
+                className="h-8 w-full rounded border-0 bg-(--color-surface-sunken) pl-8 pr-8 text-sm placeholder:text-(--color-text-faint) focus:outline-none"
               />
               {query && (
                 <button
                   type="button"
                   onClick={() => setQuery('')}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[--color-text-faint] hover:text-[--color-text]"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-(--color-text-faint) hover:text-(--color-text)"
                 >
                   <IconClose className="size-3.5" />
                 </button>
@@ -183,13 +183,13 @@ export function CategoryPicker({
             {/* Ro'yxat */}
             <div className="max-h-72 overflow-y-auto py-1">
               {totalFound === 0 ? (
-                <p className="px-3 py-6 text-center text-sm text-[--color-text-muted]">
+                <p className="px-3 py-6 text-center text-sm text-(--color-text-muted)">
                   Hech narsa topilmadi
                 </p>
               ) : (
                 groups.map((group) => (
                   <div key={group.code}>
-                    <p className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-[--color-text-faint]">
+                    <p className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-(--color-text-faint)">
                       {group.title}
                     </p>
                     {group.items.map((item) => (
@@ -205,7 +205,7 @@ export function CategoryPicker({
                           'block w-full px-3 py-2 text-left text-sm transition-colors',
                           item.code === value
                             ? 'bg-brand-50 font-medium text-brand-800'
-                            : 'text-[--color-text] hover:bg-[--color-surface-sunken]',
+                            : 'text-(--color-text) hover:bg-(--color-surface-sunken)',
                         )}
                       >
                         {item.label}
@@ -224,7 +224,7 @@ export function CategoryPicker({
                   setOpen(false);
                   setQuery('');
                 }}
-                className="flex w-full items-center gap-2 border-t border-[--color-line] px-3 py-2.5 text-left text-sm font-medium text-brand-700 transition-colors hover:bg-brand-50"
+                className="flex w-full items-center gap-2 border-t border-(--color-line) px-3 py-2.5 text-left text-sm font-medium text-brand-700 transition-colors hover:bg-brand-50"
               >
                 <IconPlus className="size-4" />
                 {query.trim() ? `"${query.trim()}" qoshish` : 'Yangi kategoriya'}
@@ -234,7 +234,7 @@ export function CategoryPicker({
         )}
       </div>
 
-      {error && <p className="mt-1 text-xs text-[--color-expense]">{error}</p>}
+      {error && <p className="mt-1 text-xs text-(--color-expense)">{error}</p>}
     </div>
   );
 }

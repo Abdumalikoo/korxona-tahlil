@@ -1,13 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { expensesApi, type CreateExpensePayload } from '@/features/expenses/api';
 import { referencesApi } from '@/features/shared/references';
 import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
+import { recallForm, rememberForm } from '@/lib/form-memory';
+import { useSaveShortcut } from '@/lib/use-save-shortcut';
 import { useAuth } from '@/lib/auth-context';
 import { formatSum, sumToTiyin, todayInput } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -76,6 +78,10 @@ function emptyForm(): FormState {
 
 export default function NewExpensePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  /** Qaysi bo'limdan kelindi - yozuv shu bo'limga tushadi */
+  const section = searchParams.get('section') === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY';
+  const backHref = section === 'BOSHQA' ? '/xarajatlar/boshqa' : '/xarajatlar/doimiy';
   const { isAdmin } = useAuth();
 
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -92,6 +98,23 @@ export default function NewExpensePage() {
   const departments = useAsync(() => referencesApi.departments(), []);
   const categories = useAsync(() => referencesApi.expenseLeaves(), []);
   const tree = useAsync(() => referencesApi.expenseTree(), []);
+
+  // Oldingi safardagi bo'lim va to'lov usuli o'zi turadi
+  useEffect(() => {
+    const last = recallForm<Pick<FormState, 'departmentId' | 'paymentMethod'>>('expense');
+    setForm((state) => ({
+      ...state,
+      ...(typeof last.departmentId === 'string' ? { departmentId: last.departmentId } : {}),
+      ...(last.paymentMethod ? { paymentMethod: last.paymentMethod } : {}),
+    }));
+  }, []);
+
+  // Ctrl+S — saqlash, Ctrl+Enter — saqlash va yana
+  useSaveShortcut(
+    () => void save(false),
+    () => void save(true),
+    !saving,
+  );
 
   // Kuzatuvchi bu sahifaga kira olmaydi
   useEffect(() => {
@@ -165,6 +188,7 @@ export default function NewExpensePage() {
       ...(form.dueDate ? { dueDate: form.dueDate } : {}),
       ...(form.responsible.trim() ? { responsible: form.responsible.trim() } : {}),
       ...(form.vat !== null ? { vatTiyin: sumToTiyin(form.vat) } : {}),
+      section,
     };
   }
 
@@ -185,6 +209,7 @@ export default function NewExpensePage() {
 
     try {
       await expensesApi.create(buildPayload());
+      rememberForm('expense', { departmentId: form.departmentId, paymentMethod: form.paymentMethod });
 
       if (keepOpen) {
         // Sana va bo'lim saqlanadi - ketma-ket kiritishda ular odatda bir xil
@@ -197,7 +222,7 @@ export default function NewExpensePage() {
         setToast({ message: 'Saqlandi', tone: 'success' });
         setSaving(false);
       } else {
-        router.push('/xarajatlar');
+        router.push(backHref);
       }
     } catch (err) {
       setToast({
@@ -224,10 +249,10 @@ export default function NewExpensePage() {
   return (
     <>
       <PageHeader
-        title="Yangi xarajat"
+        title={section === 'BOSHQA' ? 'Yangi xarajat · Boshqa' : 'Yangi xarajat · Doimiy'}
         description="Yulduzcha bilan belgilangan maydonlar majburiy"
         actions={
-          <Link href="/xarajatlar">
+          <Link href={backHref}>
             <Button variant="ghost" size="sm">
               Bekor qilish
             </Button>
@@ -311,7 +336,7 @@ export default function NewExpensePage() {
               </div>
 
               {/* ─────────── Qo'shimcha ─────────── */}
-              <div className="border-t border-[--color-line] pt-4">
+              <div className="border-t border-(--color-line) pt-4">
                 <button
                   type="button"
                   onClick={() => setExtraOpen((state) => !state)}
@@ -373,7 +398,7 @@ export default function NewExpensePage() {
                     </div>
 
                     <div>
-                      <label className="mb-1.5 block text-sm font-medium text-[--color-text]">
+                      <label className="mb-1.5 block text-sm font-medium text-(--color-text)">
                         Tavsif
                       </label>
                       <textarea
@@ -382,7 +407,7 @@ export default function NewExpensePage() {
                         rows={3}
                         maxLength={500}
                         disabled={saving}
-                        className="w-full rounded-[--radius-control] border border-[--color-line-strong] bg-white px-3 py-2 text-sm placeholder:text-[--color-text-faint] focus:border-brand-600 disabled:bg-[--color-surface-sunken]"
+                        className="w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3 py-2 text-sm placeholder:text-(--color-text-faint) focus:border-brand-600 disabled:bg-(--color-surface-sunken)"
                         placeholder="Qo&apos;shimcha izoh"
                       />
                     </div>
@@ -397,11 +422,12 @@ export default function NewExpensePage() {
                 variant="secondary"
                 onClick={() => void save(true)}
                 loading={saving}
+                title="Ctrl+Enter"
               >
                 Saqlash va yana
               </Button>
 
-              <Button type="submit" loading={saving}>
+              <Button type="submit" loading={saving} title="Ctrl+S">
                 Saqlash
               </Button>
             </CardFooter>

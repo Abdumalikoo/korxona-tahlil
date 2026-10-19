@@ -45,7 +45,7 @@ export function DonutChart({ slices, totalTiyin, size = 200 }: DonutChartProps) 
   if (slices.length === 0) {
     return (
       <div
-        className="flex items-center justify-center text-sm text-[--color-text-muted]"
+        className="flex items-center justify-center text-sm text-(--color-text-muted)"
         style={{ height: size }}
       >
         Ma&apos;lumot yo&apos;q
@@ -103,7 +103,7 @@ export function DonutChart({ slices, totalTiyin, size = 200 }: DonutChartProps) 
               <span className="money text-sm font-semibold">
                 {formatPercent(active.sharePercent)}
               </span>
-              <span className="mt-0.5 max-w-24 truncate text-center text-[10px] text-[--color-text-muted]">
+              <span className="mt-0.5 max-w-24 truncate text-center text-[10px] text-(--color-text-muted)">
                 {active.label}
               </span>
             </>
@@ -112,7 +112,7 @@ export function DonutChart({ slices, totalTiyin, size = 200 }: DonutChartProps) 
               <span className="money text-sm font-semibold">
                 {formatTiyin(totalTiyin)}
               </span>
-              <span className="text-[10px] text-[--color-text-muted]">jami</span>
+              <span className="text-[10px] text-(--color-text-muted)">jami</span>
             </>
           )}
         </div>
@@ -127,7 +127,7 @@ export function DonutChart({ slices, totalTiyin, size = 200 }: DonutChartProps) 
             onMouseEnter={() => setHovered(segment.key)}
             onMouseLeave={() => setHovered(null)}
             className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors ${
-              hovered === segment.key ? 'bg-[--color-surface-sunken]' : ''
+              hovered === segment.key ? 'bg-(--color-surface-sunken)' : ''
             }`}
           >
             <span
@@ -137,7 +137,7 @@ export function DonutChart({ slices, totalTiyin, size = 200 }: DonutChartProps) 
 
             <span className="min-w-0 flex-1 truncate text-xs">{segment.label}</span>
 
-            <span className="money shrink-0 text-xs text-[--color-text-muted]">
+            <span className="money shrink-0 text-xs text-(--color-text-muted)">
               {formatPercent(segment.sharePercent)}
             </span>
 

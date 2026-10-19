@@ -22,6 +22,7 @@ import type { CategoryTree, Category } from '@/lib/types';
 
 const tabs = [
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
+  { href: '/sozlamalar/komponentlar', label: 'Ish haqi komponentlari' },
   { href: '/sozlamalar/savat', label: 'Savat' },
   { href: '/sozlamalar/tarix', label: 'Tarix' },
   { href: '/sozlamalar/tekshiruv', label: 'Tekshiruv' },
@@ -99,17 +100,17 @@ export default function ExpenseSettingsPage() {
 
       <div className="space-y-4 p-6">
         <div className="flex items-center justify-between">
-          <p className="text-sm text-[--color-text-muted]">
+          <p className="text-sm text-(--color-text-muted)">
             Kategoriya nomini, turini va qamrovini o&rsquo;zgartirish mumkin. Kod
             o&rsquo;zgarmaydi &mdash; unga yozuvlar bog&rsquo;langan.
           </p>
 
-          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-[--color-text-muted]">
+          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-(--color-text-muted)">
             <input
               type="checkbox"
               checked={showInactive}
               onChange={(event) => setShowInactive(event.target.checked)}
-              className="size-4 rounded border-[--color-line-strong]"
+              className="size-4 rounded border-(--color-line-strong)"
             />
             Arxivlanganlar
           </label>
@@ -169,7 +170,7 @@ interface GroupCardProps {
 function GroupCard({ group, open, onToggle, onEdit, onArchive, onAddChild }: GroupCardProps) {
   return (
     <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-[--color-line] px-4 py-3">
+      <div className="flex items-center gap-2 border-b border-(--color-line) px-4 py-3">
         <button
           type="button"
           onClick={onToggle}
@@ -177,12 +178,12 @@ function GroupCard({ group, open, onToggle, onEdit, onArchive, onAddChild }: Gro
         >
           <IconChevronDown
             className={cn(
-              'size-4 shrink-0 text-[--color-text-muted] transition-transform',
+              'size-4 shrink-0 text-(--color-text-muted) transition-transform',
               !open && '-rotate-90',
             )}
           />
           <span className="truncate text-sm font-semibold">{group.label}</span>
-          <span className="shrink-0 text-xs text-[--color-text-faint]">
+          <span className="shrink-0 text-xs text-(--color-text-faint)">
             {group.children.length} ta
           </span>
           {!group.isActive && <Badge tone="neutral">Arxiv</Badge>}
@@ -199,16 +200,16 @@ function GroupCard({ group, open, onToggle, onEdit, onArchive, onAddChild }: Gro
       </div>
 
       {open && (
-        <div className="divide-y divide-[--color-line]">
+        <div className="divide-y divide-(--color-line)">
           {group.children.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-[--color-text-muted]">
+            <p className="px-4 py-6 text-center text-sm text-(--color-text-muted)">
               Bu guruhda modda yo&rsquo;q
             </p>
           ) : (
             group.children.map((item) => (
               <div
                 key={item.code}
-                className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[--color-surface-muted]"
+                className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-(--color-surface-muted)"
               >
                 <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
 
@@ -216,7 +217,7 @@ function GroupCard({ group, open, onToggle, onEdit, onArchive, onAddChild }: Gro
 
                 <BehaviorBadge behavior={item.behavior} />
 
-                <span className="w-28 shrink-0 text-xs text-[--color-text-muted]">
+                <span className="w-28 shrink-0 text-xs text-(--color-text-muted)">
                   {item.scope === 'DEPARTMENT' ? "Bo'limga" : 'Umumkorxona'}
                 </span>
 
@@ -230,7 +231,7 @@ function GroupCard({ group, open, onToggle, onEdit, onArchive, onAddChild }: Gro
                       variant="ghost"
                       size="sm"
                       onClick={() => onArchive(item)}
-                      className="text-[--color-text-muted] hover:text-[--color-expense]"
+                      className="text-(--color-text-muted) hover:text-(--color-expense)"
                     >
                       Arxiv
                     </Button>

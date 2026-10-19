@@ -30,10 +30,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       {label && (
         <label
           htmlFor={selectId}
-          className="mb-1.5 block text-sm font-medium text-[--color-text]"
+          className="mb-1.5 block text-sm font-medium text-(--color-text)"
         >
           {label}
-          {required && <span className="ml-0.5 text-[--color-expense]">*</span>}
+          {required && <span className="ml-0.5 text-(--color-expense)">*</span>}
         </label>
       )}
 
@@ -44,13 +44,13 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           required={required}
           aria-invalid={error ? true : undefined}
           className={cn(
-            'h-10 w-full appearance-none rounded-[--radius-control] border bg-white',
+            'h-10 w-full appearance-none rounded-(--radius-control) border bg-white',
             'px-3 pr-9 text-sm',
             'transition-colors duration-150',
-            'disabled:cursor-not-allowed disabled:bg-[--color-surface-sunken]',
+            'disabled:cursor-not-allowed disabled:bg-(--color-surface-sunken)',
             error
-              ? 'border-[--color-expense] focus:border-[--color-expense]'
-              : 'border-[--color-line-strong] focus:border-brand-600',
+              ? 'border-(--color-expense) focus:border-(--color-expense)'
+              : 'border-(--color-line-strong) focus:border-brand-600',
             className,
           )}
           {...props}
@@ -67,13 +67,13 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           ))}
         </select>
 
-        <IconChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[--color-text-muted]" />
+        <IconChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-(--color-text-muted)" />
       </div>
 
       {error ? (
-        <p className="mt-1 text-xs text-[--color-expense]">{error}</p>
+        <p className="mt-1 text-xs text-(--color-expense)">{error}</p>
       ) : hint ? (
-        <p className="mt-1 text-xs text-[--color-text-muted]">{hint}</p>
+        <p className="mt-1 text-xs text-(--color-text-muted)">{hint}</p>
       ) : null}
     </div>
   );

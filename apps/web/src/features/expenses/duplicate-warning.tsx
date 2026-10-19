@@ -18,12 +18,12 @@ export function DuplicateWarning({ items }: DuplicateWarningProps) {
   if (items.length === 0) return null;
 
   return (
-    <div className="rounded-[--radius-control] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+    <div className="rounded-(--radius-control) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
       <div className="flex items-start gap-2.5">
-        <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+        <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-[--color-warn]">
+          <p className="text-sm font-medium text-(--color-warn)">
             {items.length === 1
               ? "Shunday yozuv allaqachon bor"
               : `Shunday ${items.length} ta yozuv bor`}
@@ -33,7 +33,7 @@ export function DuplicateWarning({ items }: DuplicateWarningProps) {
             {items.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center gap-2 text-xs text-[--color-text-muted]"
+                className="flex items-center gap-2 text-xs text-(--color-text-muted)"
               >
                 <span className="money">{formatDate(item.date)}</span>
                 <span>&middot;</span>
@@ -52,7 +52,7 @@ export function DuplicateWarning({ items }: DuplicateWarningProps) {
             ))}
           </div>
 
-          <p className="mt-2 text-xs text-[--color-text-muted]">
+          <p className="mt-2 text-xs text-(--color-text-muted)">
             Agar bu boshqa xarajat bo&rsquo;lsa, saqlashda davom eting.
           </p>
         </div>

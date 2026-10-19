@@ -1,0 +1,4263 @@
+﻿RUYXAT INFO
+
+===== apps\api\src\modules\expenses\expenses-export.service.ts =====
+import { Injectable } from '@nestjs/common';
+import ExcelJS from 'exceljs';
+import { PrismaService } from '../prisma/prisma.service';
+import type { QueryExpenseDto } from './dto/query-expense.dto';
+import { ExpensesService } from './expenses.service';
+
+const TASHKENT_OFFSET_HOURS = 5;
+
+const PAYMENT_METHODS: Record<string, string> = {
+  BANK: 'Bank otkazmasi',
+  CASH: 'Naqd pul',
+  CARD: 'Plastik karta',
+  OTHER: 'Boshqa',
+};
+
+const PAYMENT_STATUSES: Record<string, string> = {
+  PAID: 'Tolangan',
+  UNPAID: 'Tolanmagan',
+  PARTIAL: 'Qisman tolangan',
+};
+
+const BEHAVIORS: Record<string, string> = {
+  FIXED: 'Doimiy',
+  VARIABLE: 'Ozgaruvchan',
+  MIXED: 'Aralash',
+};
+
+const MONTHS = [
+  'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
+  'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr',
+];
+
+@Injectable()
+export class ExpensesExportService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly expenses: ExpensesService,
+  ) {}
+
+  /** Tiyinni songa ogiradi - Excel da pul formati uchun */
+  private toSum(tiyin: bigint | null): number {
+    if (tiyin === null) return 0;
+    return Number(tiyin) / 100;
+  }
+
+  /** UTC sanani Toshkent kuniga keltiradi */
+  private toLocalDate(date: Date | null): Date | null {
+    if (!date) return null;
+    return new Date(date.getTime() + TASHKENT_OFFSET_HOURS * 3600000);
+  }
+
+  private periodLabel(period: string): string {
+    const match = /^(\d{4})-(\d{2})$/.exec(period);
+    if (!match) return period;
+    return `${MONTHS[Number(match[2]) - 1]} ${match[1]}`;
+  }
+
+  async build(query: QueryExpenseDto): Promise<{ buffer: Buffer; filename: string }> {
+    // Sahifalashsiz - barcha yozuvlar
+    const all = await this.expenses.findAll({ ...query, page: 1, limit: 100000 });
+    const summary = await this.expenses.summaryByCategory(query);
+    const byDepartment = await this.expenses.summaryByDepartment(query);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+    workbook.created = new Date();
+
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ 1-varaq: Yozuvlar в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+    const sheet = workbook.addWorksheet('Xarajatlar', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+
+    sheet.columns = [
+      { header: 'Sana', key: 'date', width: 12 },
+      { header: 'Davr', key: 'period', width: 10 },
+      { header: 'Kategoriya', key: 'category', width: 28 },
+      { header: 'Turi', key: 'behavior', width: 14 },
+      { header: 'Bolim', key: 'department', width: 22 },
+      { header: 'Summa', key: 'amount', width: 16 },
+      { header: 'QQS', key: 'vat', width: 14 },
+      { header: 'Tolov usuli', key: 'method', width: 16 },
+      { header: 'Holat', key: 'status', width: 16 },
+      { header: 'Tolov muddati', key: 'dueDate', width: 14 },
+      { header: 'Kontragent', key: 'counterparty', width: 24 },
+      { header: 'Hujjat raqami', key: 'documentNo', width: 16 },
+      { header: 'Javobgar', key: 'responsible', width: 20 },
+      { header: 'Tavsif', key: 'description', width: 36 },
+      { header: 'Kiritgan', key: 'createdBy', width: 20 },
+    ];
+
+    for (const item of all.items) {
+      const record = item as typeof item & {
+        category: { label: string; behavior: string };
+        department: { name: string } | null;
+        createdBy: { fullName: string } | null;
+        vatTiyin: bigint | null;
+        dueDate: Date | null;
+        responsible: string | null;
+      };
+
+      sheet.addRow({
+        date: this.toLocalDate(record.date),
+        period: record.period,
+        category: record.category.label,
+        behavior: BEHAVIORS[record.category.behavior] ?? record.category.behavior,
+        department: record.department?.name ?? 'Umumkorxona',
+        amount: this.toSum(record.amountTiyin),
+        vat: record.vatTiyin ? this.toSum(record.vatTiyin) : null,
+        method: PAYMENT_METHODS[record.paymentMethod] ?? record.paymentMethod,
+        status: PAYMENT_STATUSES[record.paymentStatus] ?? record.paymentStatus,
+        dueDate: this.toLocalDate(record.dueDate),
+        counterparty: record.counterparty ?? '',
+        documentNo: record.documentNo ?? '',
+        responsible: record.responsible ?? '',
+        description: record.description ?? '',
+        createdBy: record.createdBy?.fullName ?? '',
+      });
+    }
+
+    this.styleHeader(sheet);
+    this.styleMoneyColumn(sheet, 'F');
+    this.styleMoneyColumn(sheet, 'G');
+    this.styleDateColumn(sheet, 'A');
+    this.styleDateColumn(sheet, 'J');
+
+    // Yigindi qatori
+    const totalRow = sheet.addRow({
+      category: 'JAMI',
+      amount: this.toSum(all.meta.sumTiyin as bigint),
+    });
+    totalRow.font = { bold: true };
+    totalRow.getCell('F').numFmt = '#,##0';
+    totalRow.eachCell((cell) => {
+      cell.border = { top: { style: 'medium' } };
+    });
+
+    sheet.autoFilter = { from: 'A1', to: `O${sheet.rowCount - 1}` };
+
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ 2-varaq: Kategoriya kesimi в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+    const catSheet = workbook.addWorksheet('Kategoriyalar');
+
+    catSheet.columns = [
+      { header: 'Kategoriya', key: 'label', width: 32 },
+      { header: 'Turi', key: 'behavior', width: 14 },
+      { header: 'Yozuvlar soni', key: 'count', width: 14 },
+      { header: 'Summa', key: 'amount', width: 18 },
+      { header: 'Ulush, %', key: 'share', width: 12 },
+    ];
+
+    for (const row of summary.rows) {
+      catSheet.addRow({
+        label: row.label,
+        behavior: row.behavior ? (BEHAVIORS[row.behavior] ?? row.behavior) : '',
+        count: row.count,
+        amount: this.toSum(row.amountTiyin),
+        share: row.sharePercent / 100,
+      });
+    }
+
+    this.styleHeader(catSheet);
+    this.styleMoneyColumn(catSheet, 'D');
+    catSheet.getColumn('E').numFmt = '0.0%';
+
+    const catTotal = catSheet.addRow({
+      label: 'JAMI',
+      amount: this.toSum(summary.totalTiyin),
+      share: 1,
+    });
+    catTotal.font = { bold: true };
+    catTotal.getCell('D').numFmt = '#,##0';
+    catTotal.getCell('E').numFmt = '0.0%';
+    catTotal.eachCell((cell) => {
+      cell.border = { top: { style: 'medium' } };
+    });
+
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ 3-varaq: Bolimlar в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+    const depSheet = workbook.addWorksheet('Bolimlar');
+
+    depSheet.columns = [
+      { header: 'Bolim', key: 'name', width: 28 },
+      { header: 'Yozuvlar soni', key: 'count', width: 14 },
+      { header: 'Summa', key: 'amount', width: 18 },
+      { header: 'Ulush, %', key: 'share', width: 12 },
+    ];
+
+    for (const row of byDepartment.rows) {
+      depSheet.addRow({
+        name: row.name,
+        count: row.count,
+        amount: this.toSum(row.amountTiyin),
+        share: row.sharePercent / 100,
+      });
+    }
+
+    this.styleHeader(depSheet);
+    this.styleMoneyColumn(depSheet, 'C');
+    depSheet.getColumn('D').numFmt = '0.0%';
+
+    const depTotal = depSheet.addRow({
+      name: 'JAMI',
+      amount: this.toSum(byDepartment.totalTiyin),
+      share: 1,
+    });
+    depTotal.font = { bold: true };
+    depTotal.getCell('C').numFmt = '#,##0';
+    depTotal.getCell('D').numFmt = '0.0%';
+    depTotal.eachCell((cell) => {
+      cell.border = { top: { style: 'medium' } };
+    });
+
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Fayl nomi в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+    const periodPart = query.period
+      ? this.periodLabel(query.period).replace(' ', '-')
+      : 'barcha-davrlar';
+
+    const filename = `Xarajatlar_${periodPart}.xlsx`;
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    return { buffer: Buffer.from(arrayBuffer), filename };
+  }
+
+  // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Uslub yordamchilari в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+  private styleHeader(sheet: ExcelJS.Worksheet): void {
+    const header = sheet.getRow(1);
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    header.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1E40AF' },
+    };
+    header.alignment = { vertical: 'middle' };
+    header.height = 22;
+  }
+
+  private styleMoneyColumn(sheet: ExcelJS.Worksheet, column: string): void {
+    sheet.getColumn(column).numFmt = '#,##0';
+    sheet.getColumn(column).alignment = { horizontal: 'right' };
+  }
+
+  private styleDateColumn(sheet: ExcelJS.Worksheet, column: string): void {
+    sheet.getColumn(column).numFmt = 'dd.mm.yyyy';
+  }
+}
+
+
+===== apps\api\src\modules\expenses\expenses.controller.ts =====
+import {
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import { UserRole } from '@prisma/client';
+import { CurrentUser, Roles } from '../../common/decorators';
+import { CreateExpenseDto } from './dto/create-expense.dto';
+import { QueryExpenseDto } from './dto/query-expense.dto';
+import { UpdateExpenseDto } from './dto/update-expense.dto';
+import type { Response } from 'express';
+import { ExpensesService } from './expenses.service';
+import { ExpensesExportService } from './expenses-export.service';
+
+@Controller('expenses')
+export class ExpensesController {
+  constructor(
+    private readonly expenses: ExpensesService,
+    private readonly exportService: ExpensesExportService,
+  ) {}
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Tahlil (":id" dan oldin turishi shart) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+  @Get('export')
+  async exportExcel(@Query() query: QueryExpenseDto, @Res() response: Response) {
+    const { buffer, filename } = await this.exportService.build(query);
+
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"`,
+    );
+    response.send(buffer);
+  }
+
+  @Get('similar')
+  async similar(
+    @Query('date') date: string,
+    @Query('amountTiyin', ParseIntPipe) amountTiyin: number,
+    @Query('categoryCode') categoryCode: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    const data = await this.expenses.findSimilar({
+      date,
+      amountTiyin,
+      categoryCode,
+      excludeId,
+    });
+    return { data };
+  }
+
+  /** Savatdagi yozuvlar */
+  @Get('deleted')
+  async deleted(@Query('period') period?: string) {
+    const data = await this.expenses.findDeleted(period);
+    return { data };
+  }
+
+  /** Filtrga nechta yozuv mos kelishi */
+  @Get('count')
+  async count(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.countByFilter(query);
+    return { data };
+  }
+
+  @Get('spikes')
+  async spikes(
+    @Query('period') period: string,
+    @Query('threshold', new DefaultValuePipe(30), ParseIntPipe) threshold: number,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const data = await this.expenses.spikes(period, threshold, departmentId);
+    return { data };
+  }
+
+  @Get('summary/category')
+  async summaryByCategory(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.summaryByCategory(query);
+    return { data };
+  }
+
+  @Get('summary/department')
+  async summaryByDepartment(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.summaryByDepartment(query);
+    return { data };
+  }
+
+  /** Ildiz guruhlar kesimi - 9 ta guruh */
+  /** Daraxt korinishidagi tarkib */
+  @Get('breakdown')
+  async breakdown(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.breakdown(query);
+    return { data };
+  }
+
+  @Get('summary/group')
+  async summaryByGroup(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.summaryByGroup(query);
+    return { data };
+  }
+
+  /** Eng katta yozuvlar */
+  @Get('top')
+  async topExpenses(
+    @Query() query: QueryExpenseDto,
+    @Query('limit', new DefaultValuePipe(5), ParseIntPipe) limit: number,
+  ) {
+    const data = await this.expenses.topExpenses(query, Math.min(limit, 20));
+    return { data };
+  }
+
+  @Get('summary/region')
+  async summaryByRegion(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.summaryByRegion(query);
+    return { data };
+  }
+
+  @Get('summary/behavior')
+  async summaryByBehavior(@Query() query: QueryExpenseDto) {
+    const data = await this.expenses.summaryByBehavior(query);
+    return { data };
+  }
+
+  @Get('trend')
+  async trend(
+    @Query('months', new DefaultValuePipe(12), ParseIntPipe) months: number,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const data = await this.expenses.monthlyTrend(Math.min(months, 60), departmentId);
+    return { data };
+  }
+
+  @Get('comparison')
+  async comparison(
+    @Query('period') period: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const data = await this.expenses.comparison(period, departmentId);
+    return { data };
+  }
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ CRUD в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+  @Get()
+  async findAll(@Query() query: QueryExpenseDto) {
+    const result = await this.expenses.findAll(query);
+    return { data: result.items, meta: result.meta };
+  }
+
+  @Get(':id')
+  async findOne(@Param('id') id: string) {
+    const data = await this.expenses.findOne(id);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post()
+  async create(@Body() dto: CreateExpenseDto, @CurrentUser('id') userId: string) {
+    const data = await this.expenses.create(dto, userId);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Patch(':id')
+  async update(@Param('id') id: string, @Body() dto: UpdateExpenseDto) {
+    const data = await this.expenses.update(id, dto);
+    return { data };
+  }
+
+  /** Bir nechta yozuvni birdan ochirish */
+  @Roles(UserRole.ADMIN)
+  @Post('bulk-delete')
+  @HttpCode(HttpStatus.OK)
+  async removeMany(
+    @Body() body: { ids: string[] },
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.expenses.removeMany(body?.ids ?? [], userId);
+    return { data };
+  }
+
+  /** Filtrga mos hamma yozuvni ochirish */
+  @Roles(UserRole.ADMIN)
+  @Post('delete-by-filter')
+  @HttpCode(HttpStatus.OK)
+  async removeByFilter(
+    @Query() query: QueryExpenseDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.expenses.removeByFilter(query, userId);
+    return { data };
+  }
+
+  /** Savatdan tiklash */
+  @Roles(UserRole.ADMIN)
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  async restore(@Param('id') id: string) {
+    const data = await this.expenses.restore(id);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  async remove(@Param('id') id: string) {
+    const data = await this.expenses.remove(id);
+    return { data };
+  }
+}
+
+
+===== apps\api\src\modules\expenses\expenses.module.ts =====
+import { Module } from "@nestjs/common";
+import { ExpensesService } from "./expenses.service";
+import { ExpensesExportService } from "./expenses-export.service";
+import { ExpensesController } from "./expenses.controller";
+import { SimpleImportService } from "./simple-import.service";
+import { SimpleImportController } from "./simple-import.controller";
+
+@Module({
+  controllers: [ExpensesController, SimpleImportController],
+  providers: [ExpensesService, ExpensesExportService, SimpleImportService],
+  exports: [ExpensesService],
+})
+export class ExpensesModule {}
+
+===== apps\api\src\modules\expenses\expenses.service.ts =====
+import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
+import type { Prisma, Expense } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+import { AuditService } from "../audit/audit.service";
+import type { CreateExpenseDto } from "./dto/create-expense.dto";
+import type { UpdateExpenseDto } from "./dto/update-expense.dto";
+import type { QueryExpenseDto } from "./dto/query-expense.dto";
+
+const DEFAULT_LIMIT = 50;
+const TASHKENT_OFFSET_HOURS = 5;
+
+@Injectable()
+export class ExpensesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  // --------- Yordamchilar ---------
+
+  /**
+   * ISO sanani Toshkent kuni boshiga tenglashtirilgan UTC ga ogiradi.
+   * Buxgalter tunda kiritsa ham yozuv togri kunga tushishi uchun.
+   */
+  private toStoredDate(iso: string): Date {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    if (!match) {
+      throw new BadRequestException("Sana notogri formatda");
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+
+    return new Date(Date.UTC(year, month - 1, day, -TASHKENT_OFFSET_HOURS, 0, 0, 0));
+  }
+
+  /** Sanadan davr kalitini hisoblaydi: "2026-09" */
+  private toPeriod(iso: string): string {
+    const match = /^(\d{4})-(\d{2})/.exec(iso);
+    if (!match) {
+      throw new BadRequestException("Sana notogri formatda");
+    }
+    return `${match[1]}-${match[2]}`;
+  }
+
+  /**
+   * Kategoriya yozuv kiritish uchun yaroqli ekanini tekshiradi.
+   * Ota-kategoriyaga yozish taqiqlangan - aks holda yigindilar ikki marta sanaladi.
+   */
+  private async assertWritableCategory(code: string): Promise<void> {
+    const category = await this.prisma.category.findUnique({
+      where: { code },
+      select: { isLeaf: true, isActive: true, label: true },
+    });
+
+    if (!category) {
+      throw new BadRequestException("Kategoriya topilmadi");
+    }
+    if (!category.isActive) {
+      throw new BadRequestException(`"${category.label}" kategoriyasi arxivlangan`);
+    }
+    if (!category.isLeaf) {
+      throw new BadRequestException(
+        `"${category.label}" - bosh kategoriya. Uning ichidagi aniq moddani tanlang`,
+      );
+    }
+  }
+
+  private async assertDepartmentExists(id: string): Promise<void> {
+    const department = await this.prisma.department.findUnique({
+      where: { id },
+      select: { isActive: true },
+    });
+
+    if (!department) {
+      throw new BadRequestException("Bolim topilmadi");
+    }
+    if (!department.isActive) {
+      throw new BadRequestException("Bolim arxivlangan");
+    }
+  }
+
+  /** Filtrlardan Prisma where shartini quradi */
+  private async buildWhere(query: QueryExpenseDto): Promise<Prisma.ExpenseWhereInput> {
+    const where: Prisma.ExpenseWhereInput = { deletedAt: null };
+
+    if (query.section === 'DOIMIY' || query.section === 'BOSHQA') where.section = query.section;
+
+    // Sana oraligi eng aniq filtr - u boshqalardan ustun
+    if (query.dateFrom || query.dateTo) {
+      where.date = {
+        ...(query.dateFrom ? { gte: this.toStoredDate(query.dateFrom) } : {}),
+        ...(query.dateTo ? { lte: this.toStoredDate(query.dateTo) } : {}),
+      };
+    } else if (query.period) {
+      where.period = query.period;
+    } else if (query.periodFrom || query.periodTo) {
+      where.period = {
+        ...(query.periodFrom ? { gte: query.periodFrom } : {}),
+        ...(query.periodTo ? { lte: query.periodTo } : {}),
+      };
+    }
+
+    if (query.departmentId) {
+      where.departmentId = query.departmentId;
+    }
+
+    if (query.regionCode !== undefined) {
+      where.regionCode = query.regionCode;
+    }
+
+    if (query.categoryCode) {
+      where.categoryCode = query.categoryCode;
+    } else if (query.rootCategoryCode) {
+      // Ildiz kategoriya berilsa - barcha bolalarini qamraymiz
+      const children = await this.prisma.category.findMany({
+        where: { parentCode: query.rootCategoryCode },
+        select: { code: true },
+      });
+      where.categoryCode = { in: children.map((c) => c.code) };
+    }
+
+    if (query.paymentMethod) {
+      where.paymentMethod = query.paymentMethod;
+    }
+
+    if (query.paymentStatus) {
+      where.paymentStatus = query.paymentStatus;
+    }
+
+    if (query.search?.trim()) {
+      const term = query.search.trim();
+      where.OR = [
+        { description: { contains: term, mode: "insensitive" } },
+        { counterparty: { contains: term, mode: "insensitive" } },
+        { documentNo: { contains: term, mode: "insensitive" } },
+        { responsible: { contains: term, mode: "insensitive" } },
+      ];
+    }
+
+    return where;
+  }
+
+  /**
+   * Saralash tartibini quradi.
+   * Korsatilmasa - sana boyicha kamayish (eng yangisi tepada).
+   */
+  private buildOrderBy(query: QueryExpenseDto): Prisma.ExpenseOrderByWithRelationInput[] {
+    const order = query.sortOrder ?? "desc";
+
+    switch (query.sortBy) {
+      case "amountTiyin":
+        return [{ amountTiyin: order }, { date: "desc" }];
+      case "categoryCode":
+        return [{ categoryCode: order }, { date: "desc" }];
+      case "createdAt":
+        return [{ createdAt: order }];
+      case "date":
+        return [{ date: order }, { createdAt: "desc" }];
+      default:
+        return [{ date: "desc" }, { createdAt: "desc" }];
+    }
+  }
+
+  // --------- Asosiy amallar ---------
+
+  async create(dto: CreateExpenseDto, userId: string): Promise<Expense> {
+    await this.assertWritableCategory(dto.categoryCode);
+
+    if (dto.departmentId) {
+      await this.assertDepartmentExists(dto.departmentId);
+    }
+
+    // QQS umumiy summadan oshmasligi kerak
+    if (dto.vatTiyin !== undefined && dto.vatTiyin > dto.amountTiyin) {
+      throw new BadRequestException("QQS summasi umumiy summadan katta bolishi mumkin emas");
+    }
+
+    return this.prisma.expense.create({
+      data: {
+        date: this.toStoredDate(dto.date),
+        period: this.toPeriod(dto.date),
+        amountTiyin: BigInt(dto.amountTiyin),
+        categoryCode: dto.categoryCode,
+        departmentId: dto.departmentId ?? null,
+        description: dto.description ?? null,
+        paymentMethod: dto.paymentMethod ?? "BANK",
+        documentNo: dto.documentNo ?? null,
+        counterparty: dto.counterparty ?? null,
+        paymentStatus: dto.paymentStatus ?? "PAID",
+        dueDate: dto.dueDate ? this.toStoredDate(dto.dueDate) : null,
+        responsible: dto.responsible ?? null,
+        vatTiyin: dto.vatTiyin !== undefined ? BigInt(dto.vatTiyin) : null,
+        source: "MANUAL",
+        section: dto.section === "BOSHQA" ? "BOSHQA" : "DOIMIY",
+        createdById: userId,
+      },
+      include: {
+        category: { select: { code: true, label: true, behavior: true } },
+        department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+  }
+
+  /**
+   * Oxshash yozuv bor-yoqligini tekshiradi.
+   *
+   * Bir xil sana, summa va kategoriya - dublikat belgisi.
+   * Bu tosiq emas, ogohlantirish: bir kunda ikkita taksi
+   * chindan ham bolishi mumkin.
+   */
+  async findSimilar(params: {
+    date: string;
+    amountTiyin: number;
+    categoryCode: string;
+    excludeId?: string;
+  }) {
+    const items = await this.prisma.expense.findMany({
+      where: {
+        deletedAt: null,
+        date: this.toStoredDate(params.date),
+        amountTiyin: BigInt(params.amountTiyin),
+        categoryCode: params.categoryCode,
+        ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+      },
+      take: 5,
+      orderBy: { createdAt: "desc" },
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+
+    return { items, count: items.length };
+  }
+
+  async findAll(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? DEFAULT_LIMIT;
+
+    const [items, total, sum, unpaid] = await Promise.all([
+      this.prisma.expense.findMany({
+        where,
+        orderBy: this.buildOrderBy(query),
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          category: { select: { code: true, label: true, behavior: true } },
+          department: { select: { id: true, code: true, name: true } },
+          region: { select: { code: true, name: true } },
+          createdBy: { select: { id: true, fullName: true } },
+        },
+      }),
+      this.prisma.expense.count({ where }),
+      this.prisma.expense.aggregate({ where, _sum: { amountTiyin: true } }),
+      this.prisma.expense.aggregate({
+        where: { ...where, paymentStatus: { in: ["UNPAID", "PARTIAL"] } },
+        _sum: { amountTiyin: true },
+        _count: { _all: true },
+      }),
+    ]);
+
+    return {
+      items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        sumTiyin: sum._sum.amountTiyin ?? 0n,
+        /** Tolanmagan va qisman tolangan xarajatlar - kreditorlik qarzi */
+        unpaidTiyin: unpaid._sum.amountTiyin ?? 0n,
+        unpaidCount: unpaid._count._all,
+      },
+    };
+  }
+
+  async findOne(id: string): Promise<Expense> {
+    const expense = await this.prisma.expense.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        category: { select: { code: true, label: true, behavior: true, parentCode: true } },
+        department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+
+    if (!expense) {
+      throw new NotFoundException("Xarajat yozuvi topilmadi");
+    }
+
+    return expense;
+  }
+
+  async update(id: string, dto: UpdateExpenseDto): Promise<Expense> {
+    await this.findOne(id);
+
+    if (dto.categoryCode) {
+      await this.assertWritableCategory(dto.categoryCode);
+    }
+    if (dto.departmentId) {
+      await this.assertDepartmentExists(dto.departmentId);
+    }
+
+    const data: Prisma.ExpenseUpdateInput = {};
+
+    if (dto.date) {
+      data.date = this.toStoredDate(dto.date);
+      data.period = this.toPeriod(dto.date);
+    }
+    if (dto.amountTiyin !== undefined) {
+      data.amountTiyin = BigInt(dto.amountTiyin);
+    }
+    if (dto.categoryCode) {
+      data.category = { connect: { code: dto.categoryCode } };
+      data.categoryOverridden = true;
+    }
+    if (dto.departmentId !== undefined) {
+      data.department = dto.departmentId
+        ? { connect: { id: dto.departmentId } }
+        : { disconnect: true };
+    }
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.paymentMethod !== undefined) data.paymentMethod = dto.paymentMethod;
+    if (dto.documentNo !== undefined) data.documentNo = dto.documentNo;
+    if (dto.counterparty !== undefined) data.counterparty = dto.counterparty;
+    if (dto.paymentStatus !== undefined) data.paymentStatus = dto.paymentStatus;
+    if (dto.dueDate !== undefined) {
+      data.dueDate = dto.dueDate ? this.toStoredDate(dto.dueDate) : null;
+    }
+    if (dto.responsible !== undefined) data.responsible = dto.responsible;
+    if (dto.vatTiyin !== undefined) data.vatTiyin = BigInt(dto.vatTiyin);
+
+    return this.prisma.expense.update({
+      where: { id },
+      data,
+      include: {
+        category: { select: { code: true, label: true, behavior: true } },
+        department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+  }
+
+  /** Yumshoq ochirish - moliyaviy yozuv butunlay yoqotilmaydi */
+  async remove(id: string): Promise<{ success: true }> {
+    await this.findOne(id);
+
+    await this.prisma.expense.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * Bir nechta yozuvni birdan ochiradi.
+   * Savatga tushadi - 15 kun ichida tiklash mumkin.
+   */
+  async removeMany(ids: string[], userId?: string): Promise<{ count: number }> {
+    if (ids.length === 0) {
+      throw new BadRequestException("Ochirish uchun yozuv tanlanmadi");
+    }
+
+    // Ochirishdan oldin summani olamiz - auditga yozish uchun
+    const before = await this.prisma.expense.aggregate({
+      where: { id: { in: ids }, deletedAt: null },
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    const result = await this.prisma.expense.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+
+    if (userId && result.count > 0) {
+      await this.audit.log({
+        userId,
+        action: "DELETE",
+        entity: "expense",
+        entityId: ids[0] ?? "",
+        changes: {
+          count: { from: null, to: result.count },
+          totalTiyin: {
+            from: null,
+            to: (before._sum.amountTiyin ?? 0n).toString(),
+          },
+        },
+        summary: `${result.count} ta xarajat ochirildi`,
+      });
+    }
+
+    return { count: result.count };
+  }
+
+  /** Filtrga mos barcha yozuvlarni ochiradi */
+  async removeByFilter(
+    query: QueryExpenseDto,
+    userId?: string,
+  ): Promise<{ count: number }> {
+    const where = await this.buildWhere(query);
+
+    const before = await this.prisma.expense.aggregate({
+      where,
+      _sum: { amountTiyin: true },
+    });
+
+    const result = await this.prisma.expense.updateMany({
+      where,
+      data: { deletedAt: new Date() },
+    });
+
+    if (userId && result.count > 0) {
+      await this.audit.log({
+        userId,
+        action: "DELETE",
+        entity: "expense",
+        entityId: query.period ?? "filter",
+        changes: {
+          count: { from: null, to: result.count },
+          totalTiyin: {
+            from: null,
+            to: (before._sum.amountTiyin ?? 0n).toString(),
+          },
+          filter: { from: null, to: JSON.stringify(query) },
+        },
+        summary: `Filtr boyicha ${result.count} ta xarajat ochirildi`,
+      });
+    }
+
+    return { count: result.count };
+  }
+
+  /** Filtrga nechta yozuv mos kelishi - tasdiqlashdan oldin */
+  async countByFilter(query: QueryExpenseDto): Promise<{ count: number }> {
+    const where = await this.buildWhere(query);
+    const count = await this.prisma.expense.count({ where });
+    return { count };
+  }
+
+  /** Ochirilgan yozuvni tiklaydi */
+  async restore(id: string) {
+    const expense = await this.prisma.expense.findUnique({ where: { id } });
+
+    if (!expense) {
+      throw new NotFoundException("Yozuv topilmadi");
+    }
+    if (!expense.deletedAt) {
+      throw new BadRequestException("Bu yozuv ochirilmagan");
+    }
+
+    return this.prisma.expense.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+  }
+
+  /** Savatdagi yozuvlar - 15 kun saqlanadi */
+  async findDeleted(period?: string) {
+    return this.prisma.expense.findMany({
+      where: {
+        deletedAt: { not: null },
+        ...(period ? { period } : {}),
+      },
+      orderBy: { deletedAt: "desc" },
+      take: 200,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+  }
+
+  // --------- Tahlil ---------
+
+  /** Kategoriyalar kesimida yigindi */
+  async summaryByCategory(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+
+    const grouped = await this.prisma.expense.groupBy({
+      by: ["categoryCode"],
+      where,
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    const categories = await this.prisma.category.findMany({
+      select: { code: true, label: true, parentCode: true, behavior: true },
+    });
+    const map = new Map(categories.map((c) => [c.code, c]));
+
+    const total = grouped.reduce((acc, row) => acc + (row._sum.amountTiyin ?? 0n), 0n);
+
+    const rows = grouped
+      .map((row) => {
+        const category = map.get(row.categoryCode);
+        const amount = row._sum.amountTiyin ?? 0n;
+
+        return {
+          categoryCode: row.categoryCode,
+          label: category?.label ?? row.categoryCode,
+          parentCode: category?.parentCode ?? null,
+          behavior: category?.behavior ?? null,
+          amountTiyin: amount,
+          count: row._count._all,
+          /** Ulush foizi, ikki kasr xonasi bilan */
+          sharePercent: total > 0n ? Number((amount * 10000n) / total) / 100 : 0,
+        };
+      })
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    return { rows, totalTiyin: total };
+  }
+
+  /** Bolimlar kesimida yigindi */
+  async summaryByDepartment(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+
+    const grouped = await this.prisma.expense.groupBy({
+      by: ["departmentId"],
+      where,
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    const departments = await this.prisma.department.findMany({
+      select: { id: true, code: true, name: true },
+    });
+    const map = new Map(departments.map((d) => [d.id, d]));
+
+    const total = grouped.reduce((acc, row) => acc + (row._sum.amountTiyin ?? 0n), 0n);
+
+    const rows = grouped
+      .map((row) => {
+        const department = row.departmentId ? map.get(row.departmentId) : null;
+        const amount = row._sum.amountTiyin ?? 0n;
+
+        return {
+          departmentId: row.departmentId,
+          code: department?.code ?? null,
+          name: department?.name ?? "Bolimsiz",
+          amountTiyin: amount,
+          count: row._count._all,
+          sharePercent: total > 0n ? Number((amount * 10000n) / total) / 100 : 0,
+        };
+      })
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    return { rows, totalTiyin: total };
+  }
+
+  /** Hududlar kesimida yigindi */
+  /**
+   * Ildiz guruhlar boyicha yigindi - 9 ta guruh.
+   * Otgan davr bilan solishtirish ham beriladi.
+   */
+  async summaryByGroup(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+    const previousPeriod = query.period
+      ? this.shiftPeriod(query.period, -1)
+      : undefined;
+
+    const [current, previous, categories] = await Promise.all([
+      this.prisma.expense.groupBy({
+        by: ["categoryCode"],
+        where,
+        _sum: { amountTiyin: true },
+        _count: { _all: true },
+      }),
+      previousPeriod
+        ? this.prisma.expense.groupBy({
+            by: ["categoryCode"],
+            where: { ...where, period: previousPeriod },
+            _sum: { amountTiyin: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.category.findMany({
+        select: { code: true, label: true, parentCode: true },
+      }),
+    ]);
+
+    const map = new Map(categories.map((c) => [c.code, c]));
+
+    /** Kategoriyani ildiz guruhiga biriktiradi */
+    const toRoot = (code: string): { code: string; label: string } => {
+      const category = map.get(code);
+      const rootCode = category?.parentCode ?? code;
+      return { code: rootCode, label: map.get(rootCode)?.label ?? rootCode };
+    };
+
+    const groups = new Map<
+      string,
+      { label: string; amount: bigint; count: number; previous: bigint }
+    >();
+
+    for (const row of current) {
+      const root = toRoot(row.categoryCode);
+      const item = groups.get(root.code) ?? {
+        label: root.label,
+        amount: 0n,
+        count: 0,
+        previous: 0n,
+      };
+
+      item.amount += row._sum.amountTiyin ?? 0n;
+      item.count += row._count._all;
+      groups.set(root.code, item);
+    }
+
+    for (const row of previous) {
+      const root = toRoot(row.categoryCode);
+      const item = groups.get(root.code);
+      if (item) item.previous += row._sum.amountTiyin ?? 0n;
+    }
+
+    const total = [...groups.values()].reduce((sum, g) => sum + g.amount, 0n);
+
+    return {
+      rows: [...groups.entries()]
+        .map(([code, value]) => ({
+          code,
+          label: value.label,
+          amountTiyin: value.amount,
+          previousTiyin: value.previous,
+          count: value.count,
+          sharePercent: total > 0n ? Number((value.amount * 10000n) / total) / 100 : 0,
+          changePercent: this.percentChange(value.amount, value.previous),
+        }))
+        .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1)),
+      totalTiyin: total,
+    };
+  }
+
+  /** Eng katta yozuvlar - alohida xarajatlar */
+  async topExpenses(query: QueryExpenseDto, limit = 5) {
+    const where = await this.buildWhere(query);
+
+    return this.prisma.expense.findMany({
+      where,
+      orderBy: { amountTiyin: "desc" },
+      take: limit,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+  }
+
+  /**
+   * Xarajatlarning daraxt korinishidagi tarkibi.
+   *
+   * Ish haqi uchun uch daraja: guruh > markaz/viloyat > bolim yoki hudud.
+   * Qolgan guruhlar uchun ikki daraja: guruh > kategoriya.
+   */
+  async breakdown(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+
+    const [expenses, categories, departments, regions] = await Promise.all([
+      this.prisma.expense.groupBy({
+        by: ["categoryCode", "departmentId", "regionCode", "source"],
+        where,
+        _sum: { amountTiyin: true },
+        _count: { _all: true },
+      }),
+      this.prisma.category.findMany({
+        select: { code: true, label: true, parentCode: true },
+      }),
+      this.prisma.department.findMany({
+        select: { id: true, name: true, index: true },
+      }),
+      this.prisma.region.findMany({ select: { code: true, name: true } }),
+    ]);
+
+    const catMap = new Map(categories.map((c) => [c.code, c]));
+    const deptMap = new Map(departments.map((d) => [d.id, d]));
+    const regionMap = new Map(regions.map((r) => [r.code, r.name]));
+
+    /** Kategoriyaning ildiz guruhini topadi */
+    const rootOf = (code: string) => {
+      const category = catMap.get(code);
+      const rootCode = category?.parentCode ?? code;
+      return { code: rootCode, label: catMap.get(rootCode)?.label ?? rootCode };
+    };
+
+    interface Node {
+      key: string;
+      label: string;
+      amountTiyin: bigint;
+      count: number;
+      children: Map<string, Node>;
+    }
+
+    const makeNode = (key: string, label: string): Node => ({
+      key,
+      label,
+      amountTiyin: 0n,
+      count: 0,
+      children: new Map(),
+    });
+
+    const roots = new Map<string, Node>();
+
+    for (const row of expenses) {
+      const amount = row._sum.amountTiyin ?? 0n;
+      const count = row._count._all;
+      const root = rootOf(row.categoryCode);
+
+      const rootNode = roots.get(root.code) ?? makeNode(root.code, root.label);
+      rootNode.amountTiyin += amount;
+      rootNode.count += count;
+      roots.set(root.code, rootNode);
+
+      // Ish haqi - joylashuv boyicha ajratamiz
+      if (row.source === "PAYROLL") {
+        const isCentral = row.regionCode === 0;
+        const midKey = isCentral ? "markaz" : "viloyat";
+        const midLabel = isCentral ? "Markaz" : "Viloyatlar";
+
+        const midNode =
+          rootNode.children.get(midKey) ?? makeNode(midKey, midLabel);
+        midNode.amountTiyin += amount;
+        midNode.count += count;
+        rootNode.children.set(midKey, midNode);
+
+        const leafKey = isCentral
+          ? `dept-${row.departmentId ?? "none"}`
+          : `region-${row.regionCode ?? "none"}`;
+
+        const leafLabel = isCentral
+          ? (deptMap.get(row.departmentId ?? "")?.name ?? "Bolimsiz")
+          : (regionMap.get(row.regionCode ?? -1) ?? "Hududsiz");
+
+        const leafNode =
+          midNode.children.get(leafKey) ?? makeNode(leafKey, leafLabel);
+        leafNode.amountTiyin += amount;
+        leafNode.count += count;
+        midNode.children.set(leafKey, leafNode);
+
+        continue;
+      }
+
+      // Oddiy xarajat - kategoriya boyicha
+      const catLabel = catMap.get(row.categoryCode)?.label ?? row.categoryCode;
+      const catNode =
+        rootNode.children.get(row.categoryCode) ??
+        makeNode(row.categoryCode, catLabel);
+      catNode.amountTiyin += amount;
+      catNode.count += count;
+      rootNode.children.set(row.categoryCode, catNode);
+    }
+
+    const total = [...roots.values()].reduce((sum, n) => sum + n.amountTiyin, 0n);
+
+    /** Map ni massivga ogiradi va ulushni hisoblaydi */
+    const toArray = (nodes: Map<string, Node>, parentTotal: bigint): unknown[] =>
+      [...nodes.values()]
+        .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1))
+        .map((node) => ({
+          key: node.key,
+          label: node.label,
+          amountTiyin: node.amountTiyin,
+          count: node.count,
+          sharePercent:
+            parentTotal > 0n
+              ? Number((node.amountTiyin * 10000n) / parentTotal) / 100
+              : 0,
+          children: toArray(node.children, node.amountTiyin),
+        }));
+
+    return {
+      rows: toArray(roots, total),
+      totalTiyin: total,
+    };
+  }
+
+  async summaryByRegion(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+
+    const grouped = await this.prisma.expense.groupBy({
+      by: ["regionCode"],
+      where,
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    const regions = await this.prisma.region.findMany({
+      select: { code: true, name: true },
+    });
+    const map = new Map(regions.map((r) => [r.code, r.name]));
+
+    const total = grouped.reduce((acc, row) => acc + (row._sum.amountTiyin ?? 0n), 0n);
+
+    const rows = grouped
+      .map((row) => {
+        const amount = row._sum.amountTiyin ?? 0n;
+
+        return {
+          regionCode: row.regionCode,
+          name:
+            row.regionCode === null
+              ? "Hudud korsatilmagan"
+              : (map.get(row.regionCode) ?? String(row.regionCode)),
+          amountTiyin: amount,
+          count: row._count._all,
+          sharePercent: total > 0n ? Number((amount * 10000n) / total) / 100 : 0,
+        };
+      })
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    return { rows, totalTiyin: total };
+  }
+
+  /** Doimiy va ozgaruvchan xarajatlar nisbati */
+  async summaryByBehavior(query: QueryExpenseDto) {
+    const where = await this.buildWhere(query);
+
+    const expenses = await this.prisma.expense.findMany({
+      where,
+      select: { amountTiyin: true, category: { select: { behavior: true } } },
+    });
+
+    const totals = { FIXED: 0n, VARIABLE: 0n, MIXED: 0n };
+
+    for (const expense of expenses) {
+      totals[expense.category.behavior] += expense.amountTiyin;
+    }
+
+    const total = totals.FIXED + totals.VARIABLE + totals.MIXED;
+
+    return {
+      fixedTiyin: totals.FIXED,
+      variableTiyin: totals.VARIABLE,
+      mixedTiyin: totals.MIXED,
+      totalTiyin: total,
+    };
+  }
+
+  /** Oylik dinamika - grafik uchun */
+  async monthlyTrend(months: number, departmentId?: string) {
+    const periods = this.lastPeriodKeys(months);
+
+    const grouped = await this.prisma.expense.groupBy({
+      by: ["period"],
+      where: {
+        deletedAt: null,
+        period: { in: periods },
+        ...(departmentId ? { departmentId } : {}),
+      },
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    const map = new Map(grouped.map((row) => [row.period, row]));
+
+    // Malumot bolmagan oylar ham nol bilan qaytadi - grafikda uzilish bolmasligi uchun
+    return periods.map((period) => ({
+      period,
+      amountTiyin: map.get(period)?._sum.amountTiyin ?? 0n,
+      count: map.get(period)?._count._all ?? 0,
+    }));
+  }
+
+  /** Joriy davrni otgan oy va otgan yilning shu oyi bilan solishtiradi */
+  async comparison(period: string, departmentId?: string) {
+    const previous = this.shiftPeriod(period, -1);
+    const lastYear = this.shiftPeriod(period, -12);
+
+    const filter = departmentId ? { departmentId } : {};
+
+    const [current, prev, year] = await Promise.all([
+      this.prisma.expense.aggregate({
+        where: { deletedAt: null, period, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: { deletedAt: null, period: previous, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: { deletedAt: null, period: lastYear, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+    ]);
+
+    const currentSum = current._sum.amountTiyin ?? 0n;
+    const prevSum = prev._sum.amountTiyin ?? 0n;
+    const yearSum = year._sum.amountTiyin ?? 0n;
+
+    return {
+      current: { period, amountTiyin: currentSum },
+      previous: {
+        period: previous,
+        amountTiyin: prevSum,
+        changePercent: this.percentChange(currentSum, prevSum),
+      },
+      lastYear: {
+        period: lastYear,
+        amountTiyin: yearSum,
+        changePercent: this.percentChange(currentSum, yearSum),
+      },
+    };
+  }
+
+  /**
+   * Ozgarish foizi.
+   * Baza nol bolsa null - "cheksiz osish" korsatilmasligi kerak.
+   */
+  /**
+   * Keskin ozgargan kategoriyalarni topadi.
+   *
+   * Joriy davrni oldingi davr bilan solishtiradi va berilgan
+   * chegaradan koproq ozgargan moddalarni qaytaradi.
+   */
+  async spikes(period: string, thresholdPercent = 30, departmentId?: string) {
+    const previous = this.shiftPeriod(period, -1);
+    const filter = departmentId ? { departmentId } : {};
+
+    const [current, prior, categories] = await Promise.all([
+      this.prisma.expense.groupBy({
+        by: ["categoryCode"],
+        where: { deletedAt: null, period, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.expense.groupBy({
+        by: ["categoryCode"],
+        where: { deletedAt: null, period: previous, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.category.findMany({ select: { code: true, label: true } }),
+    ]);
+
+    const labels = new Map(categories.map((c) => [c.code, c.label]));
+    const priorMap = new Map(prior.map((r) => [r.categoryCode, r._sum.amountTiyin ?? 0n]));
+
+    const rows: {
+      categoryCode: string;
+      label: string;
+      currentTiyin: bigint;
+      previousTiyin: bigint;
+      diffTiyin: bigint;
+      changePercent: number | null;
+      isNew: boolean;
+    }[] = [];
+
+    for (const row of current) {
+      const currentSum = row._sum.amountTiyin ?? 0n;
+      const previousSum = priorMap.get(row.categoryCode) ?? 0n;
+      const diff = currentSum - previousSum;
+
+      const isNew = previousSum === 0n;
+      const change = this.percentChange(currentSum, previousSum);
+
+      const significant = isNew || (change !== null && change >= thresholdPercent);
+      if (!significant) continue;
+
+      rows.push({
+        categoryCode: row.categoryCode,
+        label: labels.get(row.categoryCode) ?? row.categoryCode,
+        currentTiyin: currentSum,
+        previousTiyin: previousSum,
+        diffTiyin: diff,
+        changePercent: change,
+        isNew,
+      });
+    }
+
+    rows.sort((a, b) => (b.diffTiyin > a.diffTiyin ? 1 : -1));
+
+    return { period, previousPeriod: previous, thresholdPercent, rows };
+  }
+
+  private percentChange(current: bigint, base: bigint): number | null {
+    if (base === 0n) return null;
+    const diff = current - base;
+    return Number((diff * 10000n) / (base < 0n ? -base : base)) / 100;
+  }
+
+  private lastPeriodKeys(count: number): string[] {
+    const now = new Date(Date.now() + TASHKENT_OFFSET_HOURS * 3600000);
+    let year = now.getUTCFullYear();
+    let month = now.getUTCMonth() + 1;
+
+    const result: string[] = [];
+
+    for (let i = 0; i < count; i += 1) {
+      result.unshift(`${year}-${String(month).padStart(2, "0")}`);
+      month -= 1;
+      if (month === 0) {
+        month = 12;
+        year -= 1;
+      }
+    }
+
+    return result;
+  }
+
+  private shiftPeriod(period: string, deltaMonths: number): string {
+    const [yearStr, monthStr] = period.split("-");
+    let year = Number(yearStr);
+    let month = Number(monthStr) + deltaMonths;
+
+    while (month <= 0) {
+      month += 12;
+      year -= 1;
+    }
+    while (month > 12) {
+      month -= 12;
+      year += 1;
+    }
+
+    return `${year}-${String(month).padStart(2, "0")}`;
+  }
+}
+
+===== apps\api\src\modules\expenses\simple-import.controller.ts =====
+import {
+    BadRequestException,
+    Body,
+    Controller,
+    Get,
+    HttpCode,
+    HttpStatus,
+    Param,
+    Post,
+    Query,
+    Res,
+    UploadedFile,
+    UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UserRole } from '@prisma/client';
+import type { Response } from 'express';
+import { CurrentUser, Roles } from '../../common/decorators';
+import { SimpleImportService, type SimpleRow } from './simple-import.service';
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+@Controller('simple-import')
+export class SimpleImportController {
+  constructor(private readonly service: SimpleImportService) {}
+
+  private assertKind(kind: string): 'expense' | 'income' {
+    if (kind !== 'expense' && kind !== 'income') {
+      throw new BadRequestException('Notogri tur');
+    }
+    return kind;
+  }
+
+  /** Bosh shablon */
+  @Get('template/:kind')
+  async template(@Param('kind') kind: string, @Res() response: Response) {
+    const type = this.assertKind(kind);
+    const { buffer, filename } = this.service.buildTemplate(type);
+
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"`,
+    );
+    response.send(await buffer);
+  }
+
+  /** Faylni tahlil qilish */
+  @Roles(UserRole.ADMIN)
+  @Post('analyze')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
+  async analyze(@UploadedFile() file: Express.Multer.File) {
+    const data = await this.service.analyze(file);
+    return { data };
+  }
+
+  /** Saqlash */
+  @Roles(UserRole.ADMIN)
+  @Post('commit/:kind')
+  @HttpCode(HttpStatus.OK)
+  async commit(
+    @Param('kind') kind: string,
+    @Body() body: { rows: { rowIndex: number; name: string; amountTiyin: string }[] },
+    @Query('section') section: string | undefined,
+    @CurrentUser('id') userId: string,
+  ) {
+    const type = this.assertKind(kind);
+
+    if (!Array.isArray(body?.rows) || body.rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const rows: SimpleRow[] = body.rows.map((row) => ({
+      rowIndex: Number(row.rowIndex),
+      name: String(row.name),
+      amountTiyin: BigInt(row.amountTiyin),
+    }));
+
+    const data = await this.service.commit(type, rows, userId, section === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY');
+    return { data };
+  }
+}
+
+
+===== apps\api\src\modules\expenses\simple-import.service.ts =====
+import { BadRequestException, Injectable } from '@nestjs/common';
+import ExcelJS from 'exceljs';
+import { PrismaService } from '../prisma/prisma.service';
+
+const TASHKENT_OFFSET_HOURS = 5;
+
+/** Standart kategoriyalar вЂ” import qilingan yozuvlar shularga tushadi */
+const DEFAULT_EXPENSE_CATEGORY = 'OTHER_MISC';
+const DEFAULT_INCOME_CATEGORY = 'SRV_39';
+
+export interface SimpleRow {
+  rowIndex: number;
+  name: string;
+  amountTiyin: bigint;
+}
+
+export interface SimpleImportResult {
+  fileName: string;
+  totalRows: number;
+  validRows: number;
+  invalidRows: { rowIndex: number; reason: string }[];
+  totalTiyin: bigint;
+  rows: SimpleRow[];
+}
+
+@Injectable()
+export class SimpleImportService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // --------- Yordamchilar ---------
+
+  private today(): Date {
+    const now = new Date(Date.now() + TASHKENT_OFFSET_HOURS * 3600_000);
+    return new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        -TASHKENT_OFFSET_HOURS,
+      ),
+    );
+  }
+
+  private currentPeriod(): string {
+    const now = new Date(Date.now() + TASHKENT_OFFSET_HOURS * 3600_000);
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  private parseAmount(value: unknown): bigint | null {
+    if (value === null || value === undefined || value === '') return null;
+
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value) || value <= 0) return null;
+      return BigInt(Math.round(value * 100));
+    }
+
+    const text = String(value)
+      .replace(/[\s\u00A0\u202F]/g, '')
+      .replace(',', '.');
+
+    const parsed = Number(text);
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+
+    return BigInt(Math.round(parsed * 100));
+  }
+
+  // --------- Shablon ---------
+
+  /** Ikki ustunli bosh shablon */
+  buildTemplate(kind: 'expense' | 'income'): {
+    buffer: Promise<Buffer>;
+    filename: string;
+  } {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+
+    const isExpense = kind === 'expense';
+    const sheet = workbook.addWorksheet(isExpense ? 'Xarajatlar' : 'Daromadlar', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+
+    sheet.columns = [
+      { header: 'Nomi', key: 'name', width: 55 },
+      { header: 'Summa', key: 'amount', width: 20 },
+    ];
+
+    const header = sheet.getRow(1);
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    header.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isExpense ? 'FFDC2626' : 'FF059669' },
+    };
+    header.height = 22;
+
+    sheet.getColumn('B').numFmt = '#,##0';
+
+    // Namuna qatorlar
+    const samples = isExpense
+      ? [
+          ['Ofis ijarasi', 5000000],
+          ['Internet tolovi', 800000],
+        ]
+      : [
+          ['Konsultatsiya xizmati', 3000000],
+          ['Hisobot tayyorlash', 1500000],
+        ];
+
+    for (const [name, amount] of samples) {
+      const row = sheet.addRow({ name, amount });
+      row.font = { color: { argb: 'FF94A3B8' }, italic: true };
+    }
+
+    const now = new Date().toISOString().slice(0, 10);
+
+    return {
+      buffer: workbook.xlsx.writeBuffer().then((data) => Buffer.from(data)),
+      filename: `${isExpense ? 'Xarajatlar' : 'Daromadlar'}-shablon-${now}.xlsx`,
+    };
+  }
+
+  // --------- Tahlil ---------
+
+  /** Faylni oqiydi вЂ” hech narsa saqlanmaydi */
+  async analyze(file: Express.Multer.File): Promise<SimpleImportResult> {
+    if (!file) {
+      throw new BadRequestException('Fayl yuklanmadi');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
+
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      throw new BadRequestException('Faylda varaq topilmadi');
+    }
+
+    const rows: SimpleRow[] = [];
+    const invalidRows: { rowIndex: number; reason: string }[] = [];
+
+    sheet.eachRow((row, rowIndex) => {
+      if (rowIndex === 1) return; // sarlavha
+
+      const nameRaw = row.getCell(1).value;
+      const name =
+        nameRaw === null || nameRaw === undefined ? '' : String(nameRaw).trim();
+
+      const amount = this.parseAmount(row.getCell(2).value);
+
+      // Bo'sh qator
+      if (!name && !amount) return;
+
+      if (!name) {
+        invalidRows.push({ rowIndex, reason: 'Nomi kiritilmagan' });
+        return;
+      }
+
+      if (!amount) {
+        invalidRows.push({ rowIndex, reason: 'Summa notogri' });
+        return;
+      }
+
+      rows.push({ rowIndex, name, amountTiyin: amount });
+    });
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Faylda yaroqli qator topilmadi');
+    }
+
+    return {
+      fileName: file.originalname,
+      totalRows: rows.length + invalidRows.length,
+      validRows: rows.length,
+      invalidRows,
+      totalTiyin: rows.reduce((sum, row) => sum + row.amountTiyin, 0n),
+      rows,
+    };
+  }
+
+  // --------- Saqlash ---------
+
+  /**
+   * Yozuvlarni yaratadi.
+   *
+   * Sana вЂ” bugungi kun, kategoriya вЂ” standart, bolim вЂ” Umumkorxona.
+   * Foydalanuvchi keyin qolda tuzatadi.
+   */
+  async commit(
+    kind: 'expense' | 'income',
+    rows: SimpleRow[],
+    userId: string,
+    section: 'DOIMIY' | 'BOSHQA' = 'DOIMIY',
+  ): Promise<{ created: number; totalTiyin: bigint }> {
+    if (rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const date = this.today();
+    const period = this.currentPeriod();
+    const totalTiyin = rows.reduce((sum, row) => sum + row.amountTiyin, 0n);
+
+    if (kind === 'expense') {
+      // Standart kategoriya mavjudligini tekshiramiz
+      const category = await this.prisma.category.findUnique({
+        where: { code: DEFAULT_EXPENSE_CATEGORY },
+      });
+
+      if (!category) {
+        throw new BadRequestException(
+          `Standart kategoriya topilmadi: ${DEFAULT_EXPENSE_CATEGORY}`,
+        );
+      }
+
+      const result = await this.prisma.expense.createMany({
+        data: rows.map((row) => ({
+          date,
+          period,
+          amountTiyin: row.amountTiyin,
+          categoryCode: DEFAULT_EXPENSE_CATEGORY,
+          departmentId: null,
+          regionCode: null,
+          description: row.name,
+          paymentMethod: 'BANK' as const,
+          paymentStatus: 'PAID' as const,
+          source: 'IMPORT' as const,
+          section,
+          createdById: userId,
+        })),
+      });
+
+      return { created: result.count, totalTiyin };
+    }
+
+    const category = await this.prisma.incomeCategory.findUnique({
+      where: { code: DEFAULT_INCOME_CATEGORY },
+    });
+
+    if (!category) {
+      throw new BadRequestException(
+        `Standart xizmat turi topilmadi: ${DEFAULT_INCOME_CATEGORY}`,
+      );
+    }
+
+    const result = await this.prisma.income.createMany({
+      data: rows.map((row) => ({
+        date,
+        period,
+        amountTiyin: row.amountTiyin,
+        paidTiyin: row.amountTiyin,
+        paymentStatus: 'PAID' as const,
+        paymentMethod: 'BANK' as const,
+        categoryCode: DEFAULT_INCOME_CATEGORY,
+        departmentId: null,
+        regionCode: null,
+        description: row.name,
+        source: 'IMPORT' as const,
+        section,
+        createdById: userId,
+      })),
+    });
+
+    return { created: result.count, totalTiyin };
+  }
+}
+
+
+===== apps\api\src\modules\expenses\dto\create-expense.dto.ts =====
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+  IsInt,
+  Min,
+  MaxLength,
+} from 'class-validator';
+import { PaymentMethod, PaymentStatus } from '@prisma/client';
+
+export class CreateExpenseDto {
+  /** ISO sana: "2026-09-10" */
+  @IsDateString({}, { message: 'Sana notogri formatda' })
+  date!: string;
+
+  /**
+   * Summa TIYIN'da.
+   * Frontend so'mni tiyinga o'girib yuboradi: 1 000 000 so'm -> 100 000 000
+   */
+  @IsInt({ message: 'Summa butun son bolishi kerak (tiyinda)' })
+  @Min(1, { message: 'Summa noldan katta bolishi kerak' })
+  amountTiyin!: number;
+
+  @IsString()
+  @MaxLength(50)
+  categoryCode!: string;
+
+  // --------- Ixtiyoriy maydonlar ---------
+
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod, { message: 'Notogri tolov usuli' })
+  paymentMethod?: PaymentMethod;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  documentNo?: string;
+
+  /** Kimga to'landi */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  counterparty?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentStatus, { message: 'Notogri tolov holati' })
+  paymentStatus?: PaymentStatus;
+
+  /** Qachongacha to'lanishi kerak */
+  @IsOptional()
+  @IsDateString({}, { message: 'Tolov muddati notogri formatda' })
+  dueDate?: string;
+
+  /** Javobgar shaxs */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  responsible?: string;
+
+  /** Summa ichidagi QQS, tiyinda */
+  @IsOptional()
+  @IsInt({ message: 'QQS butun son bolishi kerak (tiyinda)' })
+  @Min(0)
+  vatTiyin?: number;
+
+  /** Bo'lim: DOIMIY yoki BOSHQA */
+  @IsOptional()
+  @IsString()
+  section?: 'DOIMIY' | 'BOSHQA';
+}
+
+
+===== apps\api\src\modules\expenses\dto\query-expense.dto.ts =====
+import { IsOptional, IsString, IsInt, Min, Max, Matches, IsEnum, IsIn, IsDateString } from "class-validator";
+import { Type } from "class-transformer";
+import { PaymentMethod, PaymentStatus } from "@prisma/client";
+
+export class QueryExpenseDto {
+  /** Davr: "2026-09" */
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/, { message: "Davr YYYY-MM korinishida bolsin" })
+  period?: string;
+
+  /** Davr oraligi - boshi */
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/)
+  periodFrom?: string;
+
+  /** Davr oraligi - oxiri */
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/)
+  periodTo?: string;
+
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
+
+  /** Sana oraligi boshi: "2026-01-01" */
+  @IsOptional()
+  @IsDateString({}, { message: "Sana notogri formatda" })
+  dateFrom?: string;
+
+  /** Sana oraligi oxiri */
+  @IsOptional()
+  @IsDateString({}, { message: "Sana notogri formatda" })
+  dateTo?: string;
+
+  /** Hudud kodi: 0 - Markaz, 33 - Xorazm */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  regionCode?: number;
+
+  @IsOptional()
+  @IsString()
+  categoryCode?: string;
+
+  /** Ildiz kategoriya boyicha - barcha bolalarini qamrab oladi */
+  @IsOptional()
+  @IsString()
+  rootCategoryCode?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+
+  /** Tolov holati - tolanmaganlarni ajratish uchun */
+  @IsOptional()
+  @IsEnum(PaymentStatus)
+  paymentStatus?: PaymentStatus;
+
+  /** Tavsif, kontragent va hujjat boyicha qidiruv */
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  /** Qaysi ustun boyicha saralash */
+  @IsOptional()
+  @IsIn(["date", "amountTiyin", "categoryCode", "createdAt"])
+  sortBy?: string;
+
+  /** Osish yoki kamayish tartibida */
+  @IsOptional()
+  @IsIn(["asc", "desc"])
+  sortOrder?: "asc" | "desc";
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  /** Bo'lim: DOIMIY yoki BOSHQA */
+  @IsOptional()
+  @IsString()
+  section?: 'DOIMIY' | 'BOSHQA';
+}
+
+
+===== apps\api\src\modules\expenses\dto\update-expense.dto.ts =====
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+  IsInt,
+  Min,
+  MaxLength,
+} from 'class-validator';
+import { PaymentMethod, PaymentStatus } from '@prisma/client';
+
+export class UpdateExpenseDto {
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  amountTiyin?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  categoryCode?: string;
+
+  @IsOptional()
+  @IsString()
+  departmentId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  documentNo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  counterparty?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentStatus)
+  paymentStatus?: PaymentStatus;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  responsible?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  vatTiyin?: number;
+}
+
+===== apps\api\src\modules\incomes\incomes-export.service.ts =====
+import { Injectable } from '@nestjs/common';
+import ExcelJS from 'exceljs';
+import { PrismaService } from '../prisma/prisma.service';
+import type { QueryIncomeDto } from './dto/query-income.dto';
+import { IncomesService } from './incomes.service';
+
+const TASHKENT_OFFSET_HOURS = 5;
+
+const statusLabels: Record<string, string> = {
+  PAID: "To'langan",
+  PARTIAL: 'Qisman',
+  UNPAID: "To'lanmagan",
+};
+
+const methodLabels: Record<string, string> = {
+  BANK: "Bank o'tkazmasi",
+  CASH: 'Naqd pul',
+  CARD: 'Plastik karta',
+  OTHER: 'Boshqa',
+};
+
+@Injectable()
+export class IncomesExportService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly incomes: IncomesService,
+  ) {}
+
+  private toLocalDate(date: Date): Date {
+    return new Date(date.getTime() + TASHKENT_OFFSET_HOURS * 3600_000);
+  }
+
+  private tiyinToSum(tiyin: bigint): number {
+    return Number(tiyin) / 100;
+  }
+
+  async build(query: QueryIncomeDto): Promise<{ buffer: Buffer; filename: string }> {
+    const result = await this.incomes.findAll({ ...query, page: 1, limit: 100000 });
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+    workbook.created = new Date();
+
+    // --------- 1-varaq: Daromadlar ---------
+
+    const sheet = workbook.addWorksheet('Daromadlar', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+
+    sheet.columns = [
+      { header: 'Sana', key: 'date', width: 14 },
+      { header: 'Xizmat turi', key: 'category', width: 45 },
+      { header: 'Mijoz', key: 'client', width: 30 },
+      { header: 'Shartnoma', key: 'contract', width: 18 },
+      { header: "Bo'lim", key: 'department', width: 30 },
+      { header: 'Hudud', key: 'region', width: 24 },
+      { header: 'Holat', key: 'status', width: 14 },
+      { header: "To'lov usuli", key: 'method', width: 18 },
+      { header: 'Tushgan', key: 'paid', width: 18 },
+      { header: 'Summa', key: 'amount', width: 18 },
+      { header: 'Tavsif', key: 'description', width: 40 },
+    ];
+
+    const header = sheet.getRow(1);
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
+    header.alignment = { vertical: 'middle' };
+    header.height = 22;
+
+    sheet.getColumn('A').numFmt = 'dd.mm.yyyy';
+    sheet.getColumn('I').numFmt = '#,##0';
+    sheet.getColumn('J').numFmt = '#,##0';
+
+    let total = 0;
+    let totalPaid = 0;
+
+    for (const item of result.items) {
+      const record = item as typeof item & {
+        category: { label: string };
+        department: { name: string } | null;
+        region: { name: string } | null;
+      };
+
+      const amount = this.tiyinToSum(record.amountTiyin);
+      const paid = this.tiyinToSum(record.paidTiyin);
+
+      total += amount;
+      totalPaid += paid;
+
+      sheet.addRow({
+        date: this.toLocalDate(record.date),
+        category: record.category.label,
+        client: record.clientName ?? '',
+        contract: record.contractNo ?? '',
+        department: record.department?.name ?? '',
+        region: record.region?.name ?? '',
+        status: statusLabels[record.paymentStatus] ?? record.paymentStatus,
+        method: methodLabels[record.paymentMethod] ?? record.paymentMethod,
+        paid,
+        amount,
+        description: record.description ?? '',
+      });
+    }
+
+    // Jami qator
+    const totalRow = sheet.addRow({
+      category: 'JAMI',
+      paid: totalPaid,
+      amount: total,
+    });
+    totalRow.font = { bold: true };
+    totalRow.eachCell((cell) => {
+      cell.border = { top: { style: 'medium' } };
+    });
+
+    sheet.autoFilter = { from: 'A1', to: `K${sheet.rowCount - 1}` };
+
+    // --------- 2-varaq: Xizmat turlari ---------
+
+    const byCategory = await this.incomes.summaryByCategory(query);
+
+    const catSheet = workbook.addWorksheet('Xizmat turlari');
+    catSheet.columns = [
+      { header: 'Xizmat turi', key: 'label', width: 50 },
+      { header: 'Soni', key: 'count', width: 12 },
+      { header: 'Ulush', key: 'share', width: 12 },
+      { header: 'Tushgan', key: 'paid', width: 18 },
+      { header: 'Summa', key: 'amount', width: 18 },
+    ];
+
+    const catHeader = catSheet.getRow(1);
+    catHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    catHeader.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF475569' },
+    };
+
+    catSheet.getColumn('C').numFmt = '0.0"%"';
+    catSheet.getColumn('D').numFmt = '#,##0';
+    catSheet.getColumn('E').numFmt = '#,##0';
+
+    for (const row of byCategory.rows) {
+      catSheet.addRow({
+        label: row.label,
+        count: row.count,
+        share: row.sharePercent,
+        paid: this.tiyinToSum(row.paidTiyin),
+        amount: this.tiyinToSum(row.amountTiyin),
+      });
+    }
+
+    const catTotal = catSheet.addRow({
+      label: 'JAMI',
+      amount: this.tiyinToSum(byCategory.totalTiyin),
+    });
+    catTotal.font = { bold: true };
+
+    // --------- 3-varaq: Bo'limlar ---------
+
+    const byDepartment = await this.incomes.summaryByDepartment(query);
+
+    const deptSheet = workbook.addWorksheet('Bolimlar');
+    deptSheet.columns = [
+      { header: "Bo'lim", key: 'name', width: 45 },
+      { header: 'Soni', key: 'count', width: 12 },
+      { header: 'Ulush', key: 'share', width: 12 },
+      { header: 'Summa', key: 'amount', width: 18 },
+    ];
+
+    const deptHeader = deptSheet.getRow(1);
+    deptHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    deptHeader.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF475569' },
+    };
+
+    deptSheet.getColumn('C').numFmt = '0.0"%"';
+    deptSheet.getColumn('D').numFmt = '#,##0';
+
+    for (const row of byDepartment.rows) {
+      deptSheet.addRow({
+        name: row.name,
+        count: row.count,
+        share: row.sharePercent,
+        amount: this.tiyinToSum(row.amountTiyin),
+      });
+    }
+
+    const deptTotal = deptSheet.addRow({
+      name: 'JAMI',
+      amount: this.tiyinToSum(byDepartment.totalTiyin),
+    });
+    deptTotal.font = { bold: true };
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    const suffix = query.period ?? new Date().toISOString().slice(0, 10);
+
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      filename: `Daromadlar-${suffix}.xlsx`,
+    };
+  }
+}
+
+
+===== apps\api\src\modules\incomes\incomes.controller.ts =====
+import {
+    Body,
+    Controller,
+    DefaultValuePipe,
+    Delete,
+    Get,
+    HttpCode,
+    HttpStatus,
+    Param,
+    ParseIntPipe,
+    Patch,
+    Post,
+    Query,
+  Res,
+} from '@nestjs/common';
+import { UserRole } from '@prisma/client';
+import { CurrentUser, Roles } from '../../common/decorators';
+import { CreateIncomeDto } from './dto/create-income.dto';
+import { QueryIncomeDto } from './dto/query-income.dto';
+import { UpdateIncomeDto } from './dto/update-income.dto';
+import type { Response } from 'express';
+import { IncomesService } from './incomes.service';
+import { IncomesExportService } from './incomes-export.service';
+
+@Controller('incomes')
+export class IncomesController {
+  constructor(
+    private readonly incomes: IncomesService,
+    private readonly exportService: IncomesExportService,
+  ) {}
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Tahlil (":id" dan oldin) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+  /** Savatdagi yozuvlar */
+  /** Excel eksport */
+  @Get('export')
+  async exportExcel(@Query() query: QueryIncomeDto, @Res() response: Response) {
+    const { buffer, filename } = await this.exportService.build(query);
+
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"`,
+    );
+    response.send(buffer);
+  }
+
+  @Get('deleted')
+  async deleted(@Query('period') period?: string) {
+    const data = await this.incomes.findDeleted(period);
+    return { data };
+  }
+
+  /** Filtrga nechta yozuv mos kelishi */
+  @Get('count')
+  async count(@Query() query: QueryIncomeDto) {
+    const data = await this.incomes.countByFilter(query);
+    return { data };
+  }
+
+  /** Eng katta yozuvlar */
+  @Get('top')
+  async topIncomes(
+    @Query() query: QueryIncomeDto,
+    @Query('limit', new DefaultValuePipe(5), ParseIntPipe) limit: number,
+  ) {
+    const data = await this.incomes.topIncomes(query, Math.min(limit, 20));
+    return { data };
+  }
+
+  @Get('summary/category')
+  async summaryByCategory(@Query() query: QueryIncomeDto) {
+    const data = await this.incomes.summaryByCategory(query);
+    return { data };
+  }
+
+
+  @Get('summary/department')
+  async summaryByDepartment(@Query() query: QueryIncomeDto) {
+    const data = await this.incomes.summaryByDepartment(query);
+    return { data };
+  }
+
+  @Get('abc')
+  async abc(@Query() query: QueryIncomeDto) {
+    const data = await this.incomes.abcAnalysis(query);
+    return { data };
+  }
+
+  @Get('receivables')
+  async receivables(@Query() query: QueryIncomeDto) {
+    const data = await this.incomes.receivables(query);
+    return { data };
+  }
+
+  @Get('trend')
+  async trend(
+    @Query('months', new DefaultValuePipe(12), ParseIntPipe) months: number,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const data = await this.incomes.monthlyTrend(Math.min(months, 60), departmentId);
+    return { data };
+  }
+
+  @Get('comparison')
+  async comparison(
+    @Query('period') period: string,
+    @Query('departmentId') departmentId?: string,
+
+  ) {
+    const data = await this.incomes.comparison(period, departmentId);
+    return { data };
+  }
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ CRUD в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+  @Get()
+  async findAll(@Query() query: QueryIncomeDto) {
+    const result = await this.incomes.findAll(query);
+    return { data: result.items, meta: result.meta };
+  }
+
+  @Get(':id')
+  async findOne(@Param('id') id: string) {
+    const data = await this.incomes.findOne(id);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post()
+  async create(@Body() dto: CreateIncomeDto, @CurrentUser('id') userId: string) {
+    const data = await this.incomes.create(dto, userId);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Patch(':id')
+  async update(@Param('id') id: string, @Body() dto: UpdateIncomeDto) {
+    const data = await this.incomes.update(id, dto);
+    return { data };
+  }
+
+
+  @Roles(UserRole.ADMIN)
+  @Post('bulk-delete')
+  @HttpCode(HttpStatus.OK)
+  async removeMany(
+    @Body() body: { ids: string[] },
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.incomes.removeMany(body?.ids ?? [], userId);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('delete-by-filter')
+  @HttpCode(HttpStatus.OK)
+  async removeByFilter(
+    @Query() query: QueryIncomeDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.incomes.removeByFilter(query, userId);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  async restore(@Param('id') id: string) {
+    const data = await this.incomes.restore(id);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  async remove(@Param('id') id: string) {
+    const data = await this.incomes.remove(id);
+    return { data };
+  }
+}
+
+
+===== apps\api\src\modules\incomes\incomes.module.ts =====
+import { Module } from '@nestjs/common';
+import { IncomesController } from './incomes.controller';
+import { IncomesService } from './incomes.service';
+import { IncomesExportService } from './incomes-export.service';
+import { RegionalIncomeService } from './regional-income.service';
+import { RegionalIncomeController } from './regional-income.controller';
+
+@Module({
+  controllers: [IncomesController, RegionalIncomeController],
+  providers: [IncomesService, RegionalIncomeService, IncomesExportService],
+  exports: [IncomesService],
+})
+export class IncomesModule {}
+
+
+===== apps\api\src\modules\incomes\incomes.service.ts =====
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import type { Income, PaymentStatus, Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import type { CreateIncomeDto } from './dto/create-income.dto';
+import type { QueryIncomeDto } from './dto/query-income.dto';
+import type { UpdateIncomeDto } from './dto/update-income.dto';
+
+const DEFAULT_LIMIT = 50;
+const TASHKENT_OFFSET_HOURS = 5;
+
+@Injectable()
+export class IncomesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Yordamchilar в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+  private toStoredDate(iso: string): Date {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    if (!match) {
+      throw new BadRequestException('Sana noto\u2018g\u2018ri formatda');
+    }
+    return new Date(
+      Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), -TASHKENT_OFFSET_HOURS),
+    );
+  }
+
+  private toPeriod(iso: string): string {
+    const match = /^(\d{4})-(\d{2})/.exec(iso);
+    if (!match) {
+      throw new BadRequestException('Sana noto\u2018g\u2018ri formatda');
+    }
+    return `${match[1]}-${match[2]}`;
+  }
+
+  private async assertCategory(code: string): Promise<void> {
+    const category = await this.prisma.incomeCategory.findUnique({
+      where: { code },
+      select: { isActive: true, label: true },
+    });
+
+    if (!category) {
+      throw new BadRequestException('Xizmat turi topilmadi');
+    }
+    if (!category.isActive) {
+      throw new BadRequestException(`"${category.label}" arxivlangan`);
+    }
+  }
+
+  private async assertDepartment(id: string): Promise<void> {
+    const department = await this.prisma.department.findUnique({
+      where: { id },
+      select: { isActive: true },
+    });
+
+    if (!department) {
+      throw new BadRequestException('Bo\u2018lim topilmadi');
+    }
+    if (!department.isActive) {
+      throw new BadRequestException('Bo\u2018lim arxivlangan');
+    }
+  }
+
+  /**
+   * To'langan summa va holatni muvofiqlashtiradi.
+   * Foydalanuvchi ikkalasini alohida kiritishi mumkin, lekin ular
+   * bir-biriga zid bo'lmasligi kerak.
+   */
+  private resolvePayment(
+    amountTiyin: bigint,
+    paidInput: number | undefined,
+    statusInput: PaymentStatus | undefined,
+  ): { paidTiyin: bigint; paymentStatus: PaymentStatus } {
+    // To'langan summa aniq berilgan вЂ” holat shundan hisoblanadi
+    if (paidInput !== undefined) {
+      const paid = BigInt(paidInput);
+
+      if (paid > amountTiyin) {
+        throw new BadRequestException(
+          'To\u2018langan summa shartnoma summasidan katta bo\u2018lishi mumkin emas',
+        );
+      }
+
+      if (paid === 0n) return { paidTiyin: 0n, paymentStatus: 'UNPAID' };
+      if (paid === amountTiyin) return { paidTiyin: paid, paymentStatus: 'PAID' };
+      return { paidTiyin: paid, paymentStatus: 'PARTIAL' };
+    }
+
+    // Faqat holat berilgan вЂ” to'langan summa shundan kelib chiqadi
+    const status = statusInput ?? 'PAID';
+
+    if (status === 'PAID') return { paidTiyin: amountTiyin, paymentStatus: 'PAID' };
+    if (status === 'UNPAID') return { paidTiyin: 0n, paymentStatus: 'UNPAID' };
+
+    throw new BadRequestException(
+      'Qisman to\u2018lov uchun to\u2018langan summani ko\u2018rsating',
+    );
+  }
+
+  private async buildWhere(query: QueryIncomeDto): Promise<Prisma.IncomeWhereInput> {
+    const where: Prisma.IncomeWhereInput = { deletedAt: null };
+
+    if (query.section === 'DOIMIY' || query.section === 'BOSHQA') where.section = query.section;
+
+    // Sana oraligi eng aniq filtr - u boshqalardan ustun
+    if (query.dateFrom || query.dateTo) {
+      where.date = {
+        ...(query.dateFrom ? { gte: this.toStoredDate(query.dateFrom) } : {}),
+        ...(query.dateTo ? { lte: this.toStoredDate(query.dateTo) } : {}),
+      };
+    } else if (query.period) {
+      where.period = query.period;
+    } else if (query.periodFrom || query.periodTo) {
+      where.period = {
+        ...(query.periodFrom ? { gte: query.periodFrom } : {}),
+        ...(query.periodTo ? { lte: query.periodTo } : {}),
+      };
+    }
+
+    if (query.departmentId) where.departmentId = query.departmentId;
+    if (query.categoryCode) where.categoryCode = query.categoryCode;
+    if (query.paymentStatus) where.paymentStatus = query.paymentStatus;
+
+    if (query.search?.trim()) {
+      const term = query.search.trim();
+      where.OR = [
+        { clientName: { contains: term, mode: 'insensitive' } },
+        { description: { contains: term, mode: 'insensitive' } },
+        { contractNo: { contains: term, mode: 'insensitive' } },
+      ];
+    }
+
+    return where;
+  }
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Asosiy amallar в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+  async create(dto: CreateIncomeDto, userId: string): Promise<Income> {
+    await this.assertCategory(dto.categoryCode);
+    if (dto.departmentId) await this.assertDepartment(dto.departmentId);
+
+    const amount = BigInt(dto.amountTiyin);
+    const { paidTiyin, paymentStatus } = this.resolvePayment(
+      amount,
+      dto.paidTiyin,
+      dto.paymentStatus,
+    );
+
+    return this.prisma.income.create({
+      data: {
+        date: this.toStoredDate(dto.date),
+        period: this.toPeriod(dto.date),
+        amountTiyin: amount,
+        paidTiyin,
+        paymentStatus,
+        categoryCode: dto.categoryCode,
+        departmentId: dto.departmentId ?? null,
+        clientName: dto.clientName ?? null,
+        description: dto.description ?? null,
+        contractNo: dto.contractNo ?? null,
+        paymentMethod: dto.paymentMethod ?? 'BANK',
+        source: 'MANUAL',
+        section: dto.section === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY',
+        createdById: userId,
+      },
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, code: true, name: true } },
+      },
+    });
+  }
+
+  async findAll(query: QueryIncomeDto) {
+    const where = await this.buildWhere(query);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? DEFAULT_LIMIT;
+
+    const [items, total, totals] = await Promise.all([
+      this.prisma.income.findMany({
+        where,
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          category: { select: { code: true, label: true } },
+          department: { select: { id: true, code: true, name: true } },
+          createdBy: { select: { id: true, fullName: true } },
+        },
+      }),
+      this.prisma.income.count({ where }),
+      this.prisma.income.aggregate({
+        where,
+        _sum: { amountTiyin: true, paidTiyin: true },
+      }),
+    ]);
+
+    const sumTiyin = totals._sum.amountTiyin ?? 0n;
+    const paidTiyin = totals._sum.paidTiyin ?? 0n;
+
+    return {
+      items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        sumTiyin,
+        paidTiyin,
+        /** Debitorlik qarzi вЂ” hisoblangan, lekin tushmagan summa */
+        receivableTiyin: sumTiyin - paidTiyin,
+      },
+    };
+  }
+
+  async findOne(id: string): Promise<Income> {
+    const income = await this.prisma.income.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, code: true, name: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+
+    if (!income) {
+      throw new NotFoundException('Daromad yozuvi topilmadi');
+    }
+
+    return income;
+  }
+
+  async update(id: string, dto: UpdateIncomeDto): Promise<Income> {
+    const existing = await this.findOne(id);
+
+    if (dto.categoryCode) await this.assertCategory(dto.categoryCode);
+    if (dto.departmentId) await this.assertDepartment(dto.departmentId);
+
+    const data: Prisma.IncomeUpdateInput = {};
+
+    if (dto.date) {
+      data.date = this.toStoredDate(dto.date);
+      data.period = this.toPeriod(dto.date);
+    }
+
+    // Summa yoki to'lov o'zgarsa вЂ” ikkalasini qayta hisoblaymiz
+    if (
+      dto.amountTiyin !== undefined ||
+      dto.paidTiyin !== undefined ||
+      dto.paymentStatus !== undefined
+    ) {
+      const amount =
+        dto.amountTiyin !== undefined ? BigInt(dto.amountTiyin) : existing.amountTiyin;
+
+      const resolved = this.resolvePayment(
+        amount,
+        dto.paidTiyin ?? (dto.paymentStatus ? undefined : Number(existing.paidTiyin)),
+        dto.paymentStatus,
+      );
+
+      data.amountTiyin = amount;
+      data.paidTiyin = resolved.paidTiyin;
+      data.paymentStatus = resolved.paymentStatus;
+    }
+
+    if (dto.categoryCode) data.category = { connect: { code: dto.categoryCode } };
+    if (dto.departmentId !== undefined) {
+      data.department = dto.departmentId
+        ? { connect: { id: dto.departmentId } }
+        : { disconnect: true };
+    }
+    if (dto.clientName !== undefined) data.clientName = dto.clientName;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.contractNo !== undefined) data.contractNo = dto.contractNo;
+    if (dto.paymentMethod !== undefined) data.paymentMethod = dto.paymentMethod;
+
+    return this.prisma.income.update({
+      where: { id },
+      data,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, code: true, name: true } },
+      },
+    });
+  }
+
+  async remove(id: string): Promise<{ success: true }> {
+    await this.findOne(id);
+    await this.prisma.income.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    return { success: true };
+  }
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Tahlil в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+  /** Xizmat turlari kesimida */
+  /** Bir nechta yozuvni birdan ochiradi */
+  async removeMany(ids: string[], userId?: string): Promise<{ count: number }> {
+    if (ids.length === 0) {
+      throw new BadRequestException("Ochirish uchun yozuv tanlanmadi");
+    }
+
+    const before = await this.prisma.income.aggregate({
+      where: { id: { in: ids }, deletedAt: null },
+      _sum: { amountTiyin: true },
+    });
+
+    const result = await this.prisma.income.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+
+    if (userId && result.count > 0) {
+      await this.audit.log({
+        userId,
+        action: "DELETE",
+        entity: "income",
+        entityId: ids[0] ?? "",
+        changes: {
+          count: { from: null, to: result.count },
+          totalTiyin: {
+            from: null,
+            to: (before._sum.amountTiyin ?? 0n).toString(),
+          },
+        },
+        summary: `${result.count} ta daromad ochirildi`,
+      });
+    }
+
+    return { count: result.count };
+  }
+
+  /** Filtrga mos barcha yozuvlarni ochiradi */
+  async removeByFilter(
+    query: QueryIncomeDto,
+    userId?: string,
+  ): Promise<{ count: number }> {
+    const where = await this.buildWhere(query);
+
+    const before = await this.prisma.income.aggregate({
+      where,
+      _sum: { amountTiyin: true },
+    });
+
+    const result = await this.prisma.income.updateMany({
+      where,
+      data: { deletedAt: new Date() },
+    });
+
+    if (userId && result.count > 0) {
+      await this.audit.log({
+        userId,
+        action: "DELETE",
+        entity: "income",
+        entityId: query.period ?? "filter",
+        changes: {
+          count: { from: null, to: result.count },
+          totalTiyin: {
+            from: null,
+            to: (before._sum.amountTiyin ?? 0n).toString(),
+          },
+        },
+        summary: `Filtr boyicha ${result.count} ta daromad ochirildi`,
+      });
+    }
+
+    return { count: result.count };
+  }
+
+  /** Filtrga nechta yozuv mos kelishi */
+  async countByFilter(query: QueryIncomeDto): Promise<{ count: number }> {
+    const where = await this.buildWhere(query);
+    const count = await this.prisma.income.count({ where });
+    return { count };
+  }
+
+  /** Ochirilgan yozuvni tiklaydi */
+  async restore(id: string) {
+    const income = await this.prisma.income.findUnique({ where: { id } });
+
+    if (!income) {
+      throw new NotFoundException("Yozuv topilmadi");
+    }
+    if (!income.deletedAt) {
+      throw new BadRequestException("Bu yozuv ochirilmagan");
+    }
+
+    return this.prisma.income.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+  }
+
+  /** Savatdagi yozuvlar */
+  async findDeleted(period?: string) {
+    return this.prisma.income.findMany({
+      where: {
+        deletedAt: { not: null },
+        ...(period ? { period } : {}),
+      },
+      orderBy: { deletedAt: "desc" },
+      take: 200,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+  }
+
+  /** Eng katta yozuvlar */
+  async topIncomes(query: QueryIncomeDto, limit = 5) {
+    const where = await this.buildWhere(query);
+
+    return this.prisma.income.findMany({
+      where,
+      orderBy: { amountTiyin: "desc" },
+      take: limit,
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+  }
+
+  async summaryByCategory(query: QueryIncomeDto) {
+    const where = await this.buildWhere(query);
+
+    const grouped = await this.prisma.income.groupBy({
+      by: ['categoryCode'],
+      where,
+      _sum: { amountTiyin: true, paidTiyin: true },
+      _count: { _all: true },
+    });
+
+    const categories = await this.prisma.incomeCategory.findMany({
+      select: { code: true, label: true },
+    });
+    const map = new Map(categories.map((c) => [c.code, c.label]));
+
+    const total = grouped.reduce((acc, row) => acc + (row._sum.amountTiyin ?? 0n), 0n);
+
+    const rows = grouped
+      .map((row) => {
+        const amount = row._sum.amountTiyin ?? 0n;
+        return {
+          categoryCode: row.categoryCode,
+          label: map.get(row.categoryCode) ?? row.categoryCode,
+          amountTiyin: amount,
+          paidTiyin: row._sum.paidTiyin ?? 0n,
+          count: row._count._all,
+          sharePercent: total > 0n ? Number((amount * 10000n) / total) / 100 : 0,
+        };
+      })
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    return { rows, totalTiyin: total };
+  }
+
+  /** Bo'limlar kesimida */
+  async summaryByDepartment(query: QueryIncomeDto) {
+    const where = await this.buildWhere(query);
+
+    const grouped = await this.prisma.income.groupBy({
+      by: ['departmentId'],
+      where,
+      _sum: { amountTiyin: true, paidTiyin: true },
+      _count: { _all: true },
+    });
+
+    const departments = await this.prisma.department.findMany({
+      select: { id: true, code: true, name: true },
+    });
+    const map = new Map(departments.map((d) => [d.id, d]));
+
+    const total = grouped.reduce((acc, row) => acc + (row._sum.amountTiyin ?? 0n), 0n);
+
+    const rows = grouped
+      .map((row) => {
+        const department = row.departmentId ? map.get(row.departmentId) : null;
+        const amount = row._sum.amountTiyin ?? 0n;
+
+        return {
+          departmentId: row.departmentId,
+          code: department?.code ?? null,
+          name: department?.name ?? 'Bo\u2018limsiz',
+          amountTiyin: amount,
+          paidTiyin: row._sum.paidTiyin ?? 0n,
+          count: row._count._all,
+          sharePercent: total > 0n ? Number((amount * 10000n) / total) / 100 : 0,
+        };
+      })
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    return { rows, totalTiyin: total };
+  }
+
+  /**
+   * ABC-tahlil: mijozlarni daromad ulushi bo'yicha guruhlaydi.
+   * A вЂ” jami daromadning 80% ini beruvchilar
+   * B вЂ” keyingi 15%
+   * C вЂ” qolgan 5%
+   *
+   * Amalda ko'rsatadiki, daromadning katta qismi kichik guruh mijozdan keladi.
+   */
+  async abcAnalysis(query: QueryIncomeDto) {
+    const where = await this.buildWhere(query);
+
+    const grouped = await this.prisma.income.groupBy({
+      by: ['clientName'],
+      where: { ...where, clientName: { not: null } },
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+
+    const total = grouped.reduce((acc, row) => acc + (row._sum.amountTiyin ?? 0n), 0n);
+    if (total === 0n) {
+      return { rows: [], totalTiyin: 0n, summary: { A: 0, B: 0, C: 0 } };
+    }
+
+    const sorted = grouped
+      .map((row) => ({
+        clientName: row.clientName ?? '',
+        amountTiyin: row._sum.amountTiyin ?? 0n,
+        count: row._count._all,
+      }))
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    let cumulative = 0n;
+    const summary = { A: 0, B: 0, C: 0 };
+
+    const rows = sorted.map((row) => {
+      cumulative += row.amountTiyin;
+      const cumulativePercent = Number((cumulative * 10000n) / total) / 100;
+
+      let group: 'A' | 'B' | 'C';
+      if (cumulativePercent <= 80) group = 'A';
+      else if (cumulativePercent <= 95) group = 'B';
+      else group = 'C';
+
+      summary[group] += 1;
+
+      return {
+        ...row,
+        sharePercent: Number((row.amountTiyin * 10000n) / total) / 100,
+        cumulativePercent,
+        group,
+      };
+    });
+
+    return { rows, totalTiyin: total, summary };
+  }
+
+  /** Debitorlik qarzi вЂ” to'lanmagan va qisman to'langan yozuvlar */
+  async receivables(query: QueryIncomeDto) {
+    const where = await this.buildWhere(query);
+
+    const items = await this.prisma.income.findMany({
+      where: {
+        ...where,
+        paymentStatus: { in: ['UNPAID', 'PARTIAL'] },
+      },
+      orderBy: { date: 'asc' },
+      include: {
+        category: { select: { code: true, label: true } },
+        department: { select: { id: true, code: true, name: true } },
+      },
+    });
+
+    const totalTiyin = items.reduce(
+      (acc, item) => acc + (item.amountTiyin - item.paidTiyin),
+      0n,
+    );
+
+    return { items, totalTiyin, count: items.length };
+  }
+
+  async monthlyTrend(months: number, departmentId?: string) {
+    const periods = this.lastPeriodKeys(months);
+
+    const grouped = await this.prisma.income.groupBy({
+      by: ['period'],
+      where: {
+        deletedAt: null,
+        period: { in: periods },
+        ...(departmentId ? { departmentId } : {}),
+      },
+      _sum: { amountTiyin: true, paidTiyin: true },
+      _count: { _all: true },
+    });
+
+    const map = new Map(grouped.map((row) => [row.period, row]));
+
+    return periods.map((period) => ({
+      period,
+      amountTiyin: map.get(period)?._sum.amountTiyin ?? 0n,
+      paidTiyin: map.get(period)?._sum.paidTiyin ?? 0n,
+      count: map.get(period)?._count._all ?? 0,
+    }));
+  }
+
+  async comparison(period: string, departmentId?: string) {
+    const previous = this.shiftPeriod(period, -1);
+    const lastYear = this.shiftPeriod(period, -12);
+    const filter = departmentId ? { departmentId } : {};
+
+    const [current, prev, year] = await Promise.all([
+      this.prisma.income.aggregate({
+        where: { deletedAt: null, period, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.income.aggregate({
+        where: { deletedAt: null, period: previous, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+      this.prisma.income.aggregate({
+        where: { deletedAt: null, period: lastYear, ...filter },
+        _sum: { amountTiyin: true },
+      }),
+    ]);
+
+    const currentSum = current._sum.amountTiyin ?? 0n;
+    const prevSum = prev._sum.amountTiyin ?? 0n;
+    const yearSum = year._sum.amountTiyin ?? 0n;
+
+    return {
+      current: { period, amountTiyin: currentSum },
+      previous: {
+        period: previous,
+        amountTiyin: prevSum,
+        changePercent: this.percentChange(currentSum, prevSum),
+      },
+      lastYear: {
+        period: lastYear,
+        amountTiyin: yearSum,
+        changePercent: this.percentChange(currentSum, yearSum),
+      },
+    };
+  }
+
+  private percentChange(current: bigint, base: bigint): number | null {
+    if (base === 0n) return null;
+    const diff = current - base;
+    return Number((diff * 10000n) / (base < 0n ? -base : base)) / 100;
+  }
+
+  private lastPeriodKeys(count: number): string[] {
+    const now = new Date(Date.now() + TASHKENT_OFFSET_HOURS * 3600_000);
+    let year = now.getUTCFullYear();
+    let month = now.getUTCMonth() + 1;
+
+    const result: string[] = [];
+
+    for (let i = 0; i < count; i += 1) {
+      result.unshift(`${year}-${String(month).padStart(2, '0')}`);
+      month -= 1;
+      if (month === 0) {
+        month = 12;
+        year -= 1;
+      }
+    }
+
+    return result;
+  }
+
+  private shiftPeriod(period: string, deltaMonths: number): string {
+    const [yearStr, monthStr] = period.split('-');
+    let year = Number(yearStr);
+    let month = Number(monthStr) + deltaMonths;
+
+    while (month <= 0) {
+      month += 12;
+      year -= 1;
+    }
+    while (month > 12) {
+      month -= 12;
+      year += 1;
+    }
+
+    return `${year}-${String(month).padStart(2, '0')}`;
+  }
+}
+
+
+===== apps\api\src\modules\incomes\regional-income.controller.ts =====
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UserRole } from '@prisma/client';
+import type { Response } from 'express';
+import { CurrentUser, Roles } from '../../common/decorators';
+import { RegionalIncomeService, type ParsedRow } from './regional-income.service';
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+interface CommitBody {
+  rows: {
+    regionCode: number;
+    regionName: string;
+    categoryCode: string;
+    categoryLabel: string;
+    quantity: number | null;
+    amountTiyin: string;
+  }[];
+}
+
+@Controller('incomes/regional')
+export class RegionalIncomeController {
+  constructor(private readonly regional: RegionalIncomeService) {}
+
+  /** Bitta varaqli shablon вЂ” hududlar ustunlarda */
+  @Get('template')
+  async template(@Query('period') period: string, @Res() response: Response) {
+    const { buffer, filename } = await this.regional.buildTemplate(period);
+
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"`,
+    );
+    response.send(buffer);
+  }
+
+  /** Faylni tahlil qilish вЂ” hech narsa saqlanmaydi */
+  @Roles(UserRole.ADMIN)
+  @Post('analyze')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
+  async analyze(
+    @Query('period') period: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const data = await this.regional.analyze(period, file);
+    return { data };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('commit')
+  @HttpCode(HttpStatus.OK)
+  async commit(
+    @Query('period') period: string,
+    @Query('replace') replace: string,
+    @Body() body: CommitBody,
+    @CurrentUser('id') userId: string,
+  ) {
+    if (!Array.isArray(body?.rows) || body.rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const rows: ParsedRow[] = body.rows.map((row) => {
+      try {
+        return {
+          regionCode: Number(row.regionCode),
+          regionName: String(row.regionName),
+          categoryCode: String(row.categoryCode),
+          categoryLabel: String(row.categoryLabel),
+          quantity:
+            row.quantity === null || row.quantity === undefined ? null : Number(row.quantity),
+          amountTiyin: BigInt(row.amountTiyin),
+        };
+      } catch {
+        throw new BadRequestException(`Notogri qator: ${row.regionName} - ${row.categoryLabel}`);
+      }
+    });
+
+    const data = await this.regional.commit(period, rows, userId, replace === 'true');
+    return { data };
+  }
+
+  @Get('summary/region')
+  async summaryByRegion(@Query('period') period: string) {
+    const data = await this.regional.summaryByRegion(period);
+    return { data };
+  }
+
+  @Get('summary/service')
+  async summaryByService(
+    @Query('period') period: string,
+    @Query('regionCode') regionCode?: string,
+  ) {
+    const code = regionCode === undefined || regionCode === '' ? undefined : Number(regionCode);
+    const data = await this.regional.summaryByService(period, code);
+    return { data };
+  }
+}
+
+
+===== apps\api\src\modules\incomes\regional-income.service.ts =====
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import ExcelJS from 'exceljs';
+import { PrismaService } from '../prisma/prisma.service';
+
+const CENTRAL_REGION = 0;
+const TASHKENT_OFFSET_HOURS = 5;
+const SHEET_LABEL = 'List 1';
+
+/**
+ * Hududlar shablondagi tartibi (SOATO kodlari).
+ * Andijon, Buxoro, Jizzax, Qashqadaryo, Navoiy, Namangan, Samarqand,
+ * Surxondaryo, Sirdaryo, Toshkent shahri, Toshkent viloyati,
+ * Farg'ona, Xorazm, Qoraqalpog'iston.
+ * Ro'yxatda yo'q hudud bo'lsa вЂ” oxiriga qo'shiladi.
+ */
+const REGION_ORDER = [3, 6, 8, 10, 12, 14, 18, 22, 24, 26, 27, 30, 33, 35];
+
+/** Hududiy xizmatlar вЂ” SRV_01 ... SRV_39 */
+const REGIONAL_SERVICE_CODE = /^SRV_\d{2}$/;
+
+export interface ParsedRow {
+  regionCode: number;
+  regionName: string;
+  categoryCode: string;
+  categoryLabel: string;
+  quantity: number | null;
+  amountTiyin: bigint;
+}
+
+interface RegionRef {
+  code: number;
+  name: string;
+}
+
+interface ServiceRef {
+  code: string;
+  label: string;
+}
+
+@Injectable()
+export class RegionalIncomeService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Yordamchilar в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+  private assertPeriod(period: string): void {
+    if (!/^\d{4}-\d{2}$/.test(period ?? '')) {
+      throw new BadRequestException('Davr notogri formatda');
+    }
+  }
+
+  /** "2026-03" в†’ { from: "2026-03-01", to: "2026-03-31" } */
+  private periodBounds(period: string): { from: string; to: string } {
+    const [year, month] = period.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(year ?? 2026, month ?? 1, 0)).getUTCDate();
+
+    return {
+      from: `${period}-01`,
+      to: `${period}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }
+
+  /** Davr oxirgi kuni вЂ” daromad sanasi */
+  private periodEndDate(period: string): Date {
+    const [year, month] = period.split('-').map(Number);
+    const nextMonth = month === 12 ? 1 : (month ?? 1) + 1;
+    const nextYear = month === 12 ? (year ?? 2026) + 1 : (year ?? 2026);
+
+    return new Date(
+      Date.UTC(nextYear, nextMonth - 1, 1, -TASHKENT_OFFSET_HOURS) - 86_400_000,
+    );
+  }
+
+  private cellValue(value: ExcelJS.CellValue): unknown {
+    if (value && typeof value === 'object') {
+      const record = value as unknown as Record<string, unknown>;
+
+      if ('result' in record) return record.result;
+      if ('text' in record) return record.text;
+      if ('richText' in record && Array.isArray(record.richText)) {
+        return (record.richText as { text: string }[]).map((part) => part.text).join('');
+      }
+    }
+    return value;
+  }
+
+  private text(value: ExcelJS.CellValue): string {
+    const raw = this.cellValue(value);
+    return raw === null || raw === undefined ? '' : String(raw).trim();
+  }
+
+  /**
+   * Solishtirish uchun matnni tozalaydi.
+   * Tutuq belgilarining barcha turlari olib tashlanadi: O'zbekiston = Ozbekiston.
+   */
+  private normalize(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[\u0027\u0060\u00B4\u02BB\u02BC\u2018\u2019]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /** "viloyati" va "respublikasi" siz kalit вЂ” "shahri" saqlanadi */
+  private shortKey(value: string): string {
+    return this.normalize(value)
+      .replace(/\s(viloyati|respublikasi)$/, '')
+      .trim();
+  }
+
+  /** Son. Bo'sh вЂ” null, manfiy yoki matn вЂ” null */
+  private parseNumber(value: unknown): number | null {
+    if (value === null || value === undefined || String(value).trim() === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
+
+    const text = String(value).replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
+    const parsed = Number(text);
+
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+
+  private percent(part: bigint, total: bigint): number {
+    if (total === 0n) return 0;
+    return Number((part * 10000n) / total) / 100;
+  }
+
+  /** Faol hududlar shablon tartibida, Markazsiz */
+  private async loadRegions(): Promise<RegionRef[]> {
+    const regions = await this.prisma.region.findMany({
+      where: { isActive: true, code: { not: CENTRAL_REGION } },
+      select: { code: true, name: true },
+    });
+
+    const position = (code: number) => {
+      const index = REGION_ORDER.indexOf(code);
+      return index === -1 ? 1000 + code : index;
+    };
+
+    return regions.sort((a, b) => position(a.code) - position(b.code));
+  }
+
+  /** Faqat hududiy xizmatlar вЂ” formadan qo'shilganlar kirmaydi */
+  private async loadServices(): Promise<ServiceRef[]> {
+    const services = await this.prisma.incomeCategory.findMany({
+      where: { isActive: true, code: { startsWith: 'SRV_' } },
+      orderBy: { order: 'asc' },
+      select: { code: true, label: true },
+    });
+
+    return services.filter((item) => REGIONAL_SERVICE_CODE.test(item.code));
+  }
+
+  // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Shablon в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+  async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
+    this.assertPeriod(period);
+
+    const [regions, services] = await Promise.all([this.loadRegions(), this.loadServices()]);
+
+    if (regions.length === 0 || services.length === 0) {
+      throw new BadRequestException('Hududlar yoki xizmat turlari topilmadi');
+    }
+
+    const { from, to } = this.periodBounds(period);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+
+    const sheet = workbook.addWorksheet(SHEET_LABEL, {
+      views: [{ state: 'frozen', xSplit: 4, ySplit: 3 }],
+    });
+
+    const FIRST_REGION_COL = 5;
+    const lastCol = FIRST_REGION_COL + regions.length - 1;
+    const letter = (col: number) => sheet.getColumn(col).letter;
+    const lastLetter = letter(lastCol);
+
+    sheet.getColumn(1).width = 5;
+    sheet.getColumn(2).width = 55;
+    sheet.getColumn(3).width = 11;
+    sheet.getColumn(4).width = 16;
+    for (let col = FIRST_REGION_COL; col <= lastCol; col++) {
+      sheet.getColumn(col).width = 13;
+    }
+
+    const thin = { style: 'thin' as const, color: { argb: 'FF94A3B8' } };
+    const border = { top: thin, left: thin, bottom: thin, right: thin };
+    const headerFill = {
+      type: 'pattern' as const,
+      pattern: 'solid' as const,
+      fgColor: { argb: 'FFF1F5F9' },
+    };
+    const totalFill = {
+      type: 'pattern' as const,
+      pattern: 'solid' as const,
+      fgColor: { argb: 'FFE2E8F0' },
+    };
+
+    // в”Ђв”Ђв”Ђ 1-qator: sarlavha в”Ђв”Ђв”Ђ
+    sheet.mergeCells(1, 1, 1, lastCol);
+    const title = sheet.getCell(1, 1);
+    title.value = `Xizmatlar bo'yicha hisobot (${from} dan ${to} gacha)`;
+    title.font = { bold: true, size: 12 };
+    title.alignment = { horizontal: 'center', vertical: 'middle' };
+    sheet.getRow(1).height = 24;
+
+    // в”Ђв”Ђв”Ђ 2-3 qatorlar: ustun sarlavhalari в”Ђв”Ђв”Ђ
+    const headers: [number, string][] = [
+      [1, 'в„–'],
+      [2, 'Xizmat turi'],
+      [3, "Ko'rsatkich"],
+      [4, "Jami Respublika bo'yicha"],
+    ];
+
+    for (const [col, label] of headers) {
+      sheet.mergeCells(2, col, 3, col);
+      sheet.getCell(2, col).value = label;
+    }
+
+    sheet.mergeCells(2, FIRST_REGION_COL, 2, lastCol);
+    sheet.getCell(2, FIRST_REGION_COL).value = 'shundan,';
+
+    regions.forEach((region, index) => {
+      const cell = sheet.getCell(3, FIRST_REGION_COL + index);
+      cell.value = region.name;
+      cell.alignment = {
+        textRotation: 90,
+        horizontal: 'center',
+        vertical: 'middle',
+        wrapText: true,
+      };
+    });
+
+    sheet.getRow(2).height = 20;
+    sheet.getRow(3).height = 150;
+
+    for (let row = 2; row <= 3; row++) {
+      for (let col = 1; col <= lastCol; col++) {
+        const cell = sheet.getCell(row, col);
+        cell.font = { bold: true };
+        cell.fill = headerFill;
+        cell.border = border;
+        if (!(row === 3 && col >= FIRST_REGION_COL)) {
+          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        }
+      }
+    }
+
+    // в”Ђв”Ђв”Ђ Xizmatlar: har biri ikki qator в”Ђв”Ђв”Ђ
+    const FIRST_DATA_ROW = 4;
+    let rowIndex = FIRST_DATA_ROW;
+
+    services.forEach((service, index) => {
+      const soniRow = rowIndex;
+      const summaRow = rowIndex + 1;
+
+      sheet.mergeCells(soniRow, 1, summaRow, 1);
+      sheet.getCell(soniRow, 1).value = index + 1;
+
+      sheet.mergeCells(soniRow, 2, summaRow, 2);
+      sheet.getCell(soniRow, 2).value = service.label;
+
+      sheet.getCell(soniRow, 3).value = 'Soni';
+      sheet.getCell(summaRow, 3).value = 'Summasi';
+
+      for (const row of [soniRow, summaRow]) {
+        const total = sheet.getCell(row, 4);
+        total.value = { formula: `SUM(${letter(FIRST_REGION_COL)}${row}:${lastLetter}${row})` };
+        total.fill = headerFill;
+        total.font = { bold: true };
+
+        for (let col = 1; col <= lastCol; col++) {
+          const cell = sheet.getCell(row, col);
+          cell.border = border;
+          if (col >= 4) cell.numFmt = '#,##0';
+        }
+      }
+
+      sheet.getCell(soniRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      sheet.getCell(soniRow, 2).alignment = { vertical: 'middle', wrapText: true };
+
+      rowIndex += 2;
+    });
+
+    const lastDataRow = rowIndex - 1;
+
+    // в”Ђв”Ђв”Ђ Jami qatorlari в”Ђв”Ђв”Ђ
+    const totalSoni = rowIndex;
+    const totalSumma = rowIndex + 1;
+
+    sheet.mergeCells(totalSoni, 1, totalSumma, 1);
+    sheet.mergeCells(totalSoni, 2, totalSumma, 2);
+    sheet.getCell(totalSoni, 2).value = 'Jami';
+    sheet.getCell(totalSoni, 2).alignment = { vertical: 'middle' };
+    sheet.getCell(totalSoni, 3).value = 'Soni';
+    sheet.getCell(totalSumma, 3).value = 'Summasi';
+
+    for (let col = 4; col <= lastCol; col++) {
+      const range = `${letter(col)}$${FIRST_DATA_ROW}:${letter(col)}$${lastDataRow}`;
+      const labels = `$C$${FIRST_DATA_ROW}:$C$${lastDataRow}`;
+
+      sheet.getCell(totalSoni, col).value = { formula: `SUMIF(${labels},"Soni",${range})` };
+      sheet.getCell(totalSumma, col).value = {
+        formula: `SUMIF(${labels},"Summasi",${range})`,
+      };
+    }
+
+    for (const row of [totalSoni, totalSumma]) {
+      for (let col = 1; col <= lastCol; col++) {
+        const cell = sheet.getCell(row, col);
+        cell.font = { bold: true };
+        cell.fill = totalFill;
+        cell.border = border;
+        if (col >= 4) cell.numFmt = '#,##0';
+      }
+    }
+
+    const data = await workbook.xlsx.writeBuffer();
+    return { buffer: Buffer.from(data), filename: `Hududiy-daromadlar-${period}.xlsx` };
+  }
+
+  // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ O'qish в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+  /** Hudud nomlari yozilgan qatorni topadi вЂ” eng ko'p mos kelgani */
+  private findRegionColumns(sheet: ExcelJS.Worksheet, regions: RegionRef[]) {
+    const byFull = new Map(regions.map((r) => [this.normalize(r.name), r]));
+    const byShort = new Map(regions.map((r) => [this.shortKey(r.name), r]));
+
+    const ignored = ['в„–', 'xizmat turi', 'korsatkich', 'shundan,', 'shundan'];
+
+    let best = { row: 0, columns: new Map<number, RegionRef>(), unknown: [] as string[] };
+
+    const limit = Math.min(sheet.rowCount, 15);
+
+    for (let rowIndex = 1; rowIndex <= limit; rowIndex++) {
+      const columns = new Map<number, RegionRef>();
+      const unknown: string[] = [];
+      const used = new Set<number>();
+
+      sheet.getRow(rowIndex).eachCell((cell, col) => {
+        const raw = this.text(cell.value);
+        if (!raw) return;
+
+        const region = byFull.get(this.normalize(raw)) ?? byShort.get(this.shortKey(raw));
+
+        if (region && !used.has(region.code)) {
+          columns.set(col, region);
+          used.add(region.code);
+          return;
+        }
+
+        const key = this.normalize(raw);
+        if (!ignored.includes(key) && !key.startsWith('jami') && !key.startsWith('xizmatlar')) {
+          unknown.push(raw);
+        }
+      });
+
+      if (columns.size > best.columns.size) {
+        best = { row: rowIndex, columns, unknown };
+      }
+    }
+
+    return best;
+  }
+
+  /** "Soni" yozilgan ustun вЂ” ko'rsatkich ustuni */
+  private findIndicatorColumn(sheet: ExcelJS.Worksheet, fromRow: number): number | null {
+    const limit = Math.min(sheet.rowCount, fromRow + 30);
+
+    for (let rowIndex = fromRow + 1; rowIndex <= limit; rowIndex++) {
+      let found: number | null = null;
+
+      sheet.getRow(rowIndex).eachCell((cell, col) => {
+        if (found === null && this.normalize(this.text(cell.value)) === 'soni') {
+          found = col;
+        }
+      });
+
+      if (found !== null) return found;
+    }
+
+    return null;
+  }
+
+  /**
+   * Faylni o'qiydi вЂ” bazaga hech narsa yozilmaydi.
+   * Hudud nomi bo'yicha, xizmat nomi yoki tartib raqami bo'yicha topiladi.
+   */
+  async analyze(period: string, file: Express.Multer.File) {
+    this.assertPeriod(period);
+
+    if (!file) {
+      throw new BadRequestException('Fayl yuklanmadi');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
+
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      throw new BadRequestException('Faylda varaq topilmadi');
+    }
+
+    const [regions, services] = await Promise.all([this.loadRegions(), this.loadServices()]);
+
+    const header = this.findRegionColumns(sheet, regions);
+
+    if (header.columns.size === 0) {
+      throw new BadRequestException(
+        "Hudud ustunlari topilmadi. Shablondagi hudud nomlarini o'zgartirmang",
+      );
+    }
+
+    const indicatorCol = this.findIndicatorColumn(sheet, header.row);
+
+    if (indicatorCol === null || indicatorCol < 3) {
+      throw new BadRequestException(
+        "\"Soni\" / \"Summasi\" ustuni topilmadi. Shablon tuzilishini o'zgartirmang",
+      );
+    }
+
+    const labelCol = indicatorCol - 1;
+    const numberCol = indicatorCol - 2;
+
+    const byLabel = new Map(services.map((s) => [this.normalize(s.label), s]));
+
+    const resolveService = (row: ExcelJS.Row): ServiceRef | 'skip' | null => {
+      const label = this.text(row.getCell(labelCol).value);
+      const key = this.normalize(label);
+
+      if (key.startsWith('jami')) return 'skip';
+
+      const byName = byLabel.get(key);
+      if (byName) return byName;
+
+      const number = this.parseNumber(this.cellValue(row.getCell(numberCol).value));
+      if (number !== null && Number.isInteger(number) && number >= 1) {
+        return services[number - 1] ?? null;
+      }
+
+      return null;
+    };
+
+    const values = new Map<
+      string,
+      { region: RegionRef; service: ServiceRef; quantity: number | null; amountTiyin: bigint }
+    >();
+
+    const unknownServices: { sheet: string; rowIndex: number; label: string }[] = [];
+    const invalidCells: { rowIndex: number; region: string }[] = [];
+
+    for (let rowIndex = header.row + 1; rowIndex <= sheet.rowCount; rowIndex++) {
+      const row = sheet.getRow(rowIndex);
+      const indicator = this.normalize(this.text(row.getCell(indicatorCol).value));
+
+      if (indicator !== 'soni' && indicator !== 'summasi') continue;
+
+      const service = resolveService(row);
+      if (service === 'skip') continue;
+
+      if (!service) {
+        // Bir xizmat ikki qator вЂ” faqat bir marta qayd etamiz
+        if (indicator === 'soni') {
+          unknownServices.push({
+            sheet: SHEET_LABEL,
+            rowIndex,
+            label: this.text(row.getCell(labelCol).value) || '(nomsiz)',
+          });
+        }
+        continue;
+      }
+
+      for (const [col, region] of header.columns) {
+        const raw = this.cellValue(row.getCell(col).value);
+        if (raw === null || raw === undefined || String(raw).trim() === '') continue;
+
+        const number = this.parseNumber(raw);
+        if (number === null) {
+          invalidCells.push({ rowIndex, region: region.name });
+          continue;
+        }
+
+        const key = `${region.code}:${service.code}`;
+        const entry = values.get(key) ?? { region, service, quantity: null, amountTiyin: 0n };
+
+        if (indicator === 'soni') {
+          entry.quantity = (entry.quantity ?? 0) + Math.round(number);
+        } else {
+          entry.amountTiyin += BigInt(Math.round(number * 100));
+        }
+
+        values.set(key, entry);
+      }
+    }
+
+    // Faqat summasi bor yozuvlar saqlanadi
+    const rows: ParsedRow[] = [...values.values()]
+      .filter((entry) => entry.amountTiyin > 0n)
+      .map((entry) => ({
+        regionCode: entry.region.code,
+        regionName: entry.region.name,
+        categoryCode: entry.service.code,
+        categoryLabel: entry.service.label,
+        quantity: entry.quantity,
+        amountTiyin: entry.amountTiyin,
+      }));
+
+    const quantityWithoutAmount = [...values.values()].filter(
+      (entry) => entry.amountTiyin === 0n && (entry.quantity ?? 0) > 0,
+    ).length;
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Faylda summasi kiritilgan qator topilmadi');
+    }
+
+    // Hududlar bo'yicha yig'indi вЂ” shablon tartibida
+    const regionGroups = new Map<
+      number,
+      { regionCode: number; name: string; count: number; quantity: number; totalTiyin: bigint }
+    >();
+
+    for (const row of rows) {
+      const group = regionGroups.get(row.regionCode) ?? {
+        regionCode: row.regionCode,
+        name: row.regionName,
+        count: 0,
+        quantity: 0,
+        totalTiyin: 0n,
+      };
+      group.count += 1;
+      group.quantity += row.quantity ?? 0;
+      group.totalTiyin += row.amountTiyin;
+      regionGroups.set(row.regionCode, group);
+    }
+
+    const orderedRegions = regions
+      .map((region) => regionGroups.get(region.code))
+      .filter((group): group is NonNullable<typeof group> => Boolean(group));
+
+    const previousCount = await this.prisma.income.count({
+      where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
+    });
+
+    return {
+      period,
+      fileName: file.originalname,
+      fileHash: createHash('sha256').update(file.buffer).digest('hex'),
+      totalRows: rows.length,
+      totalTiyin: rows.reduce((sum, row) => sum + row.amountTiyin, 0n),
+      /** Tanilmagan hudud ustunlari */
+      unknownSheets: header.unknown,
+      unknownServices,
+      invalidCells,
+      quantityWithoutAmount,
+      hasPrevious: previousCount > 0,
+      previousCount,
+      regions: orderedRegions,
+      rows,
+    };
+  }
+
+  // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Saqlash в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+  async commit(period: string, rows: ParsedRow[], userId: string, replacePrevious = false) {
+    this.assertPeriod(period);
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const [regions, services] = await Promise.all([this.loadRegions(), this.loadServices()]);
+
+    const regionCodes = new Set(regions.map((r) => r.code));
+    const serviceCodes = new Set(services.map((s) => s.code));
+
+    for (const row of rows) {
+      if (!regionCodes.has(row.regionCode)) {
+        throw new BadRequestException(`Hudud topilmadi: ${row.regionCode}`);
+      }
+      if (!serviceCodes.has(row.categoryCode)) {
+        throw new BadRequestException(`Xizmat turi topilmadi: ${row.categoryCode}`);
+      }
+      if (row.amountTiyin <= 0n) {
+        throw new BadRequestException(
+          `Notogri summa: ${row.regionName} - ${row.categoryLabel}`,
+        );
+      }
+    }
+
+    const date = this.periodEndDate(period);
+    const startedAt = new Date();
+
+    const created = await this.prisma.$transaction(
+      async (tx) => {
+        if (replacePrevious) {
+          await tx.income.updateMany({
+            where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
+            data: { deletedAt: new Date() },
+          });
+        }
+
+        await tx.income.createMany({
+          data: rows.map((row) => ({
+            date,
+            period,
+            amountTiyin: row.amountTiyin,
+            paidTiyin: row.amountTiyin,
+            paymentStatus: 'PAID' as const,
+            paymentMethod: 'BANK' as const,
+            categoryCode: row.categoryCode,
+            regionCode: row.regionCode,
+            quantity: row.quantity,
+            description: `${row.regionName} \u2014 ${row.categoryLabel}`,
+            source: 'IMPORT' as const,
+            createdById: userId,
+          })),
+        });
+
+        const result = await tx.income.aggregate({
+          where: {
+            deletedAt: null,
+            period,
+            source: 'IMPORT',
+            regionCode: { not: null },
+            createdAt: { gte: startedAt },
+          },
+          _sum: { amountTiyin: true },
+          _count: { _all: true },
+        });
+
+        if (result._count._all !== rows.length) {
+          throw new BadRequestException(
+            `Yaratishda xato: kutilgan ${rows.length} ta, yaratilgan ${result._count._all} ta`,
+          );
+        }
+
+        return result;
+      },
+      { timeout: 60_000 },
+    );
+
+    return {
+      success: true as const,
+      created: created._count._all,
+      totalTiyin: created._sum.amountTiyin ?? 0n,
+      replacedPrevious: replacePrevious,
+    };
+  }
+
+  // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Yig'indilar в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+  async summaryByRegion(period: string) {
+    this.assertPeriod(period);
+
+    const [grouped, regions] = await Promise.all([
+      this.prisma.income.groupBy({
+        by: ['regionCode'],
+        where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
+        _sum: { amountTiyin: true, quantity: true },
+        _count: { _all: true },
+      }),
+      this.loadRegions(),
+    ]);
+
+    const total = grouped.reduce((sum, row) => sum + (row._sum.amountTiyin ?? 0n), 0n);
+    const byCode = new Map(grouped.map((row) => [row.regionCode, row]));
+
+    // Shablon tartibida
+    const rows = regions
+      .map((region) => {
+        const row = byCode.get(region.code);
+        if (!row) return null;
+
+        const amount = row._sum.amountTiyin ?? 0n;
+
+        return {
+          regionCode: region.code,
+          name: region.name,
+          amountTiyin: amount,
+          quantity: row._sum.quantity ?? 0,
+          count: row._count._all,
+          sharePercent: this.percent(amount, total),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    return { rows, totalTiyin: total };
+  }
+
+  async summaryByService(period: string, regionCode?: number) {
+    this.assertPeriod(period);
+
+    const [grouped, services] = await Promise.all([
+      this.prisma.income.groupBy({
+        by: ['categoryCode'],
+        where: {
+          deletedAt: null,
+          period,
+          source: 'IMPORT',
+          regionCode: regionCode !== undefined ? regionCode : { not: null },
+        },
+        _sum: { amountTiyin: true, quantity: true },
+        _count: { _all: true },
+      }),
+      this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
+    ]);
+
+    const labels = new Map(services.map((s) => [s.code, s.label]));
+    const total = grouped.reduce((sum, row) => sum + (row._sum.amountTiyin ?? 0n), 0n);
+
+    const rows = grouped
+      .map((row) => {
+        const amount = row._sum.amountTiyin ?? 0n;
+        const quantity = row._sum.quantity ?? 0;
+
+        return {
+          categoryCode: row.categoryCode,
+          label: labels.get(row.categoryCode) ?? row.categoryCode,
+          amountTiyin: amount,
+          quantity,
+          averageTiyin: quantity > 0 ? amount / BigInt(quantity) : null,
+          count: row._count._all,
+          sharePercent: this.percent(amount, total),
+        };
+      })
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    return { rows, totalTiyin: total };
+  }
+}
+
+
+===== apps\api\src\modules\incomes\dto\create-income.dto.ts =====
+import { PaymentMethod, PaymentStatus } from '@prisma/client';
+import {
+    IsDateString,
+    IsEnum,
+    IsInt,
+    IsOptional,
+    IsString,
+    MaxLength,
+    Min,
+} from 'class-validator';
+
+export class CreateIncomeDto {
+  @IsDateString({}, { message: 'Sana noto\u2018g\u2018ri formatda' })
+  date!: string;
+
+  /** Shartnoma yoki hisob-faktura summasi, TIYIN'da */
+  @IsInt({ message: 'Summa butun son bo\u2018lishi kerak (tiyinda)' })
+  @Min(1, { message: 'Summa noldan katta bo\u2018lishi kerak' })
+  amountTiyin!: number;
+
+  /** Haqiqatda tushgan summa, TIYIN'da. Ko'rsatilmasa to'lov holatidan hisoblanadi */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  paidTiyin?: number;
+
+  @IsString()
+  @MaxLength(50)
+  categoryCode!: string;
+
+  @IsOptional()
+  @IsString()
+
+  departmentId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  clientName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  contractNo?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentStatus, { message: 'Noto\u2018g\u2018ri to\u2018lov holati' })
+  paymentStatus?: PaymentStatus;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+
+  /** Bo'lim: DOIMIY yoki BOSHQA */
+  @IsOptional()
+  @IsString()
+  section?: 'DOIMIY' | 'BOSHQA';
+}
+
+
+===== apps\api\src\modules\incomes\dto\query-income.dto.ts =====
+import { PaymentStatus } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+
+export class QueryIncomeDto {
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'Davr "YYYY-MM" ko\u2018rinishida bo\u2018lsin' })
+  period?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/)
+  periodFrom?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/)
+  periodTo?: string;
+
+  /** Sana oraligi */
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
+
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryCode?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentStatus)
+  paymentStatus?: PaymentStatus;
+
+  /** Mijoz, tavsif va shartnoma bo'yicha qidiruv */
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  /** Bo'lim: DOIMIY yoki BOSHQA */
+  @IsOptional()
+  @IsString()
+  section?: 'DOIMIY' | 'BOSHQA';
+}
+
+
+===== apps\api\src\modules\incomes\dto\update-income.dto.ts =====
+import { PaymentMethod, PaymentStatus } from '@prisma/client';
+import {
+    IsDateString,
+    IsEnum,
+    IsInt,
+    IsOptional,
+    IsString,
+    MaxLength,
+    Min,
+} from 'class-validator';
+
+export class UpdateIncomeDto {
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  amountTiyin?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  paidTiyin?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  categoryCode?: string;
+
+  @IsOptional()
+  @IsString()
+  departmentId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  clientName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  contractNo?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentStatus)
+  paymentStatus?: PaymentStatus;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+}
+

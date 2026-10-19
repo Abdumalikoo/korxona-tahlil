@@ -1,0 +1,6243 @@
+
+===== packages\db\prisma\schema.prisma (28356 bayt) =====
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ FOYDALANUVCHILAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum UserRole {
+  ADMIN
+  VIEWER
+}
+
+model User {
+  resultBatches     ResultBatch[]
+
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  fullName     String
+  role         UserRole @default(VIEWER)
+  isActive     Boolean  @default(true)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  expenses      Expense[]
+  incomes       Income[]
+  importBatches ImportBatch[]
+  auditLogs     AuditLog[]
+  payrollBatches PayrollBatch[]
+
+  @@map("users")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ BO'LIMLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+model Department {
+  id       String  @id @default(cuid())
+  code     String  @unique
+  name     String
+  /// Foydalanuvchi koradigan raqamli indeks: 1, 2, 3...
+  index    Int     @unique
+  isActive Boolean @default(true)
+  order    Int     @default(0)
+
+  /// Umumiy xarajatlarni taqsimlash ogirligi
+  allocationWeight Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expenses  Expense[]
+  incomes   Income[]
+  employees Employee[]
+
+  @@index([isActive, order])
+  @@map("departments")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ KATEGORIYALAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum CostBehavior {
+  FIXED
+  VARIABLE
+  MIXED
+}
+
+enum CostScope {
+  DEPARTMENT
+  GENERAL
+}
+
+model Category {
+  code       String       @id
+  label      String
+  parentCode String?
+  isLeaf     Boolean      @default(true)
+  behavior   CostBehavior @default(VARIABLE)
+  scope      CostScope    @default(GENERAL)
+  keywords   String[]     @default([])
+  model3d    String?
+  isActive   Boolean      @default(true)
+  order      Int          @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Category?  @relation("CategoryTree", fields: [parentCode], references: [code], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+  expenses Expense[]
+
+  @@index([parentCode])
+  @@index([isActive, order])
+  @@map("categories")
+}
+
+model IncomeCategory {
+  code     String  @id
+  label    String
+  isActive Boolean @default(true)
+  order    Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  incomes Income[]
+
+  @@index([isActive, order])
+  @@map("income_categories")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ XARAJATLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum PaymentMethod {
+  CASH
+  BANK
+  CARD
+  OTHER
+}
+
+enum EntrySource {
+  MANUAL
+  IMPORT
+  PAYROLL
+  LEASE
+  VEHICLE
+}
+
+/// Bo'lim: DOIMIY - doimiy (ish haqi, ijara va h.k.), BOSHQA - bir martalik
+enum EntrySection {
+  DOIMIY
+  BOSHQA
+}
+
+model Expense {
+  id String @id @default(cuid())
+
+  date   DateTime
+  /// "2026-09"
+  period String
+
+  /// TIYIN'da: 1 000 000 so'm = 100 000 000
+  amountTiyin BigInt
+
+  categoryCode String
+  departmentId String?
+  /// Hudud kodi - ish haqi va hududiy xarajatlar uchun
+  regionCode   Int?
+
+  description   String?
+  paymentMethod PaymentMethod @default(BANK)
+  documentNo    String?
+  counterparty  String?
+
+  /// To'lov holati вЂ” kreditorlik qarzini kuzatish uchun
+  paymentStatus PaymentStatus @default(PAID)
+  /// Qachongacha to'lanishi kerak
+  dueDate       DateTime?
+  /// Javobgar shaxs
+  responsible   String?
+  /// Summa ichidagi QQS, tiyinda
+  vatTiyin      BigInt?
+
+  source         EntrySource @default(MANUAL)
+  section       EntrySection @default(DOIMIY)
+  importBatchId  String?
+  payrollBatchId String?
+
+  categoryConfidence Int?
+  categoryOverridden Boolean @default(false)
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  category    Category     @relation(fields: [categoryCode], references: [code])
+  department  Department?  @relation(fields: [departmentId], references: [id])
+  region      Region?      @relation(fields: [regionCode], references: [code])
+  createdBy   User         @relation(fields: [createdById], references: [id])
+  importBatch  ImportBatch?  @relation(fields: [importBatchId], references: [id])
+  payrollBatch PayrollBatch? @relation(fields: [payrollBatchId], references: [id])
+
+  @@index([period, deletedAt])
+  @@index([date])
+  @@index([categoryCode, period])
+  @@index([departmentId, period])
+  @@index([importBatchId])
+  @@index([paymentStatus])
+  @@index([regionCode, period])
+  @@index([section, period])
+  @@map("expenses")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ DAROMADLAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  UNPAID
+}
+
+model Income {
+  id String @id @default(cuid())
+
+  date   DateTime
+  period String
+
+  amountTiyin BigInt
+  paidTiyin   BigInt @default(0)
+
+  categoryCode String
+  departmentId String?
+  /// Hudud kodi - hududiy daromadlar uchun
+  regionCode  Int?
+  /// Xizmat korsatilgan soni
+  quantity    Int?
+
+  clientName  String?
+  description String?
+  contractNo  String?
+
+  paymentStatus PaymentStatus @default(PAID)
+  paymentMethod PaymentMethod @default(BANK)
+
+  source        EntrySource @default(MANUAL)
+  section       EntrySection @default(DOIMIY)
+  importBatchId String?
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  category   IncomeCategory @relation(fields: [categoryCode], references: [code])
+  department Department?    @relation(fields: [departmentId], references: [id])
+  region     Region?        @relation(fields: [regionCode], references: [code])
+  createdBy  User           @relation(fields: [createdById], references: [id])
+
+  @@index([period, deletedAt])
+  @@index([date])
+  @@index([categoryCode, period])
+  @@index([departmentId, period])
+  @@index([paymentStatus])
+  @@index([regionCode, period])
+  @@index([section, period])
+  @@map("incomes")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ XODIMLAR VA ISH HAQI РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+// ═══════════ XODIMLAR REESTRI ═══════════
+
+enum EmploymentType {
+  SHTAT      // Asosiy shtat
+  SHARTNOMA  // Shartnoma asosida
+}
+
+model Employee {
+  results           EmployeeResult[]
+  locations         EmployeeLocation[]
+
+  /// PINFL - 14 raqamli shaxsiy identifikator, birlamchi kalit
+  pinfl String @id
+
+  lastName   String
+  firstName  String
+  middleName String?
+
+  /// Toliq ism - qidiruv va hisobotlar uchun
+  fullName String
+
+  employmentType EmploymentType
+
+  /// Hudud kodi: 0 - Markaz, 3 - Andijon, 33 - Xorazm
+  regionCode Int
+  /// Tuman kaliti: "33-1". Markaz (region=0) uchun null
+  districtId String?
+  /// Bolim - faqat markaz xodimlari uchun
+  departmentId String?
+
+  position String?
+
+  hiredAt  DateTime?
+  firedAt  DateTime?
+  isActive Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  region     Region      @relation(fields: [regionCode], references: [code])
+  district   District?   @relation(fields: [districtId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  payrollEntries PayrollEntry[]
+
+  @@index([regionCode, isActive])
+  @@index([departmentId, isActive])
+  @@index([employmentType])
+  @@index([fullName])
+  @@map("employees")
+}
+
+model PayrollEntry {
+  id String @id @default(cuid())
+
+  employeePinfl String
+  period        String
+
+  /// Barcha summalar tiyinda
+  baseTiyin      BigInt @default(0)
+  bonusTiyin     BigInt @default(0)
+  vacationTiyin  BigInt @default(0)
+  deductionTiyin BigInt @default(0)
+  taxTiyin       BigInt @default(0)
+  totalTiyin     BigInt @default(0)
+
+  workedDays Int?
+
+  /// Qaysi yuklashdan kelgani
+  batchId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  employee Employee      @relation(fields: [employeePinfl], references: [pinfl])
+  batch    PayrollBatch? @relation(fields: [batchId], references: [id])
+
+  @@unique([employeePinfl, period, batchId])
+  @@index([period])
+  @@index([batchId])
+  @@map("payroll_entries")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ IMPORT QUVURI РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum ImportType {
+  PAYROLL
+  EXPENSE
+  INCOME
+}
+
+enum ImportStatus {
+  PENDING
+  READY
+  COMMITTED
+  CANCELLED
+  FAILED
+}
+
+model ImportBatch {
+  id String @id @default(cuid())
+
+  type   ImportType
+  status ImportStatus @default(PENDING)
+
+  fileName String
+  /// SHA-256 РІР‚вЂќ dublikat yuklashni oldini oladi
+  fileHash String
+  fileSize Int
+
+  period String?
+
+  totalRows     Int @default(0)
+  validRows     Int @default(0)
+  warningRows   Int @default(0)
+  errorRows     Int @default(0)
+  committedRows Int @default(0)
+
+  errorMessage String?
+
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  committedAt  DateTime?
+
+  uploadedBy     User           @relation(fields: [uploadedById], references: [id])
+  stagingRows    StagingRow[]
+  expenses       Expense[]
+
+  @@index([type, status])
+  @@index([fileHash])
+  @@map("import_batches")
+}
+
+enum RowStatus {
+  VALID
+  WARNING
+  ERROR
+}
+
+model StagingRow {
+  id String @id @default(cuid())
+
+  batchId  String
+  rowIndex Int
+
+  rawData    Json
+  parsedData Json?
+
+  status   RowStatus @default(VALID)
+  messages Json      @default("[]")
+
+  batch ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, status])
+  @@map("staging_rows")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ AUDIT РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  LOGIN
+  IMPORT
+  EXPORT
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  userId     String
+  action     AuditAction
+  entityType String
+  entityId   String?
+
+  changes Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’ SOZLAMALAR РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+
+
+// ═══════════ HUDUDLAR ═══════════
+
+model Region {
+  employeeResults   EmployeeResult[]
+  employeeLocations EmployeeLocation[]
+
+  /// Rasmiy klassifikator kodi: 0 - Markaz, 3 - Andijon, 33 - Xorazm
+  code Int    @id
+  name String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  districts District[]
+  employees Employee[]
+  expenses  Expense[]
+  incomes   Income[]
+
+  @@map("regions")
+}
+
+model District {
+  employeeResults   EmployeeResult[]
+  employeeLocations EmployeeLocation[]
+
+  /// Tarkibli kalit: "33-1" - viloyat va tuman kodi birga
+  id         String @id
+  regionCode Int
+  /// Tuman kodi - viloyat ichida noyob, yolgiz ozida emas
+  code       Int
+  name       String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  region    Region     @relation(fields: [regionCode], references: [code])
+  employees Employee[]
+
+  @@unique([regionCode, code])
+  @@index([regionCode])
+  @@map("districts")
+}
+
+// ═══════════ ISH HAQI YUKLASH ═══════════
+
+enum PayrollBatchStatus {
+  DRAFT      // Yuklandi, korib chiqilmoqda
+  COMMITTED  // Tasdiqlandi, xarajatlar yaratildi
+  CANCELLED  // Bekor qilindi
+}
+
+model PayrollBatch {
+  id String @id @default(cuid())
+
+  /// "2026-09"
+  period String
+  status PayrollBatchStatus @default(DRAFT)
+
+  fileName String
+  /// SHA-256 - bir xil faylni ikki marta yuklashni oldini oladi
+  fileHash String
+
+  totalRows   Int @default(0)
+  matchedRows Int @default(0)
+  /// PINFL reestrda topilmagan qatorlar
+  missingRows Int @default(0)
+
+  /// Jami summa, tiyinda
+  totalTiyin BigInt @default(0)
+
+  /// Topilmagan PINFL lar royxati
+  missingPinfls Json @default("[]")
+
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  committedAt  DateTime?
+
+  uploadedBy User           @relation(fields: [uploadedById], references: [id])
+  entries    PayrollEntry[]
+  expenses   Expense[]
+
+  @@index([period, status])
+  @@index([fileHash])
+  @@map("payroll_batches")
+}
+
+model Setting {
+  key   String @id
+  value Json
+
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+
+/// Xodim natijalari yuklashi - oylik fayl
+model ResultBatch {
+  id           String    @id @default(cuid())
+  period       String
+  fileName     String
+  totalRows    Int
+  planTiyin    BigInt    @default(0)
+  factTiyin    BigInt    @default(0)
+  bonusTiyin     BigInt  @default(0)
+  /// Hududi tuzatilgan xodimlar soni
+  movedCount   Int       @default(0)
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  cancelledAt  DateTime?
+
+  uploadedBy User             @relation(fields: [uploadedById], references: [id])
+  results    EmployeeResult[]
+
+  @@index([period])
+  @@map("result_batches")
+}
+
+/// Xodim natijasi - reja va fakt. Daromadga qo'shilmaydi
+model EmployeeResult {
+  id            String  @id @default(cuid())
+  batchId       String
+  period        String
+  employeePinfl String
+  regionCode    Int
+  districtId    String?
+  employmentType String  @default("SHTAT")
+  planTiyin     BigInt  @default(0)
+  factTiyin     BigInt  @default(0)
+  bonusTiyin     BigInt  @default(0)
+
+  batch    ResultBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employee Employee    @relation(fields: [employeePinfl], references: [pinfl])
+  region   Region      @relation(fields: [regionCode], references: [code])
+  district District?   @relation(fields: [districtId], references: [id])
+
+  @@unique([batchId, employeePinfl])
+  @@index([period, regionCode])
+  @@index([employeePinfl, period])
+  @@map("employee_results")
+}
+
+/// Xodim qaysi oyda qayerda ishlagani - natijalar faylidan
+model EmployeeLocation {
+  id            String   @id @default(cuid())
+  employeePinfl String
+  period        String
+  regionCode    Int
+  districtId    String?
+  employmentType String  @default("SHTAT")
+  source        String   @default("RESULTS")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee Employee  @relation(fields: [employeePinfl], references: [pinfl])
+  region   Region    @relation(fields: [regionCode], references: [code])
+  district District? @relation(fields: [districtId], references: [id])
+
+  @@unique([employeePinfl, period])
+  @@index([period, regionCode])
+  @@map("employee_locations")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ISH HAQI TARKIBI
+// ═══════════════════════════════════════════════════════════
+
+/// Komponent qaysi manbadan to'lanadi
+enum SalaryComponentGroup {
+  BUDGET   // Byudjet hisobidan
+  HOJALIK  // Xo'jalik hisobidan
+}
+
+/// Tahlil uchun yiriklashtirilgan guruh
+enum SalaryComponentCategory {
+  ASOSIY         // Oklad, 40% ustama, staj
+  TATIL          // Ta'til, kompensatsiya, kasallik, dekret
+  PREMIYA        // KPI, bayram, bildirgi
+  KOMPENSATSIYA  // Transport, ovqat, moddiy yordam
+  USTAMA         // Sertifikat, unvon va boshqalar
+  JARIMA         // Minus bilan hisoblanadi
+  BOSHQA
+}
+
+/// Tarkib soliq hisobotiga nisbatan holati
+enum SalaryCompositionStatus {
+  MATCHED     // To'liq mos
+  MISMATCH    // Farq bor
+  NO_PAYROLL  // Shu oy uchun soliq hisoboti yuklanmagan
+}
+
+/// Ish haqi komponentlari ma'lumotnomasi
+model SalaryComponent {
+  code      String                  @id
+  name      String
+  group     SalaryComponentGroup
+  category  SalaryComponentCategory
+  /// 1 = qo'shiladi, -1 = ayiriladi (jarima)
+  sign      Int                     @default(1)
+  sortOrder Int                     @default(0)
+  isActive  Boolean                 @default(true)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  items SalaryCompositionItem[]
+}
+
+/// Bir oylik tarkib yuklamasi
+model SalaryCompositionBatch {
+  id            String                  @id @default(cuid())
+  /// "YYYY-MM"
+  period        String
+  fileName      String?
+  employeeCount Int                     @default(0)
+  /// Tarkib bo'yicha jami (jarima ayirilgan)
+  totalTiyin    BigInt                  @default(0)
+  /// Soliq hisobotidagi jami (yuklash paytida)
+  payrollTiyin  BigInt                  @default(0)
+  status        SalaryCompositionStatus @default(NO_PAYROLL)
+  mismatchCount Int                     @default(0)
+  uploadedById  String?
+  createdAt     DateTime                @default(now())
+  cancelledAt   DateTime?
+
+  rows  SalaryCompositionRow[]
+  items SalaryCompositionItem[]
+
+  @@index([period])
+}
+
+/// Xodimning bir oylik tarkib qatori
+model SalaryCompositionRow {
+  id            String   @id @default(cuid())
+  batchId       String
+  period        String
+  employeePinfl String
+  fullName      String?
+  workedDays    Float?
+  rate          Float?
+  totalTiyin    BigInt   @default(0)
+
+  batch SalaryCompositionBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  items SalaryCompositionItem[]
+
+  @@unique([batchId, employeePinfl])
+  @@index([period, employeePinfl])
+}
+
+/// Xodim x komponent summasi (doim musbat, belgi komponentdan olinadi)
+model SalaryCompositionItem {
+  id            String @id @default(cuid())
+  batchId       String
+  rowId         String
+  componentCode String
+  amountTiyin   BigInt
+
+  batch     SalaryCompositionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  row       SalaryCompositionRow   @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  component SalaryComponent        @relation(fields: [componentCode], references: [code])
+
+  @@unique([rowId, componentCode])
+  @@index([batchId, componentCode])
+}
+
+// ═══════════════════════════════════════════════════════════
+// IJARA
+// ═══════════════════════════════════════════════════════════
+
+/// Ijara turi
+enum LeaseKind {
+  ODDIY     // Bino, ofis, ombor — hudud / tuman yoki Markaz
+  AEROPORT  // Aeroportdagi joy (kassa, ofis)
+}
+
+/// To'lov davriyligi — xarajat baribir har oyga teng bo'linadi
+enum LeasePaymentFrequency {
+  MONTHLY    // Oylik
+  QUARTERLY  // Choraklik
+  YEARLY     // Yillik
+}
+
+enum LeaseDocumentType {
+  SHARTNOMA           // Asosiy shartnoma
+  QOSHIMCHA_KELISHUV  // Qo'shimcha kelishuv (narx o'zgarishi va h.k.)
+  DALOLATNOMA         // Qabul-topshirish dalolatnomasi
+  BOSHQA
+}
+
+/// Ijara shartnomasi — bir marta kiritiladi, har oy o'zi davom etadi
+model Lease {
+  id           String    @id @default(cuid())
+  /// Shartnoma raqami
+  number       String
+  contractDate DateTime?
+  kind         LeaseKind @default(ODDIY)
+  /// Obyekt nomi: "Asaka tuman ofisi", "Toshkent aeroporti kassasi"
+  title        String
+
+  /// Joyi: 0 — Markaz. Aeroport uchun — aeroport joylashgan viloyat
+  regionCode   Int
+  /// Tuman kaliti "33-1" — viloyat ijaralari uchun
+  districtId   String?
+  /// Bo'lim — Markaz ijaralari uchun
+  departmentId String?
+  /// Aeroport nomi — AEROPORT turi uchun
+  airportName  String?
+
+  address      String?
+  /// Maydon, m² — tahlil (1 m² narxi) uchun
+  areaM2       Float?
+  purpose      String?
+
+  // Ijaraga beruvchi
+  lessorName   String
+  lessorTin    String?
+  lessorPhone  String?
+  lessorBank   String?
+
+  vatIncluded      Boolean               @default(true)
+  paymentFrequency LeasePaymentFrequency @default(MONTHLY)
+  /// Oyning qaysi kuni to'lanadi
+  paymentDay       Int?
+
+  /// Birinchi oy "YYYY-MM"
+  startPeriod  String
+  /// Oxirgi oy "YYYY-MM" (shu oy ham kiradi); null — muddatsiz / amalda
+  endPeriod    String?
+  /// Tugash sababi: muddati tugadi, bekor qilindi va h.k.
+  endReason    String?
+  note         String?
+
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  /// O'chirilgan (savat)
+  deletedAt    DateTime?
+
+  terms     LeaseTerm[]
+  documents LeaseDocument[]
+  accruals  LeaseAccrual[]
+
+  @@index([regionCode])
+  @@index([kind])
+  @@index([startPeriod, endPeriod])
+}
+
+/// Narx tarixi — har bir yozuv "shu oydan boshlab oylik summa"
+model LeaseTerm {
+  id           String   @id @default(cuid())
+  leaseId      String
+  /// "YYYY-MM" — shu oydan boshlab amal qiladi
+  validFrom    String
+  /// Oylik summa, tiyinda
+  monthlyTiyin BigInt
+  note         String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  lease     Lease           @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  documents LeaseDocument[]
+
+  @@unique([leaseId, validFrom])
+}
+
+/// Yuklangan hujjat — fayl serverda saqlanadi
+model LeaseDocument {
+  id           String            @id @default(cuid())
+  leaseId      String
+  /// Qaysi narx o'zgarishiga tegishli (qo'shimcha kelishuv)
+  termId       String?
+  type         LeaseDocumentType @default(SHARTNOMA)
+  /// Foydalanuvchi yuklagan asl nom
+  fileName     String
+  /// Diskdagi nom (takrorlanmas)
+  storedName   String
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String?
+  createdAt    DateTime          @default(now())
+
+  lease Lease      @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  term  LeaseTerm? @relation(fields: [termId], references: [id], onDelete: SetNull)
+
+  @@index([leaseId])
+}
+
+/// Oyni yopish — shu oy uchun barcha amaldagi ijaralar xarajatga yoziladi
+model LeaseMonthClose {
+  id          String    @id @default(cuid())
+  /// "YYYY-MM"
+  period      String
+  leaseCount  Int       @default(0)
+  totalTiyin  BigInt    @default(0)
+  closedById  String?
+  closedAt    DateTime  @default(now())
+  /// Qayta yopilganda yoki bekor qilinganda
+  cancelledAt DateTime?
+
+  accruals LeaseAccrual[]
+
+  @@index([period])
+}
+
+/// Oylik hisob — bitta ijara, bitta oy
+model LeaseAccrual {
+  id          String @id @default(cuid())
+  closeId     String
+  leaseId     String
+  period      String
+  amountTiyin BigInt
+  /// Yaratilgan xarajat yozuvi
+  expenseId   String?
+
+  close LeaseMonthClose @relation(fields: [closeId], references: [id], onDelete: Cascade)
+  lease Lease           @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@unique([leaseId, period])
+  @@index([period])
+}
+
+// ═══════════════════════════════════════════════════════════
+// Mashinalar — yoqilg'i, moyka, ta'mirlash
+// ═══════════════════════════════════════════════════════════
+
+/// Yoqilg'i turi
+enum VehicleFuelType {
+  AI80
+  AI92
+  AI95
+  DIZEL
+  METAN
+  PROPAN
+  ELEKTR
+}
+
+/// Mashina xarajati turi
+enum VehicleRecordKind {
+  FUEL     // Yoqilg'i: benzin, gaz, dizel
+  WASH     // Moyka
+  REPAIR   // Ta'mirlash va ehtiyot qismlar
+  SERVICE  // Texnik xizmat: moy, filtr, shina
+  OTHER    // Sug'urta, texko'rik, jarima, to'xtash joyi
+}
+
+/// Korxona mashinasi
+model Vehicle {
+  id                String          @id @default(cuid())
+  /// Davlat raqami: "01 A 123 BC"
+  plateNumber       String
+  /// Rusumi: "Chevrolet Cobalt"
+  model             String
+  year              Int?
+  color             String?
+  fuelType          VehicleFuelType @default(AI92)
+  /// Me'yor: 100 km ga litr (gazda — m³)
+  fuelNorm          Float?
+  /// Joyi: 0 — Markaz
+  regionCode        Int             @default(0)
+  departmentId      String?
+  /// Haydovchi yoki mas'ul xodim
+  driverName        String?
+  driverPhone       String?
+  /// Ro'yxatga olingandagi probeg, km
+  initialOdometerKm Int?
+  /// Faol emas — sotilgan yoki hisobdan chiqarilgan
+  isActive          Boolean         @default(true)
+  note              String?
+  createdById       String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+
+  records VehicleRecord[]
+
+  @@index([isActive])
+}
+
+/// Mashina xarajati — har biri "Xarajatlar"da bitta yozuv yaratadi
+model VehicleRecord {
+  id            String            @id @default(cuid())
+  vehicleId     String
+  kind          VehicleRecordKind
+  date          DateTime
+  /// "YYYY-MM"
+  period        String
+  amountTiyin   BigInt
+  /// Yoqilg'i: litr (gazda — m³)
+  liters        Float?
+  /// Spidometr ko'rsatkichi, km
+  odometerKm    Int?
+  description   String?
+  /// AZS, moyka yoki servis nomi
+  counterparty  String?
+  documentNo    String?
+  paymentMethod PaymentMethod     @default(CASH)
+  /// Yaratilgan xarajat yozuvi (expenses.id)
+  expenseId     String?           @unique
+  createdById   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  deletedAt     DateTime?
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, period])
+  @@index([period, kind])
+}
+
+
+##### Modullar ro'yxati #####
+analytics
+audit
+auth
+backup
+categories
+cleanup
+dashboard
+departments
+employee-transfers
+employees
+expenses
+incomes
+integrity
+leases
+modeling
+payroll
+prisma
+regions
+results
+salary-composition
+sections
+vehicles
+
+===== C:\Projects\korxona-tahlil\apps\api\src\modules\incomes\regional-income.service.ts (23692 bayt) =====
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import ExcelJS from 'exceljs';
+import { PrismaService } from '../prisma/prisma.service';
+
+const CENTRAL_REGION = 0;
+const TASHKENT_OFFSET_HOURS = 5;
+const SHEET_LABEL = 'List 1';
+
+/**
+ * Hududlar shablondagi tartibi (SOATO kodlari).
+ * Andijon, Buxoro, Jizzax, Qashqadaryo, Navoiy, Namangan, Samarqand,
+ * Surxondaryo, Sirdaryo, Toshkent shahri, Toshkent viloyati,
+ * Farg'ona, Xorazm, Qoraqalpog'iston.
+ * Ro'yxatda yo'q hudud bo'lsa — oxiriga qo'shiladi.
+ */
+const REGION_ORDER = [3, 6, 8, 10, 12, 14, 18, 22, 24, 26, 27, 30, 33, 35];
+
+/** Hududiy xizmatlar — SRV_01 ... SRV_39 */
+const REGIONAL_SERVICE_CODE = /^SRV_\d{2}$/;
+
+export interface ParsedRow {
+  regionCode: number;
+  regionName: string;
+  categoryCode: string;
+  categoryLabel: string;
+  quantity: number | null;
+  amountTiyin: bigint;
+}
+
+interface RegionRef {
+  code: number;
+  name: string;
+}
+
+interface ServiceRef {
+  code: string;
+  label: string;
+}
+
+@Injectable()
+export class RegionalIncomeService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // ═══════════ Yordamchilar ═══════════
+
+  private assertPeriod(period: string): void {
+    if (!/^\d{4}-\d{2}$/.test(period ?? '')) {
+      throw new BadRequestException('Davr notogri formatda');
+    }
+  }
+
+  /** "2026-03" → { from: "2026-03-01", to: "2026-03-31" } */
+  private periodBounds(period: string): { from: string; to: string } {
+    const [year, month] = period.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(year ?? 2026, month ?? 1, 0)).getUTCDate();
+
+    return {
+      from: `${period}-01`,
+      to: `${period}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }
+
+  /** Davr oxirgi kuni — daromad sanasi */
+  private periodEndDate(period: string): Date {
+    const [year, month] = period.split('-').map(Number);
+    const nextMonth = month === 12 ? 1 : (month ?? 1) + 1;
+    const nextYear = month === 12 ? (year ?? 2026) + 1 : (year ?? 2026);
+
+    return new Date(
+      Date.UTC(nextYear, nextMonth - 1, 1, -TASHKENT_OFFSET_HOURS) - 86_400_000,
+    );
+  }
+
+  private cellValue(value: ExcelJS.CellValue): unknown {
+    if (value && typeof value === 'object') {
+      const record = value as unknown as Record<string, unknown>;
+
+      if ('result' in record) return record.result;
+      if ('text' in record) return record.text;
+      if ('richText' in record && Array.isArray(record.richText)) {
+        return (record.richText as { text: string }[]).map((part) => part.text).join('');
+      }
+    }
+    return value;
+  }
+
+  private text(value: ExcelJS.CellValue): string {
+    const raw = this.cellValue(value);
+    return raw === null || raw === undefined ? '' : String(raw).trim();
+  }
+
+  /**
+   * Solishtirish uchun matnni tozalaydi.
+   * Tutuq belgilarining barcha turlari olib tashlanadi: O'zbekiston = Ozbekiston.
+   */
+  private normalize(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[\u0027\u0060\u00B4\u02BB\u02BC\u2018\u2019]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /** "viloyati" va "respublikasi" siz kalit — "shahri" saqlanadi */
+  private shortKey(value: string): string {
+    return this.normalize(value)
+      .replace(/\s(viloyati|respublikasi)$/, '')
+      .trim();
+  }
+
+  /** Son. Bo'sh — null, manfiy yoki matn — null */
+  private parseNumber(value: unknown): number | null {
+    if (value === null || value === undefined || String(value).trim() === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
+
+    const text = String(value).replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
+    const parsed = Number(text);
+
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+
+  private percent(part: bigint, total: bigint): number {
+    if (total === 0n) return 0;
+    return Number((part * 10000n) / total) / 100;
+  }
+
+  /** Faol hududlar shablon tartibida, Markazsiz */
+  private async loadRegions(): Promise<RegionRef[]> {
+    const regions = await this.prisma.region.findMany({
+      where: { isActive: true, code: { not: CENTRAL_REGION } },
+      select: { code: true, name: true },
+    });
+
+    const position = (code: number) => {
+      const index = REGION_ORDER.indexOf(code);
+      return index === -1 ? 1000 + code : index;
+    };
+
+    return regions.sort((a, b) => position(a.code) - position(b.code));
+  }
+
+  /** Faqat hududiy xizmatlar — formadan qo'shilganlar kirmaydi */
+  private async loadServices(): Promise<ServiceRef[]> {
+    const services = await this.prisma.incomeCategory.findMany({
+      where: { isActive: true, code: { startsWith: 'SRV_' } },
+      orderBy: { order: 'asc' },
+      select: { code: true, label: true },
+    });
+
+    return services.filter((item) => REGIONAL_SERVICE_CODE.test(item.code));
+  }
+
+  // ═══════════ Shablon ═══════════
+
+  async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
+    this.assertPeriod(period);
+
+    const [regions, services] = await Promise.all([this.loadRegions(), this.loadServices()]);
+
+    if (regions.length === 0 || services.length === 0) {
+      throw new BadRequestException('Hududlar yoki xizmat turlari topilmadi');
+    }
+
+    const { from, to } = this.periodBounds(period);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+
+    const sheet = workbook.addWorksheet(SHEET_LABEL, {
+      views: [{ state: 'frozen', xSplit: 4, ySplit: 3 }],
+    });
+
+    const FIRST_REGION_COL = 5;
+    const lastCol = FIRST_REGION_COL + regions.length - 1;
+    const letter = (col: number) => sheet.getColumn(col).letter;
+    const lastLetter = letter(lastCol);
+
+    sheet.getColumn(1).width = 5;
+    sheet.getColumn(2).width = 55;
+    sheet.getColumn(3).width = 11;
+    sheet.getColumn(4).width = 16;
+    for (let col = FIRST_REGION_COL; col <= lastCol; col++) {
+      sheet.getColumn(col).width = 13;
+    }
+
+    const thin = { style: 'thin' as const, color: { argb: 'FF94A3B8' } };
+    const border = { top: thin, left: thin, bottom: thin, right: thin };
+    const headerFill = {
+      type: 'pattern' as const,
+      pattern: 'solid' as const,
+      fgColor: { argb: 'FFF1F5F9' },
+    };
+    const totalFill = {
+      type: 'pattern' as const,
+      pattern: 'solid' as const,
+      fgColor: { argb: 'FFE2E8F0' },
+    };
+
+    // ─── 1-qator: sarlavha ───
+    sheet.mergeCells(1, 1, 1, lastCol);
+    const title = sheet.getCell(1, 1);
+    title.value = `Xizmatlar bo'yicha hisobot (${from} dan ${to} gacha)`;
+    title.font = { bold: true, size: 12 };
+    title.alignment = { horizontal: 'center', vertical: 'middle' };
+    sheet.getRow(1).height = 24;
+
+    // ─── 2-3 qatorlar: ustun sarlavhalari ───
+    const headers: [number, string][] = [
+      [1, '№'],
+      [2, 'Xizmat turi'],
+      [3, "Ko'rsatkich"],
+      [4, "Jami Respublika bo'yicha"],
+    ];
+
+    for (const [col, label] of headers) {
+      sheet.mergeCells(2, col, 3, col);
+      sheet.getCell(2, col).value = label;
+    }
+
+    sheet.mergeCells(2, FIRST_REGION_COL, 2, lastCol);
+    sheet.getCell(2, FIRST_REGION_COL).value = 'shundan,';
+
+    regions.forEach((region, index) => {
+      const cell = sheet.getCell(3, FIRST_REGION_COL + index);
+      cell.value = region.name;
+      cell.alignment = {
+        textRotation: 90,
+        horizontal: 'center',
+        vertical: 'middle',
+        wrapText: true,
+      };
+    });
+
+    sheet.getRow(2).height = 20;
+    sheet.getRow(3).height = 150;
+
+    for (let row = 2; row <= 3; row++) {
+      for (let col = 1; col <= lastCol; col++) {
+        const cell = sheet.getCell(row, col);
+        cell.font = { bold: true };
+        cell.fill = headerFill;
+        cell.border = border;
+        if (!(row === 3 && col >= FIRST_REGION_COL)) {
+          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        }
+      }
+    }
+
+    // ─── Xizmatlar: har biri ikki qator ───
+    const FIRST_DATA_ROW = 4;
+    let rowIndex = FIRST_DATA_ROW;
+
+    services.forEach((service, index) => {
+      const soniRow = rowIndex;
+      const summaRow = rowIndex + 1;
+
+      sheet.mergeCells(soniRow, 1, summaRow, 1);
+      sheet.getCell(soniRow, 1).value = index + 1;
+
+      sheet.mergeCells(soniRow, 2, summaRow, 2);
+      sheet.getCell(soniRow, 2).value = service.label;
+
+      sheet.getCell(soniRow, 3).value = 'Soni';
+      sheet.getCell(summaRow, 3).value = 'Summasi';
+
+      for (const row of [soniRow, summaRow]) {
+        const total = sheet.getCell(row, 4);
+        total.value = { formula: `SUM(${letter(FIRST_REGION_COL)}${row}:${lastLetter}${row})` };
+        total.fill = headerFill;
+        total.font = { bold: true };
+
+        for (let col = 1; col <= lastCol; col++) {
+          const cell = sheet.getCell(row, col);
+          cell.border = border;
+          if (col >= 4) cell.numFmt = '#,##0';
+        }
+      }
+
+      sheet.getCell(soniRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      sheet.getCell(soniRow, 2).alignment = { vertical: 'middle', wrapText: true };
+
+      rowIndex += 2;
+    });
+
+    const lastDataRow = rowIndex - 1;
+
+    // ─── Jami qatorlari ───
+    const totalSoni = rowIndex;
+    const totalSumma = rowIndex + 1;
+
+    sheet.mergeCells(totalSoni, 1, totalSumma, 1);
+    sheet.mergeCells(totalSoni, 2, totalSumma, 2);
+    sheet.getCell(totalSoni, 2).value = 'Jami';
+    sheet.getCell(totalSoni, 2).alignment = { vertical: 'middle' };
+    sheet.getCell(totalSoni, 3).value = 'Soni';
+    sheet.getCell(totalSumma, 3).value = 'Summasi';
+
+    for (let col = 4; col <= lastCol; col++) {
+      const range = `${letter(col)}$${FIRST_DATA_ROW}:${letter(col)}$${lastDataRow}`;
+      const labels = `$C$${FIRST_DATA_ROW}:$C$${lastDataRow}`;
+
+      sheet.getCell(totalSoni, col).value = { formula: `SUMIF(${labels},"Soni",${range})` };
+      sheet.getCell(totalSumma, col).value = {
+        formula: `SUMIF(${labels},"Summasi",${range})`,
+      };
+    }
+
+    for (const row of [totalSoni, totalSumma]) {
+      for (let col = 1; col <= lastCol; col++) {
+        const cell = sheet.getCell(row, col);
+        cell.font = { bold: true };
+        cell.fill = totalFill;
+        cell.border = border;
+        if (col >= 4) cell.numFmt = '#,##0';
+      }
+    }
+
+    const data = await workbook.xlsx.writeBuffer();
+    return { buffer: Buffer.from(data), filename: `Hududiy-daromadlar-${period}.xlsx` };
+  }
+
+  // ═══════════ O'qish ═══════════
+
+  /** Hudud nomlari yozilgan qatorni topadi — eng ko'p mos kelgani */
+  private findRegionColumns(sheet: ExcelJS.Worksheet, regions: RegionRef[]) {
+    const byFull = new Map(regions.map((r) => [this.normalize(r.name), r]));
+    const byShort = new Map(regions.map((r) => [this.shortKey(r.name), r]));
+
+    const ignored = ['№', 'xizmat turi', 'korsatkich', 'shundan,', 'shundan'];
+
+    let best = { row: 0, columns: new Map<number, RegionRef>(), unknown: [] as string[] };
+
+    const limit = Math.min(sheet.rowCount, 15);
+
+    for (let rowIndex = 1; rowIndex <= limit; rowIndex++) {
+      const columns = new Map<number, RegionRef>();
+      const unknown: string[] = [];
+      const used = new Set<number>();
+
+      sheet.getRow(rowIndex).eachCell((cell, col) => {
+        const raw = this.text(cell.value);
+        if (!raw) return;
+
+        const region = byFull.get(this.normalize(raw)) ?? byShort.get(this.shortKey(raw));
+
+        if (region && !used.has(region.code)) {
+          columns.set(col, region);
+          used.add(region.code);
+          return;
+        }
+
+        const key = this.normalize(raw);
+        if (!ignored.includes(key) && !key.startsWith('jami') && !key.startsWith('xizmatlar')) {
+          unknown.push(raw);
+        }
+      });
+
+      if (columns.size > best.columns.size) {
+        best = { row: rowIndex, columns, unknown };
+      }
+    }
+
+    return best;
+  }
+
+  /** "Soni" yozilgan ustun — ko'rsatkich ustuni */
+  private findIndicatorColumn(sheet: ExcelJS.Worksheet, fromRow: number): number | null {
+    const limit = Math.min(sheet.rowCount, fromRow + 30);
+
+    for (let rowIndex = fromRow + 1; rowIndex <= limit; rowIndex++) {
+      let found: number | null = null;
+
+      sheet.getRow(rowIndex).eachCell((cell, col) => {
+        if (found === null && this.normalize(this.text(cell.value)) === 'soni') {
+          found = col;
+        }
+      });
+
+      if (found !== null) return found;
+    }
+
+    return null;
+  }
+
+  /**
+   * Faylni o'qiydi — bazaga hech narsa yozilmaydi.
+   * Hudud nomi bo'yicha, xizmat nomi yoki tartib raqami bo'yicha topiladi.
+   */
+  async analyze(period: string, file: Express.Multer.File) {
+    this.assertPeriod(period);
+
+    if (!file) {
+      throw new BadRequestException('Fayl yuklanmadi');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
+
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      throw new BadRequestException('Faylda varaq topilmadi');
+    }
+
+    const [regions, services] = await Promise.all([this.loadRegions(), this.loadServices()]);
+
+    const header = this.findRegionColumns(sheet, regions);
+
+    if (header.columns.size === 0) {
+      throw new BadRequestException(
+        "Hudud ustunlari topilmadi. Shablondagi hudud nomlarini o'zgartirmang",
+      );
+    }
+
+    const indicatorCol = this.findIndicatorColumn(sheet, header.row);
+
+    if (indicatorCol === null || indicatorCol < 3) {
+      throw new BadRequestException(
+        "\"Soni\" / \"Summasi\" ustuni topilmadi. Shablon tuzilishini o'zgartirmang",
+      );
+    }
+
+    const labelCol = indicatorCol - 1;
+    const numberCol = indicatorCol - 2;
+
+    const byLabel = new Map(services.map((s) => [this.normalize(s.label), s]));
+
+    const resolveService = (row: ExcelJS.Row): ServiceRef | 'skip' | null => {
+      const label = this.text(row.getCell(labelCol).value);
+      const key = this.normalize(label);
+
+      if (key.startsWith('jami')) return 'skip';
+
+      const byName = byLabel.get(key);
+      if (byName) return byName;
+
+      const number = this.parseNumber(this.cellValue(row.getCell(numberCol).value));
+      if (number !== null && Number.isInteger(number) && number >= 1) {
+        return services[number - 1] ?? null;
+      }
+
+      return null;
+    };
+
+    const values = new Map<
+      string,
+      { region: RegionRef; service: ServiceRef; quantity: number | null; amountTiyin: bigint }
+    >();
+
+    const unknownServices: { sheet: string; rowIndex: number; label: string }[] = [];
+    const invalidCells: { rowIndex: number; region: string }[] = [];
+
+    for (let rowIndex = header.row + 1; rowIndex <= sheet.rowCount; rowIndex++) {
+      const row = sheet.getRow(rowIndex);
+      const indicator = this.normalize(this.text(row.getCell(indicatorCol).value));
+
+      if (indicator !== 'soni' && indicator !== 'summasi') continue;
+
+      const service = resolveService(row);
+      if (service === 'skip') continue;
+
+      if (!service) {
+        // Bir xizmat ikki qator — faqat bir marta qayd etamiz
+        if (indicator === 'soni') {
+          unknownServices.push({
+            sheet: SHEET_LABEL,
+            rowIndex,
+            label: this.text(row.getCell(labelCol).value) || '(nomsiz)',
+          });
+        }
+        continue;
+      }
+
+      for (const [col, region] of header.columns) {
+        const raw = this.cellValue(row.getCell(col).value);
+        if (raw === null || raw === undefined || String(raw).trim() === '') continue;
+
+        const number = this.parseNumber(raw);
+        if (number === null) {
+          invalidCells.push({ rowIndex, region: region.name });
+          continue;
+        }
+
+        const key = `${region.code}:${service.code}`;
+        const entry = values.get(key) ?? { region, service, quantity: null, amountTiyin: 0n };
+
+        if (indicator === 'soni') {
+          entry.quantity = (entry.quantity ?? 0) + Math.round(number);
+        } else {
+          entry.amountTiyin += BigInt(Math.round(number * 100));
+        }
+
+        values.set(key, entry);
+      }
+    }
+
+    // Faqat summasi bor yozuvlar saqlanadi
+    const rows: ParsedRow[] = [...values.values()]
+      .filter((entry) => entry.amountTiyin > 0n)
+      .map((entry) => ({
+        regionCode: entry.region.code,
+        regionName: entry.region.name,
+        categoryCode: entry.service.code,
+        categoryLabel: entry.service.label,
+        quantity: entry.quantity,
+        amountTiyin: entry.amountTiyin,
+      }));
+
+    const quantityWithoutAmount = [...values.values()].filter(
+      (entry) => entry.amountTiyin === 0n && (entry.quantity ?? 0) > 0,
+    ).length;
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Faylda summasi kiritilgan qator topilmadi');
+    }
+
+    // Hududlar bo'yicha yig'indi — shablon tartibida
+    const regionGroups = new Map<
+      number,
+      { regionCode: number; name: string; count: number; quantity: number; totalTiyin: bigint }
+    >();
+
+    for (const row of rows) {
+      const group = regionGroups.get(row.regionCode) ?? {
+        regionCode: row.regionCode,
+        name: row.regionName,
+        count: 0,
+        quantity: 0,
+        totalTiyin: 0n,
+      };
+      group.count += 1;
+      group.quantity += row.quantity ?? 0;
+      group.totalTiyin += row.amountTiyin;
+      regionGroups.set(row.regionCode, group);
+    }
+
+    const orderedRegions = regions
+      .map((region) => regionGroups.get(region.code))
+      .filter((group): group is NonNullable<typeof group> => Boolean(group));
+
+    const previousCount = await this.prisma.income.count({
+      where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
+    });
+
+    return {
+      period,
+      fileName: file.originalname,
+      fileHash: createHash('sha256').update(file.buffer).digest('hex'),
+      totalRows: rows.length,
+      totalTiyin: rows.reduce((sum, row) => sum + row.amountTiyin, 0n),
+      /** Tanilmagan hudud ustunlari */
+      unknownSheets: header.unknown,
+      unknownServices,
+      invalidCells,
+      quantityWithoutAmount,
+      hasPrevious: previousCount > 0,
+      previousCount,
+      regions: orderedRegions,
+      rows,
+    };
+  }
+
+  // ═══════════ Saqlash ═══════════
+
+  async commit(period: string, rows: ParsedRow[], userId: string, replacePrevious = false) {
+    this.assertPeriod(period);
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const [regions, services] = await Promise.all([this.loadRegions(), this.loadServices()]);
+
+    const regionCodes = new Set(regions.map((r) => r.code));
+    const serviceCodes = new Set(services.map((s) => s.code));
+
+    for (const row of rows) {
+      if (!regionCodes.has(row.regionCode)) {
+        throw new BadRequestException(`Hudud topilmadi: ${row.regionCode}`);
+      }
+      if (!serviceCodes.has(row.categoryCode)) {
+        throw new BadRequestException(`Xizmat turi topilmadi: ${row.categoryCode}`);
+      }
+      if (row.amountTiyin <= 0n) {
+        throw new BadRequestException(
+          `Notogri summa: ${row.regionName} - ${row.categoryLabel}`,
+        );
+      }
+    }
+
+    const date = this.periodEndDate(period);
+    const startedAt = new Date();
+
+    const created = await this.prisma.$transaction(
+      async (tx) => {
+        if (replacePrevious) {
+          await tx.income.updateMany({
+            where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
+            data: { deletedAt: new Date() },
+          });
+        }
+
+        await tx.income.createMany({
+          data: rows.map((row) => ({
+            date,
+            period,
+            amountTiyin: row.amountTiyin,
+            paidTiyin: row.amountTiyin,
+            paymentStatus: 'PAID' as const,
+            paymentMethod: 'BANK' as const,
+            categoryCode: row.categoryCode,
+            regionCode: row.regionCode,
+            quantity: row.quantity,
+            description: `${row.regionName} \u2014 ${row.categoryLabel}`,
+            source: 'IMPORT' as const,
+            createdById: userId,
+          })),
+        });
+
+        const result = await tx.income.aggregate({
+          where: {
+            deletedAt: null,
+            period,
+            source: 'IMPORT',
+            regionCode: { not: null },
+            createdAt: { gte: startedAt },
+          },
+          _sum: { amountTiyin: true },
+          _count: { _all: true },
+        });
+
+        if (result._count._all !== rows.length) {
+          throw new BadRequestException(
+            `Yaratishda xato: kutilgan ${rows.length} ta, yaratilgan ${result._count._all} ta`,
+          );
+        }
+
+        return result;
+      },
+      { timeout: 60_000 },
+    );
+
+    return {
+      success: true as const,
+      created: created._count._all,
+      totalTiyin: created._sum.amountTiyin ?? 0n,
+      replacedPrevious: replacePrevious,
+    };
+  }
+
+  // ═══════════ Yig'indilar ═══════════
+
+  async summaryByRegion(period: string) {
+    this.assertPeriod(period);
+
+    const [grouped, regions] = await Promise.all([
+      this.prisma.income.groupBy({
+        by: ['regionCode'],
+        where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
+        _sum: { amountTiyin: true, quantity: true },
+        _count: { _all: true },
+      }),
+      this.loadRegions(),
+    ]);
+
+    const total = grouped.reduce((sum, row) => sum + (row._sum.amountTiyin ?? 0n), 0n);
+    const byCode = new Map(grouped.map((row) => [row.regionCode, row]));
+
+    // Shablon tartibida
+    const rows = regions
+      .map((region) => {
+        const row = byCode.get(region.code);
+        if (!row) return null;
+
+        const amount = row._sum.amountTiyin ?? 0n;
+
+        return {
+          regionCode: region.code,
+          name: region.name,
+          amountTiyin: amount,
+          quantity: row._sum.quantity ?? 0,
+          count: row._count._all,
+          sharePercent: this.percent(amount, total),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    return { rows, totalTiyin: total };
+  }
+
+  async summaryByService(period: string, regionCode?: number) {
+    this.assertPeriod(period);
+
+    const [grouped, services] = await Promise.all([
+      this.prisma.income.groupBy({
+        by: ['categoryCode'],
+        where: {
+          deletedAt: null,
+          period,
+          source: 'IMPORT',
+          regionCode: regionCode !== undefined ? regionCode : { not: null },
+        },
+        _sum: { amountTiyin: true, quantity: true },
+        _count: { _all: true },
+      }),
+      this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
+    ]);
+
+    const labels = new Map(services.map((s) => [s.code, s.label]));
+    const total = grouped.reduce((sum, row) => sum + (row._sum.amountTiyin ?? 0n), 0n);
+
+    const rows = grouped
+      .map((row) => {
+        const amount = row._sum.amountTiyin ?? 0n;
+        const quantity = row._sum.quantity ?? 0;
+
+        return {
+          categoryCode: row.categoryCode,
+          label: labels.get(row.categoryCode) ?? row.categoryCode,
+          amountTiyin: amount,
+          quantity,
+          averageTiyin: quantity > 0 ? amount / BigInt(quantity) : null,
+          count: row._count._all,
+          sharePercent: this.percent(amount, total),
+        };
+      })
+      .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1));
+
+    return { rows, totalTiyin: total };
+  }
+}
+
+
+===== C:\Projects\korxona-tahlil\apps\api\src\modules\payroll\payroll.service.ts (30210 bayt) =====
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import ExcelJS from 'exceljs';
+import { createHash } from 'node:crypto';
+import { PrismaService } from '../prisma/prisma.service';
+
+const CENTRAL_REGION = 0;
+const PAYROLL_CATEGORY = 'PAYROLL_BASE';
+const TASHKENT_OFFSET_HOURS = 5;
+
+/** Saqlash uchun qator */
+export interface PayrollRow {
+  pinfl: string;
+  amountTiyin: bigint;
+}
+
+export interface MissingRow {
+  rowIndex: number;
+  pinfl: string;
+}
+
+/** Guruhlash uchun xodim — hudud va turi tarixga qarab almashtirilgan bo'lishi mumkin */
+export interface GroupEmployee {
+  pinfl: string;
+  fullName: string;
+  regionCode: number;
+  employmentType: string;
+  departmentId: string | null;
+  region: { name: string };
+  district: { name: string } | null;
+  department: { name: string } | null;
+}
+
+/** Shu oy hudud tarixi yozuvi */
+export interface LocationRef {
+  employeePinfl: string;
+  regionCode: number;
+  districtId: string | null;
+  employmentType: string;
+  region: { name: string };
+  district: { id: string; code: number; name: string } | null;
+}
+
+export interface ExpenseGroup {
+  key: string;
+  label: string;
+  departmentId: string | null;
+  regionCode: number | null;
+  totalTiyin: bigint;
+  count: number;
+  zeroCount: number;
+}
+
+/** Qayta guruhlashda ko'chgan xodim */
+export interface MovedEmployee {
+  pinfl: string;
+  fullName: string;
+  amountTiyin: bigint;
+  from: string;
+  to: string;
+}
+
+export interface RegroupReport {
+  period: string;
+  batches: number;
+  changedBatches: number;
+  moved: MovedEmployee[];
+}
+
+const EMPLOYEE_INCLUDE = {
+  region: { select: { name: true } },
+  district: { select: { name: true } },
+  department: { select: { name: true } },
+} as const;
+
+@Injectable()
+export class PayrollService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // ═══════════ Yordamchilar ═══════════
+
+  private assertPeriod(period: string): void {
+    if (!/^\d{4}-\d{2}$/.test(period ?? '')) {
+      throw new BadRequestException('Davr notogri formatda');
+    }
+  }
+
+  /** Davr oxirgi kuni — xarajat sanasi */
+  private periodEndDate(period: string): Date {
+    const [year, month] = period.split('-').map(Number);
+    const nextMonth = month === 12 ? 1 : (month ?? 1) + 1;
+    const nextYear = month === 12 ? (year ?? 2026) + 1 : (year ?? 2026);
+
+    return new Date(
+      Date.UTC(nextYear, nextMonth - 1, 1, -TASHKENT_OFFSET_HOURS) - 86_400_000,
+    );
+  }
+
+  private cellValue(value: ExcelJS.CellValue): unknown {
+    if (value && typeof value === 'object') {
+      const record = value as unknown as Record<string, unknown>;
+
+      if ('result' in record) return record.result;
+      if ('text' in record) return record.text;
+      if ('richText' in record && Array.isArray(record.richText)) {
+        return (record.richText as { text: string }[]).map((part) => part.text).join('');
+      }
+    }
+    return value;
+  }
+
+  private isBlank(value: unknown): boolean {
+    return value === null || value === undefined || String(value).trim() === '';
+  }
+
+  private parsePinfl(value: unknown): string | null {
+    if (this.isBlank(value)) return null;
+    const digits = String(value).replace(/\D/g, '');
+    return /^\d{14}$/.test(digits) ? digits : null;
+  }
+
+  /** Bo'sh yoki 0 — nol (hisoblanmagan). Manfiy yoki matn — null (xato) */
+  private parseAmount(value: unknown): bigint | null {
+    if (this.isBlank(value)) return 0n;
+
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value) || value < 0) return null;
+      return BigInt(Math.round(value * 100));
+    }
+
+    const text = String(value).replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
+    const parsed = Number(text);
+
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
+    return BigInt(Math.round(parsed * 100));
+  }
+
+  private formatSum(tiyin: bigint): string {
+    return `${(Number(tiyin) / 100).toLocaleString('uz-UZ')} som`;
+  }
+
+  // ═══════════ Hudud tarixi ═══════════
+
+  /** Shu oy uchun hudud tarixi — natijalar faylidan */
+  private async loadLocations(
+    period: string,
+    pinfls?: string[],
+  ): Promise<Map<string, LocationRef>> {
+    const locations = await this.prisma.employeeLocation.findMany({
+      where: {
+        period,
+        ...(pinfls ? { employeePinfl: { in: pinfls } } : {}),
+      },
+      select: {
+        employeePinfl: true,
+        regionCode: true,
+        districtId: true,
+        employmentType: true,
+        region: { select: { name: true } },
+        district: { select: { id: true, code: true, name: true } },
+      },
+    });
+
+    return new Map<string, LocationRef>(locations.map((item) => [item.employeePinfl, item]));
+  }
+
+  /** Tarixda yozuv bo'lsa — hudud, tuman va tur shundan olinadi */
+  private applyLocation(employee: GroupEmployee, location?: LocationRef): GroupEmployee {
+    if (!location) return employee;
+
+    return {
+      ...employee,
+      regionCode: location.regionCode,
+      employmentType: location.employmentType,
+      region: { name: location.region.name },
+      district: location.district ? { name: location.district.name } : null,
+    };
+  }
+
+  private placeOf(employee: GroupEmployee): string {
+    if (employee.regionCode === CENTRAL_REGION) {
+      return employee.department?.name ?? 'Markaz';
+    }
+    return employee.district
+      ? `${employee.region.name} / ${employee.district.name}`
+      : employee.region.name;
+  }
+
+  // ═══════════ Guruhlash ═══════════
+
+  /** Xodim qaysi xarajat guruhiga tushishi */
+  private groupOf(employee: GroupEmployee): {
+    key: string;
+    label: string;
+    departmentId: string | null;
+    regionCode: number | null;
+  } {
+    if (employee.employmentType === 'SHARTNOMA') {
+      return {
+        key: 'shartnoma',
+        label: 'Shartnoma asosidagi ish haqi',
+        departmentId: null,
+        regionCode: null,
+      };
+    }
+
+    if (employee.regionCode === CENTRAL_REGION) {
+      return {
+        key: `markaz-${employee.departmentId ?? 'none'}`,
+        label: `Ish haqi \u2014 ${employee.department?.name ?? 'bolimsiz'}`,
+        departmentId: employee.departmentId,
+        regionCode: CENTRAL_REGION,
+      };
+    }
+
+    return {
+      key: `region-${employee.regionCode}`,
+      label: `Ish haqi \u2014 ${employee.region.name}`,
+      departmentId: null,
+      regionCode: employee.regionCode,
+    };
+  }
+
+  /** Xarajat yozuvi qaysi guruhga tegishli */
+  private expenseKey(expense: { regionCode: number | null; departmentId: string | null }): string {
+    if (expense.regionCode === null && expense.departmentId === null) return 'shartnoma';
+    if (expense.regionCode === CENTRAL_REGION) return `markaz-${expense.departmentId ?? 'none'}`;
+    return `region-${expense.regionCode}`;
+  }
+
+  private buildGroups(
+    items: { amountTiyin: bigint; employee: GroupEmployee }[],
+  ): Map<string, ExpenseGroup> {
+    const groups = new Map<string, ExpenseGroup>();
+
+    for (const { amountTiyin, employee } of items) {
+      const target = this.groupOf(employee);
+
+      const group = groups.get(target.key) ?? {
+        ...target,
+        totalTiyin: 0n,
+        count: 0,
+        zeroCount: 0,
+      };
+
+      group.totalTiyin += amountTiyin;
+      group.count += 1;
+      if (amountTiyin === 0n) group.zeroCount += 1;
+
+      groups.set(target.key, group);
+    }
+
+    return groups;
+  }
+
+  // ═══════════ Shablon ═══════════
+
+  async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
+    this.assertPeriod(period);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+
+    const sheet = workbook.addWorksheet('Ish haqi', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+
+    sheet.columns = [
+      { header: 'PINFL', key: 'pinfl', width: 20 },
+      { header: 'Summa', key: 'amount', width: 18 },
+    ];
+
+    const header = sheet.getRow(1);
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+    header.height = 22;
+
+    sheet.getColumn('A').numFmt = '@';
+    sheet.getColumn('B').numFmt = '#,##0';
+
+    const employees = await this.prisma.employee.findMany({
+      where: { isActive: true },
+      orderBy: [{ regionCode: 'asc' }, { fullName: 'asc' }],
+      include: EMPLOYEE_INCLUDE,
+    });
+
+    const locations = await this.loadLocations(period);
+
+    const ref = workbook.addWorksheet('Xodimlar');
+    ref.columns = [
+      { header: 'PINFL', key: 'pinfl', width: 20 },
+      { header: 'F.I.Sh.', key: 'fullName', width: 45 },
+      { header: 'Ish turi', key: 'type', width: 14 },
+      { header: 'Joylashuv', key: 'place', width: 40 },
+    ];
+
+    const refHeader = ref.getRow(1);
+    refHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    refHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
+    ref.getColumn('A').numFmt = '@';
+
+    for (const employee of employees) {
+      const effective = this.applyLocation(
+        employee as unknown as GroupEmployee,
+        locations.get(employee.pinfl),
+      );
+
+      ref.addRow({
+        pinfl: employee.pinfl,
+        fullName: employee.fullName,
+        type: effective.employmentType === 'SHTAT' ? 'Shtat' : 'Shartnoma',
+        place: this.placeOf(effective),
+      });
+    }
+
+    ref.autoFilter = { from: 'A1', to: `D${ref.rowCount}` };
+
+    const data = await workbook.xlsx.writeBuffer();
+    return { buffer: Buffer.from(data), filename: `Ish-haqi-${period}.xlsx` };
+  }
+
+  // ═══════════ Tahlil — bazaga hech narsa yozilmaydi ═══════════
+
+  async analyze(period: string, file: Express.Multer.File) {
+    this.assertPeriod(period);
+
+    if (!file) {
+      throw new BadRequestException('Fayl yuklanmadi');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
+
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      throw new BadRequestException('Faylda varaq topilmadi');
+    }
+
+    const parsed = new Map<string, { rowIndex: number; amountTiyin: bigint }>();
+    const invalidRows: { rowIndex: number; reason: string }[] = [];
+    const duplicates: string[] = [];
+
+    sheet.eachRow((row, rowIndex) => {
+      if (rowIndex === 1) return;
+
+      const rawPinfl = this.cellValue(row.getCell(1).value);
+      const rawAmount = this.cellValue(row.getCell(2).value);
+
+      if (this.isBlank(rawPinfl) && this.isBlank(rawAmount)) return;
+
+      const pinfl = this.parsePinfl(rawPinfl);
+      if (!pinfl) {
+        invalidRows.push({ rowIndex, reason: 'PINFL notogri' });
+        return;
+      }
+
+      const amount = this.parseAmount(rawAmount);
+      if (amount === null) {
+        invalidRows.push({ rowIndex, reason: 'Summa notogri' });
+        return;
+      }
+
+      const existing = parsed.get(pinfl);
+      if (existing) {
+        existing.amountTiyin += amount;
+        duplicates.push(pinfl);
+        return;
+      }
+
+      parsed.set(pinfl, { rowIndex, amountTiyin: amount });
+    });
+
+    if (parsed.size === 0) {
+      throw new BadRequestException('Faylda yaroqli qator topilmadi');
+    }
+
+    const pinfls = [...parsed.keys()];
+
+    const [employees, locations] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { pinfl: { in: pinfls } },
+        include: EMPLOYEE_INCLUDE,
+      }),
+      this.loadLocations(period, pinfls),
+    ]);
+
+    const employeeMap = new Map<string, GroupEmployee>(
+      employees.map((item) => [
+        item.pinfl,
+        this.applyLocation(item as unknown as GroupEmployee, locations.get(item.pinfl)),
+      ]),
+    );
+
+    const matched: { amountTiyin: bigint; employee: GroupEmployee }[] = [];
+    const missing: MissingRow[] = [];
+
+    for (const [pinfl, row] of parsed) {
+      const employee = employeeMap.get(pinfl);
+
+      if (!employee) {
+        missing.push({ rowIndex: row.rowIndex, pinfl });
+        continue;
+      }
+
+      matched.push({ amountTiyin: row.amountTiyin, employee });
+    }
+
+    const groups = this.buildGroups(matched);
+    const totalTiyin = matched.reduce((sum, item) => sum + item.amountTiyin, 0n);
+
+    const zeroEmployees = matched
+      .filter((item) => item.amountTiyin === 0n)
+      .map((item) => ({
+        pinfl: item.employee.pinfl,
+        fullName: item.employee.fullName,
+        place: this.placeOf(item.employee),
+      }));
+
+    const previousCount = await this.prisma.payrollBatch.count({
+      where: { period, status: 'COMMITTED' },
+    });
+
+    return {
+      period,
+      fileName: file.originalname,
+      totalRows: parsed.size + invalidRows.length,
+      matchedRows: matched.length,
+      paidRows: matched.length - zeroEmployees.length,
+      zeroRows: zeroEmployees.length,
+      missingRows: missing.length,
+      /** Shu oy hudud tarixiga qarab joylashtirilgan xodimlar */
+      locatedRows: [...locations.keys()].filter((pinfl) => employeeMap.has(pinfl)).length,
+      invalidRows,
+      missing,
+      duplicates: [...new Set(duplicates)],
+      zeroEmployees,
+      totalTiyin,
+      hasPrevious: previousCount > 0,
+      previousCount,
+      groups: [...groups.values()]
+        .map((group) => ({
+          label: group.label,
+          departmentId: group.departmentId,
+          regionCode: group.regionCode,
+          count: group.count,
+          zeroCount: group.zeroCount,
+          totalTiyin: group.totalTiyin,
+        }))
+        .sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1)),
+      rows: matched.map((item) => ({
+        pinfl: item.employee.pinfl,
+        amountTiyin: item.amountTiyin,
+      })),
+    };
+  }
+
+  // ═══════════ Saqlash — bitta tranzaksiyada ═══════════
+
+  async commit(params: {
+    period: string;
+    rows: PayrollRow[];
+    userId: string;
+    replacePrevious: boolean;
+    fileName: string;
+    missing: MissingRow[];
+  }) {
+    const { period, userId, replacePrevious, fileName, missing } = params;
+    this.assertPeriod(period);
+
+    if (params.rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const merged = new Map<string, bigint>();
+    for (const row of params.rows) {
+      if (!/^\d{14}$/.test(row.pinfl)) {
+        throw new BadRequestException(`Notogri PINFL: ${row.pinfl}`);
+      }
+      if (row.amountTiyin < 0n) {
+        throw new BadRequestException(`Manfiy summa: ${row.pinfl}`);
+      }
+      merged.set(row.pinfl, (merged.get(row.pinfl) ?? 0n) + row.amountTiyin);
+    }
+
+    const pinfls = [...merged.keys()];
+
+    const [employees, locations] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { pinfl: { in: pinfls } },
+        include: EMPLOYEE_INCLUDE,
+      }),
+      this.loadLocations(period, pinfls),
+    ]);
+
+    if (employees.length !== merged.size) {
+      throw new BadRequestException(
+        `${merged.size - employees.length} ta xodim reestrda topilmadi. Faylni qaytadan yuklang`,
+      );
+    }
+
+    const items = employees.map((employee) => ({
+      amountTiyin: merged.get(employee.pinfl) ?? 0n,
+      employee: this.applyLocation(
+        employee as unknown as GroupEmployee,
+        locations.get(employee.pinfl),
+      ),
+    }));
+
+    const groups = this.buildGroups(items);
+    const totalTiyin = items.reduce((sum, item) => sum + item.amountTiyin, 0n);
+    const zeroCount = items.filter((item) => item.amountTiyin === 0n).length;
+
+    const date = this.periodEndDate(period);
+    const fileHash = createHash('sha256')
+      .update(
+        `${period}:${fileName}:${JSON.stringify(
+          [...merged.entries()].map(([pinfl, amount]) => [pinfl, amount.toString()]),
+        )}`,
+      )
+      .digest('hex');
+
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        let replaced = 0;
+
+        if (replacePrevious) {
+          const previous = await tx.payrollBatch.findMany({
+            where: { period, status: 'COMMITTED' },
+            select: { id: true },
+          });
+          const ids = previous.map((item) => item.id);
+
+          if (ids.length > 0) {
+            await tx.expense.updateMany({
+              where: { payrollBatchId: { in: ids }, deletedAt: null },
+              data: { deletedAt: new Date() },
+            });
+            await tx.payrollEntry.deleteMany({ where: { batchId: { in: ids } } });
+            await tx.payrollBatch.updateMany({
+              where: { id: { in: ids } },
+              data: { status: 'CANCELLED' },
+            });
+            replaced = ids.length;
+          }
+        }
+
+        const batch = await tx.payrollBatch.create({
+          data: {
+            period,
+            status: 'COMMITTED',
+            fileName,
+            fileHash,
+            totalRows: merged.size + missing.length,
+            matchedRows: merged.size,
+            missingRows: missing.length,
+            missingPinfls: missing as unknown as object,
+            totalTiyin,
+            uploadedById: userId,
+            committedAt: new Date(),
+          },
+        });
+
+        await tx.payrollEntry.createMany({
+          data: items.map((item) => ({
+            employeePinfl: item.employee.pinfl,
+            period,
+            baseTiyin: item.amountTiyin,
+            totalTiyin: item.amountTiyin,
+            batchId: batch.id,
+          })),
+        });
+
+        const expenseGroups = [...groups.values()].filter((group) => group.totalTiyin > 0n);
+
+        if (expenseGroups.length > 0) {
+          await tx.expense.createMany({
+            data: expenseGroups.map((group) => ({
+              date,
+              period,
+              amountTiyin: group.totalTiyin,
+              categoryCode: PAYROLL_CATEGORY,
+              departmentId: group.departmentId,
+              regionCode: group.regionCode,
+              description: `${group.label} (${group.count - group.zeroCount} xodim)`,
+              paymentMethod: 'BANK' as const,
+              paymentStatus: 'PAID' as const,
+              source: 'PAYROLL' as const,
+              payrollBatchId: batch.id,
+              createdById: userId,
+            })),
+          });
+        }
+
+        const created = await tx.expense.aggregate({
+          where: { payrollBatchId: batch.id, deletedAt: null },
+          _sum: { amountTiyin: true },
+          _count: { _all: true },
+        });
+
+        const createdTotal = created._sum.amountTiyin ?? 0n;
+
+        if (createdTotal !== totalTiyin) {
+          throw new BadRequestException(
+            `Summa mos kelmadi: kutilgan ${this.formatSum(totalTiyin)}, ` +
+              `yaratilgan ${this.formatSum(createdTotal)}. Hech narsa saqlanmadi`,
+          );
+        }
+
+        return { batchId: batch.id, expensesCreated: created._count._all, replaced };
+      },
+      { timeout: 60_000 },
+    );
+
+    return {
+      success: true as const,
+      batchId: result.batchId,
+      expensesCreated: result.expensesCreated,
+      employees: items.length,
+      zeroCount,
+      totalTiyin,
+      replacedPrevious: result.replaced > 0,
+    };
+  }
+
+  // ═══════════ Qayta guruhlash ═══════════
+
+  /**
+   * Shu oyning tasdiqlangan ish haqisini hudud tarixiga qarab qayta guruhlaydi.
+   *
+   * Natijalar fayli saqlanganda yoki bekor qilinganda chaqiriladi.
+   * Jami summa o'zgarmaydi — xarajat faqat guruhlar orasida ko'chadi.
+   */
+  async regroup(period: string): Promise<RegroupReport> {
+    this.assertPeriod(period);
+
+    const [batches, locations] = await Promise.all([
+      this.prisma.payrollBatch.findMany({
+        where: { period, status: 'COMMITTED' },
+        include: {
+          entries: {
+            include: { employee: { include: EMPLOYEE_INCLUDE } },
+          },
+        },
+      }),
+      this.loadLocations(period),
+    ]);
+
+    const report: RegroupReport = { period, batches: batches.length, changedBatches: 0, moved: [] };
+    const movedMap = new Map<string, MovedEmployee>();
+
+    for (const batch of batches) {
+      const items = batch.entries.map((entry) => {
+        const registry = entry.employee as unknown as GroupEmployee;
+        const effective = this.applyLocation(registry, locations.get(entry.employeePinfl));
+
+        const before = this.groupOf(registry);
+        const after = this.groupOf(effective);
+
+        if (before.key !== after.key && entry.totalTiyin > 0n) {
+          const existing = movedMap.get(entry.employeePinfl);
+          if (existing) {
+            existing.amountTiyin += entry.totalTiyin;
+          } else {
+            movedMap.set(entry.employeePinfl, {
+              pinfl: entry.employeePinfl,
+              fullName: registry.fullName,
+              amountTiyin: entry.totalTiyin,
+              from: before.label,
+              to: after.label,
+            });
+          }
+        }
+
+        return { amountTiyin: entry.totalTiyin, employee: effective };
+      });
+
+      const groups = [...this.buildGroups(items).values()].filter(
+        (group) => group.totalTiyin > 0n,
+      );
+
+      const current = await this.prisma.expense.findMany({
+        where: { payrollBatchId: batch.id, deletedAt: null },
+        select: { regionCode: true, departmentId: true, amountTiyin: true },
+      });
+
+      // Guruhlar o'zgarmagan bo'lsa — tegmaymiz
+      const signature = (list: { key: string; amount: bigint }[]) =>
+        list
+          .map((item) => `${item.key}:${item.amount}`)
+          .sort()
+          .join('|');
+
+      const currentSignature = signature(
+        current.map((item) => ({ key: this.expenseKey(item), amount: item.amountTiyin })),
+      );
+      const nextSignature = signature(
+        groups.map((group) => ({ key: group.key, amount: group.totalTiyin })),
+      );
+
+      if (currentSignature === nextSignature) continue;
+
+      const total = items.reduce((sum, item) => sum + item.amountTiyin, 0n);
+      const date = this.periodEndDate(period);
+
+      await this.prisma.$transaction(
+        async (tx) => {
+          await tx.expense.deleteMany({
+            where: { payrollBatchId: batch.id, deletedAt: null },
+          });
+
+          if (groups.length > 0) {
+            await tx.expense.createMany({
+              data: groups.map((group) => ({
+                date,
+                period,
+                amountTiyin: group.totalTiyin,
+                categoryCode: PAYROLL_CATEGORY,
+                departmentId: group.departmentId,
+                regionCode: group.regionCode,
+                description: `${group.label} (${group.count - group.zeroCount} xodim)`,
+                paymentMethod: 'BANK' as const,
+                paymentStatus: 'PAID' as const,
+                source: 'PAYROLL' as const,
+                payrollBatchId: batch.id,
+                createdById: batch.uploadedById,
+              })),
+            });
+          }
+
+          const created = await tx.expense.aggregate({
+            where: { payrollBatchId: batch.id, deletedAt: null },
+            _sum: { amountTiyin: true },
+          });
+
+          if ((created._sum.amountTiyin ?? 0n) !== total) {
+            throw new BadRequestException(
+              `Qayta guruhlashda summa mos kelmadi (${batch.fileName}). Hech narsa ozgarmadi`,
+            );
+          }
+        },
+        { timeout: 60_000 },
+      );
+
+      report.changedBatches += 1;
+    }
+
+    report.moved = [...movedMap.values()].sort((a, b) =>
+      b.amountTiyin > a.amountTiyin ? 1 : -1,
+    );
+
+    return report;
+  }
+
+  // ═══════════ Bekor qilish ═══════════
+
+  async cancel(batchId: string) {
+    const batch = await this.prisma.payrollBatch.findUnique({ where: { id: batchId } });
+
+    if (!batch) {
+      throw new NotFoundException('Yuklash topilmadi');
+    }
+    if (batch.status === 'CANCELLED') {
+      throw new BadRequestException('Bu yuklash allaqachon bekor qilingan');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.expense.updateMany({
+        where: { payrollBatchId: batchId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      }),
+      this.prisma.payrollEntry.deleteMany({ where: { batchId } }),
+      this.prisma.payrollBatch.update({
+        where: { id: batchId },
+        data: { status: 'CANCELLED' },
+      }),
+    ]);
+
+    return { success: true as const };
+  }
+
+  // ═══════════ Topilmaganlar Excel ═══════════
+
+  async buildMissingExcel(
+    period: string,
+    missing: MissingRow[],
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Topilmaganlar');
+
+    sheet.columns = [
+      { header: 'Qator', key: 'rowIndex', width: 10 },
+      { header: 'PINFL', key: 'pinfl', width: 20 },
+      { header: 'Izoh', key: 'note', width: 40 },
+    ];
+
+    const header = sheet.getRow(1);
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } };
+    sheet.getColumn('B').numFmt = '@';
+
+    for (const item of missing) {
+      sheet.addRow({
+        rowIndex: item.rowIndex,
+        pinfl: item.pinfl,
+        note: 'Xodimlar reestrida topilmadi',
+      });
+    }
+
+    const data = await workbook.xlsx.writeBuffer();
+    return { buffer: Buffer.from(data), filename: `Topilmaganlar-${period}.xlsx` };
+  }
+
+  // ═══════════ Ro'yxat va tafsilot ═══════════
+
+  async findBatches(period?: string) {
+    return this.prisma.payrollBatch.findMany({
+      where: period ? { period } : {},
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        uploadedBy: { select: { id: true, fullName: true } },
+        _count: { select: { entries: true } },
+      },
+    });
+  }
+
+  async findBatch(batchId: string) {
+    const batch = await this.prisma.payrollBatch.findUnique({
+      where: { id: batchId },
+      include: {
+        uploadedBy: { select: { id: true, fullName: true } },
+        entries: {
+          orderBy: { totalTiyin: 'desc' },
+          include: {
+            employee: {
+              select: {
+                pinfl: true,
+                fullName: true,
+                regionCode: true,
+                employmentType: true,
+                region: { select: { name: true } },
+                department: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!batch) {
+      throw new NotFoundException('Yuklash topilmadi');
+    }
+
+    return batch;
+  }
+
+  /**
+   * Xarajat yozuvi ortidagi xodimlar.
+   * Guruh hudud tarixiga qarab aniqlanadi — xarajat bilan bir xil qoida.
+   */
+  async expenseDetail(expenseId: string) {
+    const expense = await this.prisma.expense.findUnique({
+      where: { id: expenseId },
+      include: {
+        department: { select: { id: true, name: true } },
+        region: { select: { code: true, name: true } },
+      },
+    });
+
+    if (!expense) {
+      throw new NotFoundException('Xarajat topilmadi');
+    }
+
+    if (expense.source !== 'PAYROLL' || !expense.payrollBatchId) {
+      return { isPayroll: false, expense, groups: [], entries: [] };
+    }
+
+    const key = this.expenseKey(expense);
+    const isContract = key === 'shartnoma';
+    const isCentral = expense.regionCode === CENTRAL_REGION;
+
+    const [allEntries, locations] = await Promise.all([
+      this.prisma.payrollEntry.findMany({
+        where: { batchId: expense.payrollBatchId },
+        orderBy: { totalTiyin: 'desc' },
+        include: {
+          employee: {
+            select: {
+              pinfl: true,
+              fullName: true,
+              position: true,
+              regionCode: true,
+              districtId: true,
+              departmentId: true,
+              employmentType: true,
+              region: { select: { name: true } },
+              district: { select: { id: true, code: true, name: true } },
+              department: { select: { name: true } },
+            },
+          },
+        },
+      }),
+      this.loadLocations(expense.period),
+    ]);
+
+    const entries = allEntries
+      .map((entry) => {
+        const location = locations.get(entry.employeePinfl);
+        const effective = this.applyLocation(
+          entry.employee as unknown as GroupEmployee,
+          location,
+        );
+
+        return { entry, location, effective };
+      })
+      .filter(({ effective }) => this.groupOf(effective).key === key)
+      .map(({ entry, location, effective }) => ({
+        id: entry.id,
+        totalTiyin: entry.totalTiyin,
+        employee: {
+          pinfl: entry.employee.pinfl,
+          fullName: entry.employee.fullName,
+          position: entry.employee.position,
+          regionCode: effective.regionCode,
+          districtId: location ? location.districtId : entry.employee.districtId,
+          district: location ? location.district : entry.employee.district,
+          department: entry.employee.department,
+        },
+      }));
+
+    const groups: { key: string; label: string; count: number; totalTiyin: bigint }[] = [];
+
+    if (!isCentral && !isContract) {
+      const byDistrict = new Map<string, { label: string; count: number; total: bigint }>();
+
+      for (const entry of entries) {
+        const districtKey = entry.employee.districtId ?? 'none';
+        const label = entry.employee.district?.name ?? 'Tuman korsatilmagan';
+
+        const item = byDistrict.get(districtKey) ?? { label, count: 0, total: 0n };
+        item.count += 1;
+        item.total += entry.totalTiyin;
+        byDistrict.set(districtKey, item);
+      }
+
+      for (const [districtKey, value] of byDistrict) {
+        groups.push({
+          key: districtKey,
+          label: value.label,
+          count: value.count,
+          totalTiyin: value.total,
+        });
+      }
+
+      groups.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
+    }
+
+    return {
+      isPayroll: true,
+      expense,
+      isCentral: isCentral || isContract,
+      groups,
+      entries,
+      count: entries.length,
+      totalTiyin: entries.reduce((sum, entry) => sum + entry.totalTiyin, 0n),
+    };
+  }
+}
+
+
+===== C:\Projects\korxona-tahlil\apps\api\src\modules\results\results.service.ts (38808 bayt) =====
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import ExcelJS from 'exceljs';
+import { PrismaService } from '../prisma/prisma.service';
+import { PayrollService } from '../payroll/payroll.service';
+
+// ─────── Ustama qoidasi ───────
+const LOW_PERCENT = 80;
+const HIGH_PERCENT = 95;
+const MID_RATE = 25n;
+const HIGH_RATE = 45n;
+
+/** Fayldagi va hisoblangan ustama farqi shundan katta bo'lsa — ogohlantirish (1 so'm) */
+const BONUS_TOLERANCE_TIYIN = 100n;
+
+/** Shablonda formulali bo'sh qatorlar soni */
+const TEMPLATE_ROWS = 450;
+
+/** Hududlar tartibi — hisobotlardagi kabi */
+const REGION_ORDER = [0, 3, 6, 8, 10, 12, 14, 18, 22, 24, 26, 27, 30, 33, 35];
+
+export type EmploymentKind = 'SHTAT' | 'SHARTNOMA';
+
+/** Saqlash uchun qator */
+export interface ResultRow {
+  pinfl: string;
+  regionCode: number;
+  districtId: string | null;
+  employmentType: EmploymentKind;
+  planTiyin: bigint;
+  factTiyin: bigint;
+  bonusTiyin: bigint;
+}
+
+type ColumnKey = 'region' | 'district' | 'pinfl' | 'fullName' | 'type' | 'plan' | 'fact' | 'bonus';
+type ColumnMap = Partial<Record<ColumnKey, number>>;
+
+export interface RegionRef {
+  code: number;
+  name: string;
+}
+
+export interface DistrictRef {
+  id: string;
+  regionCode: number;
+  code: number;
+  name: string;
+}
+
+export interface ParsedLine {
+  rowIndex: number;
+  pinfl: string;
+  fileName: string;
+  region: RegionRef;
+  district: DistrictRef | null;
+  fileType: EmploymentKind | null;
+  planTiyin: bigint;
+  factTiyin: bigint;
+  fileBonusTiyin: bigint | null;
+}
+
+export interface AnalyzedRow {
+  rowIndex: number;
+  pinfl: string;
+  fullName: string;
+  regionCode: number;
+  regionName: string;
+  districtId: string | null;
+  districtName: string | null;
+  employmentType: EmploymentKind;
+  planTiyin: bigint;
+  factTiyin: bigint;
+  percent: number | null;
+  bonusTiyin: bigint;
+  expectedBonusTiyin: bigint;
+}
+
+export interface RegionTotal {
+  regionCode: number;
+  name: string;
+  count: number;
+  planTiyin: bigint;
+  factTiyin: bigint;
+  bonusTiyin: bigint;
+  percent: number | null;
+}
+
+const TYPE_LABELS: Record<EmploymentKind, string> = {
+  SHTAT: 'Asosiy shtat',
+  SHARTNOMA: 'Shartnoma',
+};
+
+@Injectable()
+export class ResultsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly payroll: PayrollService,
+  ) {}
+
+  // ═══════════ Yordamchilar ═══════════
+
+  private assertPeriod(period: string): void {
+    if (!/^\d{4}-\d{2}$/.test(period ?? '')) {
+      throw new BadRequestException('Davr notogri formatda');
+    }
+  }
+
+  private cellValue(value: ExcelJS.CellValue): unknown {
+    if (value && typeof value === 'object') {
+      const record = value as unknown as Record<string, unknown>;
+
+      if ('result' in record) return record.result;
+      if ('text' in record) return record.text;
+      if ('richText' in record && Array.isArray(record.richText)) {
+        return (record.richText as { text: string }[]).map((part) => part.text).join('');
+      }
+    }
+    return value;
+  }
+
+  private text(value: ExcelJS.CellValue): string {
+    const raw = this.cellValue(value);
+    return raw === null || raw === undefined ? '' : String(raw).trim();
+  }
+
+  private isBlank(value: unknown): boolean {
+    return value === null || value === undefined || String(value).trim() === '';
+  }
+
+  private normalize(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[\u0027\u0060\u00B4\u02BB\u02BC\u2018\u2019]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /** "viloyati", "respublikasi", "tumani" siz — "shahri" saqlanadi */
+  private shortKey(value: string): string {
+    return this.normalize(value)
+      .replace(/\s(viloyati|respublikasi|tumani)$/, '')
+      .trim();
+  }
+
+  private parsePinfl(value: unknown): string | null {
+    if (this.isBlank(value)) return null;
+    const digits = String(value).replace(/\D/g, '');
+    return /^\d{14}$/.test(digits) ? digits : null;
+  }
+
+  /** So'mdagi summa → tiyin. Bo'sh — 0, noto'g'ri — null */
+  private parseMoney(value: unknown): bigint | null {
+    if (this.isBlank(value)) return 0n;
+
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value) || value < 0) return null;
+      return BigInt(Math.round(value * 100));
+    }
+
+    const text = String(value).replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
+    const parsed = Number(text);
+
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
+    return BigInt(Math.round(parsed * 100));
+  }
+
+  /**
+   * Xodim turi: 1 — asosiy shtat, 2 — shartnoma.
+   * Bo'sh — null (reestrdagi olinadi), boshqa qiymat — 'invalid'.
+   */
+  private parseType(value: unknown): EmploymentKind | null | 'invalid' {
+    if (this.isBlank(value)) return null;
+
+    const key = this.normalize(String(value));
+
+    if (key === '1' || key === 'shtat' || key === 'asosiy shtat' || key === 'asosiy') {
+      return 'SHTAT';
+    }
+    if (key === '2' || key === 'shartnoma') {
+      return 'SHARTNOMA';
+    }
+    return 'invalid';
+  }
+
+  /** Bajarilish foizi — reja nol bo'lsa null */
+  private percentOf(plan: bigint, fact: bigint): number | null {
+    if (plan <= 0n) return null;
+    return Number((fact * 10000n) / plan) / 100;
+  }
+
+  /** Ustama qoida bo'yicha: <80% — 0, 80–95% — 25%, >95% — 45% */
+  private expectedBonus(plan: bigint, fact: bigint): bigint {
+    const percent = this.percentOf(plan, fact);
+
+    if (percent === null || percent < LOW_PERCENT) return 0n;
+    if (percent <= HIGH_PERCENT) return (fact * MID_RATE) / 100n;
+    return (fact * HIGH_RATE) / 100n;
+  }
+
+  private regionPosition(code: number): number {
+    const index = REGION_ORDER.indexOf(code);
+    return index === -1 ? 1000 + code : index;
+  }
+
+  private async loadReferences(): Promise<{ regions: RegionRef[]; districts: DistrictRef[] }> {
+    const [regions, districts] = await Promise.all([
+      this.prisma.region.findMany({
+        where: { isActive: true },
+        select: { code: true, name: true },
+      }),
+      this.prisma.district.findMany({
+        select: { id: true, regionCode: true, code: true, name: true },
+      }),
+    ]);
+
+    regions.sort((a, b) => this.regionPosition(a.code) - this.regionPosition(b.code));
+
+    return { regions, districts };
+  }
+
+  // ═══════════ Shablon ═══════════
+
+  async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
+    this.assertPeriod(period);
+
+    const { regions, districts } = await this.loadReferences();
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+
+    const sheet = workbook.addWorksheet('Natijalar', {
+      views: [{ state: 'frozen', ySplit: 2 }],
+    });
+
+    const headers = [
+      '№',
+      'Hudud',
+      'Tuman',
+      'PINFL',
+      'Xodim F.I.Sh',
+      'Turi\n(1 - asosiy shtat,\n2 - shartnoma)',
+      'Oylik reja',
+      'Reja bajarilishi\n(tushum)',
+      'Foizda',
+      "Ustama miqdori\n(tushum rejaga nisbatan 80%dan past bo'lganda=0, " +
+        "80-95% bo'lganda = tushumning 25%, 95%dan ortiq bo'lganda tushumning 45%)",
+    ];
+    const widths = [6, 22, 24, 18, 40, 14, 16, 18, 10, 26];
+
+    widths.forEach((width, index) => {
+      sheet.getColumn(index + 1).width = width;
+    });
+
+    const thin = { style: 'thin' as const, color: { argb: 'FF94A3B8' } };
+    const border = { top: thin, left: thin, bottom: thin, right: thin };
+
+    // ─── 1-qator: sarlavhalar ───
+    const headerRow = sheet.getRow(1);
+    headers.forEach((label, index) => {
+      const cell = headerRow.getCell(index + 1);
+      cell.value = label;
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBFBFBF' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = border;
+    });
+    headerRow.height = 95;
+
+    const first = 3;
+    const last = first + TEMPLATE_ROWS - 1;
+
+    // ─── 2-qator: Jami ───
+    const totalRow = sheet.getRow(2);
+    totalRow.getCell(1).value = 'Jami';
+    totalRow.getCell(7).value = { formula: `SUM(G${first}:G${last})` };
+    totalRow.getCell(8).value = { formula: `SUM(H${first}:H${last})` };
+    totalRow.getCell(9).value = { formula: 'IF(G2>0,ROUND(H2/G2*100,0),0)' };
+    totalRow.getCell(10).value = { formula: `SUM(J${first}:J${last})` };
+
+    for (let col = 1; col <= 10; col++) {
+      const cell = totalRow.getCell(col);
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF28A745' } };
+      cell.border = border;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (col === 7 || col === 8 || col === 10) cell.numFmt = '#,##0';
+    }
+
+    // ─── Ma'lumot qatorlari: №, foiz va ustama formulasi tayyor ───
+    for (let r = first; r <= last; r++) {
+      const row = sheet.getRow(r);
+
+      row.getCell(1).value = { formula: `IF(D${r}="","",ROW()-2)` };
+      row.getCell(4).numFmt = '@';
+
+      // Turi — faqat 1 yoki 2
+      row.getCell(6).dataValidation = {
+        type: 'whole',
+        operator: 'between',
+        allowBlank: true,
+        formulae: [1, 2],
+        showErrorMessage: true,
+        errorTitle: 'Xodim turi',
+        error: '1 - asosiy shtat, 2 - shartnoma',
+      };
+      row.getCell(6).alignment = { horizontal: 'center' };
+
+      row.getCell(9).value = {
+        formula: `IF(OR(G${r}="",H${r}="",G${r}=0),"",ROUND(H${r}/G${r}*100,0))`,
+      };
+      row.getCell(10).value = {
+        formula:
+          `IF(OR(G${r}="",H${r}="",G${r}=0),"",` +
+          `IF(H${r}/G${r}*100<${LOW_PERCENT},0,` +
+          `IF(H${r}/G${r}*100<=${HIGH_PERCENT},H${r}*0.25,H${r}*0.45)))`,
+      };
+
+      row.getCell(7).numFmt = '#,##0';
+      row.getCell(8).numFmt = '#,##0';
+      row.getCell(10).numFmt = '#,##0';
+
+      for (let col = 1; col <= 10; col++) {
+        row.getCell(col).border = border;
+      }
+    }
+
+    // ─── Kodlar varag'i ───
+    const codes = workbook.addWorksheet('Kodlar', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+
+    codes.columns = [
+      { header: 'Hudud kodi', key: 'regionCode', width: 12 },
+      { header: 'Hudud', key: 'regionName', width: 30 },
+      { header: 'Tuman kodi', key: 'districtCode', width: 12 },
+      { header: 'Tuman', key: 'districtName', width: 34 },
+    ];
+
+    const codesHeader = codes.getRow(1);
+    codesHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    codesHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
+
+    for (const region of regions) {
+      const list = districts
+        .filter((district) => district.regionCode === region.code)
+        .sort((a, b) => a.code - b.code);
+
+      if (list.length === 0) {
+        codes.addRow({ regionCode: region.code, regionName: region.name });
+        continue;
+      }
+
+      for (const district of list) {
+        codes.addRow({
+          regionCode: region.code,
+          regionName: region.name,
+          districtCode: district.code,
+          districtName: district.name,
+        });
+      }
+    }
+
+    codes.autoFilter = { from: 'A1', to: `D${codes.rowCount}` };
+
+    const data = await workbook.xlsx.writeBuffer();
+    return { buffer: Buffer.from(data), filename: `Xodim-natijalari-${period}.xlsx` };
+  }
+
+  // ═══════════ Fayl o'qish ═══════════
+
+  /** Sarlavha qatorini topib, ustunlarni matni bo'yicha aniqlaydi */
+  private detectColumns(sheet: ExcelJS.Worksheet): { headerRow: number; columns: ColumnMap } {
+    const limit = Math.min(sheet.rowCount, 10);
+
+    for (let rowIndex = 1; rowIndex <= limit; rowIndex++) {
+      const row = sheet.getRow(rowIndex);
+      const columns: ColumnMap = {};
+
+      row.eachCell((cell, col) => {
+        const key = this.normalize(this.text(cell.value));
+        if (!key) return;
+
+        // Tartib muhim: "ustama" matnida "tushum" so'zi ham bor
+        if (key === 'pinfl') columns.pinfl ??= col;
+        else if (key.startsWith('ustama')) columns.bonus ??= col;
+        else if (key.startsWith('hudud')) columns.region ??= col;
+        else if (key.startsWith('tuman')) columns.district ??= col;
+        else if (key.includes('f.i.sh') || key.includes('fish') || key.startsWith('xodim')) {
+          columns.fullName ??= col;
+        } else if (key.startsWith('turi') || key.includes('shtat') || key.includes('shartnoma')) {
+          columns.type ??= col;
+        } else if (key.includes('bajarilishi') || key.includes('tushum')) columns.fact ??= col;
+        else if (key.includes('reja')) columns.plan ??= col;
+      });
+
+      if (!columns.pinfl) continue;
+
+      // Turi sarlavhasiz bo'lsa — F.I.Sh dan keyingi bo'sh sarlavhali ustun
+      if (!columns.type && columns.fullName) {
+        const next = columns.fullName + 1;
+        if (!this.text(row.getCell(next).value)) {
+          columns.type = next;
+        }
+      }
+
+      return { headerRow: rowIndex, columns };
+    }
+
+    throw new BadRequestException('"PINFL" sarlavhasi topilmadi. Shablon tuzilishini saqlang');
+  }
+
+  async analyze(period: string, file: Express.Multer.File) {
+    this.assertPeriod(period);
+
+    if (!file) {
+      throw new BadRequestException('Fayl yuklanmadi');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
+
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      throw new BadRequestException('Faylda varaq topilmadi');
+    }
+
+    const { headerRow, columns } = this.detectColumns(sheet);
+
+    const required: [ColumnKey, string][] = [
+      ['region', 'Hudud'],
+      ['plan', 'Oylik reja'],
+      ['fact', 'Reja bajarilishi (tushum)'],
+    ];
+
+    for (const [key, label] of required) {
+      if (!columns[key]) {
+        throw new BadRequestException(`"${label}" ustuni topilmadi`);
+      }
+    }
+
+    const { regions, districts } = await this.loadReferences();
+
+    const regionByCode = new Map<number, RegionRef>(regions.map((r) => [r.code, r]));
+    const regionByName = new Map<string, RegionRef>();
+    for (const region of regions) {
+      regionByName.set(this.normalize(region.name), region);
+      regionByName.set(this.shortKey(region.name), region);
+    }
+
+    const districtById = new Map<string, DistrictRef>(districts.map((d) => [d.id, d]));
+
+    const resolveRegion = (raw: string): RegionRef | null => {
+      if (/^\d+$/.test(raw)) return regionByCode.get(Number(raw)) ?? null;
+      return regionByName.get(this.normalize(raw)) ?? regionByName.get(this.shortKey(raw)) ?? null;
+    };
+
+    const resolveDistrict = (regionCode: number, raw: string): DistrictRef | null => {
+      if (/^\d+$/.test(raw)) return districtById.get(`${regionCode}-${Number(raw)}`) ?? null;
+
+      const full = this.normalize(raw);
+      const short = this.shortKey(raw);
+
+      return (
+        districts.find(
+          (d) =>
+            d.regionCode === regionCode &&
+            (this.normalize(d.name) === full || this.shortKey(d.name) === short),
+        ) ?? null
+      );
+    };
+
+    const invalidRows: { rowIndex: number; reason: string }[] = [];
+    const unknownDistricts: { rowIndex: number; region: string; value: string }[] = [];
+    const parsed: ParsedLine[] = [];
+    const seen = new Set<string>();
+
+    for (let rowIndex = headerRow + 1; rowIndex <= sheet.rowCount; rowIndex++) {
+      const row = sheet.getRow(rowIndex);
+      const cell = (key: ColumnKey) => {
+        const col = columns[key];
+        return col ? row.getCell(col).value : null;
+      };
+
+      const rawPinfl = this.cellValue(cell('pinfl'));
+
+      // PINFL bo'sh — "Jami" yoki bo'sh qator
+      if (this.isBlank(rawPinfl)) continue;
+
+      const pinfl = this.parsePinfl(rawPinfl);
+      if (!pinfl) {
+        invalidRows.push({ rowIndex, reason: 'PINFL notogri' });
+        continue;
+      }
+
+      if (seen.has(pinfl)) {
+        invalidRows.push({ rowIndex, reason: `PINFL takrorlangan: ${pinfl}` });
+        continue;
+      }
+
+      const regionText = this.text(cell('region'));
+      const region = resolveRegion(regionText);
+
+      if (!region) {
+        invalidRows.push({ rowIndex, reason: `Hudud topilmadi: "${regionText}"` });
+        continue;
+      }
+
+      let district: DistrictRef | null = null;
+      const districtText = this.text(cell('district'));
+
+      if (districtText) {
+        district = resolveDistrict(region.code, districtText);
+        if (!district) {
+          unknownDistricts.push({ rowIndex, region: region.name, value: districtText });
+        }
+      }
+
+      const fileType = this.parseType(this.cellValue(cell('type')));
+      if (fileType === 'invalid') {
+        invalidRows.push({ rowIndex, reason: 'Turi notogri: 1 yoki 2 bolishi kerak' });
+        continue;
+      }
+
+      const planTiyin = this.parseMoney(this.cellValue(cell('plan')));
+      if (planTiyin === null) {
+        invalidRows.push({ rowIndex, reason: 'Oylik reja notogri' });
+        continue;
+      }
+
+      const factTiyin = this.parseMoney(this.cellValue(cell('fact')));
+      if (factTiyin === null) {
+        invalidRows.push({ rowIndex, reason: 'Tushum notogri' });
+        continue;
+      }
+
+      let fileBonusTiyin: bigint | null = null;
+      if (columns.bonus) {
+        const bonus = this.parseMoney(this.cellValue(cell('bonus')));
+        if (bonus === null) {
+          invalidRows.push({ rowIndex, reason: 'Ustama notogri' });
+          continue;
+        }
+        fileBonusTiyin = bonus;
+      }
+
+      seen.add(pinfl);
+      parsed.push({
+        rowIndex,
+        pinfl,
+        fileName: this.text(cell('fullName')),
+        region,
+        district,
+        fileType,
+        planTiyin,
+        factTiyin,
+        fileBonusTiyin,
+      });
+    }
+
+    if (parsed.length === 0) {
+      throw new BadRequestException('Faylda yaroqli qator topilmadi');
+    }
+
+    // ─── Reestr bilan solishtirish ───
+    const employees = await this.prisma.employee.findMany({
+      where: { pinfl: { in: parsed.map((row) => row.pinfl) } },
+      select: {
+        pinfl: true,
+        fullName: true,
+        regionCode: true,
+        districtId: true,
+        employmentType: true,
+        region: { select: { name: true } },
+        district: { select: { name: true } },
+      },
+    });
+
+    type RegistryEmployee = (typeof employees)[number];
+    const employeeMap = new Map<string, RegistryEmployee>(employees.map((e) => [e.pinfl, e]));
+
+    const missing: { rowIndex: number; pinfl: string; fullName: string }[] = [];
+    const nameMismatches: { rowIndex: number; pinfl: string; fileName: string; registryName: string }[] = [];
+    const locationChanges: { pinfl: string; fullName: string; from: string; to: string }[] = [];
+    const typeChanges: { pinfl: string; fullName: string; from: string; to: string }[] = [];
+    const bonusMismatches: {
+      rowIndex: number;
+      pinfl: string;
+      fullName: string;
+      percent: number | null;
+      fileTiyin: bigint;
+      expectedTiyin: bigint;
+    }[] = [];
+
+    const rows: AnalyzedRow[] = [];
+
+    const describe = (region: string, district: string | null | undefined) =>
+      district ? `${region} / ${district}` : region;
+
+    for (const line of parsed) {
+      const employee = employeeMap.get(line.pinfl);
+
+      if (!employee) {
+        missing.push({ rowIndex: line.rowIndex, pinfl: line.pinfl, fullName: line.fileName });
+        continue;
+      }
+
+      if (line.fileName && this.normalize(line.fileName) !== this.normalize(employee.fullName)) {
+        nameMismatches.push({
+          rowIndex: line.rowIndex,
+          pinfl: line.pinfl,
+          fileName: line.fileName,
+          registryName: employee.fullName,
+        });
+      }
+
+      const regionChanged = employee.regionCode !== line.region.code;
+      const districtChanged = line.district !== null && employee.districtId !== line.district.id;
+
+      if (regionChanged || districtChanged) {
+        locationChanges.push({
+          pinfl: line.pinfl,
+          fullName: employee.fullName,
+          from: describe(employee.region.name, employee.district?.name),
+          to: describe(line.region.name, line.district?.name),
+        });
+      }
+
+      const registryType = employee.employmentType as EmploymentKind;
+      const employmentType = line.fileType ?? registryType;
+
+      if (line.fileType && line.fileType !== registryType) {
+        typeChanges.push({
+          pinfl: line.pinfl,
+          fullName: employee.fullName,
+          from: TYPE_LABELS[registryType] ?? registryType,
+          to: TYPE_LABELS[line.fileType],
+        });
+      }
+
+      const expected = this.expectedBonus(line.planTiyin, line.factTiyin);
+      const bonus = line.fileBonusTiyin ?? expected;
+      const percent = this.percentOf(line.planTiyin, line.factTiyin);
+
+      if (line.fileBonusTiyin !== null) {
+        const diff = line.fileBonusTiyin - expected;
+        if ((diff < 0n ? -diff : diff) > BONUS_TOLERANCE_TIYIN) {
+          bonusMismatches.push({
+            rowIndex: line.rowIndex,
+            pinfl: line.pinfl,
+            fullName: employee.fullName,
+            percent,
+            fileTiyin: line.fileBonusTiyin,
+            expectedTiyin: expected,
+          });
+        }
+      }
+
+      rows.push({
+        rowIndex: line.rowIndex,
+        pinfl: line.pinfl,
+        fullName: employee.fullName,
+        regionCode: line.region.code,
+        regionName: line.region.name,
+        districtId: line.district?.id ?? null,
+        districtName: line.district?.name ?? null,
+        employmentType,
+        planTiyin: line.planTiyin,
+        factTiyin: line.factTiyin,
+        percent,
+        bonusTiyin: bonus,
+        expectedBonusTiyin: expected,
+      });
+    }
+
+    const regionTotals = this.buildRegionTotals(rows);
+
+    const totals = rows.reduce(
+      (acc, row) => ({
+        planTiyin: acc.planTiyin + row.planTiyin,
+        factTiyin: acc.factTiyin + row.factTiyin,
+        bonusTiyin: acc.bonusTiyin + row.bonusTiyin,
+      }),
+      { planTiyin: 0n, factTiyin: 0n, bonusTiyin: 0n },
+    );
+
+    const previousCount = await this.prisma.resultBatch.count({
+      where: { period, cancelledAt: null },
+    });
+
+    return {
+      period,
+      fileName: file.originalname,
+      totalRows: parsed.length + invalidRows.length,
+      matchedRows: rows.length,
+      planTiyin: totals.planTiyin,
+      factTiyin: totals.factTiyin,
+      bonusTiyin: totals.bonusTiyin,
+      percent: this.percentOf(totals.planTiyin, totals.factTiyin),
+      invalidRows,
+      missing,
+      unknownDistricts,
+      nameMismatches,
+      locationChanges,
+      typeChanges,
+      bonusMismatches,
+      hasPrevious: previousCount > 0,
+      regions: regionTotals,
+      rows,
+    };
+  }
+
+  /** Hududlar bo'yicha yig'indi — hisobot tartibida */
+  private buildRegionTotals(
+    rows: { regionCode: number; regionName: string; planTiyin: bigint; factTiyin: bigint; bonusTiyin: bigint }[],
+  ): RegionTotal[] {
+    const map = new Map<number, RegionTotal>();
+
+    for (const row of rows) {
+      const item = map.get(row.regionCode) ?? {
+        regionCode: row.regionCode,
+        name: row.regionName,
+        count: 0,
+        planTiyin: 0n,
+        factTiyin: 0n,
+        bonusTiyin: 0n,
+        percent: null,
+      };
+
+      item.count += 1;
+      item.planTiyin += row.planTiyin;
+      item.factTiyin += row.factTiyin;
+      item.bonusTiyin += row.bonusTiyin;
+      map.set(row.regionCode, item);
+    }
+
+    return [...map.values()]
+      .map((item) => ({ ...item, percent: this.percentOf(item.planTiyin, item.factTiyin) }))
+      .sort((a, b) => this.regionPosition(a.regionCode) - this.regionPosition(b.regionCode));
+  }
+
+  // ═══════════ Saqlash ═══════════
+
+  /**
+   * Natijalarni saqlaydi va shu oy uchun hudud tarixini yozadi.
+   * Shu oyning oldingi yuklashi bekor qilinadi — natijalar oylik surat.
+   */
+  async commit(params: { period: string; rows: ResultRow[]; fileName: string; userId: string }) {
+    const { period, rows, fileName, userId } = params;
+    this.assertPeriod(period);
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Saqlash uchun malumot yoq');
+    }
+
+    const pinfls = new Set<string>();
+
+    for (const row of rows) {
+      if (!/^\d{14}$/.test(row.pinfl)) {
+        throw new BadRequestException(`Notogri PINFL: ${row.pinfl}`);
+      }
+      if (pinfls.has(row.pinfl)) {
+        throw new BadRequestException(`PINFL takrorlangan: ${row.pinfl}`);
+      }
+      if (row.employmentType !== 'SHTAT' && row.employmentType !== 'SHARTNOMA') {
+        throw new BadRequestException(`Xodim turi notogri: ${row.pinfl}`);
+      }
+      if (row.planTiyin < 0n || row.factTiyin < 0n || row.bonusTiyin < 0n) {
+        throw new BadRequestException(`Manfiy summa: ${row.pinfl}`);
+      }
+      pinfls.add(row.pinfl);
+    }
+
+    // Reestr va ma'lumotnomalarni qayta tekshiramiz — frontendga ishonmaymiz
+    const [employees, { regions, districts }] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { pinfl: { in: [...pinfls] } },
+        select: { pinfl: true, regionCode: true, districtId: true, employmentType: true },
+      }),
+      this.loadReferences(),
+    ]);
+
+    if (employees.length !== pinfls.size) {
+      throw new BadRequestException(
+        `${pinfls.size - employees.length} ta xodim reestrda topilmadi. Faylni qaytadan yuklang`,
+      );
+    }
+
+    const regionCodes = new Set(regions.map((r) => r.code));
+    const districtRegion = new Map<string, number>(districts.map((d) => [d.id, d.regionCode]));
+
+    for (const row of rows) {
+      if (!regionCodes.has(row.regionCode)) {
+        throw new BadRequestException(`Hudud topilmadi: ${row.regionCode}`);
+      }
+      if (row.districtId && districtRegion.get(row.districtId) !== row.regionCode) {
+        throw new BadRequestException(`Tuman hududga mos emas: ${row.districtId}`);
+      }
+    }
+
+    const registry = new Map(employees.map((e) => [e.pinfl, e]));
+
+    const movedCount = rows.filter((row) => {
+      const employee = registry.get(row.pinfl);
+      if (!employee) return false;
+
+      return (
+        employee.regionCode !== row.regionCode ||
+        (row.districtId !== null && employee.districtId !== row.districtId) ||
+        employee.employmentType !== row.employmentType
+      );
+    }).length;
+
+    const totals = rows.reduce(
+      (acc, row) => ({
+        planTiyin: acc.planTiyin + row.planTiyin,
+        factTiyin: acc.factTiyin + row.factTiyin,
+        bonusTiyin: acc.bonusTiyin + row.bonusTiyin,
+      }),
+      { planTiyin: 0n, factTiyin: 0n, bonusTiyin: 0n },
+    );
+
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        // Shu oyning oldingi yuklashi bekor qilinadi
+        const previous = await tx.resultBatch.findMany({
+          where: { period, cancelledAt: null },
+          select: { id: true },
+        });
+        const previousIds = previous.map((item) => item.id);
+
+        if (previousIds.length > 0) {
+          await tx.employeeResult.deleteMany({ where: { batchId: { in: previousIds } } });
+          await tx.resultBatch.updateMany({
+            where: { id: { in: previousIds } },
+            data: { cancelledAt: new Date() },
+          });
+        }
+
+        // Shu oy hudud tarixi qaytadan yoziladi
+        await tx.employeeLocation.deleteMany({ where: { period, source: 'RESULTS' } });
+
+        const batch = await tx.resultBatch.create({
+          data: {
+            period,
+            fileName,
+            totalRows: rows.length,
+            planTiyin: totals.planTiyin,
+            factTiyin: totals.factTiyin,
+            bonusTiyin: totals.bonusTiyin,
+            movedCount,
+            uploadedById: userId,
+          },
+        });
+
+        await tx.employeeResult.createMany({
+          data: rows.map((row) => ({
+            batchId: batch.id,
+            period,
+            employeePinfl: row.pinfl,
+            regionCode: row.regionCode,
+            districtId: row.districtId,
+            employmentType: row.employmentType,
+            planTiyin: row.planTiyin,
+            factTiyin: row.factTiyin,
+            bonusTiyin: row.bonusTiyin,
+          })),
+        });
+
+        await tx.employeeLocation.createMany({
+          data: rows.map((row) => ({
+            employeePinfl: row.pinfl,
+            period,
+            regionCode: row.regionCode,
+            districtId: row.districtId,
+            employmentType: row.employmentType,
+            source: 'RESULTS',
+          })),
+        });
+
+        return { batchId: batch.id, replaced: previousIds.length };
+      },
+      { timeout: 60_000 },
+    );
+
+    // Ish haqi yangi hudud va turga qarab qayta guruhlanadi
+
+    const payroll = await this.payroll.regroup(period);
+
+
+    return {
+      success: true as const,
+      batchId: result.batchId,
+      payroll,
+      saved: rows.length,
+      movedCount,
+      replacedPrevious: result.replaced > 0,
+      ...totals,
+    };
+  }
+
+  // ═══════════ Bekor qilish ═══════════
+
+  async cancel(batchId: string) {
+    const batch = await this.prisma.resultBatch.findUnique({
+      where: { id: batchId },
+      include: { results: { select: { employeePinfl: true } } },
+    });
+
+    if (!batch) {
+      throw new NotFoundException('Yuklash topilmadi');
+    }
+    if (batch.cancelledAt) {
+      throw new BadRequestException('Bu yuklash allaqachon bekor qilingan');
+    }
+
+    const pinfls = batch.results.map((item) => item.employeePinfl);
+
+    await this.prisma.$transaction([
+      this.prisma.employeeLocation.deleteMany({
+        where: { period: batch.period, source: 'RESULTS', employeePinfl: { in: pinfls } },
+      }),
+      this.prisma.employeeResult.deleteMany({ where: { batchId } }),
+      this.prisma.resultBatch.update({
+        where: { id: batchId },
+        data: { cancelledAt: new Date() },
+      }),
+    ]);
+
+    const payroll = await this.payroll.regroup(batch.period);
+    return { success: true as const, payroll };
+  }
+
+  // ═══════════ Ro'yxatlar ═══════════
+
+  async findBatches(period?: string) {
+    return this.prisma.resultBatch.findMany({
+      where: period ? { period } : {},
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: { uploadedBy: { select: { id: true, fullName: true } } },
+    });
+  }
+
+  /** Oy natijalari — hudud, tuman, xodim bo'yicha */
+  async findResults(period: string, regionCode?: number) {
+    this.assertPeriod(period);
+
+    const results = await this.prisma.employeeResult.findMany({
+      where: {
+        period,
+        batch: { cancelledAt: null },
+        ...(regionCode !== undefined ? { regionCode } : {}),
+      },
+      include: {
+        employee: { select: { fullName: true } },
+        region: { select: { name: true } },
+        district: { select: { name: true } },
+      },
+    });
+
+    const rows = results
+      .map((item) => ({
+        pinfl: item.employeePinfl,
+        fullName: item.employee.fullName,
+        regionCode: item.regionCode,
+        regionName: item.region.name,
+        districtId: item.districtId,
+        districtName: item.district?.name ?? null,
+        employmentType: item.employmentType as EmploymentKind,
+        planTiyin: item.planTiyin,
+        factTiyin: item.factTiyin,
+        bonusTiyin: item.bonusTiyin,
+        percent: this.percentOf(item.planTiyin, item.factTiyin),
+      }))
+      .sort(
+        (a, b) =>
+          this.regionPosition(a.regionCode) - this.regionPosition(b.regionCode) ||
+          (a.districtName ?? '').localeCompare(b.districtName ?? '') ||
+          a.fullName.localeCompare(b.fullName),
+      );
+
+    const totals = rows.reduce(
+      (acc, row) => ({
+        planTiyin: acc.planTiyin + row.planTiyin,
+        factTiyin: acc.factTiyin + row.factTiyin,
+        bonusTiyin: acc.bonusTiyin + row.bonusTiyin,
+      }),
+      { planTiyin: 0n, factTiyin: 0n, bonusTiyin: 0n },
+    );
+
+    return {
+      rows,
+      regions: this.buildRegionTotals(rows),
+      totals: { ...totals, percent: this.percentOf(totals.planTiyin, totals.factTiyin) },
+    };
+  }
+
+  // ═══════════ Excel eksport ═══════════
+
+  /** Oy natijalari — xodimlar va hududlar varag'i, shablon ko'rinishida */
+  async exportExcel(period: string, regionCode?: number): Promise<{ buffer: Buffer; filename: string }> {
+    const { rows, regions, totals } = await this.findResults(period, regionCode);
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Bu oy uchun natijalar yoq');
+    }
+
+    const toSum = (tiyin: bigint) => Number(tiyin) / 100;
+    const round = (value: number | null) => (value === null ? '' : Math.round(value * 10) / 10);
+
+    const percentFont = (value: number | null) => {
+      if (value === null) return undefined;
+      if (value < LOW_PERCENT) return { bold: true, color: { argb: 'FFDC2626' } };
+      if (value <= HIGH_PERCENT) return { bold: true, color: { argb: 'FFD97706' } };
+      return { bold: true, color: { argb: 'FF059669' } };
+    };
+
+    const thin = { style: 'thin' as const, color: { argb: 'FF94A3B8' } };
+    const border = { top: thin, left: thin, bottom: thin, right: thin };
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Korxona tahlil';
+
+    // ─── 1-varaq: Natijalar ───
+    const sheet = workbook.addWorksheet('Natijalar', {
+      views: [{ state: 'frozen', ySplit: 2 }],
+    });
+
+    const headers = [
+      '№',
+      'Hudud',
+      'Tuman',
+      'PINFL',
+      'Xodim F.I.Sh',
+      'Turi\n(1 - asosiy shtat,\n2 - shartnoma)',
+      'Oylik reja',
+      'Reja bajarilishi\n(tushum)',
+      'Foizda',
+      "Ustama miqdori\n(tushum rejaga nisbatan 80%dan past bo'lganda=0, " +
+        "80-95% bo'lganda = tushumning 25%, 95%dan ortiq bo'lganda tushumning 45%)",
+    ];
+    const widths = [6, 22, 24, 18, 40, 14, 16, 18, 10, 26];
+
+    widths.forEach((width, index) => {
+      sheet.getColumn(index + 1).width = width;
+    });
+
+    const headerRow = sheet.getRow(1);
+    headers.forEach((label, index) => {
+      const cell = headerRow.getCell(index + 1);
+      cell.value = label;
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBFBFBF' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = border;
+    });
+    headerRow.height = 95;
+
+    const totalRow = sheet.getRow(2);
+    totalRow.getCell(1).value = 'Jami';
+    totalRow.getCell(7).value = toSum(totals.planTiyin);
+    totalRow.getCell(8).value = toSum(totals.factTiyin);
+    totalRow.getCell(9).value = round(totals.percent);
+    totalRow.getCell(10).value = toSum(totals.bonusTiyin);
+
+    for (let col = 1; col <= 10; col++) {
+      const cell = totalRow.getCell(col);
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF28A745' } };
+      cell.border = border;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    }
+    totalRow.getCell(7).numFmt = '#,##0';
+    totalRow.getCell(8).numFmt = '#,##0';
+    totalRow.getCell(9).numFmt = '0.0';
+    totalRow.getCell(10).numFmt = '#,##0';
+
+    rows.forEach((item, index) => {
+      const row = sheet.getRow(index + 3);
+
+      row.getCell(1).value = index + 1;
+      row.getCell(2).value = item.regionName;
+      row.getCell(3).value = item.districtName ?? '';
+      row.getCell(4).value = item.pinfl;
+      row.getCell(5).value = item.fullName;
+      row.getCell(6).value = item.employmentType === 'SHTAT' ? 1 : 2;
+      row.getCell(7).value = toSum(item.planTiyin);
+      row.getCell(8).value = toSum(item.factTiyin);
+      row.getCell(9).value = round(item.percent);
+      row.getCell(10).value = toSum(item.bonusTiyin);
+
+      row.getCell(4).numFmt = '@';
+      row.getCell(7).numFmt = '#,##0';
+      row.getCell(8).numFmt = '#,##0';
+      row.getCell(9).numFmt = '0.0';
+      row.getCell(10).numFmt = '#,##0';
+
+      row.getCell(1).alignment = { horizontal: 'center' };
+      row.getCell(6).alignment = { horizontal: 'center' };
+      row.getCell(9).alignment = { horizontal: 'center' };
+
+      const font = percentFont(item.percent);
+      if (font) row.getCell(9).font = font;
+
+      for (let col = 1; col <= 10; col++) {
+        row.getCell(col).border = border;
+      }
+    });
+
+    // ─── 2-varaq: Hududlar ───
+    const summary = workbook.addWorksheet('Hududlar', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+
+    summary.columns = [
+      { header: 'Hudud', key: 'name', width: 32 },
+      { header: 'Xodim', key: 'count', width: 10 },
+      { header: 'Oylik reja', key: 'plan', width: 18 },
+      { header: 'Tushum', key: 'fact', width: 18 },
+      { header: 'Foizda', key: 'percent', width: 10 },
+      { header: 'Ustama', key: 'bonus', width: 18 },
+    ];
+
+    const summaryHeader = summary.getRow(1);
+    summaryHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    summaryHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
+    summaryHeader.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    for (const region of regions) {
+      const row = summary.addRow({
+        name: region.name,
+        count: region.count,
+        plan: toSum(region.planTiyin),
+        fact: toSum(region.factTiyin),
+        percent: round(region.percent),
+        bonus: toSum(region.bonusTiyin),
+      });
+
+      const font = percentFont(region.percent);
+      if (font) row.getCell('percent').font = font;
+    }
+
+    const summaryTotal = summary.addRow({
+      name: 'Jami',
+      count: rows.length,
+      plan: toSum(totals.planTiyin),
+      fact: toSum(totals.factTiyin),
+      percent: round(totals.percent),
+      bonus: toSum(totals.bonusTiyin),
+    });
+
+    summaryTotal.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    summaryTotal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF28A745' } };
+
+    summary.getColumn('plan').numFmt = '#,##0';
+    summary.getColumn('fact').numFmt = '#,##0';
+    summary.getColumn('percent').numFmt = '0.0';
+    summary.getColumn('bonus').numFmt = '#,##0';
+    summary.getColumn('count').alignment = { horizontal: 'center' };
+    summary.getColumn('percent').alignment = { horizontal: 'center' };
+
+    summary.eachRow((row) => {
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.border = border;
+      });
+    });
+
+    const suffix = regionCode !== undefined && regions[0] ? `-${regions[0].name}` : '';
+    const data = await workbook.xlsx.writeBuffer();
+
+    return { buffer: Buffer.from(data), filename: `Xodim-natijalari-${period}${suffix}.xlsx` };
+  }
+
+}
+
+
+===== C:\Projects\korxona-tahlil\apps\api\src\modules\salary-composition\salary-composition.service.ts (41590 bayt) =====
+import {
+    BadRequestException,
+    Injectable,
+    Logger,
+    NotFoundException,
+    type OnModuleInit,
+} from '@nestjs/common';
+import type {
+    SalaryComponent,
+    SalaryComponentCategory,
+    SalaryComponentGroup,
+    SalaryCompositionStatus,
+} from '@prisma/client';
+import { randomUUID } from 'crypto';
+import ExcelJS from 'exceljs';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+    CATEGORY_LABELS,
+    CATEGORY_ORDER,
+    CENTRAL_REGION,
+    DEFAULT_COMPONENTS,
+    DIFF_TOLERANCE_TIYIN,
+    GROUP_LABELS,
+    GROUP_ORDER,
+    RESERVED_CODES,
+    SERVICE_CODES,
+} from './salary-composition.constants';
+import {
+    buildExportWorkbook,
+    buildTemplateWorkbook,
+    cellText,
+    detectColumns,
+    parseNumber,
+    toTiyin,
+} from './salary-composition.excel';
+import type {
+    AnalysisResult,
+    BatchDto,
+    CategoryTotal,
+    CheckInput,
+    CheckPerson,
+    CheckState,
+    CheckSummary,
+    CommitResult,
+    CommitRow,
+    ComponentDto,
+    ComponentInput,
+    ComponentTotal,
+    CompositionRowDto,
+    CompositionView,
+    EmployeeHistory,
+    ParsedRow,
+    PayrollInfo,
+    RegistryInfo,
+    RowState,
+} from './salary-composition.types';
+
+// ═══════════════════════════════════════════════════════════
+// Servis
+// ═══════════════════════════════════════════════════════════
+
+@Injectable()
+export class SalaryCompositionService implements OnModuleInit {
+  private readonly logger = new Logger(SalaryCompositionService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /** Komponentlar jadvali bo'sh bo'lsa — standart 17 tasini yozamiz */
+  async onModuleInit(): Promise<void> {
+    try {
+      const count = await this.prisma.salaryComponent.count();
+      if (count > 0) return;
+
+      await this.prisma.salaryComponent.createMany({
+        data: DEFAULT_COMPONENTS.map((item) => ({ ...item })),
+        skipDuplicates: true,
+      });
+      this.logger.log(`Ish haqi komponentlari yaratildi: ${DEFAULT_COMPONENTS.length} ta`);
+    } catch (error) {
+      this.logger.error('Ish haqi komponentlarini yaratib bo\'lmadi', error as Error);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Yordamchilar
+  // ═══════════════════════════════════════════════════════════
+
+  private assertPeriod(period: string): void {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) {
+      throw new BadRequestException('Davr noto\'g\'ri formatda (YYYY-MM)');
+    }
+  }
+
+  private abs(value: bigint): bigint {
+    return value < 0n ? -value : value;
+  }
+
+  private percent(part: bigint, total: bigint): number | null {
+    if (total === 0n) return null;
+    return Math.round((Number(part) / Number(total)) * 10000) / 100;
+  }
+
+  private toComponentDto(component: SalaryComponent, usedCount = 0): ComponentDto {
+    return {
+      code: component.code,
+      name: component.name,
+      group: component.group,
+      groupLabel: GROUP_LABELS[component.group],
+      category: component.category,
+      categoryLabel: CATEGORY_LABELS[component.category],
+      sign: component.sign,
+      sortOrder: component.sortOrder,
+      isActive: component.isActive,
+      usedCount,
+    };
+  }
+
+  /** Guruh → tartib raqami bo'yicha saralash */
+  private sortComponents<T extends { group: SalaryComponentGroup; sortOrder: number; code: string }>(
+    list: T[],
+  ): T[] {
+    return [...list].sort((a, b) => {
+      const groupDiff = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
+      if (groupDiff !== 0) return groupDiff;
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return a.code.localeCompare(b.code);
+    });
+  }
+
+  private async allComponents(): Promise<SalaryComponent[]> {
+    const list = await this.prisma.salaryComponent.findMany();
+    return this.sortComponents(list);
+  }
+
+  /** Belgisi bilan qator jami: Σ sign × summa */
+  private rowTotal(items: Map<string, bigint>, signs: Map<string, number>): bigint {
+    let total = 0n;
+    for (const [code, amount] of items) {
+      total += (signs.get(code) ?? 1) < 0 ? -amount : amount;
+    }
+    return total;
+  }
+
+  private mapToRecord(items: Map<string, bigint>): Record<string, string> {
+    const record: Record<string, string> = {};
+    for (const [code, amount] of items) {
+      if (amount !== 0n) record[code] = amount.toString();
+    }
+    return record;
+  }
+
+  /** Reestrdagi ism va bo'lim / hudud */
+  private async registry(pinfls: string[]): Promise<Map<string, RegistryInfo>> {
+    const map = new Map<string, RegistryInfo>();
+    if (pinfls.length === 0) return map;
+
+    const employees = await this.prisma.employee.findMany({
+      where: { pinfl: { in: pinfls } },
+      select: {
+        pinfl: true,
+        fullName: true,
+        regionCode: true,
+        region: { select: { name: true } },
+        department: { select: { name: true } },
+      },
+    });
+
+    for (const emp of employees) {
+      map.set(emp.pinfl, {
+        fullName: emp.fullName,
+        unitName:
+          emp.regionCode === CENTRAL_REGION
+            ? (emp.department?.name ?? 'Markaz')
+            : (emp.region?.name ?? null),
+      });
+    }
+    return map;
+  }
+
+  /** Soliq hisoboti (tasdiqlangan ish haqi) — xodim bo'yicha jami */
+  private async payroll(period: string): Promise<PayrollInfo> {
+    const batchCount = await this.prisma.payrollBatch.count({
+      where: { period, status: 'COMMITTED' },
+    });
+
+    const map = new Map<string, bigint>();
+    if (batchCount === 0) return { uploaded: false, map };
+
+    const grouped = await this.prisma.payrollEntry.groupBy({
+      by: ['employeePinfl'],
+      where: { period, deletedAt: null, batch: { status: 'COMMITTED' } },
+      _sum: { totalTiyin: true },
+    });
+
+    for (const item of grouped) {
+      map.set(item.employeePinfl, item._sum.totalTiyin ?? 0n);
+    }
+    return { uploaded: true, map };
+  }
+
+  private rowState(pinfl: string, total: bigint, payroll: PayrollInfo): {
+    state: RowState;
+    payrollTiyin: bigint | null;
+    diffTiyin: bigint | null;
+  } {
+    if (!payroll.uploaded) return { state: 'no_payroll', payrollTiyin: null, diffTiyin: null };
+
+    const payrollTiyin = payroll.map.get(pinfl);
+    if (payrollTiyin === undefined) {
+      return {
+        state: total === 0n ? 'ok' : 'not_in_payroll',
+        payrollTiyin: null,
+        diffTiyin: total === 0n ? null : total,
+      };
+    }
+
+    const diff = total - payrollTiyin;
+    return {
+      state: this.abs(diff) <= DIFF_TOLERANCE_TIYIN ? 'ok' : 'diff',
+      payrollTiyin,
+      diffTiyin: diff,
+    };
+  }
+
+  /** Tarkib ↔ soliq hisoboti solishtiruvi */
+  private async buildCheck(
+    period: string,
+    rows: CheckInput[] | null,
+    payroll: PayrollInfo,
+  ): Promise<CheckSummary> {
+    const compositionUploaded = rows !== null;
+    const list = rows ?? [];
+
+    let compositionTotal = 0n;
+    let payrollTotal = 0n;
+    for (const value of payroll.map.values()) payrollTotal += value;
+
+    const mismatches: CheckPerson[] = [];
+    const notInPayroll: CheckPerson[] = [];
+    const inComposition = new Set<string>();
+
+    for (const row of list) {
+      compositionTotal += row.totalTiyin;
+      inComposition.add(row.pinfl);
+      if (!payroll.uploaded) continue;
+
+      const payrollTiyin = payroll.map.get(row.pinfl);
+
+      if (payrollTiyin === undefined) {
+        if (row.totalTiyin !== 0n) {
+          notInPayroll.push({
+            pinfl: row.pinfl,
+            fullName: row.fullName,
+            compositionTiyin: row.totalTiyin.toString(),
+            payrollTiyin: '0',
+            diffTiyin: row.totalTiyin.toString(),
+          });
+        }
+        continue;
+      }
+
+      const diff = row.totalTiyin - payrollTiyin;
+      if (this.abs(diff) > DIFF_TOLERANCE_TIYIN) {
+        mismatches.push({
+          pinfl: row.pinfl,
+          fullName: row.fullName,
+          compositionTiyin: row.totalTiyin.toString(),
+          payrollTiyin: payrollTiyin.toString(),
+          diffTiyin: diff.toString(),
+        });
+      }
+    }
+
+    const missingInComposition: CheckPerson[] = [];
+    if (payroll.uploaded && compositionUploaded) {
+      const absent = [...payroll.map.entries()].filter(
+        ([pinfl, amount]) => amount !== 0n && !inComposition.has(pinfl),
+      );
+      const names = await this.registry(absent.map(([pinfl]) => pinfl));
+
+      for (const [pinfl, amount] of absent) {
+        missingInComposition.push({
+          pinfl,
+          fullName: names.get(pinfl)?.fullName ?? '—',
+          compositionTiyin: '0',
+          payrollTiyin: amount.toString(),
+          diffTiyin: (-amount).toString(),
+        });
+      }
+    }
+
+    const byDiff = (a: CheckPerson, b: CheckPerson) =>
+      this.abs(BigInt(b.diffTiyin)) > this.abs(BigInt(a.diffTiyin)) ? 1 : -1;
+    mismatches.sort(byDiff);
+    missingInComposition.sort(byDiff);
+    notInPayroll.sort(byDiff);
+
+    const mismatchCount = mismatches.length + missingInComposition.length + notInPayroll.length;
+
+    let state: CheckState;
+    if (!compositionUploaded) state = 'NOT_UPLOADED';
+    else if (!payroll.uploaded) state = 'NO_PAYROLL';
+    else state = mismatchCount === 0 ? 'MATCHED' : 'MISMATCH';
+
+    return {
+      period,
+      state,
+      payrollUploaded: payroll.uploaded,
+      compositionUploaded,
+      compositionTiyin: compositionTotal.toString(),
+      payrollTiyin: payrollTotal.toString(),
+      diffTiyin: (compositionTotal - payrollTotal).toString(),
+      employees: list.length,
+      mismatchCount,
+      mismatches,
+      missingInComposition,
+      notInPayroll,
+    };
+  }
+
+  /** Komponent va guruh bo'yicha jamilar */
+  private totals(
+    rows: { items: Map<string, bigint> }[],
+    components: SalaryComponent[],
+  ): { byComponent: ComponentTotal[]; byCategory: CategoryTotal[] } {
+    const sums = new Map<string, { total: bigint; employees: number }>();
+
+    for (const row of rows) {
+      for (const [code, amount] of row.items) {
+        if (amount === 0n) continue;
+        const current = sums.get(code) ?? { total: 0n, employees: 0 };
+        current.total += amount;
+        current.employees += 1;
+        sums.set(code, current);
+      }
+    }
+
+    const byComponent: ComponentTotal[] = [];
+    const categorySums = new Map<SalaryComponentCategory, bigint>();
+    let grand = 0n;
+
+    for (const component of components) {
+      const sum = sums.get(component.code);
+      if (!sum) continue;
+
+      const signed = component.sign < 0 ? -sum.total : sum.total;
+      grand += signed;
+      categorySums.set(component.category, (categorySums.get(component.category) ?? 0n) + signed);
+
+      byComponent.push({
+        code: component.code,
+        name: component.name,
+        group: component.group,
+        category: component.category,
+        sign: component.sign,
+        totalTiyin: signed.toString(),
+        employees: sum.employees,
+      });
+    }
+
+    const byCategory: CategoryTotal[] = CATEGORY_ORDER.filter((category) =>
+      categorySums.has(category),
+    ).map((category) => {
+      const total = categorySums.get(category) ?? 0n;
+      return {
+        category,
+        label: CATEGORY_LABELS[category],
+        totalTiyin: total.toString(),
+        sharePercent: this.percent(this.abs(total), grand),
+      };
+    });
+
+    return { byComponent, byCategory };
+  }
+
+  private async usageCounts(): Promise<Map<string, number>> {
+    const grouped = await this.prisma.salaryCompositionItem.groupBy({
+      by: ['componentCode'],
+      _count: { _all: true },
+    });
+    return new Map(grouped.map((item) => [item.componentCode, item._count._all]));
+  }
+
+  private async activeBatch(period: string) {
+    return this.prisma.salaryCompositionBatch.findFirst({
+      where: { period, cancelledAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  private async toBatchDtos(
+    batches: {
+      id: string;
+      period: string;
+      fileName: string | null;
+      employeeCount: number;
+      totalTiyin: bigint;
+      payrollTiyin: bigint;
+      status: SalaryCompositionStatus;
+      mismatchCount: number;
+      uploadedById: string | null;
+      createdAt: Date;
+      cancelledAt: Date | null;
+    }[],
+  ): Promise<BatchDto[]> {
+    const userIds = [
+      ...new Set(batches.map((b) => b.uploadedById).filter((id): id is string => !!id)),
+    ];
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, fullName: true },
+        })
+      : [];
+    const names = new Map(users.map((u) => [u.id, u.fullName]));
+
+    return batches.map((batch) => ({
+      id: batch.id,
+      period: batch.period,
+      fileName: batch.fileName,
+      employeeCount: batch.employeeCount,
+      totalTiyin: batch.totalTiyin.toString(),
+      payrollTiyin: batch.payrollTiyin.toString(),
+      status: batch.status,
+      mismatchCount: batch.mismatchCount,
+      uploadedBy: batch.uploadedById ? (names.get(batch.uploadedById) ?? null) : null,
+      createdAt: batch.createdAt,
+      cancelledAt: batch.cancelledAt,
+    }));
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Komponentlar ma'lumotnomasi
+  // ═══════════════════════════════════════════════════════════
+
+  async listComponents(): Promise<ComponentDto[]> {
+    const [components, usage] = await Promise.all([this.allComponents(), this.usageCounts()]);
+    return components.map((c) => this.toComponentDto(c, usage.get(c.code) ?? 0));
+  }
+
+  private parseGroup(value: unknown): SalaryComponentGroup {
+    if (value === 'BUDGET' || value === 'HOJALIK') return value;
+    throw new BadRequestException('Manba noto\'g\'ri: BUDGET yoki HOJALIK bo\'lishi kerak');
+  }
+
+  private parseCategory(value: unknown): SalaryComponentCategory {
+    if (typeof value === 'string' && (CATEGORY_ORDER as string[]).includes(value)) {
+      return value as SalaryComponentCategory;
+    }
+    throw new BadRequestException('Guruh noto\'g\'ri');
+  }
+
+  private parseName(value: unknown): string {
+    const name = typeof value === 'string' ? value.trim() : '';
+    if (name.length < 2 || name.length > 100) {
+      throw new BadRequestException('Nomi 2–100 belgi bo\'lishi kerak');
+    }
+    return name;
+  }
+
+  async createComponent(input: ComponentInput): Promise<ComponentDto> {
+    const code = String(input.code ?? '')
+      .trim()
+      .toUpperCase();
+
+    if (!/^[A-Z][A-Z0-9_]{1,29}$/.test(code)) {
+      throw new BadRequestException(
+        'Kod lotin katta harflar, raqam va "_" dan iborat bo\'lsin (2–30 belgi), masalan: TUNGI_ISH',
+      );
+    }
+    if (RESERVED_CODES.includes(code)) {
+      throw new BadRequestException(`"${code}" kodi band — boshqa kod tanlang`);
+    }
+
+    const exists = await this.prisma.salaryComponent.findUnique({ where: { code } });
+    if (exists) throw new BadRequestException(`"${code}" kodli komponent allaqachon bor`);
+
+    const name = this.parseName(input.name);
+    const group = this.parseGroup(input.group);
+    const category = this.parseCategory(input.category);
+    const sign = category === 'JARIMA' || input.sign === -1 ? -1 : 1;
+
+    let sortOrder = Number(input.sortOrder);
+    if (!Number.isInteger(sortOrder)) {
+      const last = await this.prisma.salaryComponent.aggregate({
+        where: { group },
+        _max: { sortOrder: true },
+      });
+      sortOrder = (last._max.sortOrder ?? 0) + 10;
+    }
+
+    const created = await this.prisma.salaryComponent.create({
+      data: { code, name, group, category, sign, sortOrder, isActive: true },
+    });
+    return this.toComponentDto(created, 0);
+  }
+
+  async updateComponent(code: string, input: ComponentInput): Promise<ComponentDto> {
+    const current = await this.prisma.salaryComponent.findUnique({ where: { code } });
+    if (!current) throw new NotFoundException('Komponent topilmadi');
+
+    const usage = await this.prisma.salaryCompositionItem.count({ where: { componentCode: code } });
+
+    const data: {
+      name?: string;
+      group?: SalaryComponentGroup;
+      category?: SalaryComponentCategory;
+      sign?: number;
+      sortOrder?: number;
+      isActive?: boolean;
+    } = {};
+
+    if (input.name !== undefined) data.name = this.parseName(input.name);
+    if (input.group !== undefined) data.group = this.parseGroup(input.group);
+    if (input.category !== undefined) data.category = this.parseCategory(input.category);
+
+    if (input.sign !== undefined || data.category !== undefined) {
+      const category = data.category ?? current.category;
+      const sign = category === 'JARIMA' || input.sign === -1 ? -1 : 1;
+
+      if (sign !== current.sign && usage > 0) {
+        throw new BadRequestException(
+          'Bu komponent ishlatilgan — ishorasini (+/−) o\'zgartirib bo\'lmaydi, eski oylar jami buziladi',
+        );
+      }
+      data.sign = sign;
+    }
+
+    if (input.sortOrder !== undefined) {
+      const sortOrder = Number(input.sortOrder);
+      if (!Number.isInteger(sortOrder)) throw new BadRequestException('Tartib raqami butun son bo\'lsin');
+      data.sortOrder = sortOrder;
+    }
+    if (input.isActive !== undefined) data.isActive = Boolean(input.isActive);
+
+    const updated = await this.prisma.salaryComponent.update({ where: { code }, data });
+    return this.toComponentDto(updated, usage);
+  }
+
+  async removeComponent(code: string): Promise<{ success: true }> {
+    const current = await this.prisma.salaryComponent.findUnique({ where: { code } });
+    if (!current) throw new NotFoundException('Komponent topilmadi');
+
+    const usage = await this.prisma.salaryCompositionItem.count({ where: { componentCode: code } });
+    if (usage > 0) {
+      throw new BadRequestException(
+        `Bu komponent ${usage} ta yozuvda ishlatilgan — o'chirib bo'lmaydi. Uni "nofaol" qiling, shablonda chiqmaydi.`,
+      );
+    }
+
+    await this.prisma.salaryComponent.delete({ where: { code } });
+    return { success: true };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Shablon
+  // ═══════════════════════════════════════════════════════════
+
+  async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
+    this.assertPeriod(period);
+
+    const components = (await this.allComponents()).filter((c) => c.isActive);
+    if (components.length === 0) {
+      throw new BadRequestException('Faol komponent yo\'q — Sozlamalarda komponent qo\'shing');
+    }
+
+    const payroll = await this.payroll(period);
+
+    // Xodimlar varag'i: faol xodimlar + shu oy ish haqi olganlar
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        OR: [{ isActive: true }, { pinfl: { in: [...payroll.map.keys()] } }],
+      },
+      select: {
+        pinfl: true,
+        fullName: true,
+        regionCode: true,
+        region: { select: { name: true } },
+        department: { select: { name: true } },
+      },
+      orderBy: { fullName: 'asc' },
+    });
+
+    const workbook = buildTemplateWorkbook({ period, components, employees, payroll });
+
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    return { buffer, filename: `ish-haqi-tarkibi-${period}.xlsx` };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Faylni o'qish
+  // ═══════════════════════════════════════════════════════════
+
+  async analyze(period: string, file: Express.Multer.File | undefined): Promise<AnalysisResult> {
+    this.assertPeriod(period);
+    if (!file) throw new BadRequestException('Fayl yuklanmadi');
+
+    const workbook = new ExcelJS.Workbook();
+    try {
+      await workbook.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);
+    } catch {
+      throw new BadRequestException('Faylni o\'qib bo\'lmadi — .xlsx formatida saqlang');
+    }
+
+    const sheet = workbook.getWorksheet('Tarkib') ?? workbook.worksheets[0];
+    if (!sheet) throw new BadRequestException('Faylda varaq yo\'q');
+
+    const components = await this.allComponents();
+    const signs = new Map(components.map((c) => [c.code, c.sign]));
+    const byCode = new Map(components.map((c) => [c.code, c]));
+
+    const { headerRow, fixed, comps } = detectColumns(sheet, components);
+
+    const invalidRows: AnalysisResult['invalidRows'] = [];
+    const duplicates: AnalysisResult['duplicates'] = [];
+    const totalMismatches: AnalysisResult['totalMismatches'] = [];
+    const parsed: ParsedRow[] = [];
+    const seen = new Set<string>();
+    let totalRows = 0;
+
+    const pinflCol = fixed.pinfl as number;
+
+    for (let r = headerRow + 1; r <= sheet.rowCount; r++) {
+      const row = sheet.getRow(r);
+      const pinflRaw = cellText(row.getCell(pinflCol).value);
+
+      // Kodlar qatori (nomlar bo'yicha topilgan bo'lsa) yoki JAMI qatori — o'tkazamiz
+      const upper = pinflRaw.toUpperCase();
+      if (upper === 'JAMI' || upper === SERVICE_CODES.pinfl) continue;
+
+      // Summalarni o'qiymiz
+      const items = new Map<string, bigint>();
+      const errors: string[] = [];
+      let hasAmount = false;
+
+      for (const [code, col] of comps) {
+        const component = byCode.get(code);
+        if (!component) continue;
+
+        const value = parseNumber(row.getCell(col).value);
+        if (value === null || value === 0) continue;
+
+        if (Number.isNaN(value)) {
+          errors.push(`${component.name}: son emas`);
+          continue;
+        }
+
+        let amount = value;
+        if (amount < 0) {
+          if (component.sign < 0) amount = -amount;
+          else {
+            errors.push(`${component.name}: manfiy summa`);
+            continue;
+          }
+        }
+
+        const tiyin = toTiyin(amount);
+        if (tiyin !== 0n) {
+          items.set(code, tiyin);
+          hasAmount = true;
+        }
+      }
+
+      if (!pinflRaw) {
+        if (hasAmount) {
+          totalRows += 1;
+          invalidRows.push({ rowIndex: r, reason: 'PINFL yozilmagan, lekin summa bor' });
+        }
+        continue;
+      }
+
+      totalRows += 1;
+      const pinfl = pinflRaw.replace(/\D/g, '');
+
+      if (pinfl.length !== 14) {
+        invalidRows.push({ rowIndex: r, reason: `PINFL noto'g'ri: "${pinflRaw}" (14 ta raqam bo'lishi kerak)` });
+        continue;
+      }
+      if (errors.length > 0) {
+        invalidRows.push({ rowIndex: r, reason: errors.join('; ') });
+        continue;
+      }
+      if (seen.has(pinfl)) {
+        duplicates.push({ rowIndex: r, pinfl });
+        continue;
+      }
+      seen.add(pinfl);
+
+      const days = fixed.days ? parseNumber(row.getCell(fixed.days).value) : null;
+      const rate = fixed.rate ? parseNumber(row.getCell(fixed.rate).value) : null;
+
+      let fileTotalTiyin: bigint | null = null;
+      if (fixed.total) {
+        const total = parseNumber(row.getCell(fixed.total).value);
+        if (total !== null && !Number.isNaN(total)) fileTotalTiyin = toTiyin(total);
+      }
+
+      const computed = this.rowTotal(items, signs);
+      if (fileTotalTiyin !== null && this.abs(fileTotalTiyin - computed) > DIFF_TOLERANCE_TIYIN) {
+        totalMismatches.push({
+          rowIndex: r,
+          pinfl,
+          fileTiyin: fileTotalTiyin.toString(),
+          computedTiyin: computed.toString(),
+        });
+      }
+
+      parsed.push({
+        rowIndex: r,
+        pinfl,
+        fileName: fixed.fullName ? cellText(row.getCell(fixed.fullName).value) : '',
+        workedDays: days === null || Number.isNaN(days) ? null : days,
+        rate: rate === null || Number.isNaN(rate) ? null : rate,
+        items,
+        fileTotalTiyin,
+      });
+    }
+
+    if (parsed.length === 0 && invalidRows.length === 0) {
+      throw new BadRequestException('Faylda xodim qatorlari topilmadi');
+    }
+
+    const [registry, payroll, previous] = await Promise.all([
+      this.registry(parsed.map((p) => p.pinfl)),
+      this.payroll(period),
+      this.activeBatch(period),
+    ]);
+
+    const unknownEmployees: AnalysisResult['unknownEmployees'] = [];
+
+    const rows: CompositionRowDto[] = parsed.map((p) => {
+      const reg = registry.get(p.pinfl);
+      if (!reg) unknownEmployees.push({ rowIndex: p.rowIndex, pinfl: p.pinfl, fileName: p.fileName });
+
+      const total = this.rowTotal(p.items, signs);
+      const state = this.rowState(p.pinfl, total, payroll);
+
+      return {
+        rowIndex: p.rowIndex,
+        pinfl: p.pinfl,
+        fullName: reg?.fullName ?? (p.fileName && p.fileName !== "Reestrda yo'q" ? p.fileName : '—'),
+        inRegistry: !!reg,
+        unitName: reg?.unitName ?? null,
+        workedDays: p.workedDays,
+        rate: p.rate,
+        items: this.mapToRecord(p.items),
+        totalTiyin: total.toString(),
+        payrollTiyin: state.payrollTiyin === null ? null : state.payrollTiyin.toString(),
+        diffTiyin: state.diffTiyin === null ? null : state.diffTiyin.toString(),
+        state: state.state,
+      };
+    });
+
+    const check = await this.buildCheck(
+      period,
+      rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, totalTiyin: BigInt(r.totalTiyin) })),
+      payroll,
+    );
+
+    const found = components.filter((c) => comps.has(c.code));
+    const missingColumns = components
+      .filter((c) => c.isActive && !comps.has(c.code))
+      .map((c) => ({ code: c.code, name: c.name }));
+
+    const { byComponent, byCategory } = this.totals(parsed, components);
+
+    return {
+      period,
+      fileName: file.originalname,
+      totalRows,
+      validRows: rows.length,
+      columns: found.map((c) => this.toComponentDto(c)),
+      missingColumns,
+      invalidRows,
+      duplicates,
+      unknownEmployees,
+      totalMismatches,
+      hasPrevious: !!previous,
+      byComponent,
+      byCategory,
+      check,
+      rows,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Saqlash / bekor qilish
+  // ═══════════════════════════════════════════════════════════
+
+  async commit(input: {
+    period: string;
+    fileName: string;
+    userId: string;
+    rows: CommitRow[];
+  }): Promise<CommitResult> {
+    const { period, rows } = input;
+    this.assertPeriod(period);
+
+    if (rows.length === 0) throw new BadRequestException('Saqlash uchun ma\'lumot yo\'q');
+    if (rows.length > 20000) throw new BadRequestException('Qatorlar juda ko\'p');
+
+    const components = await this.allComponents();
+    const signs = new Map(components.map((c) => [c.code, c.sign]));
+
+    // ─── Tekshiruv ───
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (!/^\d{14}$/.test(row.pinfl)) {
+        throw new BadRequestException(`PINFL noto'g'ri: ${row.pinfl}`);
+      }
+      if (seen.has(row.pinfl)) throw new BadRequestException(`PINFL takrorlangan: ${row.pinfl}`);
+      seen.add(row.pinfl);
+
+      for (const [code, amount] of row.items) {
+        if (!signs.has(code)) throw new BadRequestException(`Noma'lum komponent: ${code}`);
+        if (amount < 0n) throw new BadRequestException(`Manfiy summa: ${row.pinfl} / ${code}`);
+      }
+    }
+
+    // ─── Hisob ───
+    const registry = await this.registry(rows.map((r) => r.pinfl));
+    const prepared = rows.map((row) => ({
+      id: randomUUID(),
+      row,
+      fullName: registry.get(row.pinfl)?.fullName ?? row.fullName ?? null,
+      total: this.rowTotal(row.items, signs),
+    }));
+
+    const grandTotal = prepared.reduce((sum, p) => sum + p.total, 0n);
+    const itemCount = prepared.reduce(
+      (sum, p) => sum + [...p.row.items.values()].filter((a) => a !== 0n).length,
+      0,
+    );
+
+    const payroll = await this.payroll(period);
+    const check = await this.buildCheck(
+      period,
+      prepared.map((p) => ({ pinfl: p.row.pinfl, fullName: p.fullName ?? '—', totalTiyin: p.total })),
+      payroll,
+    );
+    const status: SalaryCompositionStatus =
+      check.state === 'MATCHED' ? 'MATCHED' : check.state === 'MISMATCH' ? 'MISMATCH' : 'NO_PAYROLL';
+
+    // ─── Tranzaksiya ───
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const previous = await tx.salaryCompositionBatch.findMany({
+          where: { period, cancelledAt: null },
+          select: { id: true },
+        });
+        const previousIds = previous.map((p) => p.id);
+
+        if (previousIds.length > 0) {
+          await tx.salaryCompositionItem.deleteMany({ where: { batchId: { in: previousIds } } });
+          await tx.salaryCompositionRow.deleteMany({ where: { batchId: { in: previousIds } } });
+          await tx.salaryCompositionBatch.updateMany({
+            where: { id: { in: previousIds } },
+            data: { cancelledAt: new Date() },
+          });
+        }
+
+        const batch = await tx.salaryCompositionBatch.create({
+          data: {
+            period,
+            fileName: input.fileName.slice(0, 255),
+            employeeCount: prepared.length,
+            totalTiyin: grandTotal,
+            payrollTiyin: BigInt(check.payrollTiyin),
+            status,
+            mismatchCount: check.mismatchCount,
+            uploadedById: input.userId,
+          },
+        });
+
+        await tx.salaryCompositionRow.createMany({
+          data: prepared.map((p) => ({
+            id: p.id,
+            batchId: batch.id,
+            period,
+            employeePinfl: p.row.pinfl,
+            fullName: p.fullName,
+            workedDays: p.row.workedDays,
+            rate: p.row.rate,
+            totalTiyin: p.total,
+          })),
+        });
+
+        const items = prepared.flatMap((p) =>
+          [...p.row.items.entries()]
+            .filter(([, amount]) => amount !== 0n)
+            .map(([componentCode, amountTiyin]) => ({
+              batchId: batch.id,
+              rowId: p.id,
+              componentCode,
+              amountTiyin,
+            })),
+        );
+
+        const CHUNK = 5000;
+        for (let i = 0; i < items.length; i += CHUNK) {
+          await tx.salaryCompositionItem.createMany({ data: items.slice(i, i + CHUNK) });
+        }
+
+        // ─── Nazorat: yozilgan jami = hisoblangan jami ───
+        const [rowSum, savedItems] = await Promise.all([
+          tx.salaryCompositionRow.aggregate({
+            where: { batchId: batch.id },
+            _sum: { totalTiyin: true },
+            _count: { _all: true },
+          }),
+          tx.salaryCompositionItem.count({ where: { batchId: batch.id } }),
+        ]);
+
+        if (
+          (rowSum._sum.totalTiyin ?? 0n) !== grandTotal ||
+          rowSum._count._all !== prepared.length ||
+          savedItems !== itemCount
+        ) {
+          throw new BadRequestException('Saqlashda nazorat summasi mos kelmadi — hech narsa saqlanmadi');
+        }
+
+        return { batchId: batch.id, replacedPrevious: previousIds.length > 0 };
+      },
+      { timeout: 60_000, maxWait: 10_000 },
+    );
+
+    return {
+      success: true,
+      batchId: result.batchId,
+      saved: prepared.length,
+      replacedPrevious: result.replacedPrevious,
+      totalTiyin: grandTotal.toString(),
+      payrollTiyin: check.payrollTiyin,
+      status,
+      mismatchCount: check.mismatchCount,
+    };
+  }
+
+  async cancel(batchId: string): Promise<{ success: true; period: string }> {
+    const batch = await this.prisma.salaryCompositionBatch.findUnique({ where: { id: batchId } });
+    if (!batch) throw new NotFoundException('Yuklash topilmadi');
+    if (batch.cancelledAt) throw new BadRequestException('Bu yuklash allaqachon bekor qilingan');
+
+    await this.prisma.$transaction([
+      this.prisma.salaryCompositionItem.deleteMany({ where: { batchId } }),
+      this.prisma.salaryCompositionRow.deleteMany({ where: { batchId } }),
+      this.prisma.salaryCompositionBatch.update({
+        where: { id: batchId },
+        data: { cancelledAt: new Date() },
+      }),
+    ]);
+
+    return { success: true, period: batch.period };
+  }
+
+  async batches(period?: string): Promise<BatchDto[]> {
+    if (period) this.assertPeriod(period);
+
+    const list = await this.prisma.salaryCompositionBatch.findMany({
+      where: period ? { period } : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return this.toBatchDtos(list);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Ko'rish va tekshiruv
+  // ═══════════════════════════════════════════════════════════
+
+  /** Oy holati — ish haqi sahifasidagi belgi uchun (jonli hisoblanadi) */
+  async check(period: string): Promise<CheckSummary> {
+    this.assertPeriod(period);
+
+    const [batch, payroll] = await Promise.all([this.activeBatch(period), this.payroll(period)]);
+    if (!batch) return this.buildCheck(period, null, payroll);
+
+    const rows = await this.prisma.salaryCompositionRow.findMany({
+      where: { batchId: batch.id },
+      select: { employeePinfl: true, fullName: true, totalTiyin: true },
+    });
+
+    const summary = await this.buildCheck(
+      period,
+      rows.map((r) => ({ pinfl: r.employeePinfl, fullName: r.fullName ?? '—', totalTiyin: r.totalTiyin })),
+      payroll,
+    );
+
+    await this.syncBatchStatus(batch.id, batch.status, batch.mismatchCount, batch.payrollTiyin, summary);
+    return summary;
+  }
+
+  /** Soliq hisoboti keyin o'zgargan bo'lsa — saqlangan holatni yangilaymiz */
+  private async syncBatchStatus(
+    batchId: string,
+    status: SalaryCompositionStatus,
+    mismatchCount: number,
+    payrollTiyin: bigint,
+    summary: CheckSummary,
+  ): Promise<void> {
+    const nextStatus: SalaryCompositionStatus =
+      summary.state === 'MATCHED' ? 'MATCHED' : summary.state === 'MISMATCH' ? 'MISMATCH' : 'NO_PAYROLL';
+    const nextPayroll = BigInt(summary.payrollTiyin);
+
+    if (nextStatus !== status || summary.mismatchCount !== mismatchCount || nextPayroll !== payrollTiyin) {
+      await this.prisma.salaryCompositionBatch.update({
+        where: { id: batchId },
+        data: { status: nextStatus, mismatchCount: summary.mismatchCount, payrollTiyin: nextPayroll },
+      });
+    }
+  }
+
+  /** Oy tarkibi: xodimlar, komponentlar, jamilar va tekshiruv */
+  async view(period: string): Promise<CompositionView> {
+    this.assertPeriod(period);
+
+    const [batch, payroll, components, usage] = await Promise.all([
+      this.activeBatch(period),
+      this.payroll(period),
+      this.allComponents(),
+      this.usageCounts(),
+    ]);
+
+    if (!batch) {
+      return {
+        period,
+        batch: null,
+        components: components
+          .filter((c) => c.isActive)
+          .map((c) => this.toComponentDto(c, usage.get(c.code) ?? 0)),
+        byComponent: [],
+        byCategory: [],
+        check: await this.buildCheck(period, null, payroll),
+        rows: [],
+      };
+    }
+
+    const dbRows = await this.prisma.salaryCompositionRow.findMany({
+      where: { batchId: batch.id },
+      include: { items: { select: { componentCode: true, amountTiyin: true } } },
+    });
+
+    const registry = await this.registry(dbRows.map((r) => r.employeePinfl));
+
+    const withItems = dbRows.map((r) => ({
+      row: r,
+      items: new Map(r.items.map((i) => [i.componentCode, i.amountTiyin])),
+    }));
+
+    const usedCodes = new Set(withItems.flatMap((r) => [...r.items.keys()]));
+    const visible = components.filter((c) => c.isActive || usedCodes.has(c.code));
+
+    const rows: CompositionRowDto[] = withItems
+      .map(({ row, items }) => {
+        const reg = registry.get(row.employeePinfl);
+        const state = this.rowState(row.employeePinfl, row.totalTiyin, payroll);
+        return {
+          rowIndex: null,
+          pinfl: row.employeePinfl,
+          fullName: reg?.fullName ?? row.fullName ?? '—',
+          inRegistry: !!reg,
+          unitName: reg?.unitName ?? null,
+          workedDays: row.workedDays,
+          rate: row.rate,
+          items: this.mapToRecord(items),
+          totalTiyin: row.totalTiyin.toString(),
+          payrollTiyin: state.payrollTiyin === null ? null : state.payrollTiyin.toString(),
+          diffTiyin: state.diffTiyin === null ? null : state.diffTiyin.toString(),
+          state: state.state,
+        };
+      })
+      .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+    const check = await this.buildCheck(
+      period,
+      rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, totalTiyin: BigInt(r.totalTiyin) })),
+      payroll,
+    );
+    await this.syncBatchStatus(batch.id, batch.status, batch.mismatchCount, batch.payrollTiyin, check);
+
+    const { byComponent, byCategory } = this.totals(withItems, components);
+    const [batchDto] = await this.toBatchDtos([
+      { ...batch, status: check.state === 'MATCHED' ? 'MATCHED' : check.state === 'MISMATCH' ? 'MISMATCH' : 'NO_PAYROLL', mismatchCount: check.mismatchCount },
+    ]);
+
+    return {
+      period,
+      batch: batchDto ?? null,
+      components: visible.map((c) => this.toComponentDto(c, usage.get(c.code) ?? 0)),
+      byComponent,
+      byCategory,
+      check,
+      rows,
+    };
+  }
+
+  /** Bitta xodimning oylar bo'yicha tarkibi */
+  async employeeHistory(pinfl: string, from?: string, to?: string): Promise<EmployeeHistory> {
+    if (!/^\d{14}$/.test(pinfl ?? '')) throw new BadRequestException('PINFL noto\'g\'ri');
+    if (from) this.assertPeriod(from);
+    if (to) this.assertPeriod(to);
+
+    const periodFilter: { gte?: string; lte?: string } = {};
+    if (from) periodFilter.gte = from;
+    if (to) periodFilter.lte = to;
+
+    const [dbRows, components, registry] = await Promise.all([
+      this.prisma.salaryCompositionRow.findMany({
+        where: {
+          employeePinfl: pinfl,
+          batch: { cancelledAt: null },
+          ...(from || to ? { period: periodFilter } : {}),
+        },
+        include: { items: { select: { componentCode: true, amountTiyin: true } } },
+        orderBy: { period: 'asc' },
+      }),
+      this.allComponents(),
+      this.registry([pinfl]),
+    ]);
+
+    const reg = registry.get(pinfl);
+    if (!reg && dbRows.length === 0) throw new NotFoundException('Xodim topilmadi');
+
+    const periods = [...new Set(dbRows.map((r) => r.period))];
+    const payrolls = new Map<string, PayrollInfo>();
+    for (const period of periods) {
+      payrolls.set(period, await this.payroll(period));
+    }
+
+    const withItems = dbRows.map((r) => ({
+      row: r,
+      items: new Map(r.items.map((i) => [i.componentCode, i.amountTiyin])),
+    }));
+    const usedCodes = new Set(withItems.flatMap((r) => [...r.items.keys()]));
+
+    const { byCategory } = this.totals(withItems, components);
+
+    return {
+      employee: {
+        pinfl,
+        fullName: reg?.fullName ?? dbRows[0]?.fullName ?? '—',
+        unitName: reg?.unitName ?? null,
+        inRegistry: !!reg,
+      },
+      components: components.filter((c) => usedCodes.has(c.code)).map((c) => this.toComponentDto(c)),
+      periods: withItems.map(({ row, items }) => {
+        const payroll = payrolls.get(row.period) ?? { uploaded: false, map: new Map<string, bigint>() };
+        const state = this.rowState(pinfl, row.totalTiyin, payroll);
+        return {
+          period: row.period,
+          workedDays: row.workedDays,
+          rate: row.rate,
+          items: this.mapToRecord(items),
+          totalTiyin: row.totalTiyin.toString(),
+          payrollTiyin: state.payrollTiyin === null ? null : state.payrollTiyin.toString(),
+          diffTiyin: state.diffTiyin === null ? null : state.diffTiyin.toString(),
+          state: state.state,
+        };
+      }),
+      byCategory,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Excel eksport
+  // ═══════════════════════════════════════════════════════════
+
+  async exportExcel(period: string): Promise<{ buffer: Buffer; filename: string }> {
+    const view = await this.view(period);
+    if (!view.batch) throw new NotFoundException('Bu oy uchun tarkib yuklanmagan');
+
+    const workbook = buildExportWorkbook(view);
+
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    return { buffer, filename: `ish-haqi-tarkibi-${period}-hisobot.xlsx` };
+  }
+}
+
+
+##### BAZA STATISTIKASI #####
+
+##### Jadvallar va yozuvlar soni #####
+Lease: 0
+LeaseAccrual: 0
+LeaseDocument: 0
+LeaseMonthClose: 0
+LeaseTerm: 0
+SalaryComponent: 17
+SalaryCompositionBatch: 0
+SalaryCompositionItem: 0
+SalaryCompositionRow: 0
+Vehicle: 5
+VehicleRecord: 1112
+audit_logs: 3
+categories: 7
+departments: 0
+districts: 0
+employee_locations: 10
+employee_results: 10
+employees: 6
+expenses: 11060
+import_batches: 0
+income_categories: 0
+incomes: 4594
+payroll_batches: 7
+payroll_entries: 4953
+regions: 0
+result_batches: 2
+settings: 0
+staging_rows: 0
+users: 0
+
+##### Xarajat kategoriyalari (daraxt) #####
+FINANCE > FINANCE_BANK | Bank xizmatlari | leaf=true | active=true
+FINANCE > FINANCE_INTEREST | Kredit foizlari | leaf=true | active=true
+HR > HR_TRAINING | OтАШqitish va malaka oshirish | leaf=true | active=true
+HR > HR_CERTIFICATION | Sertifikat va attestatsiya | leaf=true | active=true
+HR > HR_RECRUITMENT | Xodim izlash | leaf=true | active=true
+MARKETING > MARKETING_ADS | Reklama | leaf=true | active=true
+MARKETING > MARKETING_EVENTS | Mijoz tadbirlari va vakillik | leaf=true | active=true
+OFFICE > OFFICE_RENT | Ijara | leaf=true | active=true
+OFFICE > OFFICE_UTILITIES | Kommunal to'lovlar | leaf=true | active=true
+OFFICE > OFFICE_INTERNET | Internet va aloqa | leaf=true | active=true
+OFFICE > OFFICE_SUPPLIES | Ofis materiallari | leaf=true | active=true
+OFFICE > OFFICE_EQUIPMENT | Jihozlar va texnika | leaf=true | active=true
+OFFICE > OFFICE_REPAIR | Ta'mirlash | leaf=true | active=true
+OTHER > OTHER_MISC | Turli xarajatlar | leaf=true | active=true
+OTHER > UNCATEGORIZED | Aniqlanmagan | leaf=true | active=true
+PAYROLL > PAYROLL_BASE | Asosiy ish haqi | leaf=true | active=true
+PAYROLL > PAYROLL_BONUS | Mukofot va ustamalar | leaf=true | active=true
+PAYROLL > PAYROLL_VACATION | Ta'til to'lovlari | leaf=true | active=true
+PAYROLL > PAYROLL_TAX | Ijtimoiy soliq va ajratmalar | leaf=true | active=true
+SOFTWARE > SOFTWARE_ACCOUNTING | Buxgalteriya dasturlari | leaf=true | active=true
+SOFTWARE > SOFTWARE_REPORTING | Elektron hisobot tizimlari | leaf=true | active=true
+SOFTWARE > SOFTWARE_OTHER | Boshqa obunalar | leaf=true | active=true
+TAXES > TAXES_PROFIT | Foyda soligтАШi | leaf=true | active=true
+TAXES > TAXES_TURNOVER | Aylanma soligтАШi | leaf=true | active=true
+TAXES > TAXES_OTHER | Boshqa soliq va yigтАШimlar | leaf=true | active=true
+TRANSPORT > TRANSPORT_FUEL | Yoqilg'i | leaf=true | active=true
+TRANSPORT > TRANSPORT_REPAIR | Texnik xizmat va taтАЩmirlash | leaf=true | active=true
+TRANSPORT > TRANSPORT_INSURANCE | SugтАШurta va soliq | leaf=true | active=true
+TRANSPORT > TRANSPORT_TAXI | Taksi va yoтАШl xarajatlari | leaf=true | active=true
+VEHICLE > VEHICLE_FUEL | Mashina: yoqilg'i | leaf=true | active=true
+VEHICLE > VEHICLE_WASH | Mashina: moyka | leaf=true | active=true
+VEHICLE > VEHICLE_REPAIR | Mashina: ta'mirlash va ehtiyot qismlar | leaf=true | active=true
+VEHICLE > VEHICLE_SERVICE | Mashina: texnik xizmat | leaf=true | active=true
+VEHICLE > VEHICLE_OTHER | Mashina: sug'urta, texko'rik va boshqa | leaf=true | active=true
+- > LEASE | Ijara | leaf=true | active=true
+- > VEHICLE | Mashinalar | leaf=false | active=true
+- > PAYROLL | Ish haqi fondi | leaf=false | active=true
+- > OFFICE | Ofis va infratuzilma | leaf=false | active=true
+- > SOFTWARE | Dasturiy ta'minot va litsenziyalar | leaf=false | active=true
+- > TRANSPORT | Transport | leaf=false | active=true
+- > MARKETING | Marketing va mijozlar | leaf=false | active=true
+- > HR | Kadrlar | leaf=false | active=true
+- > FINANCE | Moliyaviy xarajatlar | leaf=false | active=true
+- > TAXES | Soliqlar va yigтАШimlar | leaf=false | active=true
+- > OTHER | Boshqa xarajatlar | leaf=false | active=true
+
+##### Daromad turlari #####
+SRV_01 | Soliq solish munosabatlari va majburiyatlari bilan bogтАШliq xizmatlar boтАШyicha tushuntirish hamda ogтАШzaki maslahatlar berish
+SRV_03 | Hujjatdan nusxa olish (bir tomon)
+SERVICE_TRAINING | O'quv kurslari
+SERVICE_OTHER | Boshqa xizmatlar
+SERVICE_ACCOUNTING | Buxgalteriya xizmati
+SERVICE_TAX_CONSULT | Soliq maslahati
+SERVICE_REPORTING | Hisobot tayyorlash
+SRV_REZIDENT_CHOP | Rezidentlik sertifikatini chop etib berish
+SRV_NUSXA_1 | Hujjatdan nusxa olish (bir tomon)
+SRV_NUSXA_2 | Hujjatdan nusxa olish (ikki tomon)
+SRV_SKANER | Hujjatni skaner qilib berish (bir tomon)
+SRV_MATN_TERISH | Matnni elektron terib berish (A4)
+SERVICE_AUDIT | Audit va tekshiruv
+SRV_02 | Rezidentlik sertifikatini chop etib berish
+SRV_04 | Hujjatdan nusxa olish (ikki tomon)
+SRV_05 | Hujjatni skaner qilib berish (bir tomon)
+SRV_06 | Matnni elektron terib berish (A4)
+SRV_07 | Elektron matnni chop etish (A4)
+SRV_08 | Yuridik shaxslar va yakka tartibdagi tadbirkorlarga soliq qarzi toтАШgтАШrisida maтАЩlumotnoma chop etib berish
+SRV_09 | Jismoniy shaxslarga soliq qarzi toтАШgтАШrisida maтАЩlumotnoma chop etib berish
+SRV_10 | Yuridik shaxslar va yakka tartibdagi tadbirkorlarga solishtirma dalolatnoma (akt-sverka) chop etib berish
+SRV_11 | Jismoniy shaxslarga mol-mulkini ijaraga berish shartnomasini tayyorlab berish va e-ijara.soliq.uz saytida roтАШyxatdan oтАШtkazish
+SRV_12 | Yuridik shaxslar va yakka tartibdagi tadbirkorlarning mol-mulkini ijaraga berish shartnomasini tayyorlab berish va e-ijara.soliq.uz saytida roтАШyxatdan oтАШtkazish
+SRV_13 | Yuridik va jismoniy shaxslarning mol-mulkini ijaraga berish shartnomasini bekor qilish
+SRV_14 | Yuridik shaxslar va yakka tartibdagi tadbirkorlarning hisobvaraq-fakturalarini tayyorlash va yuborish
+SRV_15 | OтАШzini-oтАШzi band qilgan jismoniy shaxslarga maтАЩlumotnoma berish
+SRV_16 | Yakka tartibdagi tadbirkorlarning yollanma xodimlarini hisobga olish va ularga maтАЩlumotnoma berish
+SRV_17 | Jismoniy shaxslarga hisoblangan sugтАШurta badali boтАШyicha maтАЩlumotnoma berish
+SRV_18 | Nazorat kassa mashinasini roтАШyxatdan oтАШtkazish (chiqarish)
+SRV_19 | Virtual kassa dasturiy mahsuli boтАШyicha texnik xizmat koтАШrsatish
+SRV_20 | Yuridik va jismoniy shaxslarga elektron raqamli imzo olishga koтАШmaklashish
+SRV_21 | Soliq toтАШlovchilarning matritsali shtrix kod maтАЩlumotnomasini shakllantirish
+SRV_22 | Yuridik shaxslar va yakka tartibdagi tadbirkorlarning litsenziya, ruxsatnoma yoki xabarnomasini olish uchun ariza yuborish
+SRV_23 | SugтАШurta polisini rasmiylashtirish
+SRV_24 | Tadbirkorlik subтАЩyektlarini qoтАШshilgan qiymat soligтАШi boтАШyicha maxsus roтАШyxatdan oтАШtkazish uchun ariza yuborish
+SRV_25 | Yuridik shaxslarning mol-mulkini baholash natijalarini taqdim etish
+SRV_26 | Tadbirkorlik subтАЩyektlarini avtomatlashtirilgan aylanmadan olinadigan soliq hisobotiga oтАШzgartirish kiritish toтАШgтАШrisida murojaat yuborish
+SRV_MATN_CHOP | Elektron matnni chop etish (A4)
+SRV_QARZ_YUR | Yuridik shaxslar va yakka tartibdagi tadbirkorlarga soliq qarzi toтАШgтАШrisida maтАЩlumotnoma chop etib berish
+SRV_QARZ_JIS | Jismoniy shaxslarga soliq qarzi toтАШgтАШrisida maтАЩlumotnoma chop etib berish
+SRV_MASLAHAT | Soliq solish munosabatlari va majburiyatlari bilan bogтАШliq xizmatlar boтАШyicha tushuntirish hamda ogтАШzaki maslahatlar berish
+SRV_SVERKA | Yuridik shaxslar va yakka tartibdagi tadbirkorlarga solishtirma dalolatnoma (akt-sverka) chop etib berish
+SRV_IJARA_JIS | Jismoniy shaxslarga mol-mulkini ijaraga berish shartnomasini tayyorlab berish va roтАШyxatdan oтАШtkazish
+SRV_IJARA_YUR | Yuridik shaxslar va yakka tartibdagi tadbirkorlarning mol-mulkini ijaraga berish shartnomasini tayyorlab berish va roтАШyxatdan oтАШtkazish
+SRV_IJARA_BEKOR | Yuridik va jismoniy shaxslarning mol-mulkini ijaraga berish shartnomasini bekor qilish
+SRV_FAKTURA | Yuridik shaxslar va yakka tartibdagi tadbirkorlarning hisobvaraq-fakturalarini tayyorlash va yuborish
+SRV_OZINI_BAND | OтАШzini-oтАШzi band qilgan jismoniy shaxslarga maтАЩlumotnoma berish
+SRV_YOLLANMA | Yakka tartibdagi tadbirkorlarning yollanma xodimlarini hisobga olish va ularga maтАЩlumotnoma berish
+SRV_SUGURTA_BADAL | Jismoniy shaxslarga hisoblangan sugтАШurta badali boтАШyicha maтАЩlumotnoma berish
+SRV_KASSA | Nazorat kassa mashinasini roтАШyxatdan oтАШtkazish (chiqarish)
+SRV_VIRTUAL_KASSA | Virtual kassa dasturiy mahsuli boтАШyicha texnik xizmat koтАШrsatish
+SRV_ERI | Yuridik va jismoniy shaxslarga elektron raqamli imzo olishga koтАШmaklashish
+SRV_SHTRIX_KOD | Soliq toтАШlovchilarning matritsali shtrix kod maтАЩlumotnomasini shakllantirish
+SRV_LITSENZIYA | Yuridik shaxslar va yakka tartibdagi tadbirkorlarning litsenziya, ruxsatnoma yoki xabarnomasini olish uchun ariza yuborish
+SRV_SUGURTA_POLIS | SugтАШurta polisini rasmiylashtirish
+SRV_QQS_ROYXAT | Tadbirkorlik subтАЩyektlarini qoтАШshilgan qiymat soligтАШi boтАШyicha maxsus roтАШyxatdan oтАШtkazish uchun ariza yuborish
+SRV_BAHOLASH | Yuridik shaxslarning mol-mulkini baholash natijalarini taqdim etish
+SRV_AYLANMA_OZG | Tadbirkorlik subтАЩyektlarini avtomatlashtirilgan aylanmadan olinadigan soliq hisobotiga oтАШzgartirish kiritish toтАШgтАШrisida murojaat yuborish
+SRV_IMTIYOZ | Tadbirkorlik subтАЩyektlarini soliq imtiyozlaridan foydalanish toтАШgтАШrisida murojaat yuborish
+SRV_REZIDENT_ARIZA | Rezidentlik sertifikati olish uchun ariza yuborish
+SRV_QISHLOQ_XARID | Tadbirkorlik subтАЩyektlari tomonidan qishloq xoтАШjalik mahsulotlarini xarid qilish dalolatnomasini rasmiylashtirish
+SRV_HISOB_OZG | Tadbirkorlik subтАЩyektlarining hisob maтАЩlumotlarini oтАШzgartirish uchun ariza yuborish
+SRV_HISOB_VARAQ | Tadbirkorlik subтАЩyektlarining soliq turlari boтАШyicha hisob varaqa ochish
+SRV_ROYXAT_CHIQ | Tadbirkorlik subтАЩyektlarini roтАШyxatdan chiqarish uchun ariza yuborish
+SRV_MANZIL_OZG | Tadbirkorlik subтАЩyektlarining manzil maтАЩlumotlarini oтАШzgartirish uchun ariza yuborish
+SRV_QOSHISH | Tadbirkorlik subтАЩyektlarini boshqa tadbirkorlik subтАЩyektlariga qoтАШshish uchun ariza yuborish
+SRV_IFUT | Tadbirkorlik subтАЩyektlarining faoliyat turi (IFUT kodi)ni oтАШzgartirish uchun ariza yuborish
+SRV_TAMAKI_ALKOGOL | Tadbirkorlik subтАЩyektlarining tamaki va alkogol mahsulotlari bilan savdo qilishni boshlaganlik yoki tugatganlik haqida xabarnoma yuborish
+SRV_HISOBOT_YUR | Yuridik shaxslar va yakka tartibdagi tadbirkorlar tomonidan taqdim etilgan maтАЩlumotlar asosida elektron soliq hisobotlarini tayyorlash va soliq organlariga yuborish
+SRV_DEKLARATSIYA | Jismoniy shaxslarning jami yillik daromadi toтАШgтАШrisidagi deklaratsiyani tuzish va soliq organlariga yuborish
+SERVICE_REGISTRATION | Ro'yxatdan o'tkazish
+SERVICE_LEGAL | Yuridik xizmat
+SRV_27 | Tadbirkorlik subтАЩyektlarini soliq imtiyozlaridan foydalanish toтАШgтАШrisida murojaat yuborish
+SRV_28 | Rezidentlik sertifikati olish uchun ariza yuborish
+SRV_29 | Tadbirkorlik subтАЩyektlari tomonidan qishloq xoтАШjalik mahsulotlarini xarid qilish dalolatnomasini rasmiylashtirish
+SRV_30 | Tadbirkorlik subтАЩyektlarining hisob maтАЩlumotlarini oтАШzgartirish uchun ariza yuborish
+SRV_31 | Tadbirkorlik subтАЩyektlarining soliq turlari boтАШyicha hisob varaqa ochish
+SRV_32 | Tadbirkorlik subтАЩyektlarini roтАШyxatdan chiqarish uchun ariza yuborish
+SRV_33 | Tadbirkorlik subтАЩyektlarini manzil maтАЩlumotlarini oтАШzgartirish ariza yuborish
+SRV_34 | Tadbirkorlik subтАЩyektlarini boshqa tadbirkorlik subтАЩyektlariga qoтАШshish uchun ariza yuborish
+SRV_35 | Tadbirkorlik subтАЩyektlarining faoliyat turi (IFUT kodi)ni oтАШzgartirish uchun ariza yuborish
+SRV_36 | Tadbirkorlik subтАЩyektlarining tamaki va alkogol mahsulotlari bilan savdo qilishni boshlaganlik yoki tugatganlik haqida xabarnoma yuborish
+SRV_37 | Yuridik shaxslar va yakka tartibdagi tadbirkorlar tomonidan taqdim etilgan maтАЩlumotlar asosida elektron soliq hisobotlarini tayyorlash va soliq organlariga yuborish
+SRV_38 | Jismoniy shaxslarning jami yillik daromadi toтАШgтАШrisidagi deklaratsiyani tuzish va soliq organlariga yuborish
+SRV_39 | Boshqa xizmatlar
+
+##### Hududlar #####
+0 Markaz
+3 Andijon viloyati
+6 Buxoro viloyati
+8 Jizzax viloyati
+10 Qashqadaryo viloyati
+12 Navoiy viloyati
+14 Namangan viloyati
+18 Samarqand viloyati
+22 Surxondaryo viloyati
+24 Sirdaryo viloyati
+26 Toshkent shahri
+27 Toshkent viloyati
+30 Farg'ona viloyati
+33 Xorazm viloyati
+35 Qoraqalpog'iston Respublikasi
+
+##### Bo'limlar #####
+cmu3m4kyh000oub14gpwzc2bu | Texnik xodimlar
+cmu3vzixu000pub64vtiymd82 | DSQ
+cmu3m4kxn0000ub1426ec50in | AUP
+cmu3m4kxs0001ub14nnpevaxq | Strategiya
+cmu3m4kxt0002ub14zwk9i1mh | Korporativ boshqaruv
+cmu3m4kxu0003ub14piowa0xv | Kompleans
+cmu3m4kxv0004ub14afu5vd3f | Yurist
+cmu3m4kxw0005ub141j0b13cb | Kadrlar
+cmu3m4kxx0006ub14r5pxy54u | Ichki audit
+cmu3m4kxy0007ub14grewcbhl | Buxgalteriya hisobi boтАШlimi
+cmu3m4kxz0008ub14so1arlyr | Soliq toтАШlovchilarga buxgalteriya xizmatlarini koтАШrsatish boтАШlimi
+cmu3m4ky10009ub14t9mgn33p | Soliq toтАШlovchilarga xizmat koтАШrsatish markazi
+cmu3m4ky2000aub146qywtn3i | Fermer xoтАШjaliklariga xizmat koтАШrsatish
+cmu3m4ky4000bub141jhqytx0 | Fermer xoтАШjaliklariga xizmat koтАШrsatishni muvofiqlashtirish (hudud)
+cmu3m4ky4000cub14rowm6v2f | Hududlarni muvofiqlashtirish
+cmu3m4ky6000dub14ufnwifd3 | Dasturiy mahsulotlar
+cmu3m4ky8000eub149p6edhq7 | Dasturiy mahsulotlarni muvofiqlashtirish boтАШyicha loyiha menejerlari shoтАШbasi
+cmu3m4kya000fub14gflb05m2 | Raqamli texnologiyalar xalqaro markazi
+cmu3m4kyb000gub14ypnmdggo | Axborot xizmati
+cmu3m4kyb000hub14ogqzie1d | ToтАШlov tizimi va marketing
+cmu3m4kyc000iub145nidjmzf | Bozor narxi
+cmu3m4kyd000jub14s99fzmk3 | Marksheyder
+cmu3m4kye000kub14uspjsez3 | Tax free
+cmu3m4kye000lub14s6kmxtn3 | Call markaz
+cmu3m4kyf000mub145stzg0fd | Murojaatlar bilan ishlash va ijro nazorati
+cmu3m4kyg000nub14pa6lkwon | Xaridlar va xoтАШjalik ishlari boтАШyicha
+
+##### Xodimlar: turi va hudud bo'yicha #####
+[
+  {
+    "_count": {
+      "_all": 15
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 27
+  },
+  {
+    "_count": {
+      "_all": 7
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 8
+  },
+  {
+    "_count": {
+      "_all": 18
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 18
+  },
+  {
+    "_count": {
+      "_all": 12
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 26
+  },
+  {
+    "_count": {
+      "_all": 7
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 35
+  },
+  {
+    "_count": {
+      "_all": 13
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 27
+  },
+  {
+    "_count": {
+      "_all": 4
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 12
+  },
+  {
+    "_count": {
+      "_all": 6
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 18
+  },
+  {
+    "_count": {
+      "_all": 7
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 24
+  },
+  {
+    "_count": {
+      "_all": 13
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 10
+  },
+  {
+    "_count": {
+      "_all": 8
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 30
+  },
+  {
+    "_count": {
+      "_all": 6
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 22
+  },
+  {
+    "_count": {
+      "_all": 8
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 30
+  },
+  {
+    "_count": {
+      "_all": 7
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 14
+  },
+  {
+    "_count": {
+      "_all": 8
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 0
+  },
+  {
+    "_count": {
+      "_all": 10
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 33
+  },
+  {
+    "_count": {
+      "_all": 4
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 24
+  },
+  {
+    "_count": {
+      "_all": 15
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 22
+  },
+  {
+    "_count": {
+      "_all": 5
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 14
+  },
+  {
+    "_count": {
+      "_all": 9
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 3
+  },
+  {
+    "_count": {
+      "_all": 8
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 6
+  },
+  {
+    "_count": {
+      "_all": 13
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 8
+  },
+  {
+    "_count": {
+      "_all": 7
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 10
+  },
+  {
+    "_count": {
+      "_all": 15
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 26
+  },
+  {
+    "_count": {
+      "_all": 4
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 35
+  },
+  {
+    "_count": {
+      "_all": 6
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 12
+  },
+  {
+    "_count": {
+      "_all": 171
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 0
+  },
+  {
+    "_count": {
+      "_all": 9
+    },
+    "employmentType": "SHARTNOMA",
+    "regionCode": 6
+  },
+  {
+    "_count": {
+      "_all": 5
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 33
+  },
+  {
+    "_count": {
+      "_all": 8
+    },
+    "employmentType": "SHTAT",
+    "regionCode": 3
+  }
+]
+
+##### Xodim namunasi #####
+{
+  "pinfl": "41107844070031",
+  "lastName": "ABDULLAYEVA",
+  "firstName": "MUXAYYO",
+  "middleName": "MUXAMADIYEVNA",
+  "fullName": "ABDULLAYEVA MUXAYYO MUXAMADIYEVNA",
+  "employmentType": "SHTAT",
+  "regionCode": 0,
+  "districtId": null,
+  "departmentId": "cmu3m4kyh000oub14gpwzc2bu",
+  "position": null,
+  "hiredAt": null,
+  "firedAt": null,
+  "isActive": true,
+  "createdAt": "2026-09-16T09:16:44.591Z",
+  "updatedAt": "2026-09-17T11:52:59.479Z"
+}
+
+##### Ish haqi yuklamalari (batch) #####
+[
+  {
+    "id": "cmub290hq0001ubjwq8cmah1w",
+    "period": "2026-01",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-01.xlsx",
+    "fileHash": "57d0e9653caf95a8b32932213619988b9d22ccf60bf65ebab7464ba6720fd0dc",
+    "totalRows": 326,
+    "matchedRows": 326,
+    "missingRows": 0,
+    "totalTiyin": "526306397043",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-21T09:46:27.902Z",
+    "committedAt": "2026-09-21T09:46:27.900Z"
+  },
+  {
+    "id": "cmuktf5ur0007ubvs639fc1uu",
+    "period": "2026-01",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-01.xlsx",
+    "fileHash": "57d0e9653caf95a8b32932213619988b9d22ccf60bf65ebab7464ba6720fd0dc",
+    "totalRows": 326,
+    "matchedRows": 326,
+    "missingRows": 0,
+    "totalTiyin": "526306397043",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-28T05:37:00.003Z",
+    "committedAt": "2026-09-28T05:37:00.001Z"
+  },
+  {
+    "id": "cmu6gyb4s0001ubu0cceqm45g",
+    "period": "2026-01",
+    "status": "CANCELLED",
+    "fileName": "yanvar dastur uchun.xlsx",
+    "fileHash": "7430fbeeadba86b758dd96410cb00cec99593d19062420cd964d9b6ff80bdfae",
+    "totalRows": 326,
+    "matchedRows": 326,
+    "missingRows": 0,
+    "totalTiyin": "524888559643",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-18T04:39:11.837Z",
+    "committedAt": "2026-09-18T04:39:15.723Z"
+  },
+  {
+    "id": "cmub3g6380001ubgwp0cc9fad",
+    "period": "2026-02",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-02 (1).xlsx",
+    "fileHash": "362843715ed522da6e96b44444c2cb8195db0eb905c41b61de5337013609f153",
+    "totalRows": 329,
+    "matchedRows": 329,
+    "missingRows": 0,
+    "totalTiyin": "472605683608",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-21T10:20:01.364Z",
+    "committedAt": "2026-09-21T10:20:01.362Z"
+  },
+  {
+    "id": "cmuktfw9500acubvskorcjw76",
+    "period": "2026-02",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-02 (1).xlsx",
+    "fileHash": "362843715ed522da6e96b44444c2cb8195db0eb905c41b61de5337013609f153",
+    "totalRows": 329,
+    "matchedRows": 329,
+    "missingRows": 0,
+    "totalTiyin": "472605683608",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-28T05:37:34.218Z",
+    "committedAt": "2026-09-28T05:37:34.216Z"
+  },
+  {
+    "id": "cmu8ruq1s0093ub7o96f27j3y",
+    "period": "2026-02",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-02.xlsx",
+    "fileHash": "4e40af56516923380f1c9765921eb170ae3645ec91ae404f0b872fde2aaf256d",
+    "totalRows": 324,
+    "matchedRows": 324,
+    "missingRows": 0,
+    "totalTiyin": "470392921608",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-19T19:19:52.672Z",
+    "committedAt": "2026-09-19T19:19:55.772Z"
+  },
+  {
+    "id": "cmub3ggxa00ksubgw8l4oayuk",
+    "period": "2026-03",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-04.xlsx",
+    "fileHash": "9c5f7202e27c0843647c9bd9bd538032d847547c60ee0e303605ae9f20da0b56",
+    "totalRows": 373,
+    "matchedRows": 368,
+    "missingRows": 5,
+    "totalTiyin": "548371552382",
+    "missingPinfls": [
+      {
+        "pinfl": "31806932690012",
+        "rowIndex": 58
+      },
+      {
+        "pinfl": "62202055910040",
+        "rowIndex": 141
+      },
+      {
+        "pinfl": "31712861070107",
+        "rowIndex": 148
+      },
+      {
+        "pinfl": "30606941120031",
+        "rowIndex": 164
+      },
+      {
+        "pinfl": "31710913940079",
+        "rowIndex": 226
+      }
+    ],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-21T10:20:15.406Z",
+    "committedAt": "2026-09-21T10:20:15.404Z"
+  },
+  {
+    "id": "cmuktrxwy00kkubvsoph9mi24",
+    "period": "2026-03",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-03.xlsx",
+    "fileHash": "7483613f48d35b2c459111c4813a5eddbf665a3291198f4be80e13bbcc9e083d",
+    "totalRows": 342,
+    "matchedRows": 342,
+    "missingRows": 0,
+    "totalTiyin": "594414931403",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-28T05:46:56.242Z",
+    "committedAt": "2026-09-28T05:46:56.241Z"
+  },
+  {
+    "id": "cmub3gc5f00a9ubgwgxlusvky",
+    "period": "2026-03",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-03.xlsx",
+    "fileHash": "20c0c11758417fd14584cfb62670ac35a5c690e3ab1154eda55c139708861dbb",
+    "totalRows": 342,
+    "matchedRows": 340,
+    "missingRows": 2,
+    "totalTiyin": "590550312879",
+    "missingPinfls": [
+      {
+        "pinfl": "30606941120031",
+        "rowIndex": 138
+      },
+      {
+        "pinfl": "31710913940079",
+        "rowIndex": 198
+      }
+    ],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-21T10:20:09.219Z",
+    "committedAt": "2026-09-21T10:20:09.217Z"
+  },
+  {
+    "id": "cmub3gncz00w4ubgw5kyqt8fg",
+    "period": "2026-04",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-05.xlsx",
+    "fileHash": "f1b33bcfe76da929c839fb57c29d2dfdfcb8a71dd6eff51375290f79cee09f4f",
+    "totalRows": 383,
+    "matchedRows": 378,
+    "missingRows": 5,
+    "totalTiyin": "735961817863",
+    "missingPinfls": [
+      {
+        "pinfl": "31806932690012",
+        "rowIndex": 58
+      },
+      {
+        "pinfl": "62202055910040",
+        "rowIndex": 144
+      },
+      {
+        "pinfl": "31712861070107",
+        "rowIndex": 151
+      },
+      {
+        "pinfl": "30606941120031",
+        "rowIndex": 167
+      },
+      {
+        "pinfl": "31710913940079",
+        "rowIndex": 233
+      }
+    ],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-21T10:20:23.747Z",
+    "committedAt": "2026-09-21T10:20:23.746Z"
+  },
+  {
+    "id": "cmuku0xav00v5ubvsebsc7pvt",
+    "period": "2026-04",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-04.xlsx",
+    "fileHash": "9c780314fc9e9019c231512eddd7e923ebea715b7db4cfbf09d9bf0ba06f4a50",
+    "totalRows": 373,
+    "matchedRows": 373,
+    "missingRows": 0,
+    "totalTiyin": "554158957374",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-28T05:53:55.351Z",
+    "committedAt": "2026-09-28T05:53:55.350Z"
+  },
+  {
+    "id": "cmuku150z016mubvsjiesogdw",
+    "period": "2026-05",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-05.xlsx",
+    "fileHash": "3daaf52a2a76dcbede61586e2dbca781b92221a20130a9ea2e51970de5b7552f",
+    "totalRows": 383,
+    "matchedRows": 383,
+    "missingRows": 0,
+    "totalTiyin": "737326817863",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-28T05:54:05.363Z",
+    "committedAt": "2026-09-28T05:54:05.362Z"
+  },
+  {
+    "id": "cmuku8p8z01idubvs44o7dbxv",
+    "period": "2026-06",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-06.xlsx",
+    "fileHash": "6095b63f4f5a3d28a463063b0cfd922cdc3bad0ef8e8ca6c49a1ac7f2ea5e0c1",
+    "totalRows": 400,
+    "matchedRows": 400,
+    "missingRows": 0,
+    "totalTiyin": "493612086526",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-28T05:59:58.164Z",
+    "committedAt": "2026-09-28T05:59:58.162Z"
+  },
+  {
+    "id": "cmuku9nox01umubvs8f22fekg",
+    "period": "2026-07",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-07.xlsx",
+    "fileHash": "84d0aff41242069c6f36656c99f4080e1897ae9631528940d87e242c9405fc6f",
+    "totalRows": 411,
+    "matchedRows": 411,
+    "missingRows": 0,
+    "totalTiyin": "617920431525",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-28T06:00:42.802Z",
+    "committedAt": "2026-09-28T06:00:42.800Z"
+  },
+  {
+    "id": "cmu8rwh1k00j6ub7o800igzw4",
+    "period": "2026-09",
+    "status": "COMMITTED",
+    "fileName": "Ish-haqi-2026-02.xlsx",
+    "fileHash": "4e40af56516923380f1c9765921eb170ae3645ec91ae404f0b872fde2aaf256d",
+    "totalRows": 324,
+    "matchedRows": 324,
+    "missingRows": 0,
+    "totalTiyin": "470392921608",
+    "missingPinfls": [],
+    "uploadedById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-19T19:21:14.313Z",
+    "committedAt": "2026-09-19T19:21:17.060Z"
+  }
+]
+
+##### Ish haqi yozuvi namunasi #####
+{
+  "id": "cmub290i00002ubjw557su31p",
+  "employeePinfl": "41107844070031",
+  "period": "2026-01",
+  "baseTiyin": "2005459173",
+  "bonusTiyin": "0",
+  "vacationTiyin": "0",
+  "deductionTiyin": "0",
+  "taxTiyin": "0",
+  "totalTiyin": "2005459173",
+  "workedDays": null,
+  "batchId": "cmub290hq0001ubjwq8cmah1w",
+  "createdAt": "2026-09-21T09:46:27.911Z",
+  "updatedAt": "2026-09-21T09:46:27.911Z",
+  "deletedAt": null
+}
+
+##### Ish haqi: oy bo'yicha #####
+[
+  {
+    "_count": {
+      "_all": 400
+    },
+    "_sum": {
+      "totalTiyin": "493612086526"
+    },
+    "period": "2026-06"
+  },
+  {
+    "_count": {
+      "_all": 383
+    },
+    "_sum": {
+      "totalTiyin": "737326817863"
+    },
+    "period": "2026-05"
+  },
+  {
+    "_count": {
+      "_all": 652
+    },
+    "_sum": {
+      "totalTiyin": "1052612794086"
+    },
+    "period": "2026-01"
+  },
+  {
+    "_count": {
+      "_all": 751
+    },
+    "_sum": {
+      "totalTiyin": "1290120775237"
+    },
+    "period": "2026-04"
+  },
+  {
+    "_count": {
+      "_all": 982
+    },
+    "_sum": {
+      "totalTiyin": "1415604288824"
+    },
+    "period": "2026-02"
+  },
+  {
+    "_count": {
+      "_all": 411
+    },
+    "_sum": {
+      "totalTiyin": "617920431525"
+    },
+    "period": "2026-07"
+  },
+  {
+    "_count": {
+      "_all": 1050
+    },
+    "_sum": {
+      "totalTiyin": "1733336796664"
+    },
+    "period": "2026-03"
+  },
+  {
+    "_count": {
+      "_all": 324
+    },
+    "_sum": {
+      "totalTiyin": "470392921608"
+    },
+    "period": "2026-09"
+  }
+]
+
+##### PAYROLL xarajat namunalari #####
+[
+  {
+    "id": "cmu6gye4a0094ubu0vjt9mel6",
+    "date": "2026-01-30T19:00:00.000Z",
+    "period": "2026-01",
+    "amountTiyin": "20848430259",
+    "categoryCode": "PAYROLL_BASE",
+    "departmentId": "cmu3m4kye000kub14uspjsez3",
+    "regionCode": 0,
+    "description": "Ish haqi тАФ Tax free (13 xodim)",
+    "paymentMethod": "BANK",
+    "documentNo": null,
+    "counterparty": null,
+    "paymentStatus": "PAID",
+    "dueDate": null,
+    "responsible": null,
+    "vatTiyin": null,
+    "source": "PAYROLL",
+    "section": "DOIMIY",
+    "importBatchId": null,
+    "payrollBatchId": "cmu6gyb4s0001ubu0cceqm45g",
+    "categoryConfidence": null,
+    "categoryOverridden": false,
+    "createdById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-18T04:39:15.706Z",
+    "updatedAt": "2026-09-21T04:04:12.140Z",
+    "deletedAt": "2026-09-21T04:04:12.137Z"
+  },
+  {
+    "id": "cmu6gye4a0095ubu08kf5li15",
+    "date": "2026-01-30T19:00:00.000Z",
+    "period": "2026-01",
+    "amountTiyin": "30663706298",
+    "categoryCode": "PAYROLL_BASE",
+    "departmentId": null,
+    "regionCode": 27,
+    "description": "Ish haqi тАФ Toshkent viloyati (25 xodim)",
+    "paymentMethod": "BANK",
+    "documentNo": null,
+    "counterparty": null,
+    "paymentStatus": "PAID",
+    "dueDate": null,
+    "responsible": null,
+    "vatTiyin": null,
+    "source": "PAYROLL",
+    "section": "DOIMIY",
+    "importBatchId": null,
+    "payrollBatchId": "cmu6gyb4s0001ubu0cceqm45g",
+    "categoryConfidence": null,
+    "categoryOverridden": false,
+    "createdById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-18T04:39:15.706Z",
+    "updatedAt": "2026-09-21T04:04:12.140Z",
+    "deletedAt": "2026-09-21T04:04:12.137Z"
+  },
+  {
+    "id": "cmu6gye4a0096ubu03yjd3vei",
+    "date": "2026-01-30T19:00:00.000Z",
+    "period": "2026-01",
+    "amountTiyin": "22301992988",
+    "categoryCode": "PAYROLL_BASE",
+    "departmentId": "cmu3m4ky6000dub14ufnwifd3",
+    "regionCode": 0,
+    "description": "Ish haqi тАФ Dasturiy mahsulotlar (9 xodim)",
+    "paymentMethod": "BANK",
+    "documentNo": null,
+    "counterparty": null,
+    "paymentStatus": "PAID",
+    "dueDate": null,
+    "responsible": null,
+    "vatTiyin": null,
+    "source": "PAYROLL",
+    "section": "DOIMIY",
+    "importBatchId": null,
+    "payrollBatchId": "cmu6gyb4s0001ubu0cceqm45g",
+    "categoryConfidence": null,
+    "categoryOverridden": false,
+    "createdById": "cmu3m4lc0000pub14aeflwcx0",
+    "createdAt": "2026-09-18T04:39:15.706Z",
+    "updatedAt": "2026-09-21T04:04:12.140Z",
+    "deletedAt": "2026-09-21T04:04:12.137Z"
+  }
+]
+
+##### PAYROLL xarajat: oy ├Ч kategoriya #####
+[
+  {
+    "_count": {
+      "_all": 37
+    },
+    "_sum": {
+      "amountTiyin": "526306397043"
+    },
+    "period": "2026-01",
+    "categoryCode": "PAYROLL_BASE"
+  },
+  {
+    "_count": {
+      "_all": 39
+    },
+    "_sum": {
+      "amountTiyin": "493612086526"
+    },
+    "period": "2026-06",
+    "categoryCode": "PAYROLL_BASE"
+  },
+  {
+    "_count": {
+      "_all": 38
+    },
+    "_sum": {
+      "amountTiyin": "554158957374"
+    },
+    "period": "2026-04",
+    "categoryCode": "PAYROLL_BASE"
+  },
+  {
+    "_count": {
+      "_all": 37
+    },
+    "_sum": {
+      "amountTiyin": "594414931403"
+    },
+    "period": "2026-03",
+    "categoryCode": "PAYROLL_BASE"
+  },
+  {
+    "_count": {
+      "_all": 37
+    },
+    "_sum": {
+      "amountTiyin": "472605683608"
+    },
+    "period": "2026-02",
+    "categoryCode": "PAYROLL_BASE"
+  },
+  {
+    "_count": {
+      "_all": 41
+    },
+    "_sum": {
+      "amountTiyin": "617920431525"
+    },
+    "period": "2026-07",
+    "categoryCode": "PAYROLL_BASE"
+  },
+  {
+    "_count": {
+      "_all": 38
+    },
+    "_sum": {
+      "amountTiyin": "737326817863"
+    },
+    "period": "2026-05",
+    "categoryCode": "PAYROLL_BASE"
+  }
+]
+
+##### Ish haqi tarkibi: komponentlar #####
+[
+  {
+    "code": "OKLAD",
+    "name": "Oklad",
+    "group": "BUDGET",
+    "category": "ASOSIY",
+    "sign": 1,
+    "sortOrder": 10,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "OKLAD_40",
+    "name": "Oklad ustamasi 40%",
+    "group": "BUDGET",
+    "category": "ASOSIY",
+    "sign": 1,
+    "sortOrder": 20,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "STAJ",
+    "name": "Staj ustamasi",
+    "group": "BUDGET",
+    "category": "ASOSIY",
+    "sign": 1,
+    "sortOrder": 30,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "TATIL",
+    "name": "Ta'til puli",
+    "group": "BUDGET",
+    "category": "TATIL",
+    "sign": 1,
+    "sortOrder": 40,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "TATIL_KOMP",
+    "name": "Ta'til kompensatsiyasi",
+    "group": "BUDGET",
+    "category": "TATIL",
+    "sign": 1,
+    "sortOrder": 50,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "KASALLIK",
+    "name": "Kasallik varaqasi",
+    "group": "BUDGET",
+    "category": "TATIL",
+    "sign": 1,
+    "sortOrder": 60,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "DEKRET",
+    "name": "Dekret",
+    "group": "BUDGET",
+    "category": "TATIL",
+    "sign": 1,
+    "sortOrder": 70,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "MODDIY",
+    "name": "Moddiy yordam / komandirovka",
+    "group": "BUDGET",
+    "category": "KOMPENSATSIYA",
+    "sign": 1,
+    "sortOrder": 80,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "KPI",
+    "name": "KPI premiyasi",
+    "group": "HOJALIK",
+    "category": "PREMIYA",
+    "sign": 1,
+    "sortOrder": 110,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "BAYRAM",
+    "name": "Bayram premiyasi",
+    "group": "HOJALIK",
+    "category": "PREMIYA",
+    "sign": 1,
+    "sortOrder": 120,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "PREMIYA_BOSHQA",
+    "name": "Boshqa premiya (bildirgi)",
+    "group": "HOJALIK",
+    "category": "PREMIYA",
+    "sign": 1,
+    "sortOrder": 130,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "TRANSPORT",
+    "name": "Transport",
+    "group": "HOJALIK",
+    "category": "KOMPENSATSIYA",
+    "sign": 1,
+    "sortOrder": 140,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "OVQAT",
+    "name": "Ovqat",
+    "group": "HOJALIK",
+    "category": "KOMPENSATSIYA",
+    "sign": 1,
+    "sortOrder": 150,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "SERTIFIKAT",
+    "name": "Sertifikat / ilmiy daraja ustamasi",
+    "group": "HOJALIK",
+    "category": "USTAMA",
+    "sign": 1,
+    "sortOrder": 160,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "USTAMA_BOSHQA",
+    "name": "Boshqa ustamalar",
+    "group": "HOJALIK",
+    "category": "USTAMA",
+    "sign": 1,
+    "sortOrder": 170,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "BOSHQA",
+    "name": "Boshqa",
+    "group": "HOJALIK",
+    "category": "BOSHQA",
+    "sign": 1,
+    "sortOrder": 180,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  },
+  {
+    "code": "JARIMA",
+    "name": "Jarima",
+    "group": "HOJALIK",
+    "category": "JARIMA",
+    "sign": -1,
+    "sortOrder": 190,
+    "isActive": true,
+    "createdAt": "2026-09-25T11:50:40.636Z",
+    "updatedAt": "2026-09-25T11:50:40.636Z"
+  }
+]
+
+##### Ish haqi tarkibi: yuklamalar #####
+[]
+
+##### Ish haqi tarkibi: qator va element namunasi #####
+{
+  "row": null,
+  "item": null
+}
+
+##### Hududlar tushumi: namuna #####
+[]
+
+##### Ijara: namuna #####
+{
+  "lease": null,
+  "close": null,
+  "leases": 0
+}
+
+##### Xodim natijalari: model nomlari #####
+constructor, user, department, category, incomeCategory, expense, income, employee, payrollEntry, importBatch, stagingRow, auditLog, region, district, payrollBatch, setting, resultBatch, employeeResult, employeeLocation, salaryComponent, salaryCompositionBatch, salaryCompositionRow, salaryCompositionItem, lease, leaseTerm, leaseDocument, leaseMonthClose, leaseAccrual, vehicle, vehicleRecord
+

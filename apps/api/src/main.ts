@@ -1,8 +1,10 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe, type LogLevel } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import 'reflect-metadata';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { securityHeaders } from './common/security/headers';
 
 /**
  * BigInt JSON'ga seriyalanmaydi — bu Node.js cheklovi.
@@ -16,11 +18,20 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 };
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, {
-    logger: ['log', 'error', 'warn', 'debug'],
-  });
+  const production = process.env.NODE_ENV === 'production';
+  const logger: LogLevel[] = production ? ['log', 'error', 'warn'] : ['log', 'error', 'warn', 'debug'];
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger, bodyParser: false });
 
   app.setGlobalPrefix('api');
+  app.disable('x-powered-by');
+  // nginx ortida ishlasa — haqiqiy mijoz IP'si (kirish urinishlarini cheklash uchun): TRUST_PROXY=1
+  if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
+  app.use(securityHeaders(production));
+
+  // Ish haqi, natijalar, ijara kabi katta fayllar JSON bilan keladi (standart 100 kb yetmaydi)
+  const bodyLimit = process.env.BODY_LIMIT ?? '10mb';
+  app.useBodyParser('json', { limit: bodyLimit });
+  app.useBodyParser('urlencoded', { limit: bodyLimit, extended: true });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -31,18 +42,21 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  app.enableCors({
-    origin: ['http://localhost:3000'],
-    credentials: true,
-  });
+  // CORS_ORIGINS="https://tahlil.example.uz,http://localhost:3000" (vergul bilan); bo'sh bo'lsa — faqat localhost
+  const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  app.enableCors({ origin: origins, credentials: true });
+  app.enableShutdownHooks();
 
   const port = Number(process.env.API_PORT ?? 3001);
-  await app.listen(port);
+  const host = process.env.API_HOST ?? '0.0.0.0';
+  await app.listen(port, host);
 
-  Logger.log(`Server ishga tushdi: http://localhost:${port}/api`, 'Bootstrap');
+  Logger.log(`Server ishga tushdi: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/api (${production ? 'production' : 'development'})`, 'Bootstrap');
 }
 
 void bootstrap();

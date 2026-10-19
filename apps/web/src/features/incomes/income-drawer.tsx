@@ -1,7 +1,10 @@
 'use client';
 
+import { DiscussMenu } from '@/features/reactions/discuss';
+import { categoryMark, clientMark, recordMark } from '@/features/reactions/marks';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
+import { recallForm, rememberForm } from '@/lib/form-memory';
 import {
   formatDateTime,
   formatTiyin,
@@ -9,7 +12,7 @@ import {
   tiyinToSum,
   todayInput,
 } from '@/lib/format';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { incomesApi } from './api';
 
 import { MoneyInput } from '@/components/shared/money-input';
@@ -83,6 +86,20 @@ function emptyForm(): FormState {
   };
 }
 
+/** Yangi daromadda oldingi safardagi tanlovlar qoladi */
+const MEMORY = 'income';
+type Remembered = Pick<FormState, 'categoryCode' | 'departmentId' | 'paymentMethod'>;
+
+function newForm(): FormState {
+  const last = recallForm<Remembered>(MEMORY);
+  return {
+    ...emptyForm(),
+    ...(typeof last.categoryCode === 'string' ? { categoryCode: last.categoryCode } : {}),
+    ...(typeof last.departmentId === 'string' ? { departmentId: last.departmentId } : {}),
+    ...(last.paymentMethod ? { paymentMethod: last.paymentMethod } : {}),
+  };
+}
+
 function toDateInput(iso: string | null): string {
   if (!iso) return '';
   const shifted = new Date(new Date(iso).getTime() + 5 * 3600_000);
@@ -108,6 +125,9 @@ export function IncomeDrawer({
   const [serverError, setServerError] = useState<string | null>(null);
   const [extraOpen, setExtraOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  /** «Saqlash va yana» bilan shu oynada kiritilganlar */
+  const [added, setAdded] = useState<{ count: number; last: string } | null>(null);
+  const amountBox = useRef<HTMLDivElement>(null);
 
   const isOpen = income !== null || creating;
   const isEditing = income !== null;
@@ -137,10 +157,11 @@ export function IncomeDrawer({
         ),
       );
     } else {
-      setForm(emptyForm());
+      setForm(newForm());
       setExtraOpen(false);
     }
 
+    setAdded(null);
     setErrors({});
     setServerError(null);
   }, [income, creating]);
@@ -190,7 +211,7 @@ export function IncomeDrawer({
     return Object.keys(found).length === 0;
   }
 
-  async function handleSave() {
+  async function handleSave(next = false) {
     if (!validate()) return;
 
     setSaving(true);
@@ -215,7 +236,15 @@ export function IncomeDrawer({
         onSaved("O'zgarishlar saqlandi");
       } else {
         await incomesApi.create(payload);
+        rememberForm<Remembered>(MEMORY, { categoryCode: form.categoryCode, departmentId: form.departmentId, paymentMethod: form.paymentMethod });
         onSaved("Daromad qo'shildi");
+        if (next) {
+          // Ketma-ket kiritish: sana, xizmat turi, bo'lim va to'lov usuli qoladi
+          setAdded((a) => ({ count: (a?.count ?? 0) + 1, last: formatTiyin(payload.amountTiyin) }));
+          setForm((state) => ({ ...emptyForm(), date: state.date, categoryCode: state.categoryCode, departmentId: state.departmentId, paymentMethod: state.paymentMethod }));
+          setTimeout(() => amountBox.current?.querySelector('input')?.focus(), 30);
+          return;
+        }
       }
       onClose();
     } catch (err) {
@@ -279,18 +308,36 @@ export function IncomeDrawer({
                   variant="ghost"
                   onClick={() => setConfirmOpen(true)}
                   disabled={saving}
-                  className="mr-auto text-[--color-expense] hover:bg-[--color-expense-soft]"
+                  className="mr-auto text-(--color-expense) hover:bg-(--color-expense-soft)"
                 >
                   <IconTrash className="size-4" />
                   O&apos;chirish
                 </Button>
               )}
 
+              {income && (
+                <DiscussMenu
+                  label="Muhokama"
+                  direction="up"
+                  items={[
+                    recordMark('INCOME', income, 'Daromadlar › yozuv'),
+                    categoryMark('INCOME', income.categoryCode, income.category.label, 'Daromadlar'),
+                    clientMark(income.clientName, 'Daromadlar'),
+                  ]}
+                />
+              )}
+
               <Button variant="secondary" onClick={onClose} disabled={saving}>
                 Bekor qilish
               </Button>
 
-              <Button onClick={() => void handleSave()} loading={saving}>
+              {!isEditing && (
+                <Button variant="secondary" data-save-next onClick={() => void handleSave(true)} disabled={saving} title="Ctrl+Enter">
+                  Saqlash va yana
+                </Button>
+              )}
+
+              <Button data-save onClick={() => void handleSave()} loading={saving} title="Ctrl+S">
                 Saqlash
               </Button>
             </>
@@ -298,24 +345,29 @@ export function IncomeDrawer({
         }
       >
         <div className="space-y-4">
+          {added && (
+            <div className="rounded-(--radius-control) bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              ✓ Saqlandi: {added.last} so&apos;m · bu oynada {added.count} ta. Keyingisini yozing.
+            </div>
+          )}
           {serverError && (
-            <div className="rounded-[--radius-control] bg-[--color-expense-soft] px-3 py-2.5 text-sm text-[--color-expense]">
+            <div className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2.5 text-sm text-(--color-expense)">
               {serverError}
             </div>
           )}
 
           {income && (
-            <div className="rounded-[--radius-control] bg-[--color-surface-sunken] px-4 py-3">
+            <div className="rounded-(--radius-control) bg-(--color-surface-sunken) px-4 py-3">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                <span className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
                   Summa
                 </span>
-                <span className="money text-lg font-semibold text-[--color-income]">
+                <span className="money text-lg font-semibold text-(--color-income)">
                   {formatTiyin(income.amountTiyin, { currency: true })}
                 </span>
               </div>
 
-              <div className="mt-1 flex items-center gap-2 text-xs text-[--color-text-muted]">
+              <div className="mt-1 flex items-center gap-2 text-xs text-(--color-text-muted)">
                 <span>{income.category.label}</span>
                 <PaymentBadge status={income.paymentStatus} />
               </div>
@@ -336,8 +388,8 @@ export function IncomeDrawer({
 
           <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <label className="text-sm font-medium text-[--color-text]">
-                Xizmat turi <span className="text-[--color-expense]">*</span>
+              <label className="text-sm font-medium text-(--color-text)">
+                Xizmat turi <span className="text-(--color-expense)">*</span>
               </label>
 
               {!readOnly && (
@@ -361,14 +413,16 @@ export function IncomeDrawer({
             />
           </div>
 
-          <MoneyInput
-            label="Summa"
-            value={form.amount}
-            onChange={(value) => update('amount', value)}
-            error={errors.amount}
-            required
-            disabled={saving || readOnly}
-          />
+          <div ref={amountBox}>
+            <MoneyInput
+              label="Summa"
+              value={form.amount}
+              onChange={(value) => update('amount', value)}
+              error={errors.amount}
+              required
+              disabled={saving || readOnly}
+            />
+          </div>
 
           <Select
             label="Bo&apos;lim"
@@ -380,15 +434,15 @@ export function IncomeDrawer({
 
           {/* ─────── Qo'shimcha ─────── */}
 
-          <div className="rounded-[--radius-control] border border-[--color-line]">
+          <div className="rounded-(--radius-control) border border-(--color-line)">
             <button
               type="button"
               onClick={() => setExtraOpen((state) => !state)}
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-[--color-surface-muted]"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-(--color-surface-muted)"
             >
               <IconChevronDown
                 className={cn(
-                  'size-4 text-[--color-text-muted] transition-transform',
+                  'size-4 text-(--color-text-muted) transition-transform',
                   !extraOpen && '-rotate-90',
                 )}
               />
@@ -396,7 +450,7 @@ export function IncomeDrawer({
             </button>
 
             {extraOpen && (
-              <div className="space-y-4 border-t border-[--color-line] px-3 py-4">
+              <div className="space-y-4 border-t border-(--color-line) px-3 py-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Select
                     label="To&apos;lov holati"
@@ -448,7 +502,7 @@ export function IncomeDrawer({
                 />
 
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[--color-text]">
+                  <label className="mb-1.5 block text-sm font-medium text-(--color-text)">
                     Tavsif
                   </label>
                   <textarea
@@ -457,7 +511,7 @@ export function IncomeDrawer({
                     rows={3}
                     maxLength={500}
                     disabled={saving || readOnly}
-                    className="w-full rounded-[--radius-control] border border-[--color-line-strong] bg-white px-3 py-2 text-sm focus:border-brand-600 disabled:bg-[--color-surface-sunken]"
+                    className="w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3 py-2 text-sm focus:border-brand-600 disabled:bg-(--color-surface-sunken)"
                   />
                 </div>
               </div>

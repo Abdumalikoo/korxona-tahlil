@@ -1,5 +1,7 @@
 'use client';
 
+import { useMonthChange, usePeriod } from '@/lib/period';
+import { DeleteDataButton } from '@/components/shared/delete-data';
 import { useState, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
@@ -11,11 +13,10 @@ import {
   analyzeRegionalFile,
   type RegionalAnalyzeResult,
 } from '@/features/incomes/regional-api';
-import { currentPeriod, formatPeriod, formatTiyin, formatPercent } from '@/lib/format';
+import { formatPeriod, formatTiyin, formatPercent } from '@/lib/format';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { Tabs } from '@/components/ui/tabs';
-import { PeriodPicker } from '@/components/shared/period-picker';
+import { SectionTabs } from '@/features/sections/section-tabs';
 import { ShareBar } from '@/components/shared/share-bar';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,17 +34,12 @@ import {
 } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 
-const tabs = [
-  { href: '/daromadlar', label: "Ro'yxat" },
-  { href: '/daromadlar/tahlil', label: 'Tahlil' },
-  { href: '/daromadlar/hududlar', label: 'Hududlar' },
-  { href: '/daromadlar/natijalar', label: 'Xodim natijalari' },
-];
 
 export default function RegionalIncomePage() {
   const { isAdmin } = useAuth();
 
-  const [period, setPeriod] = useState(currentPeriod());
+  /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
+  const { month: period } = usePeriod();
   const [analysis, setAnalysis] = useState<RegionalAnalyzeResult | null>(null);
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -119,7 +115,10 @@ export default function RegionalIncomePage() {
         replacePrevious,
       );
       setToast({
-        message: `${result.data.created} ta daromad yozuvi yaratildi`,
+        message:
+          result.data.districtRows > 0
+            ? `${result.data.created} ta daromad yozuvi yaratildi (${result.data.districtRows} tasi tuman kesimida)`
+            : `${result.data.created} ta daromad yozuvi yaratildi`,
         tone: 'success',
       });
       reset();
@@ -147,26 +146,35 @@ export default function RegionalIncomePage() {
   const regionRows = byRegion.data?.data.rows ?? [];
   const serviceRows = byService.data?.data.rows ?? [];
 
+  // Oy almashganda: yuklash oynasi va tanlovlar tozalanadi
+  useMonthChange(period, () => {
+    reset();
+  });
+
   return (
     <>
       <PageHeader
         title="Daromadlar"
         description={`Hududlar \u00B7 ${formatPeriod(period)}`}
-      />
-
-      <Tabs items={tabs} className="bg-white px-6" />
-
-      <div className="space-y-4 p-6">
-        {/* Davr va shablon */}
-        <div className="flex flex-wrap items-center gap-3">
-          <PeriodPicker
-            value={period}
-            onChange={(value) => {
-              setPeriod(value);
-              reset();
+        actions={
+          <DeleteDataButton
+            target="INCOME"
+            scope={{ regional: true, ...(selectedRegion ? { regionCode: Number(selectedRegion) } : {}) }}
+            month={period}
+            place="Daromadlar › Hududlar tushumi"
+            onDone={() => {
+              byRegion.reload();
+              byService.reload();
             }}
           />
+        }
+      />
 
+      <SectionTabs kind="income" section="DOIMIY" />
+
+      <div className="space-y-4 p-6">
+        {/* Shablon (oy — yuqori panelda) */}
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="secondary"
             size="sm"
@@ -174,7 +182,7 @@ export default function RegionalIncomePage() {
             loading={downloading}
           >
             <IconDownload className="size-4" />
-            Shablon yuklab olish
+            Shablon (tumanlar kesimida)
           </Button>
         </div>
 
@@ -196,29 +204,29 @@ export default function RegionalIncomePage() {
                 }}
                 onClick={() => inputRef.current?.click()}
                 className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[--radius-card] border-2 border-dashed px-6 py-12 transition-colors',
+                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-(--radius-card) border-2 border-dashed px-6 py-12 transition-colors',
                   dragging
                     ? 'border-brand-600 bg-brand-50'
-                    : 'border-[--color-line-strong] hover:border-brand-400 hover:bg-[--color-surface-muted]',
+                    : 'border-(--color-line-strong) hover:border-brand-400 hover:bg-(--color-surface-muted)',
                 )}
               >
                 {uploading ? (
                   <>
                     <IconSpinner className="size-8 animate-spin text-brand-700" />
-                    <p className="text-sm text-[--color-text-muted]">
+                    <p className="text-sm text-(--color-text-muted)">
                       Fayl tahlil qilinmoqda&hellip;
                     </p>
                   </>
                 ) : (
                   <>
                     <IconUpload
-                      className="size-8 text-[--color-text-faint]"
+                      className="size-8 text-(--color-text-faint)"
                       strokeWidth={1.5}
                     />
-                    <p className="text-sm font-medium text-[--color-text]">
+                    <p className="text-sm font-medium text-(--color-text)">
                       To&rsquo;ldirilgan faylni shu yerga tashlang
                     </p>
-                    <p className="text-xs text-[--color-text-muted]">
+                    <p className="text-xs text-(--color-text-muted)">
                       Bitta varaq, hududlar ustunlarda &middot; Soni va Summasi
                     </p>
                   </>
@@ -261,7 +269,7 @@ export default function RegionalIncomePage() {
           {byRegion.loading ? (
             <LoadingState />
           ) : regionRows.length === 0 ? (
-            <EmptyState title="Bu davrda hududiy daromad yo'q" />
+            <EmptyState title="Bu davrda hududiy daromad yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -285,11 +293,11 @@ export default function RegionalIncomePage() {
                   <Tr key={row.regionCode ?? 'none'}>
                     <Td>{row.name}</Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.count}
                     </Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.quantity || '\u2014'}
                     </Td>
 
@@ -299,7 +307,7 @@ export default function RegionalIncomePage() {
                           percent={row.sharePercent}
                           color="var(--color-income)"
                         />
-                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-muted)">
                           {formatPercent(row.sharePercent)}
                         </span>
                       </div>
@@ -348,7 +356,7 @@ export default function RegionalIncomePage() {
           {byService.loading ? (
             <LoadingState />
           ) : serviceRows.length === 0 ? (
-            <EmptyState title="Ma'lumot yo'q" />
+            <EmptyState title="Ma'lumot yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -374,11 +382,11 @@ export default function RegionalIncomePage() {
                       {row.label}
                     </Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.quantity || '\u2014'}
                     </Td>
 
-                    <Td money className="text-[--color-text-muted]">
+                    <Td money className="text-(--color-text-muted)">
                       {row.averageTiyin ? formatTiyin(row.averageTiyin) : '\u2014'}
                     </Td>
 
@@ -457,8 +465,12 @@ function AnalysisView({
   return (
     <div className="space-y-4">
       {/* Yig'indi */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryBox label="Hududlar" value={String(analysis.regions.length)} />
+        <SummaryBox
+          label="Tumanlar"
+          value={String(analysis.regions.reduce((sum, region) => sum + region.districtCount, 0))}
+        />
         <SummaryBox label="Yozuvlar" value={String(analysis.totalRows)} tone="income" />
         <SummaryBox
           label="Jami summa"
@@ -469,18 +481,46 @@ function AnalysisView({
 
       {/* Ogohlantirishlar */}
       {analysis.unknownSheets.length > 0 && (
-        <div className="flex items-start gap-2.5 rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
-          <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+        <div className="flex items-start gap-2.5 rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
+          <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
           <div>
-            <p className="text-sm font-medium text-[--color-warn]">
+            <p className="text-sm font-medium text-(--color-warn)">
               Tanilmagan ustunlar
             </p>
-            <p className="mt-0.5 text-xs text-[--color-text-muted]">
+            <p className="mt-0.5 text-xs text-(--color-text-muted)">
               {analysis.unknownSheets.join(', ')} &mdash; bu ustunlar o&rsquo;tkazib
               yuborildi
             </p>
           </div>
         </div>
+      )}
+
+      {analysis.districtRows === 0 && (
+        <div className="flex items-start gap-2.5 rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
+          <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
+          <p className="text-sm text-(--color-warn)">
+            Faylda tuman kesimi yo&rsquo;q &mdash; tushum faqat viloyatlar bo&rsquo;yicha saqlanadi.
+            Tumanlar bo&rsquo;yicha ko&rsquo;rish uchun yangi shablondan foydalaning.
+          </p>
+        </div>
+      )}
+
+      {analysis.unknownPlaces.length > 0 && (
+        <Card className="overflow-hidden">
+          <CardHeader
+            title={`Tanilmagan viloyat yoki tumanlar \u2014 ${analysis.unknownPlaces.length} ta`}
+            description="Bu qatorlar hisobga olinmaydi — nomini tekshiring"
+          />
+          <CardBody className="max-h-40 overflow-y-auto">
+            <ul className="space-y-1 text-xs text-(--color-text-muted)">
+              {analysis.unknownPlaces.slice(0, 20).map((item, index) => (
+                <li key={`${item.sheet}-${item.rowIndex}-${index}`}>
+                  <span className="money">{item.sheet}</span> &middot; {item.rowIndex}-qator &mdash; {item.value}
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
       )}
 
       {analysis.unknownServices.length > 0 && (
@@ -490,7 +530,7 @@ function AnalysisView({
             description="Bu qatorlar hisobga olinmaydi"
           />
           <CardBody className="max-h-40 overflow-y-auto">
-            <ul className="space-y-1 text-xs text-[--color-text-muted]">
+            <ul className="space-y-1 text-xs text-(--color-text-muted)">
               {analysis.unknownServices.slice(0, 20).map((item, index) => (
                 <li key={`${item.sheet}-${item.rowIndex}-${index}`}>
                   <span className="money">{item.sheet}</span> &middot; {item.rowIndex}-qator
@@ -503,16 +543,16 @@ function AnalysisView({
       )}
 
       {analysis.hasPrevious && (
-        <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+        <div className="rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
           <div className="flex items-start gap-2.5">
-            <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+            <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-[--color-warn]">
+              <p className="text-sm font-medium text-(--color-warn)">
                 Bu davrda {analysis.previousCount} ta hududiy daromad bor
               </p>
 
               <div className="mt-3 space-y-2">
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] bg-white px-3 py-2.5">
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-(--radius-control) bg-white px-3 py-2.5">
                   <input
                     type="radio"
                     checked={!replacePrevious}
@@ -521,13 +561,13 @@ function AnalysisView({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium">Qo&rsquo;shish</span>
-                    <span className="block text-xs text-[--color-text-muted]">
+                    <span className="block text-xs text-(--color-text-muted)">
                       Eski yozuvlar joyida qoladi
                     </span>
                   </span>
                 </label>
 
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] bg-white px-3 py-2.5">
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-(--radius-control) bg-white px-3 py-2.5">
                   <input
                     type="radio"
                     checked={replacePrevious}
@@ -536,7 +576,7 @@ function AnalysisView({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium">Almashtirish</span>
-                    <span className="block text-xs text-[--color-text-muted]">
+                    <span className="block text-xs text-(--color-text-muted)">
                       Eski yozuvlar o&rsquo;chiriladi
                     </span>
                   </span>
@@ -559,6 +599,9 @@ function AnalysisView({
             <Tr>
               <Th>Hudud</Th>
               <Th align="center" className="w-24">
+                Tumanlar
+              </Th>
+              <Th align="center" className="w-24">
                 Xizmat
               </Th>
               <Th align="center" className="w-24">
@@ -573,11 +616,21 @@ function AnalysisView({
           <TBody>
             {analysis.regions.map((region) => (
               <Tr key={region.regionCode}>
-                <Td>{region.name}</Td>
-                <Td align="center" className="money text-[--color-text-muted]">
+                <Td>
+                  {region.name}
+                  {region.districtCount > 0 && BigInt(region.unassignedTiyin) > 0n && (
+                    <span className="block text-xs text-(--color-text-muted)">
+                      Tumanga bo&rsquo;linmagan: {formatTiyin(region.unassignedTiyin)}
+                    </span>
+                  )}
+                </Td>
+                <Td align="center" className="money text-(--color-text-muted)">
+                  {region.districtCount || '\u2014'}
+                </Td>
+                <Td align="center" className="money text-(--color-text-muted)">
                   {region.count}
                 </Td>
-                <Td align="center" className="money text-[--color-text-muted]">
+                <Td align="center" className="money text-(--color-text-muted)">
                   {region.quantity || '\u2014'}
                 </Td>
                 <Td money>
@@ -589,7 +642,7 @@ function AnalysisView({
 
           <TFoot>
             <Tr>
-              <Td colSpan={3}>Jami</Td>
+              <Td colSpan={4}>Jami</Td>
               <Td money>
                 <Money
                   tiyin={analysis.totalTiyin}
@@ -625,14 +678,14 @@ function SummaryBox({
   tone?: 'neutral' | 'income';
 }) {
   return (
-    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
         {label}
       </p>
       <p
         className={cn(
           'money mt-2 text-xl font-semibold',
-          tone === 'income' ? 'text-[--color-income]' : 'text-[--color-text]',
+          tone === 'income' ? 'text-(--color-income)' : 'text-(--color-text)',
         )}
       >
         {value}

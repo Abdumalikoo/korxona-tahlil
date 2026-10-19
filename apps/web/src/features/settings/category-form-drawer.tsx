@@ -164,7 +164,7 @@ export function CategoryFormDrawer({
     >
       <div className="space-y-4">
         {error && (
-          <div className="rounded-[--radius-control] bg-[--color-expense-soft] px-3 py-2.5 text-sm text-[--color-expense]">
+          <div className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2.5 text-sm text-(--color-expense)">
             {error}
           </div>
         )}
@@ -211,7 +211,7 @@ export function CategoryFormDrawer({
             />
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-[--color-text]">
+              <label className="mb-1.5 block text-sm font-medium text-(--color-text)">
                 Kalit so&rsquo;zlar
               </label>
               <textarea
@@ -219,10 +219,10 @@ export function CategoryFormDrawer({
                 onChange={(event) => update('keywords', event.target.value)}
                 rows={2}
                 disabled={saving}
-                className="w-full rounded-[--radius-control] border border-[--color-line-strong] bg-white px-3 py-2 text-sm placeholder:text-[--color-text-faint] focus:border-brand-600 disabled:bg-[--color-surface-sunken]"
+                className="w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3 py-2 text-sm placeholder:text-(--color-text-faint) focus:border-brand-600 disabled:bg-(--color-surface-sunken)"
                 placeholder="mebel, stol, stul, мебель"
               />
-              <p className="mt-1 text-xs text-[--color-text-muted]">
+              <p className="mt-1 text-xs text-(--color-text-muted)">
                 Vergul bilan ajrating. Qidiruvda va Excel importda avtomatik tanish uchun
                 ishlatiladi.
               </p>
@@ -231,7 +231,7 @@ export function CategoryFormDrawer({
         )}
 
         {isEditing && (
-          <p className="rounded-[--radius-control] bg-[--color-surface-sunken] px-3 py-2.5 text-xs text-[--color-text-muted]">
+          <p className="rounded-(--radius-control) bg-(--color-surface-sunken) px-3 py-2.5 text-xs text-(--color-text-muted)">
             Kod o&rsquo;zgartirilmaydi &mdash; unga mavjud yozuvlar bog&rsquo;langan.
             Guruhni ham o&rsquo;zgartirib bo&rsquo;lmaydi.
           </p>

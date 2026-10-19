@@ -8,6 +8,6 @@ import { RegionalIncomeController } from './regional-income.controller';
 @Module({
   controllers: [IncomesController, RegionalIncomeController],
   providers: [IncomesService, RegionalIncomeService, IncomesExportService],
-  exports: [IncomesService],
+  exports: [IncomesService, RegionalIncomeService],
 })
 export class IncomesModule {}

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { DiscussMenu } from '@/features/reactions/discuss';
+import { districtMark, employeeMark } from '@/features/reactions/marks';
 import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
 import { employeesApi } from './api';
@@ -15,6 +17,8 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { LocationPicker } from '@/components/shared/location-picker';
+import { TransferHistory } from './transfer-history';
+import { EmployeeHoldings } from '@/features/warehouse/employee-holdings';
 import type {
   Employee,
   RegionWithDistricts,
@@ -264,7 +268,7 @@ export function EmployeeDrawer({
                       variant="ghost"
                       onClick={() => setConfirmOpen(true)}
                       disabled={saving}
-                      className="text-[--color-text-muted] hover:text-[--color-warn]"
+                      className="text-(--color-text-muted) hover:text-(--color-warn)"
                     >
                       Arxivlash
                     </Button>
@@ -274,10 +278,25 @@ export function EmployeeDrawer({
                     variant="ghost"
                     onClick={() => setDeleteOpen(true)}
                     disabled={saving}
-                    className="text-[--color-text-muted] hover:text-[--color-expense]"
+                    className="text-(--color-text-muted) hover:text-(--color-expense)"
                   >
                     <IconTrash className="size-4" />
                   </Button>
+                  {employee && (
+                    <DiscussMenu
+                      label="Muhokama"
+                      align="left"
+                      direction="up"
+                      items={[
+                        employeeMark(employee.pinfl, employee.fullName, 'EXPENSE', 'Xodimlar'),
+                        employeeMark(employee.pinfl, employee.fullName, 'INCOME', 'Xodimlar'),
+                        employeeMark(employee.pinfl, employee.fullName, 'RESULT', 'Xodimlar'),
+                        employee.districtId && employee.district
+                          ? districtMark(employee.districtId, employee.district.name, 'EXPENSE', null, 'Xodimlar › tuman')
+                          : null,
+                      ]}
+                    />
+                  )}
                 </div>
               )}
 
@@ -294,16 +313,16 @@ export function EmployeeDrawer({
       >
         <div className="space-y-4">
           {serverError && (
-            <div className="rounded-[--radius-control] bg-[--color-expense-soft] px-3 py-2.5 text-sm text-[--color-expense]">
+            <div className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2.5 text-sm text-(--color-expense)">
               {serverError}
             </div>
           )}
 
           {employee && !employee.isActive && (
-            <div className="flex items-center gap-2 rounded-[--radius-control] bg-[--color-surface-sunken] px-3 py-2.5">
+            <div className="flex items-center gap-2 rounded-(--radius-control) bg-(--color-surface-sunken) px-3 py-2.5">
               <Badge tone="neutral">Arxivlangan</Badge>
               {employee.firedAt && (
-                <span className="text-xs text-[--color-text-muted]">
+                <span className="text-xs text-(--color-text-muted)">
                   {formatDate(employee.firedAt)}
                 </span>
               )}
@@ -412,6 +431,8 @@ export function EmployeeDrawer({
             />
           </div>
         </div>
+        {employee && <TransferHistory pinfl={employee.pinfl} />}
+        {employee && <EmployeeHoldings pinfl={employee.pinfl} />}
       </Drawer>
 
       <ConfirmDialog

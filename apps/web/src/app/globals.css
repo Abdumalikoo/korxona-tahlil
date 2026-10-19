@@ -5,40 +5,62 @@
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
 
-  /* ─────────── Asosiy ko'k ─────────── */
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-200: #bfdbfe;
-  --color-brand-300: #93c5fd;
-  --color-brand-400: #60a5fa;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
-  --color-brand-800: #1e40af;
-  --color-brand-900: #1e3a8a;
+  /* ─────────── Asosiy ko'k (chap menyu, faol yorliqlar, tugmalar) ─────────── */
+  --color-brand-50: #eef3fd;
+  --color-brand-100: #dce7fb;
+  --color-brand-200: #bfd2f7;
+  --color-brand-300: #94b3f0;
+  --color-brand-400: #6891e6;
+  --color-brand-500: #4a78dd;
+  --color-brand-600: #3a66d2;
+  --color-brand-700: #2f53b3;
+  --color-brand-800: #2a4691;
+  --color-brand-900: #233a72;
 
-  /* ─────────── Neytral (ko'k-kulrang) ─────────── */
+  /* ─────────── Chap menyu foni (yuqoridan pastga) ─────────── */
+  --color-side-from: #3862cf;
+  --color-side-to: #4b7ce0;
+
+  /* ─────────── Neytral (och ko'k-kulrang) ─────────── */
   --color-surface: #ffffff;
-  --color-surface-muted: #f8fafc;
-  --color-surface-sunken: #f1f5f9;
-  --color-line: #e2e8f0;
-  --color-line-strong: #cbd5e1;
-  --color-text: #334155;
-  --color-text-muted: #64748b;
-  --color-text-faint: #94a3b8;
+  --color-surface-muted: #edf2fb;
+  --color-surface-sunken: #e4ebf7;
+  --color-line: #dde5f2;
+  --color-line-strong: #c3cfe3;
+  --color-heading: #1b2a4e;
+  --color-text: #26344f;
+  --color-text-muted: #64718b;
+  --color-text-faint: #98a4ba;
 
-  /* ─────────── Ma'noli ranglar ─────────── */
-  --color-income: #059669;
-  --color-income-soft: #ecfdf5;
+  /* ─────────── Ma'noli ranglar (urg'u) ───────────
+     Daromad — yashil, Xarajat — qizil, Ogohlantirish — to'q sariq.
+     *-soft — shu rangning och foni (belgi, nishon, qator ajratish uchun). */
+  --color-income: #12a150;
+  --color-income-strong: #0b7a3b;
+  --color-income-soft: #e6f6ec;
 
-  --color-expense: #dc2626;
-  --color-expense-soft: #fef2f2;
+  --color-expense: #e5484d;
+  --color-expense-strong: #c22f34;
+  --color-expense-soft: #fdecec;
+
   --color-warn: #d97706;
-  --color-warn-soft: #fffbeb;
+  --color-warn-soft: #fff4e0;
+
+  /* ─────────── Ko'rsatkich kartalaridagi rangli belgilar ─────────── */
+  --color-tile-blue: #3a66d2;
+  --color-tile-green: #12a150;
+  --color-tile-orange: #f59e0b;
+  --color-tile-purple: #7c5ce0;
+  --color-tile-red: #e5484d;
+  --color-tile-cyan: #0ea5c6;
 
   /* ─────────── O'lchamlar ─────────── */
-  --radius-card: 0.625rem;
-  --radius-control: 0.5rem;
+  --radius-card: 1rem;
+  --radius-control: 0.625rem;
+
+  /* ─────────── Soyalar ─────────── */
+  --shadow-card: 0 1px 2px rgb(27 42 78 / 0.04), 0 4px 16px rgb(27 42 78 / 0.05);
+  --shadow-pill: 0 4px 12px rgb(58 102 210 / 0.28);
 }
 
 /* ─────────── Shriftlarni yuklash ─────────── */
@@ -86,21 +108,31 @@ body {
 
 /**
  * Pul summalari uchun.
- * `tabular-nums` — barcha raqamlar bir xil enlikda,
+ * Asosiy shrift, lekin `tabular-nums` — barcha raqamlar bir xil enlikda,
  * shunda ustundagi summalar bir-biriga to'g'ri tekislanadi.
  */
 .money {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum';
+  font-feature-settings: 'tnum', 'cv11';
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
+/**
+ * Yuqori panel: sahifa o'z sarlavhasini (PageHeader) joylaganda
+ * menyudan olingan zaxira sarlavha yashiriladi.
+ */
+.topbar:has([data-page-header]) .topbar-fallback {
+  display: none;
+}
 
-/* Fokus halqasi — klaviatura bilan ishlash uchun */
-:focus-visible {
-  outline: 2px solid var(--color-brand-600);
-  outline-offset: 2px;
+/* Fokus halqasi — klaviatura bilan ishlash uchun (klass bilan o'chirish mumkin: outline-none) */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
 }
 
 /* Raqam maydonlaridagi strelkalarni olib tashlaymiz */
@@ -130,9 +162,14 @@ input[type='number'] {
   border: 2px solid var(--color-surface-muted);
 }
 
-
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-faint);
+}
+
+/* Chap menyudagi aylantirish paneli — ko'k fonda ko'rinmas darajada */
+.side-scroll::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.25);
+  border-color: transparent;
 }
 
 /* Chop etishda ortiqcha elementlarni yashirish */

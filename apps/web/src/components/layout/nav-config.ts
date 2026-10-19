@@ -1,0 +1,633 @@
+import type { ComponentType, SVGProps } from 'react';
+import {
+  NavCompare,
+  NavBars,
+  NavBin,
+  NavBolt,
+  NavBox,
+  NavClipboard,
+  NavIn,
+  NavList,
+  NavMail,
+  NavOut,
+  NavPerson,
+  NavSwap,
+  NavTag,
+  NavUndo,
+  NavCar,
+  NavDatabase,
+  NavExpense,
+  NavFlag,
+  NavFormula,
+  NavHome,
+  NavIncome,
+  NavReport,
+  NavSettings,
+  NavShield,
+  NavUsers,
+} from './nav-icons';
+
+// ═══════════════════════════════════════════════════════════
+// Yagona navigatsiya ro'yxati:
+//  • MENU — bo'limlar (yorliqlar qatori, sarlavha, qidiruv);
+//  • SIDEBAR — chap menyu: 3 zona — KIRITISH (ma'lumot kiritiladigan bo'limlar),
+//    TAHLIL (ko'rish va hisobot), BOSHQARUV (munosabat, nazorat, sozlamalar);
+//  • yuqori paneldagi sarlavha (sahifa o'zinikini bermasa);
+//  • global qidiruvdagi "Sahifalar".
+// Yangi sahifa qo'shilsa — faqat shu faylga yoziladi.
+// ═══════════════════════════════════════════════════════════
+
+export interface NavPage {
+  label: string;
+  href: string;
+  /** Qisqa izoh (qidiruvda ko'rinadi) */
+  description?: string;
+  /** Yorliqlar qatorida ko'rinmaydi (faqat qidiruvda) */
+  hidden?: boolean;
+}
+
+export interface NavItem extends NavPage {
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  /** Shu bo'limga tegishli boshqa manzillar (masalan, /tahlil/daromad) */
+  match?: string[];
+  adminOnly?: boolean;
+  /**
+   * Faqat ishchi rol (Omborchi …) kiritish zonasi. Umumiy hududda (administrator, kuzatuvchi)
+   * menyu va qidiruvda ko'rinmaydi — u yerda shu bo'limning dashbordi turadi (ROLE_DASHBOARDS).
+   */
+  workerOnly?: boolean;
+  /** Bo'lim ichidagi sahifalar */
+  pages?: NavPage[];
+}
+
+export const MENU: NavItem[] = [
+  {
+    label: 'Bosh sahifa',
+    href: '/',
+    match: ['/tahlil'],
+    icon: NavHome,
+    description: 'Daromad, xarajat va tahlil bir qarashda',
+    pages: [
+      { label: 'Bosh sahifa', href: '/', description: 'Daromad, xarajat va foyda bir qarashda' },
+      { label: 'Daromad', href: '/tahlil/daromad', description: 'Daromad tahlili: xizmatlar, mijozlar, hududlar' },
+      { label: 'Xarajat', href: '/tahlil/xarajat', description: 'Xarajat tahlili: moddalar, kontragentlar, hududlar' },
+      { label: 'Tahlil', href: '/tahlil/umumiy', description: 'Umumiy tahlil: foyda, dinamika, tarkib' },
+      { label: 'Markaz tushumi', href: '/tahlil/markaz', description: "Markaz hisobraqamlari bo'yicha oylik daromad (kunlik ma'lumotnomadan)" },
+    ],
+  },
+  {
+    label: 'Tez kiritish',
+    href: '/kiritish',
+    icon: NavBolt,
+    description: "Hamma kiritish turlari bitta joyda va bugun kiritilganlar",
+  },
+  {
+    label: 'Daromadlar',
+    href: '/daromadlar',
+    icon: NavIncome,
+    description: "Daromadlar ro'yxati va bo'limlari",
+    pages: [
+      { label: 'Umumiy', href: '/daromadlar', description: 'Doimiy va Boshqa bir qarashda' },
+      { label: 'Doimiy', href: '/daromadlar/doimiy', description: "Muntazam daromadlar ro'yxati" },
+      { label: 'Boshqa', href: '/daromadlar/boshqa', description: 'Bir martalik daromadlar' },
+      { label: 'Markaz tushumi', href: '/daromadlar/markaz', description: "Kunlik tushum va qoldiq fayli — Markaz oylik daromadi" },
+      { label: 'Hududlar tushumi', href: '/daromadlar/hududlar', description: 'Hududlardan Excel orqali kelgan tushum' },
+      { label: 'Natijalar', href: '/daromadlar/natijalar', description: 'Oylik natijalar' },
+      { label: 'Reja va tushum', href: '/daromadlar/reja-tushum', description: "Xodimlar reja / tushum fayli — daromadni xodimlarga bo'lib beradi" },
+      { label: 'Tahlil', href: '/daromadlar/tahlil', description: 'Daromad dinamikasi va tarkibi' },
+    ],
+  },
+  {
+    label: 'Xarajatlar',
+    href: '/xarajatlar',
+    icon: NavExpense,
+    description: "Xarajatlar ro'yxati va bo'limlari",
+    pages: [
+      { label: 'Umumiy', href: '/xarajatlar', description: 'Doimiy, Boshqa va qismlar bir qarashda' },
+      { label: 'Doimiy', href: '/xarajatlar/doimiy', description: "Muntazam xarajatlar ro'yxati" },
+      { label: 'Boshqa', href: '/xarajatlar/boshqa', description: 'Bir martalik xarajatlar' },
+      { label: 'Ish haqi', href: '/xarajatlar/ish-haqi', description: 'Ish haqi vedomostlari' },
+      { label: 'Ish haqi tarkibi', href: '/xarajatlar/tarkib', description: "Ish haqi komponentlar bo'yicha" },
+      { label: 'Ijara', href: '/xarajatlar/ijara', description: "Ijara shartnomalari va to'lovlar" },
+      { label: 'Tahlil', href: '/xarajatlar/tahlil', description: 'Xarajat dinamikasi va tarkibi' },
+      { label: 'Soliqlar', href: '/xarajatlar/soliqlar', description: "Hamma soliqlar: hudud va Markaz bo'yicha, ish haqidan foizlilar avtomatik" },
+      { label: 'Asosiy vositalar', href: '/xarajatlar/asosiy-vositalar', description: "Balansdagi vositalar va oylik sarfi (eskirish)" },
+      { label: 'Xarajatlar siyosati', href: '/xarajatlar/siyosat', description: "Markaz xarajati: joriy (o'ziniki, hududlar uchun) va asosiy vositalar" },
+      { label: 'Yangi xarajat', href: '/xarajatlar/yangi', description: "Xarajat qo'shish", hidden: true },
+    ],
+  },
+  { label: 'Xodimlar', href: '/xodimlar', icon: NavUsers, description: "Xodimlar ro'yxati va ko'chishlar" },
+  {
+    label: 'Ombor',
+    href: '/ombor',
+    icon: NavBox,
+    workerOnly: true,
+    description: "TMZ va asosiy vositalar: kirim, chiqim, kimda nima bor",
+    pages: [
+      { label: 'Umumiy', href: '/ombor', description: "Qoldiq qiymati, davr kirim-chiqimi, kam qolganlar, kimda nima bor" },
+      { label: 'Hujjatlar', href: '/ombor/hujjatlar', description: "Kirim, chiqim, qaytarish, ko'chirish, hisobdan chiqarish va dalolatnomalar" },
+      { label: 'Qoldiq', href: '/ombor/qoldiq', description: "Buyumlar ma'lumotnomasi va ombordagi qoldiq" },
+      { label: 'Asosiy vositalar', href: '/ombor/asosiy-vositalar', description: "Inventar raqami bo'yicha: kimda, qayerda, harakat tarixi" },
+      { label: 'Kimda nima bor', href: '/ombor/kimda', description: "Odam, bo'lim yoki hudud: biriktirilgan mulk va kartochka" },
+      { label: 'Inventarizatsiya', href: '/ombor/inventarizatsiya', description: 'Sanab chiqish, kamomad va ortiqcha, dalolatnoma' },
+      { label: 'Pochta', href: '/ombor/pochta', description: "Pochta korxonalariga to'lovlar" },
+      { label: 'Dalolatnoma shabloni', href: '/ombor/shablon', description: "Berish, qaytarish, o'tkazish dalolatnomalari: tasdiqlovchi, matnlar, hududlar" },
+      // Kiritish sahifalari (omborchi menyusida; administratorga — tugmalar va qidiruv orqali)
+      { label: 'Ish stoli', href: '/ombor/ish-stoli', description: 'Omborchi: bugungi ishlar, qoralamalar, kam qolganlar', hidden: true },
+      { label: 'Kirim', href: '/ombor/kirim', description: "Omborga keldi — xarajatga yoziladi (asosiy vosita — balansga, oylik sarfi bilan)", hidden: true },
+      { label: 'Chiqim (berish)', href: '/ombor/chiqim', description: "Odamga yoki bo'limga berish", hidden: true },
+      { label: "Ko'chirish", href: '/ombor/kochirish', description: "Asosiy vositani boshqa odam/bo'limga o'tkazish", hidden: true },
+      { label: 'Qaytarish', href: '/ombor/qaytarish', description: 'Omborga qaytib keldi', hidden: true },
+      { label: 'Hisobdan chiqarish', href: '/ombor/hisobdan-chiqarish', description: "Yaroqsiz, yo'qolgan, sarflangan", hidden: true },
+    ],
+  },
+  {
+    label: 'Mashinalar',
+    href: '/mashinalar',
+    icon: NavCar,
+    workerOnly: true,
+    description: "Mashina xarajatlari: yoqilg'i, moyka, ta'mir — guruhlar bo'yicha",
+    pages: [
+      { label: 'Xarajat kiritish', href: '/mashinalar', description: "Mashinani tanlab benzin, moyka, ta'mir yozish" },
+      { label: "Ro'yxat va hisobot", href: '/mashinalar/royxat', description: "Mashinalar guruhlar bo'yicha, oylik sarf va me'yor" },
+      { label: 'Yozuvlar va tahlil', href: '/mashinalar/tahlil', description: "Oy yozuvlari (tahrirlash, o'chirish) va 12 oylik tahlil" },
+    ],
+  },
+  // ── Umumiy hudud: rollar (har biri administrator qo'ygan nom bilan) va ularning dashbordlari ──
+  {
+    label: 'Rollar',
+    href: '/rollar',
+    icon: NavUsers,
+    description: "Har bir rolning katta dashbordi: xodimlari, bugungi ishi, ombor, mashinalar, pochta",
+  },
+  {
+    label: 'Ombor',
+    href: '/dashbord/ombor',
+    icon: NavBox,
+    description: "Omborchi kiritganlari: qoldiq, kirim-chiqim, kimda nima bor, inventarizatsiya, pochta",
+  },
+  {
+    label: 'Mashinalar',
+    href: '/dashbord/mashinalar',
+    icon: NavCar,
+    description: "Omborchi kiritganlari: oylik xarajat, guruhlar, 100 km ga sarf va me'yor",
+  },
+  {
+    label: 'Xarid',
+    href: '/dashbord/xarid',
+    icon: NavIn,
+    description: "Xaridchi kiritganlari: birja va oddiy xaridlar, qarz, yetkazish muddati, arizalar, yetkazuvchilar",
+  },
+  {
+    label: 'Solishtirma',
+    href: '/solishtirma',
+    icon: NavCompare,
+    description: 'Hududlar va Markaz yonma-yon',
+    pages: [
+      { label: 'Hududlar', href: '/solishtirma', description: 'Viloyatlar → tumanlar → xodimlar: daromad, xarajat, natija' },
+      { label: 'Markaz', href: '/solishtirma/markaz', description: "Markaz → bo'limlar → xodimlar: daromad manbalari, o'z xarajati, hududlar uchun to'langan" },
+      { label: "O'zgarishlar", href: '/solishtirma/ozgarishlar', description: "Oy bo'yicha xodimlar: oylik hisoblanganlar, ishga olingan, bo'shagan, ishlamagan, ko'chgan" },
+    ],
+  },
+  {
+    label: 'Modellar',
+    href: '/modellar',
+    match: ['/katta-modellar'],
+    icon: NavFormula,
+    description: 'Formulalar, prognoz, omillar, samaradorlik, risk',
+    pages: [
+      { label: 'Modellar', href: '/modellar', description: "Tavsifiy formulalar: o'sish, ulush, barqarorlik, bog'liqlik" },
+      { label: 'Katta modellar', href: '/katta-modellar', description: 'Hududlar paneli, prognoz, salohiyat, KPI, stsenariy' },
+    ],
+  },
+  {
+    label: 'Topshiriqlar',
+    href: '/topshiriqlar',
+    icon: NavClipboard,
+    description: "Xodimga muddatli ish — Telegramga avtomatik eslatma",
+  },
+  {
+    label: 'Munosabat',
+    href: '/munosabat',
+    icon: NavFlag,
+    description: 'Belgilangan moddalar natijasi',
+    pages: [
+      { label: 'Munosabatlar', href: '/munosabat', description: 'Muhokamaga qo\'yilgan moddalar: muddat, mas\'ullar, natija' },
+      { label: 'Muhokama talab qiladi', href: '/munosabat/ogohlantirish', description: 'Tizim topgan holatlar: xarajat o\'sgan, daromad tushgan, zarar, reja, qarz' },
+    ],
+  },
+  { label: 'Nazorat', href: '/nazorat', icon: NavShield, description: 'Oylik chegaralar va buzilishlar' },
+  { label: 'Hisobotlar', href: '/hisobotlar', icon: NavReport, description: 'Excel, PowerPoint, PDF va raqamlar tekshiruvi' },
+  {
+    label: 'Sozlamalar',
+    href: '/sozlamalar',
+    icon: NavSettings,
+    adminOnly: true,
+    pages: [
+      { label: "Ko'rinish", href: '/sozlamalar/korinish', description: "Qisqa (rahbar) yoki to'liq rejim — butun dastur uchun" },
+      { label: 'Foydalanuvchilar', href: '/sozlamalar/foydalanuvchilar', description: 'Omborchi va boshqa rollar: ID kod, PIN, bloklash' },
+      { label: 'Xarajat moddalari', href: '/sozlamalar/xarajat' },
+      { label: 'Ish haqi komponentlari', href: '/sozlamalar/komponentlar' },
+      { label: 'Savat', href: '/sozlamalar/savat' },
+      { label: 'Tarix', href: '/sozlamalar/tarix' },
+      { label: 'Tekshiruv', href: '/sozlamalar/tekshiruv' },
+      { label: 'Zaxira', href: '/sozlamalar/zaxira' },
+      { label: 'Ogohlantirishlar', href: '/sozlamalar/ogohlantirish', description: 'Muhokama talab qiladigan holatlar chegaralari' },
+      { label: 'Telegram', href: '/sozlamalar/telegram', description: 'Bot va xodimlarni ulash — topshiriqlar avtomatik yetkaziladi' },
+      { label: 'Demo ma\'lumotlar', href: '/sozlamalar/demo', description: "Barcha demolar: holati, hammasini o'chirish va qayta qo'shish" },
+    ],
+  },
+];
+
+// ═══════════════════════════════════════════════════════════
+// Ishchi rollar menyusi (ID kod bilan kiradiganlar) — umumiy hudud menyusi bilan bir xil tuzilma:
+//   Ish stoli
+//   KIRITISH:  ombor amallari, mashina xarajati, pochta — har biri alohida sahifa
+//   KO'RISH:   jurnal, qoldiq, asosiy vositalar, kimda nima bor, mashinalar hisoboti
+//   NAZORAT:   inventarizatsiya
+// Kalit — rolga ochiq bo'lim (user.access.pages). Bir xil sarlavhali guruhlar birlashtiriladi.
+// ═══════════════════════════════════════════════════════════
+
+export type WorkerTone = 'green' | 'blue' | 'amber' | 'slate' | 'red' | 'violet';
+
+export interface WorkerNavItem {
+  label: string;
+  href: string;
+  hint?: string;
+  tone?: WorkerTone;
+  icon: NavItem['icon'];
+  /** Yonida son ko'rsatiladi (masalan, kutilayotgan qabullar) */
+  badgeKey?: 'receipts';
+}
+
+export interface WorkerNavGroup {
+  /** Guruh sarlavhasi (bo'sh — sarlavhasiz, bandlar to'g'ridan-to'g'ri) */
+  title: string;
+  /** Guruh belgisi (ochiladigan guruh sarlavhasida) */
+  icon?: NavItem['icon'];
+  /** Menyudagi o'rni (bir nechta bo'lim guruhlari aralashib turadi) */
+  order: number;
+  items: WorkerNavItem[];
+}
+
+export const WORKER_MENUS: Record<string, WorkerNavGroup[]> = {
+  '/ombor': [
+    { title: '', order: 0, items: [{ label: 'Ish stoli', href: '/ombor/ish-stoli', hint: 'Bugungi ishlar', icon: NavHome }] },
+    {
+      title: 'Kiritish',
+      icon: NavBolt,
+      order: 1,
+      items: [
+        { label: 'Qabul qilish', href: '/ombor/qabul', hint: 'Xaridchi yuborgan tovarni qabul qilish', tone: 'green', icon: NavIn, badgeKey: 'receipts' },
+        { label: 'Chiqim (berish)', href: '/ombor/chiqim', hint: "Odamga yoki bo'limga", tone: 'blue', icon: NavOut },
+        { label: "Ko'chirish", href: '/ombor/kochirish', hint: 'Asosiy vosita boshqa joyga', tone: 'amber', icon: NavSwap },
+        { label: 'Qaytarish', href: '/ombor/qaytarish', hint: 'Omborga qaytdi', tone: 'slate', icon: NavUndo },
+        { label: 'Hisobdan chiqarish', href: '/ombor/hisobdan-chiqarish', hint: "Yaroqsiz, yo'qolgan", tone: 'red', icon: NavBin },
+        { label: "Pochta to'lovi", href: '/ombor/pochta', hint: "Pochta korxonasiga to'langan summa", tone: 'violet', icon: NavMail },
+      ],
+    },
+    {
+      title: "Ko'rish",
+      icon: NavBars,
+      order: 2,
+      items: [
+        { label: 'Jurnal', href: '/ombor/hujjatlar', hint: 'Barcha hujjatlar, dalolatnomalar', icon: NavList },
+        { label: 'Qoldiq', href: '/ombor/qoldiq', hint: 'Omborda nima qancha', icon: NavBox },
+        { label: 'Asosiy vositalar', href: '/ombor/asosiy-vositalar', hint: "Inventar raqami bo'yicha", icon: NavTag },
+        { label: 'Kimda nima bor', href: '/ombor/kimda', hint: "Odam yoki bo'lim kartochkasi", icon: NavPerson },
+      ],
+    },
+    {
+      title: 'Nazorat',
+      icon: NavShield,
+      order: 3,
+      items: [
+        { label: 'Inventarizatsiya', href: '/ombor/inventarizatsiya', hint: 'Sanab chiqish va solishtirish', icon: NavClipboard },
+        { label: 'Dalolatnoma shabloni', href: '/ombor/shablon', hint: 'Tasdiqlovchi, matnlar, hududlar', icon: NavList },
+      ],
+    },
+  ],
+  '/xarid': [
+    { title: '', order: 0, items: [{ label: 'Ish stoli', href: '/xarid/ish-stoli', hint: 'Bugungi ishlar', icon: NavHome }] },
+    {
+      title: 'Kiritish',
+      icon: NavBolt,
+      order: 1,
+      items: [
+        { label: 'Birja xaridi', href: '/xarid/birja', hint: 'Lot, shartnoma, birja yig‘imi', tone: 'blue', icon: NavCompare },
+        { label: 'Oddiy xarid', href: '/xarid/oddiy', hint: "Do'kon, to'g'ridan-to'g'ri", tone: 'green', icon: NavIn },
+        { label: 'Tovar keldi', href: '/xarid/qabul', hint: 'Omborchiga qabul uchun yuborish', tone: 'amber', icon: NavBox },
+        { label: 'Ariza yozish', href: '/xarid/ariza', hint: "Bo'lim so'ragan tovar", tone: 'slate', icon: NavClipboard },
+      ],
+    },
+    {
+      title: "Ko'rish",
+      icon: NavBars,
+      order: 2,
+      items: [
+        { label: 'Xaridlar', href: '/xarid/xaridlar', hint: "To'lov va yetkazish holati", icon: NavList },
+        { label: 'Arizalar', href: '/xarid/arizalar', hint: "Bo'limlardan kelgan so'rovlar", icon: NavClipboard },
+        { label: 'Yetkazuvchilar', href: '/xarid/yetkazuvchilar', hint: 'Kim bilan ishlaymiz, qarz', icon: NavPerson },
+      ],
+    },
+  ],
+  '/buxgalteriya': [
+    { title: '', order: 0, items: [{ label: 'Ish stoli', href: '/buxgalteriya/ish-stoli', hint: 'Bugungi ish', icon: NavHome }] },
+    {
+      title: 'Kiritish',
+      icon: NavBolt,
+      order: 1,
+      items: [
+        { label: 'Kunlik tushum', href: '/buxgalteriya/kunlik', hint: "Hisobraqamlar: tushum, qaytarilgan, qoldiq", tone: 'blue', icon: NavIncome },
+        { label: 'Markaz daromadi', href: '/buxgalteriya/markaz', hint: "Fayl yuklash, oylik daromad", tone: 'green', icon: NavBars },
+      ],
+    },
+    {
+      title: "Ko'rish",
+      icon: NavBars,
+      order: 2,
+      items: [
+        { label: 'Tarix', href: '/buxgalteriya/tarix', hint: 'Saqlangan kunlar, Excel', icon: NavList },
+        { label: 'Hisobraqamlar', href: '/buxgalteriya/hisobraqamlar', hint: "Ro'yxat, nomi, raqami", icon: NavTag },
+      ],
+    },
+  ],
+  '/hudud': [
+    { title: '', order: 0, items: [{ label: 'Ish stoli', href: '/hudud/ish-stoli', hint: 'Oylar holati, viloyatlar', icon: NavHome }] },
+    {
+      title: 'Kiritish',
+      icon: NavBolt,
+      order: 1,
+      items: [
+        { label: 'Daromad yuklash', href: '/hudud/daromad', hint: "Xizmatlar bo'yicha hisobot (service_report)", tone: 'blue', icon: NavIncome },
+        { label: 'Reja va tushum', href: '/hudud/reja-tushum', hint: "Xodimlar rejasi va bajarilishi (daromadni bo'lib beradi)", tone: 'blue', icon: NavUsers },
+        { label: 'Ish haqi', href: '/hudud/ish-haqi', hint: 'Hudud xodimlari vedomosti', tone: 'green', icon: NavUsers },
+        { label: 'Xarajatlar', href: '/hudud/xarajatlar', hint: 'Viloyat va tuman xarajatlari', tone: 'amber', icon: NavExpense },
+        { label: 'Xarajat rejasi', href: '/hudud/reja', hint: 'Oylik reja (byudjet) va fakt', tone: 'violet', icon: NavClipboard },
+      ],
+    },
+    {
+      title: "Ma'lumotnomalar",
+      icon: NavBars,
+      order: 2,
+      items: [
+        { label: 'Shtat va maosh', href: '/hudud/shtat', hint: 'Stavka, lavozim maoshi, sanasi', icon: NavPerson },
+        { label: 'Tariflar', href: '/hudud/tariflar', hint: '39 xizmat narxi', icon: NavTag },
+        { label: 'Voqealar jurnali', href: '/hudud/voqealar', hint: "Tarif o'zgarishi, qayta tuzilish", icon: NavList },
+      ],
+    },
+    {
+      title: 'Nazorat',
+      icon: NavShield,
+      order: 3,
+      items: [{ label: 'Oyni yopish', href: '/hudud/yopish', hint: "Tekshiruv va tasdiqlash", icon: NavClipboard }],
+    },
+  ],
+  '/mashinalar': [
+    {
+      title: 'Kiritish',
+      order: 1,
+      items: [{ label: 'Mashina xarajati', href: '/mashinalar', hint: "Benzin, moyka, ta'mir, texnik xizmat", tone: 'blue', icon: NavCar }],
+    },
+    {
+      title: "Ko'rish",
+      order: 2,
+      items: [
+        { label: 'Mashinalar hisoboti', href: '/mashinalar/royxat', hint: 'Guruhlar, haydovchilar, oylik sarf', icon: NavBars },
+        { label: 'Mashina yozuvlari', href: '/mashinalar/tahlil', hint: "Tuzatish, o'chirish, 12 oy", icon: NavCar },
+      ],
+    },
+  ],
+};
+
+/** Ishchi rol menyusi: rolga ochiq bo'limlar; bir xil sarlavhali guruhlar bitta bo'lib, tartib bo'yicha */
+export function workerMenu(pages: string[]): WorkerNavGroup[] {
+  const merged = new Map<string, WorkerNavGroup>();
+  for (const group of pages.flatMap((p) => WORKER_MENUS[p] ?? [])) {
+    const have = merged.get(group.title);
+    if (have) merged.set(group.title, { ...have, icon: have.icon ?? group.icon, order: Math.min(have.order, group.order), items: [...have.items, ...group.items] });
+    else merged.set(group.title, { ...group, items: [...group.items] });
+  }
+  return [...merged.values()].sort((a, b) => a.order - b.order);
+}
+
+/** Ishchi rol shu sahifani ochadimi (menyusida bor sahifa yoki uning ichi) */
+export function workerAllowed(pages: string[], pathname: string): boolean {
+  const items = workerMenu(pages).flatMap((g) => g.items);
+  if (items.length === 0) return pages.some((p) => under(pathname, p));
+  return items.some((i) => under(pathname, i.href));
+}
+
+// ═══════════════════════════════════════════════════════════
+// Chap menyu tartibi
+// ═══════════════════════════════════════════════════════════
+
+export interface SideLeaf {
+  kind: 'item';
+  /** MENU dagi bo'lim */
+  item: NavItem;
+}
+
+export interface SideChild {
+  label: string;
+  href: string;
+  adminOnly?: boolean;
+  description?: string;
+  match?: string[];
+  /** Ichkariroq (rol nomlari «Rollar» tagida) */
+  indent?: boolean;
+  /** Shu band ortidan rollar (nomlari bilan) qo'yiladi — chap panel serverdan to'ldiradi */
+  rolesSlot?: boolean;
+  /** Kichik rangli nuqta (Omborchi amallari: kirim yashil, chiqim ko'k …) — tailwind klass */
+  dot?: string;
+  /** Yonidagi son (kutilayotgan ishlar) */
+  badge?: number;
+}
+
+export interface SideGroup {
+  kind: 'group';
+  key: string;
+  label: string;
+  /** Guruh sarlavhasi bosilganda ochiladigan sahifa (bo'lmasa — faqat ochiladi/yopiladi) */
+  href: string | null;
+  icon: NavItem['icon'];
+  description?: string;
+  children: SideChild[];
+  /** Ma'lumot kiritish bo'limi (rejimdan qat'i nazar har doim to'liq) */
+  source?: boolean;
+}
+
+/** Zona sarlavhasi: KIRITISH, TAHLIL, BOSHQARUV */
+export interface SideHeading {
+  kind: 'heading';
+  label: string;
+  /** Bir qatorlik izoh (sarlavha ustiga olib borilganda) */
+  hint: string;
+}
+
+export type SideEntry = SideLeaf | SideGroup | SideHeading;
+
+const byHref = (href: string): NavItem => MENU.find((m) => m.href === href)!;
+
+/**
+ * Chap menyu (umumiy hudud — administrator va kuzatuvchi):
+ *   Bosh sahifa (▾ Daromad, Xarajat, Tahlil)
+ *   Tez kiritish
+ *   Umumiy manba (▾ Daromadlar, Xarajatlar, Modellar, Rollar → har rol o'z nomi bilan, Xodimlar)
+ *   Solishtirma · Hisobotlar
+ *   Boshqaruv (▾ Topshiriqlar, Munosabat, Nazorat, Sozlamalar)
+ */
+export const SIDEBAR: SideEntry[] = [
+  {
+    kind: 'group',
+    key: 'home',
+    label: 'Bosh sahifa',
+    href: '/',
+    icon: NavHome,
+    description: 'Daromad, xarajat va tahlil',
+    children: [
+      { label: 'Daromad', href: '/tahlil/daromad' },
+      { label: 'Xarajat', href: '/tahlil/xarajat' },
+      { label: 'Tahlil', href: '/tahlil/umumiy' },
+    ],
+  },
+  { kind: 'item', item: byHref('/kiritish') },
+  {
+    kind: 'group',
+    key: 'source',
+    label: 'Umumiy manba',
+    href: null,
+    icon: NavDatabase,
+    description: "Daromadlar, xarajatlar, modellar, rollar va xodimlar — umumiy hudud ma'lumoti",
+    source: true,
+    children: [
+      { label: 'Daromadlar', href: '/daromadlar', match: ['/daromadlar'] },
+      { label: 'Xarajatlar', href: '/xarajatlar', match: ['/xarajatlar'] },
+      { label: 'Modellar', href: '/modellar', match: ['/modellar', '/katta-modellar'] },
+      { label: 'Rollar', href: '/rollar', rolesSlot: true },
+      { label: 'Xodimlar', href: '/xodimlar', match: ['/xodimlar'] },
+    ],
+  },
+  { kind: 'item', item: byHref('/solishtirma') },
+  { kind: 'item', item: byHref('/hisobotlar') },
+  {
+    kind: 'group',
+    key: 'control',
+    label: 'Boshqaruv',
+    href: null,
+    icon: NavSettings,
+    description: 'Topshiriqlar, Munosabat, Nazorat va Sozlamalar',
+    children: [
+      { label: 'Topshiriqlar', href: '/topshiriqlar', match: ['/topshiriqlar'] },
+      { label: 'Munosabat', href: '/munosabat', match: ['/munosabat'] },
+      { label: 'Nazorat', href: '/nazorat', match: ['/nazorat'] },
+      { label: 'Sozlamalar', href: '/sozlamalar', match: ['/sozlamalar'], adminOnly: true },
+    ],
+  },
+];
+
+/**
+ * Ma'lumot kiritish sahifalari — qisqa (rahbar) rejimda ham har doim to'liq ko'rinadi.
+ */
+export const SOURCE_PREFIXES = ['/kiritish', '/daromadlar', '/xarajatlar', '/xodimlar', '/sozlamalar'];
+
+/**
+ * Rol zonalari: bu sahifalarda faqat rol (Omborchi) ishlaydi. Umumiy hudud foydalanuvchisi
+ * ularni ochsa — shu bo'limning dashbordiga o'tkaziladi.
+ */
+export const ROLE_DASHBOARDS: { prefix: string; dashboard: string }[] = [
+  { prefix: '/ombor', dashboard: '/dashbord/ombor' },
+  { prefix: '/mashinalar', dashboard: '/dashbord/mashinalar' },
+  { prefix: '/xarid', dashboard: '/dashbord/xarid' },
+  { prefix: '/buxgalteriya', dashboard: '/dashbord/buxgalteriya' },
+  { prefix: '/hudud', dashboard: '/dashbord/hudud' },
+];
+
+/** Umumiy hudud foydalanuvchisi rol sahifasini ochsa — qaysi dashbordga o'tkaziladi */
+export function roleDashboardFor(pathname: string): string | null {
+  return ROLE_DASHBOARDS.find((r) => under(pathname, r.prefix))?.dashboard ?? null;
+}
+
+/** Guruh ichidagi band faolmi */
+export function isChildActive(child: SideGroup['children'][number], pathname: string): boolean {
+  if (child.match) return child.match.some((prefix) => under(pathname, prefix));
+  return pathname === child.href;
+}
+
+/** Guruh faolmi: o'zi yoki ichidagi biror band */
+export function isGroupActive(group: SideGroup, pathname: string): boolean {
+  if (group.href === '/' && pathname === '/') return true;
+  if (group.href && group.href !== '/' && under(pathname, group.href)) return true;
+  return group.children.some((c) => isChildActive(c, pathname));
+}
+
+/** Kiritish zonasidami (ma'lumot kiritish sahifalari) */
+export function isSourcePath(pathname: string): boolean {
+  return SOURCE_PREFIXES.some((prefix) => under(pathname, prefix));
+}
+
+function under(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+/** Menyu bandi joriy manzilga tegishlimi */
+export function isMenuActive(item: NavItem, pathname: string): boolean {
+  if (item.href === '/') return pathname === '/' || (item.match ?? []).some((prefix) => under(pathname, prefix));
+  return [item.href, ...(item.match ?? [])].some((prefix) => under(pathname, prefix));
+}
+
+/**
+ * Yuqori panel uchun zaxira sarlavha: "Xarajatlar › Ish haqi".
+ * Sahifa o'zining PageHeader'ini bersa, u ko'rinadi (bu yashiriladi).
+ */
+export function titleFor(pathname: string): { title: string; parent?: string } {
+  const item = MENU.find((m) => isMenuActive(m, pathname));
+  if (!item) return { title: 'Korxona tahlil' };
+  if (isSourcePath(pathname) && (item.pages ?? []).every((p) => !under(pathname, p.href) || p.href === item.href)) {
+    return { title: item.label, parent: item.href === '/sozlamalar' || item.href === '/kiritish' ? undefined : 'Kiritish' };
+  }
+  const page = item.pages
+    ?.filter((p) => under(pathname, p.href))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  if (page && page.href !== item.href) return { title: page.label, parent: item.label };
+  return { title: item.label };
+}
+
+/**
+ * Bo'lim yorliqlari qatori: joriy manzil tegishli bo'lim va uning ichidagi sahifalar.
+ * Ichida bittadan ko'p sahifa bo'lmasa — null (qator chizilmaydi).
+ */
+export function sectionFor(pathname: string, isAdmin: boolean): { item: NavItem; tabs: NavPage[] } | null {
+  const item = MENU.find((m) => (!m.adminOnly || isAdmin) && !m.workerOnly && isMenuActive(m, pathname));
+  const tabs = (item?.pages ?? []).filter((p) => !p.hidden);
+  if (!item || tabs.length < 2) return null;
+  return { item, tabs };
+}
+
+/** Yorliq faolmi: aniq manzil (bo'lim "Umumiy"si faqat o'zida) */
+export function isTabActive(href: string, pathname: string): boolean {
+  return pathname === href;
+}
+
+/** Bu yorliqlar bo'lim qatorida allaqachon bormi (sahifa ichidagi takror qatorni yashirish uchun) */
+export function coveredBySection(hrefs: string[], pathname: string, isAdmin: boolean): boolean {
+  const section = sectionFor(pathname, isAdmin);
+  if (!section || hrefs.length === 0) return false;
+  const known = new Set(section.tabs.map((t) => t.href));
+  return hrefs.every((h) => known.has(h.split('?')[0] ?? h));
+}
+
+/** Global qidiruv uchun barcha sahifalar: "Xarajatlar › Ish haqi" */
+export function pageIndex(isAdmin: boolean): { trail: string; href: string; description?: string }[] {
+  const out: { trail: string; href: string; description?: string }[] = [];
+  for (const item of MENU) {
+    if (item.adminOnly && !isAdmin) continue;
+    if (item.workerOnly) continue;
+    if (item.href !== '/sozlamalar') out.push({ trail: item.label, href: item.href, description: item.description });
+    for (const page of item.pages ?? []) {
+      if (page.href === item.href) continue;
+      out.push({ trail: `${item.label} › ${page.label}`, href: page.href, description: page.description });
+    }
+  }
+  return out;
+}

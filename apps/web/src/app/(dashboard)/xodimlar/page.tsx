@@ -1,28 +1,32 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useAuth } from '@/lib/auth-context';
-import { useAsync } from '@/lib/use-async';
-import { errorMessage } from '@/lib/error-message';
-import {
-  employeesApi,
-  regionsApi,
-  downloadEmployeesExcel,
-  type EmployeeFilters,
-} from '@/features/employees/api';
+import { SourceActions } from '@/components/shared/source-actions';
+import { downloadEmployeesExcel, employeesApi, regionsApi, type EmployeeFilters } from '@/features/employees/api';
+import { transfersApi, transferSummary } from '@/features/employees/transfers-api';
+import { TransfersView } from '@/features/employees/transfers-view';
+import { Mark } from '@/features/reactions/mark';
+import { employeeMark } from '@/features/reactions/marks';
 import { referencesApi } from '@/features/shared/references';
+import { useAuth } from '@/lib/auth-context';
+import { errorMessage } from '@/lib/error-message';
+import { formatDate, formatPeriod } from '@/lib/format';
+import { todayIso, usePeriod, useMonthChange } from '@/lib/period';
+import { useAsync } from '@/lib/use-async';
+import { cn } from '@/lib/utils';
+import { useSearchParams } from 'next/navigation';
+import { useCallback, useState } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { SearchInput } from '@/components/shared/search-input';
 import { Pagination } from '@/components/shared/pagination';
-import { Button } from '@/components/ui/button';
-import { Select } from '@/components/ui/select';
-import { Card } from '@/components/ui/card';
+import { SearchInput } from '@/components/shared/search-input';
 import { Badge } from '@/components/ui/badge';
-import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { IconEdit, IconUsers } from '@/components/ui/icons';
+import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
+import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
 import { Toast } from '@/components/ui/toast';
-import { IconPlus, IconUsers, IconEdit, IconDownload } from '@/components/ui/icons';
 import { EmployeeDrawer } from '@/features/employees/employee-drawer';
 import type { Employee } from '@/lib/types';
 
@@ -38,18 +42,26 @@ const groupOptions = [
 
 export default function EmployeesPage() {
   const { isAdmin } = useAuth();
+  const searchParams = useSearchParams();
 
-  const [search, setSearch] = useState('');
+  // Global qidiruvdan kelganda (?q=...) qidiruv so'zi tayyor turadi
+  const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
   const [group, setGroup] = useState('');
   const [regionCode, setRegionCode] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [includeInactive, setIncludeInactive] = useState(false);
   const [page, setPage] = useState(1);
 
+  /** Umumiy «Davr» oxiri: o'tgan kun bo'lsa — ro'yxat o'sha kundagi holat bo'yicha */
+  const { range } = usePeriod();
+  const activeOn = range.to < todayIso() ? range.to : undefined;
+  useMonthChange(activeOn ?? 'now', () => setPage(1));
+
   const [selected, setSelected] = useState<Employee | null>(null);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [view, setView] = useState<'list' | 'transfers'>('list');
 
   /** Excel faylni yuklab olish */
   async function handleExport() {
@@ -69,6 +81,7 @@ export default function EmployeesPage() {
     regionCode: regionCode ? Number(regionCode) : undefined,
     departmentId: departmentId || undefined,
     includeInactive: includeInactive || undefined,
+    activeOn,
     page,
     limit: PAGE_LIMIT,
   };
@@ -76,11 +89,23 @@ export default function EmployeesPage() {
   const regions = useAsync(() => regionsApi.tree(), []);
   const departments = useAsync(() => referencesApi.departments(), []);
   const stats = useAsync(() => employeesApi.stats(), []);
+  /** Har bir xodimning oxirgi o'tkazmasi — ro'yxatdagi belgi uchun */
+  const latestTransfers = useAsync(() => transfersApi.latest(), []);
 
   const list = useAsync(
     () => employeesApi.list(filters),
-    [search, group, regionCode, departmentId, includeInactive, page],
+    [search, group, regionCode, departmentId, includeInactive, activeOn, page],
   );
+
+  /** O'tkazmalar ro'yxatidan xodimni ochish */
+  async function openEmployee(pinfl: string) {
+    try {
+      const result = await employeesApi.getOne(pinfl);
+      setSelected(result.data);
+    } catch (err) {
+      setToast(errorMessage(err, 'Xodimni ochib bo\u2018lmadi'));
+    }
+  }
 
   const changeFilter = useCallback((setter: () => void) => {
     setter();
@@ -117,36 +142,77 @@ export default function EmployeesPage() {
   const hasFilters = Boolean(search || group || regionCode || departmentId || includeInactive);
 
   const statsData = stats.data?.data;
+  const transferMap = latestTransfers.data?.data ?? {};
 
   return (
     <>
       <PageHeader
         title="Xodimlar"
         description={statsData ? `${statsData.total} ta faol xodim` : undefined}
-        actions={
-          <>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void handleExport()}
-              loading={exporting}
-              disabled={items.length === 0}
-            >
-              <IconDownload className="size-4" />
-              Excel
-            </Button>
-
-            {isAdmin && (
-              <Button size="sm" onClick={() => setCreating(true)}>
-                <IconPlus className="size-4" />
-                Yangi xodim
-              </Button>
-            )}
-          </>
-        }
       />
 
+      {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+      <div className="px-6 pt-4">
+        <SourceActions
+          add={{ label: 'Yangi xodim', onClick: () => setCreating(true) }}
+          download={{ label: "Excel'ga yuklab olish", onClick: () => void handleExport(), loading: exporting, disabled: items.length === 0 }}
+          extra={
+            isAdmin ? (
+              <span className="text-xs text-(--color-text-muted)">
+                Xodimni o&apos;chirish (arxivlash) — ro&apos;yxatda xodimni bosing, kartasi ochiladi.
+              </span>
+            ) : null
+          }
+        />
+      </div>
+
+      {/* Ko'rinish: ro'yxat yoki o'tkazmalar */}
+      <div className="flex items-center gap-1 border-b border-(--color-line) bg-white px-6">
+        {(
+          [
+            { key: 'list', label: "Ro'yxat" },
+            { key: 'transfers', label: "O'tkazmalar" },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setView(item.key)}
+            className={cn(
+              'relative px-4 py-2.5 text-sm transition-colors',
+              view === item.key
+                ? 'font-medium text-brand-800'
+                : 'text-(--color-text-muted) hover:text-(--color-text)',
+            )}
+          >
+            {item.label}
+            {view === item.key && (
+              <span className="absolute inset-x-0 -bottom-px h-0.5 bg-brand-800" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {view === 'transfers' ? (
+        <div className="p-6">
+          <TransfersView
+            regionOptions={regionOptions}
+            onOpenEmployee={(pinfl) => void openEmployee(pinfl)}
+          />
+        </div>
+      ) : (
       <div className="space-y-4 p-6">
+        {/* Tarixiy holat: davr oxiri o'tgan kun */}
+        {activeOn && !includeInactive && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-(--radius-card) border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm">
+            <span className="rounded-md bg-amber-500 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">Tarixiy</span>
+            <span className="text-heading">
+              Ro&apos;yxat <b>{formatDate(activeOn)}</b> holatiga: o&apos;sha kuni ishlayotgan xodimlar (ishga kirish va bo&apos;shash sanalari bo&apos;yicha).
+            </span>
+            <span className="text-xs text-(--color-text-muted)">Hudud va lavozim — hozirgi; tepadagi sonlar — bugungi holat.</span>
+          </div>
+        )}
+
         {/* Guruhlar */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatBox label="Jami" value={statsData?.total} icon />
@@ -191,14 +257,14 @@ export default function EmployeesPage() {
             />
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[--color-text-muted]">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-(--color-text-muted)">
             <input
               type="checkbox"
               checked={includeInactive}
               onChange={(event) =>
                 changeFilter(() => setIncludeInactive(event.target.checked))
               }
-              className="size-4 rounded border-[--color-line-strong]"
+              className="size-4 rounded border-(--color-line-strong)"
             />
             Arxivlanganlar
           </label>
@@ -257,19 +323,20 @@ export default function EmployeesPage() {
                     >
                       <Td>
                         <div className="flex items-center gap-2">
-                          <span className={employee.isActive ? '' : 'text-[--color-text-faint]'}>
+                          <Mark item={employeeMark(employee.pinfl, employee.fullName, 'EXPENSE', 'Xodimlar')} />
+                          <span className={employee.isActive ? '' : 'text-(--color-text-faint)'}>
                             {employee.fullName}
                           </span>
                           {!employee.isActive && <Badge tone="neutral">Arxiv</Badge>}
                         </div>
                         {employee.position && (
-                          <p className="text-xs text-[--color-text-muted]">
+                          <p className="text-xs text-(--color-text-muted)">
                             {employee.position}
                           </p>
                         )}
                       </Td>
 
-                      <Td className="money text-[--color-text-muted]">{employee.pinfl}</Td>
+                      <Td className="money text-(--color-text-muted)">{employee.pinfl}</Td>
 
                       <Td>
                         <Badge tone={employee.employmentType === 'SHTAT' ? 'brand' : 'warn'}>
@@ -277,14 +344,23 @@ export default function EmployeesPage() {
                         </Badge>
                       </Td>
 
-                      <Td className="text-[--color-text-muted]">
+                      <Td className="text-(--color-text-muted)">
                         {employee.regionCode === CENTRAL_REGION
                           ? (employee.department?.name ?? 'Markaz')
                           : `${employee.region.name}${employee.district ? ` · ${employee.district.name}` : ''}`}
+                        {transferMap[employee.pinfl] && (
+                          <p
+                            className="mt-0.5 text-xs font-medium text-(--color-warn)"
+                            title="Oxirgi o'tkazma — batafsil xodim oynasida"
+                          >
+                            &#8618; {formatPeriod(transferMap[employee.pinfl]!.period)} dan:{' '}
+                            {transferSummary(transferMap[employee.pinfl]!)}
+                          </p>
+                        )}
                       </Td>
 
                       <Td className="pr-3 text-right">
-                        <IconEdit className="ml-auto size-4 text-[--color-text-faint] opacity-0 transition-opacity group-hover:opacity-100" />
+                        <IconEdit className="ml-auto size-4 text-(--color-text-faint) opacity-0 transition-opacity group-hover:opacity-100" />
                       </Td>
                     </Tr>
                   ))}
@@ -304,6 +380,7 @@ export default function EmployeesPage() {
           )}
         </Card>
       </div>
+      )}
 
       <EmployeeDrawer
         employee={selected}
@@ -332,12 +409,12 @@ function StatBox({
   icon?: boolean;
 }) {
   return (
-    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+        <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
           {label}
         </p>
-        {icon && <IconUsers className="size-4 text-[--color-text-faint]" />}
+        {icon && <IconUsers className="size-4 text-(--color-text-faint)" />}
       </div>
       <p className="money mt-2 text-xl font-semibold">{value ?? '—'}</p>
     </div>

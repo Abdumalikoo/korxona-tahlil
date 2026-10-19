@@ -1,4 +1,6 @@
+import type { Calc } from '@/lib/calc';
 import type { TiyinInput } from '@/lib/format';
+import { CalcValue } from './calc';
 import { formatCompact, formatPercent, formatTiyin } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -14,9 +16,9 @@ interface MoneyProps {
 }
 
 const tones: Record<Exclude<Tone, 'auto'>, string> = {
-  neutral: 'text-[--color-text]',
-  income: 'text-[--color-income]',
-  expense: 'text-[--color-expense]',
+  neutral: 'text-(--color-text)',
+  income: 'text-(--color-income)',
+  expense: 'text-(--color-expense)',
 };
 
 /**
@@ -52,6 +54,8 @@ interface ChangeProps {
    */
   positiveIsGood?: boolean;
   className?: string;
+  /** «Qanday hisoblandi?» — bosilganda ishlanishi */
+  calc?: Calc | null;
 }
 
 /**
@@ -60,23 +64,29 @@ interface ChangeProps {
  * Xarajat osgani yashil bolmasligi kerak - shuning uchun
  * positiveIsGood={false} bilan ranglar almashadi.
  */
-export function Change({ percent, positiveIsGood = true, className }: ChangeProps) {
+export function Change({ percent, positiveIsGood = true, className, calc }: ChangeProps) {
   if (percent === null || percent === undefined) {
-    return <span className={cn('text-[--color-text-faint]', className)}>-</span>;
+    const dash = <span className={cn('text-(--color-text-faint)', className)}>-</span>;
+    return calc ? <CalcValue calc={calc}>{dash}</CalcValue> : dash;
   }
 
   const isGood = percent === 0 ? null : percent > 0 === positiveIsGood;
 
   const color =
     isGood === null
-      ? 'text-[--color-text-muted]'
+      ? 'text-(--color-text-muted)'
       : isGood
-        ? 'text-[--color-income]'
-        : 'text-[--color-expense]';
+        ? 'text-(--color-income)'
+        : 'text-(--color-expense)';
 
-  return (
-    <span className={cn('money text-sm', color, className)}>
-      {formatPercent(percent, { sign: true })}
+  // O'sish ▲, kamayish ▼ — rang esa yaxshi/yomonligini bildiradi
+  const arrow = percent > 0 ? '\u25B2' : percent < 0 ? '\u25BC' : '';
+
+  const body = (
+    <span className={cn('money inline-flex items-center gap-0.5 text-sm font-semibold', color, className)}>
+      {arrow && <span className="text-[0.7em] leading-none">{arrow}</span>}
+      {formatPercent(Math.abs(percent))}
     </span>
   );
+  return calc ? <CalcValue calc={calc}>{body}</CalcValue> : body;
 }

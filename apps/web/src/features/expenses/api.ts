@@ -25,6 +25,8 @@ export interface ExpenseFilters {
   paymentMethod?: PaymentMethod;
   paymentStatus?: PaymentStatus;
   search?: string;
+  /** Bo'lim: DOIMIY yoki BOSHQA */
+  section?: 'DOIMIY' | 'BOSHQA';
   page?: number;
   limit?: number;
   sortBy?: SortField;
@@ -59,6 +61,7 @@ export interface CreateExpensePayload {
   dueDate?: string;
   responsible?: string;
   vatTiyin?: number;
+  section?: 'DOIMIY' | 'BOSHQA';
 }
 
 export type UpdateExpensePayload = Partial<CreateExpensePayload>;

@@ -72,4 +72,9 @@ export class CreateExpenseDto {
   @IsInt({ message: 'QQS butun son bolishi kerak (tiyinda)' })
   @Min(0)
   vatTiyin?: number;
+
+  /** Bo'lim: DOIMIY yoki BOSHQA */
+  @IsOptional()
+  @IsString()
+  section?: 'DOIMIY' | 'BOSHQA';
 }

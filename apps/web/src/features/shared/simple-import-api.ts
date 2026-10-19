@@ -80,9 +80,10 @@ export async function analyzeSimpleFile(file: File): Promise<SimpleImportResult>
 }
 
 export const simpleImportApi = {
-  commit: (kind: ImportKind, rows: SimpleRow[]) =>
+  commit: (kind: ImportKind, rows: SimpleRow[], section?: 'DOIMIY' | 'BOSHQA') =>
     api.post<ApiResponse<{ created: number; totalTiyin: string }>>(
       `/simple-import/commit/${kind}`,
       { rows },
+      { params: { section } },
     ),
 };

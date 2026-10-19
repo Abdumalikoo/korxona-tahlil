@@ -13,6 +13,7 @@ export type AnalysisTab =
   | 'overview'
   | 'dynamics'
   | 'efficiency'
+  | 'structure'
   | 'revenue'
   | 'expenses'
   | 'insights';
@@ -40,8 +41,8 @@ export const ANALYSIS_TABS: TabItem[] = [
     label: 'Dinamika',
     question: 'Vaqt davomida nima bo\u2018ldi?',
     icon: IconChart,
-    accent: 'text-[--color-warn]',
-    hover: 'hover:border-[--color-warn]',
+    accent: 'text-(--color-warn)',
+    hover: 'hover:border-(--color-warn)',
   },
   {
     key: 'efficiency',
@@ -52,28 +53,36 @@ export const ANALYSIS_TABS: TabItem[] = [
     hover: 'hover:border-brand-600',
   },
   {
+    key: 'structure',
+    label: 'Daromad va xarajat tarkibi',
+    question: 'Pul qayerdan kelib, qayerga ketmoqda?',
+    icon: IconChart,
+    accent: 'text-brand-700',
+    hover: 'hover:border-brand-600',
+  },
+  {
     key: 'revenue',
     label: 'Daromad tarkibi',
     question: 'Daromad nimadan keladi?',
     icon: IconTrendUp,
-    accent: 'text-[--color-income]',
-    hover: 'hover:border-[--color-income]',
+    accent: 'text-(--color-income)',
+    hover: 'hover:border-(--color-income)',
   },
   {
     key: 'expenses',
     label: 'Xarajat tarkibi',
     question: 'Pul qayerga ketmoqda?',
     icon: IconWallet,
-    accent: 'text-[--color-expense]',
-    hover: 'hover:border-[--color-expense]',
+    accent: 'text-(--color-expense)',
+    hover: 'hover:border-(--color-expense)',
   },
   {
     key: 'insights',
     label: 'Xulosa',
     question: 'Nima o\u2018zgardi, nimaga e\u2019tibor berish kerak?',
     icon: IconAlert,
-    accent: 'text-[--color-warn]',
-    hover: 'hover:border-[--color-warn]',
+    accent: 'text-(--color-warn)',
+    hover: 'hover:border-(--color-warn)',
   },
 ];
 
@@ -92,16 +101,16 @@ export function AnalysisCards({ onSelect }: { onSelect: (tab: AnalysisTab) => vo
             key={tab.key}
             type="button"
             onClick={() => onSelect(tab.key)}
-            className={`group flex flex-col items-center justify-center gap-3 rounded-[--radius-card] border border-[--color-line] bg-white px-6 py-10 text-center transition-all hover:shadow-md ${tab.hover}`}
+            className={`group flex flex-col items-center justify-center gap-3 rounded-(--radius-card) border border-(--color-line) bg-white px-6 py-10 text-center transition-all hover:shadow-md ${tab.hover}`}
           >
             <Icon
               className={`size-10 transition-transform group-hover:scale-110 ${tab.accent}`}
               strokeWidth={1.5}
             />
 
-            <span className="text-lg font-semibold text-[--color-text]">{tab.label}</span>
+            <span className="text-lg font-semibold text-(--color-text)">{tab.label}</span>
 
-            <span className="text-sm text-[--color-text-muted]">{tab.question}</span>
+            <span className="text-sm text-(--color-text-muted)">{tab.question}</span>
           </button>
         );
       })}

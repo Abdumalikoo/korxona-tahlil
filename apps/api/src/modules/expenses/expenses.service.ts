@@ -2,9 +2,22 @@ import { Injectable, NotFoundException, BadRequestException } from "@nestjs/comm
 import type { Prisma, Expense } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { FixedAssetsService } from "../fixed-assets/fixed-assets.service";
 import type { CreateExpenseDto } from "./dto/create-expense.dto";
 import type { UpdateExpenseDto } from "./dto/update-expense.dto";
 import type { QueryExpenseDto } from "./dto/query-expense.dto";
+
+/** Ombor kirimidan yozilgan xarajatni Xarajatlar bo'limidan o'zgartirib/o'chirib bo'lmaydi */
+const WAREHOUSE_LOCKED =
+  "Bu xarajat Ombor kirimidan yozilgan — summa, sana va moddani o'zgartirish yoki o'chirish Ombor › Hujjatlar orqali (kirimni bekor qilish)";
+
+/** Asosiy vositalar sarfi — reestrdan avtomatik hisoblanadi */
+const ASSET_LOCKED =
+  "Bu yozuv asosiy vositalar sarfi (eskirish) — avtomatik hisoblanadi. O'zgartirish: Xarajatlar › Asosiy vositalar (muddat, hisobdan chiqarish)";
+/** Asosiy vositalar bo'limi boshqaradigan moddalar — qo'lda yozilmaydi */
+const ASSET_LOCKED_CATEGORIES = ["AV_SARF", "AV_XARAJAT", "AV_INVENTAR"];
+/** Soliqlar — Xarajatlar › Soliqlar sahifasida yuritiladi */
+const TAX_LOCKED = "Bu soliq yozuvi — Xarajatlar › Soliqlar sahifasida o'zgartiriladi (ijtimoiy soliq kabi foizlilar ish haqidan avtomatik)";
 
 const DEFAULT_LIMIT = 50;
 const TASHKENT_OFFSET_HOURS = 5;
@@ -14,6 +27,7 @@ export class ExpensesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly assets: FixedAssetsService,
   ) {}
 
   // --------- Yordamchilar ---------
@@ -85,11 +99,13 @@ export class ExpensesService {
   private async buildWhere(query: QueryExpenseDto): Promise<Prisma.ExpenseWhereInput> {
     const where: Prisma.ExpenseWhereInput = { deletedAt: null };
 
+    if (query.section === 'DOIMIY' || query.section === 'BOSHQA') where.section = query.section;
+
     // Sana oraligi eng aniq filtr - u boshqalardan ustun
     if (query.dateFrom || query.dateTo) {
       where.date = {
         ...(query.dateFrom ? { gte: this.toStoredDate(query.dateFrom) } : {}),
-        ...(query.dateTo ? { lte: this.toStoredDate(query.dateTo) } : {}),
+        ...(query.dateTo ? { lt: new Date(this.toStoredDate(query.dateTo).getTime() + 86_400_000) } : {}),
       };
     } else if (query.period) {
       where.period = query.period;
@@ -165,6 +181,7 @@ export class ExpensesService {
 
   async create(dto: CreateExpenseDto, userId: string): Promise<Expense> {
     await this.assertWritableCategory(dto.categoryCode);
+    if (ASSET_LOCKED_CATEGORIES.includes(dto.categoryCode)) throw new BadRequestException(ASSET_LOCKED);
 
     if (dto.departmentId) {
       await this.assertDepartmentExists(dto.departmentId);
@@ -175,7 +192,7 @@ export class ExpensesService {
       throw new BadRequestException("QQS summasi umumiy summadan katta bolishi mumkin emas");
     }
 
-    return this.prisma.expense.create({
+    const created = await this.prisma.expense.create({
       data: {
         date: this.toStoredDate(dto.date),
         period: this.toPeriod(dto.date),
@@ -191,6 +208,7 @@ export class ExpensesService {
         responsible: dto.responsible ?? null,
         vatTiyin: dto.vatTiyin !== undefined ? BigInt(dto.vatTiyin) : null,
         source: "MANUAL",
+        section: dto.section === "BOSHQA" ? "BOSHQA" : "DOIMIY",
         createdById: userId,
       },
       include: {
@@ -199,6 +217,9 @@ export class ExpensesService {
         region: { select: { code: true, name: true } },
       },
     });
+    // Asosiy vosita moddasi bo'lsa — balansga olinadi (xarajatga oylik sarfi o'tadi)
+    this.assets.kick();
+    return created;
   }
 
   /**
@@ -296,7 +317,18 @@ export class ExpensesService {
   }
 
   async update(id: string, dto: UpdateExpenseDto): Promise<Expense> {
-    await this.findOne(id);
+    const current = await this.findOne(id);
+
+    // Ombor kirimidan yozilgan xarajat: summa, sana va modda faqat Ombor hujjati orqali o'zgaradi
+    if (
+      (current as { source?: string }).source === "WAREHOUSE" &&
+      (dto.amountTiyin !== undefined || dto.date !== undefined || dto.categoryCode !== undefined || dto.departmentId !== undefined)
+    ) {
+      throw new BadRequestException(WAREHOUSE_LOCKED);
+    }
+    if ((current as { source?: string }).source === "ASSET") throw new BadRequestException(ASSET_LOCKED);
+    if ((current as { source?: string }).source === "TAX") throw new BadRequestException(TAX_LOCKED);
+    if (dto.categoryCode && ASSET_LOCKED_CATEGORIES.includes(dto.categoryCode)) throw new BadRequestException(ASSET_LOCKED);
 
     if (dto.categoryCode) {
       await this.assertWritableCategory(dto.categoryCode);
@@ -334,7 +366,7 @@ export class ExpensesService {
     if (dto.responsible !== undefined) data.responsible = dto.responsible;
     if (dto.vatTiyin !== undefined) data.vatTiyin = BigInt(dto.vatTiyin);
 
-    return this.prisma.expense.update({
+    const updated = await this.prisma.expense.update({
       where: { id },
       data,
       include: {
@@ -343,11 +375,18 @@ export class ExpensesService {
         region: { select: { code: true, name: true } },
       },
     });
+    if (dto.categoryCode) this.assets.kick();
+    return updated;
   }
 
   /** Yumshoq ochirish - moliyaviy yozuv butunlay yoqotilmaydi */
   async remove(id: string): Promise<{ success: true }> {
-    await this.findOne(id);
+    const current = await this.findOne(id);
+    if ((current as { source?: string }).source === "WAREHOUSE") {
+      throw new BadRequestException(WAREHOUSE_LOCKED);
+    }
+    if ((current as { source?: string }).source === "ASSET") throw new BadRequestException(ASSET_LOCKED);
+    if ((current as { source?: string }).source === "TAX") throw new BadRequestException(TAX_LOCKED);
 
     await this.prisma.expense.update({
       where: { id },
@@ -367,14 +406,15 @@ export class ExpensesService {
     }
 
     // Ochirishdan oldin summani olamiz - auditga yozish uchun
+    // Ombor kirimidan yozilganlar bu yerda o'chirilmaydi (Ombor › Hujjatlar › bekor qilish)
     const before = await this.prisma.expense.aggregate({
-      where: { id: { in: ids }, deletedAt: null },
+      where: { id: { in: ids }, deletedAt: null, source: { notIn: ["WAREHOUSE", "ASSET", "TAX"] } },
       _sum: { amountTiyin: true },
       _count: { _all: true },
     });
 
     const result = await this.prisma.expense.updateMany({
-      where: { id: { in: ids }, deletedAt: null },
+      where: { id: { in: ids }, deletedAt: null, source: { notIn: ["WAREHOUSE", "ASSET", "TAX"] } },
       data: { deletedAt: new Date() },
     });
 
@@ -403,7 +443,7 @@ export class ExpensesService {
     query: QueryExpenseDto,
     userId?: string,
   ): Promise<{ count: number }> {
-    const where = await this.buildWhere(query);
+    const where: Prisma.ExpenseWhereInput = { AND: [await this.buildWhere(query), { source: { notIn: ["WAREHOUSE", "ASSET", "TAX"] } }] };
 
     const before = await this.prisma.expense.aggregate({
       where,
@@ -438,7 +478,7 @@ export class ExpensesService {
 
   /** Filtrga nechta yozuv mos kelishi - tasdiqlashdan oldin */
   async countByFilter(query: QueryExpenseDto): Promise<{ count: number }> {
-    const where = await this.buildWhere(query);
+    const where: Prisma.ExpenseWhereInput = { AND: [await this.buildWhere(query), { source: { notIn: ["WAREHOUSE", "ASSET", "TAX"] } }] };
     const count = await this.prisma.expense.count({ where });
     return { count };
   }
@@ -453,6 +493,12 @@ export class ExpensesService {
     if (!expense.deletedAt) {
       throw new BadRequestException("Bu yozuv ochirilmagan");
     }
+    if (expense.source === "WAREHOUSE") {
+      throw new BadRequestException("Bu xarajat Ombor kirimi bekor qilinganda o'chgan — tiklash uchun Ombor'da qaytadan kirim qiling");
+    }
+    if ((await this.assets.linkedExpenseIds([id])).has(id)) {
+      throw new BadRequestException("Bu xarid asosiy vosita sifatida balansga olingan (xarajatga oylik sarfi o'tadi). Xarajat qilib qoldirish: Xarajatlar › Asosiy vositalar");
+    }
 
     return this.prisma.expense.update({
       where: { id },
@@ -462,10 +508,13 @@ export class ExpensesService {
 
   /** Savatdagi yozuvlar - 15 kun saqlanadi */
   async findDeleted(period?: string) {
+    // Balansga o'tkazilgan xaridlar (asosiy vositalar) savatda ko'rinmaydi
+    const linked = await this.assets.linkedExpenseIds();
     return this.prisma.expense.findMany({
       where: {
         deletedAt: { not: null },
         ...(period ? { period } : {}),
+        ...(linked.size ? { id: { notIn: [...linked] } } : {}),
       },
       orderBy: { deletedAt: "desc" },
       take: 200,

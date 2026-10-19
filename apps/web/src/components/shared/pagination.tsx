@@ -18,8 +18,8 @@ export function Pagination({ page, totalPages, total, limit, onChange }: Paginat
   const to = Math.min(page * limit, total);
 
   return (
-    <div className="flex items-center justify-between border-t border-[--color-line] px-4 py-3">
-      <p className="text-sm text-[--color-text-muted]">
+    <div className="flex items-center justify-between border-t border-(--color-line) px-4 py-3">
+      <p className="text-sm text-(--color-text-muted)">
         <span className="money">{from}</span>–<span className="money">{to}</span> /{' '}
         <span className="money">{total}</span> ta
       </p>
@@ -35,7 +35,7 @@ export function Pagination({ page, totalPages, total, limit, onChange }: Paginat
           Oldingi
         </Button>
 
-        <span className="px-2 text-sm text-[--color-text-muted]">
+        <span className="px-2 text-sm text-(--color-text-muted)">
           <span className="money">{page}</span> / <span className="money">{totalPages}</span>
         </span>
 

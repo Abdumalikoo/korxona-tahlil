@@ -1,0 +1,1 @@
+export { RecordForm } from '@/features/vehicles/record-form';

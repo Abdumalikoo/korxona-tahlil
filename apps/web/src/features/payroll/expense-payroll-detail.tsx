@@ -33,24 +33,38 @@ export function ExpensePayrollDetail({ expenseId }: ExpensePayrollDetailProps) {
   const data = detail.data?.data;
   if (!data?.isPayroll) return null;
 
-  const { entries, groups, isCentral, count, totalTiyin } = data;
+  const { entries, groups, isCentral, count, totalTiyin, centerPart } = data;
+  const centerMoved = entries.reduce((s, e) => s + Number(e.centerTiyin ?? 0), 0);
 
   return (
     <div className="space-y-3">
+      {centerPart ? (
+        <p className="rounded-(--radius-control) border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-heading">
+          Bu yozuv — hudud xodimlari ish haqi tarkibidagi <b>bayram / choraklik pullar</b>. Xarajatlar siyosati bo&apos;yicha <b>Markaz hisobidan</b>: hudud xarajatiga kirmaydi, Solishtirmada
+          Markazning «Hududlar uchun» guruhida (shu hudud uchun) ko&apos;rinadi.
+        </p>
+      ) : (
+        !isCentral &&
+        centerMoved > 0 && (
+          <p className="rounded-(--radius-control) border border-(--color-line) bg-(--color-surface-muted) px-3 py-2 text-xs text-(--color-text-muted)">
+            Hududga <b>sof oylik</b> yozilgan: bayram va choraklik pullar ({formatTiyin(String(centerMoved), { currency: true })}) Markaz hisobiga alohida o&apos;tkazilgan.
+          </p>
+        )
+      )}
       {/* Yig'indi */}
-      <div className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-[--color-surface-sunken] px-4 py-3">
+      <div className="flex items-center justify-between gap-3 rounded-(--radius-control) bg-(--color-surface-sunken) px-4 py-3">
         <div className="flex items-center gap-2">
-          <IconUsers className="size-4 text-[--color-text-muted]" />
+          <IconUsers className="size-4 text-(--color-text-muted)" />
           <span className="text-sm font-medium">{count} xodim</span>
         </div>
-        <span className="money text-sm font-semibold text-[--color-expense]">
+        <span className="money text-sm font-semibold text-(--color-expense)">
           {formatTiyin(totalTiyin ?? 0, { currency: true })}
         </span>
       </div>
 
       {isCentral ? (
         // Markaz — tekis ro'yxat
-        <div className="divide-y divide-[--color-line] rounded-[--radius-control] border border-[--color-line]">
+        <div className="divide-y divide-(--color-line) rounded-(--radius-control) border border-(--color-line)">
           {entries.map((entry) => (
             <div
               key={entry.id}
@@ -59,7 +73,7 @@ export function ExpensePayrollDetail({ expenseId }: ExpensePayrollDetailProps) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm">{entry.employee.fullName}</p>
                 {entry.employee.position && (
-                  <p className="truncate text-xs text-[--color-text-muted]">
+                  <p className="truncate text-xs text-(--color-text-muted)">
                     {entry.employee.position}
                   </p>
                 )}
@@ -70,15 +84,15 @@ export function ExpensePayrollDetail({ expenseId }: ExpensePayrollDetailProps) {
         </div>
       ) : (
         // Viloyat — bitta ochiluvchi blok, ichida tumanlar ketma-ket
-        <div className="overflow-hidden rounded-[--radius-control] border border-[--color-line]">
+        <div className="overflow-hidden rounded-(--radius-control) border border-(--color-line)">
           <button
             type="button"
             onClick={() => setOpen((state) => !state)}
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[--color-surface-muted]"
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-(--color-surface-muted)"
           >
             <IconChevronDown
               className={cn(
-                'size-4 shrink-0 text-[--color-text-muted] transition-transform',
+                'size-4 shrink-0 text-(--color-text-muted) transition-transform',
                 !open && '-rotate-90',
               )}
             />
@@ -87,13 +101,13 @@ export function ExpensePayrollDetail({ expenseId }: ExpensePayrollDetailProps) {
               Tumanlar kesimida
             </span>
 
-            <span className="shrink-0 text-xs text-[--color-text-muted]">
+            <span className="shrink-0 text-xs text-(--color-text-muted)">
               {groups.length} ta tuman
             </span>
           </button>
 
           {open && (
-            <div className="border-t border-[--color-line]">
+            <div className="border-t border-(--color-line)">
               {groups.map((group) => {
                 const groupEntries = entries.filter(
                   (entry) => (entry.employee.districtId ?? 'none') === group.key,
@@ -102,11 +116,11 @@ export function ExpensePayrollDetail({ expenseId }: ExpensePayrollDetailProps) {
                 return (
                   <div key={group.key}>
                     {/* Tuman sarlavhasi */}
-                    <div className="flex items-center justify-between gap-3 bg-[--color-surface-sunken] px-3 py-2">
-                      <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                    <div className="flex items-center justify-between gap-3 bg-(--color-surface-sunken) px-3 py-2">
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-(--color-text-muted)">
                         {group.label}
                       </span>
-                      <span className="shrink-0 text-xs text-[--color-text-muted]">
+                      <span className="shrink-0 text-xs text-(--color-text-muted)">
                         {group.count} ta
                       </span>
                       <Money
@@ -116,7 +130,7 @@ export function ExpensePayrollDetail({ expenseId }: ExpensePayrollDetailProps) {
                     </div>
 
                     {/* Xodimlar */}
-                    <div className="divide-y divide-[--color-line]">
+                    <div className="divide-y divide-(--color-line)">
                       {groupEntries.map((entry) => (
                         <div
                           key={entry.id}
@@ -127,7 +141,7 @@ export function ExpensePayrollDetail({ expenseId }: ExpensePayrollDetailProps) {
                               {entry.employee.fullName}
                             </p>
                             {entry.employee.position && (
-                              <p className="truncate text-xs text-[--color-text-muted]">
+                              <p className="truncate text-xs text-(--color-text-muted)">
                                 {entry.employee.position}
                               </p>
                             )}

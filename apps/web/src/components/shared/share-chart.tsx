@@ -54,7 +54,7 @@ export function ShareChart({
 
   if (slices.length === 0) {
     return (
-      <div className="flex h-48 items-center justify-center text-sm text-[--color-text-muted]">
+      <div className="flex h-48 items-center justify-center text-sm text-(--color-text-muted)">
         Ma&apos;lumot yo&apos;q
       </div>
     );
@@ -89,7 +89,7 @@ export function ShareChart({
     <div className="space-y-3">
       {/* Ko'rinish almashtirish */}
       <div className="flex justify-end">
-        <div className="inline-flex rounded-[--radius-control] border border-[--color-line-strong] p-0.5">
+        <div className="inline-flex rounded-(--radius-control) border border-(--color-line-strong) p-0.5">
           <ViewButton
             active={view === 'donut'}
             onClick={() => setView('donut')}
@@ -181,7 +181,7 @@ function DonutView({
               <span className="money text-base font-semibold">
                 {formatPercent(active.sharePercent)}
               </span>
-              <span className="mt-0.5 max-w-28 truncate text-center text-[10px] text-[--color-text-muted]">
+              <span className="mt-0.5 max-w-28 truncate text-center text-[10px] text-(--color-text-muted)">
                 {active.label}
               </span>
             </>
@@ -190,7 +190,7 @@ function DonutView({
               <span className="money text-sm font-semibold">
                 {formatTiyin(totalTiyin)}
               </span>
-              <span className="text-[10px] text-[--color-text-muted]">jami</span>
+              <span className="text-[10px] text-(--color-text-muted)">jami</span>
             </>
           )}
         </div>
@@ -223,14 +223,14 @@ function BarView({
           onMouseEnter={() => onHover(slice.key)}
           onMouseLeave={() => onHover(null)}
           className={cn(
-            'block w-full rounded-[--radius-control] px-2 py-1.5 text-left transition-colors',
-            hovered === slice.key && 'bg-[--color-surface-sunken]',
+            'block w-full rounded-(--radius-control) px-2 py-1.5 text-left transition-colors',
+            hovered === slice.key && 'bg-(--color-surface-sunken)',
           )}
         >
           <div className="mb-1 flex items-baseline justify-between gap-3">
             <span className="min-w-0 flex-1 truncate text-sm">{slice.label}</span>
 
-            <span className="money shrink-0 text-xs text-[--color-text-muted]">
+            <span className="money shrink-0 text-xs text-(--color-text-muted)">
               {formatPercent(slice.sharePercent)}
             </span>
 
@@ -239,7 +239,7 @@ function BarView({
             </span>
           </div>
 
-          <div className="h-2 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+          <div className="h-2 overflow-hidden rounded-full bg-(--color-surface-sunken)">
             <div
               className="h-full rounded-full transition-all"
               style={{
@@ -275,7 +275,7 @@ function Legend({
           onMouseLeave={() => onHover(null)}
           className={cn(
             'flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors',
-            hovered === slice.key && 'bg-[--color-surface-sunken]',
+            hovered === slice.key && 'bg-(--color-surface-sunken)',
           )}
         >
           <span
@@ -285,7 +285,7 @@ function Legend({
 
           <span className="min-w-0 flex-1 truncate text-xs">{slice.label}</span>
 
-          <span className="money shrink-0 text-xs text-[--color-text-muted]">
+          <span className="money shrink-0 text-xs text-(--color-text-muted)">
             {formatPercent(slice.sharePercent)}
           </span>
 
@@ -314,10 +314,10 @@ function ViewButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex items-center gap-1.5 rounded-[--radius-control] px-2.5 py-1 text-xs transition-colors',
+        'flex items-center gap-1.5 rounded-(--radius-control) px-2.5 py-1 text-xs transition-colors',
         active
           ? 'bg-brand-800 text-white'
-          : 'text-[--color-text-muted] hover:text-[--color-text]',
+          : 'text-(--color-text-muted) hover:text-(--color-text)',
       )}
     >
       {icon}

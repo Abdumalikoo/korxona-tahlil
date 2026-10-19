@@ -1,0 +1,2983 @@
+##### DAROMADLAR SAHIFALARI #####
+apps\web\src\app\(dashboard)\daromadlar\page.tsx  16844 bayt
+apps\web\src\app\(dashboard)\daromadlar\hududlar\page.tsx  20637 bayt
+apps\web\src\app\(dashboard)\daromadlar\natijalar\page.tsx  38773 bayt
+apps\web\src\app\(dashboard)\daromadlar\tahlil\page.tsx  10911 bayt
+===== C:\Projects\korxona-tahlil\apps\web\src\app\(dashboard)\daromadlar\page.tsx (16844 bayt) =====
+'use client';
+
+import { useState, useCallback } from 'react';
+import Link from 'next/link';
+import { useAuth } from '@/lib/auth-context';
+import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
+import {
+  incomesApi,
+  downloadIncomesExcel,
+  type IncomeFilters,
+} from '@/features/incomes/api';
+import { IncomeDrawer } from '@/features/incomes/income-drawer';
+import { referencesApi } from '@/features/shared/references';
+import { currentPeriod, formatDate, formatPeriod } from '@/lib/format';
+
+import { PageHeader } from '@/components/layout/page-header';
+import { Tabs } from '@/components/ui/tabs';
+import { PeriodPicker } from '@/components/shared/period-picker';
+import { SearchInput } from '@/components/shared/search-input';
+import { StatCard } from '@/components/shared/stat-card';
+import { Pagination } from '@/components/shared/pagination';
+import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
+import { Card } from '@/components/ui/card';
+import { Money } from '@/components/ui/money';
+import { PaymentBadge } from '@/components/ui/badge';
+import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/table';
+import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
+import { Toast } from '@/components/ui/toast';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { SimpleImportDialog } from '@/components/shared/simple-import-dialog';
+import { IconPlus, IconTrendUp, IconEdit, IconTrash, IconUpload, IconDownload } from '@/components/ui/icons';
+import type { Income, PaymentStatus } from '@/lib/types';
+
+const PAGE_LIMIT = 25;
+
+const tabs = [
+  { href: '/daromadlar', label: "Ro'yxat" },
+  { href: '/daromadlar/tahlil', label: 'Tahlil' },
+  { href: '/daromadlar/hududlar', label: 'Hududlar' },
+  { href: '/daromadlar/natijalar', label: 'Xodim natijalari' },
+];
+
+export default function IncomesPage() {
+  const { isAdmin } = useAuth();
+
+  const [period, setPeriod] = useState(currentPeriod());
+  const [departmentId, setDepartmentId] = useState('');
+  const [categoryCode, setCategoryCode] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+
+  const [selected, setSelected] = useState<Income | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkConfirm, setBulkConfirm] = useState<'selected' | 'filter' | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  /** Excel faylni yuklab olish */
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadIncomesExcel(filters);
+    } catch (err) {
+      setToast(errorMessage(err, 'Faylni yuklab bolmadi'));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /** Bitta qatorni belgilash */
+  function toggleOne(id: string) {
+    setSelectedIds((state) => {
+      const next = new Set(state);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Sahifadagi hammasini belgilash */
+  function toggleAll() {
+    setSelectedIds((state) =>
+      state.size === items.length ? new Set() : new Set(items.map((item) => item.id)),
+    );
+  }
+
+  /** Tanlangan yoki filtrga mos yozuvlarni ochiradi */
+  async function handleBulkDelete() {
+    setBulkDeleting(true);
+
+    try {
+      const result =
+        bulkConfirm === 'filter'
+          ? await incomesApi.removeByFilter(filters)
+          : await incomesApi.removeMany([...selectedIds]);
+
+      setToast(`${result.data.count} ta yozuv savatga tushdi`);
+      setSelectedIds(new Set());
+      list.reload();
+      comparison.reload();
+    } catch (err) {
+      setToast(errorMessage(err, 'Ochirishda xatolik'));
+    } finally {
+      setBulkDeleting(false);
+      setBulkConfirm(null);
+    }
+  }
+
+  const filters: IncomeFilters = {
+    period,
+    departmentId: departmentId || undefined,
+    categoryCode: categoryCode || undefined,
+    paymentStatus: (paymentStatus || undefined) as PaymentStatus | undefined,
+    search: search || undefined,
+    page,
+    limit: PAGE_LIMIT,
+  };
+
+  const departments = useAsync(() => referencesApi.departments(), []);
+  const categories = useAsync(() => referencesApi.incomeCategories(), []);
+
+  const list = useAsync(
+    () => incomesApi.list(filters),
+    [period, departmentId, categoryCode, paymentStatus, search, page],
+  );
+
+  const comparison = useAsync(
+    () => incomesApi.comparison(period, departmentId || undefined),
+    [period, departmentId],
+  );
+
+  const changeFilter = useCallback((setter: () => void) => {
+    setter();
+    setPage(1);
+  }, []);
+
+  const handleSaved = useCallback(
+    (message: string) => {
+      setToast(message);
+      list.reload();
+      comparison.reload();
+    },
+    [list, comparison],
+  );
+
+  const departmentOptions = [
+    { value: '', label: "Barcha bo'limlar" },
+    ...(departments.data?.data ?? []).map((item) => ({
+      value: item.id,
+      label: item.name,
+    })),
+  ];
+
+  const categoryOptions = [
+    { value: '', label: 'Barcha xizmatlar' },
+    ...(categories.data?.data ?? []).map((item) => ({
+      value: item.code,
+      label: item.label,
+    })),
+  ];
+
+  const items = list.data?.data ?? [];
+  const meta = list.data?.meta;
+  const hasFilters = Boolean(departmentId || categoryCode || paymentStatus || search);
+
+  return (
+    <>
+      <PageHeader
+        title="Daromadlar"
+        description={formatPeriod(period)}
+        actions={
+          isAdmin && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleExport()}
+                loading={exporting}
+                disabled={items.length === 0}
+              >
+                <IconDownload className="size-4" />
+                Excel
+              </Button>
+
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setImportOpen(true)}
+              >
+                <IconUpload className="size-4" />
+                Yuklash
+              </Button>
+
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <IconPlus className="size-4" />
+                Yangi daromad
+              </Button>
+            </>
+          )
+        }
+      />
+
+      <Tabs items={tabs} className="bg-white px-6" />
+
+      <div className="space-y-4 p-6">
+        {/* Filtrlar */}
+        <div className="flex flex-wrap items-center gap-3">
+          <PeriodPicker
+            value={period}
+            onChange={(value) => changeFilter(() => setPeriod(value))}
+          />
+
+          <div className="w-48">
+            <Select
+              options={departmentOptions}
+              value={departmentId}
+              onChange={(event) => changeFilter(() => setDepartmentId(event.target.value))}
+              className="h-9"
+            />
+          </div>
+
+          <div className="w-52">
+            <Select
+              options={categoryOptions}
+              value={categoryCode}
+              onChange={(event) => changeFilter(() => setCategoryCode(event.target.value))}
+              className="h-9"
+            />
+          </div>
+
+          <div className="w-44">
+            <Select
+              options={[
+                { value: '', label: 'Barcha holatlar' },
+                { value: 'PAID', label: "To'langan" },
+                { value: 'PARTIAL', label: 'Qisman' },
+                { value: 'UNPAID', label: "To'lanmagan" },
+              ]}
+              value={paymentStatus}
+              onChange={(event) => changeFilter(() => setPaymentStatus(event.target.value))}
+              className="h-9"
+            />
+          </div>
+
+          <SearchInput
+            value={search}
+            onChange={(value) => changeFilter(() => setSearch(value))}
+            placeholder="Mijoz, shartnoma, tavsif"
+            className="w-64"
+          />
+
+          {hasFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                changeFilter(() => {
+                  setDepartmentId('');
+                  setCategoryCode('');
+                  setPaymentStatus('');
+                  setSearch('');
+                })
+              }
+            >
+              Tozalash
+            </Button>
+          )}
+        </div>
+
+        {/* Yig'indi */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Jami daromad"
+            tiyin={meta?.sumTiyin ?? 0}
+            tone="income"
+            hint={meta ? `${meta.total} ta yozuv` : undefined}
+            icon={<IconTrendUp className="size-4" />}
+          />
+
+          <StatCard
+            label="Tushgan"
+            tiyin={meta?.paidTiyin ?? 0}
+            tone="income"
+          />
+
+          <StatCard
+            label="Debitorlik qarzi"
+            tiyin={meta?.receivableTiyin ?? 0}
+            tone={Number(meta?.receivableTiyin ?? 0) > 0 ? 'expense' : 'neutral'}
+          />
+
+          <StatCard
+            label="O'tgan oyga nisbatan"
+            tiyin={comparison.data?.data.previous.amountTiyin ?? 0}
+            changePercent={comparison.data?.data.previous.changePercent}
+            positiveIsGood
+            hint={
+              comparison.data
+                ? formatPeriod(comparison.data.data.previous.period)
+                : undefined
+            }
+          />
+        </div>
+
+        {isAdmin && selectedIds.size > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-[--radius-card] border border-brand-200 bg-brand-50 px-4 py-2.5">
+            <span className="text-sm font-medium text-brand-800">
+              {selectedIds.size} ta yozuv tanlandi
+            </span>
+
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                Bekor qilish
+              </Button>
+
+              {meta && meta.total > items.length && (
+                <Button variant="ghost" size="sm" onClick={() => setBulkConfirm('filter')}>
+                  Barcha {meta.total} tasini ochirish
+                </Button>
+              )}
+
+              <Button variant="danger" size="sm" onClick={() => setBulkConfirm('selected')}>
+                <IconTrash className="size-4" />
+                Ochirish
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Jadval */}
+        <Card className="overflow-hidden">
+          {list.loading ? (
+            <TableSkeleton rows={8} cols={6} />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={list.reload} />
+          ) : items.length === 0 ? (
+            <EmptyState
+              title={hasFilters ? 'Hech narsa topilmadi' : "Bu oyda daromad yo'q"}
+              description={
+                hasFilters
+                  ? "Filtrlarni o'zgartirib ko'ring"
+                  : isAdmin
+                    ? 'Birinchi daromadni kiriting'
+                    : undefined
+              }
+              action={
+                !hasFilters && isAdmin ? (
+                  <Button size="sm" onClick={() => setCreating(true)}>
+                    <IconPlus className="size-4" />
+                    Yangi daromad
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <>
+              <Table>
+                <THead>
+                  <Tr>
+                    {isAdmin && (
+                      <Th className="w-10 pl-4">
+                        <input
+                          type="checkbox"
+                          checked={items.length > 0 && selectedIds.size === items.length}
+                          onChange={toggleAll}
+                          className="size-4 rounded border-[--color-line-strong]"
+                          aria-label="Hammasini belgilash"
+                        />
+                      </Th>
+                    )}
+
+                    <Th className="w-28">Sana</Th>
+                    <Th>Xizmat turi</Th>
+                    <Th>Mijoz</Th>
+                    <Th className="w-44">Bo&apos;lim</Th>
+                    <Th className="w-28">Holat</Th>
+                    <Th align="right" className="w-40">
+                      Summa
+                    </Th>
+                    <Th className="w-10" />
+                  </Tr>
+                </THead>
+
+                <TBody>
+                  {items.map((income) => (
+                    <Tr
+                      key={income.id}
+                      clickable
+                      className="group"
+                      onClick={() => setSelected(income)}
+                    >
+                      {isAdmin && (
+                        <Td className="pl-4" onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(income.id)}
+                            onChange={() => toggleOne(income.id)}
+                            className="size-4 rounded border-[--color-line-strong]"
+                            aria-label="Belgilash"
+                          />
+                        </Td>
+                      )}
+
+                      <Td className="money whitespace-nowrap text-[--color-text-muted]">
+                        {formatDate(income.date)}
+                      </Td>
+
+                      <Td>{income.category.label}</Td>
+
+                      <Td className="max-w-xs truncate">
+                        {income.clientName ?? '-'}
+                        {income.contractNo && (
+                          <p className="text-xs text-[--color-text-muted]">
+                            {income.contractNo}
+                          </p>
+                        )}
+                      </Td>
+
+                      <Td className="text-[--color-text-muted]">
+                        {income.department?.name ?? 'Umumkorxona'}
+                      </Td>
+
+                      <Td>
+                        {income.paymentStatus !== 'PAID' && (
+                          <PaymentBadge status={income.paymentStatus} />
+                        )}
+                      </Td>
+
+                      <Td money>
+                        <Money tiyin={income.amountTiyin} tone="income" />
+                        {income.paymentStatus === 'PARTIAL' && (
+                          <p className="text-xs text-[--color-text-muted]">
+                            <Money tiyin={income.paidTiyin} /> tushgan
+                          </p>
+                        )}
+                      </Td>
+
+                      <Td className="pr-3 text-right">
+                        <IconEdit className="ml-auto size-4 text-[--color-text-faint] opacity-0 transition-opacity group-hover:opacity-100" />
+                      </Td>
+                    </Tr>
+                  ))}
+                </TBody>
+              </Table>
+
+              {meta && (
+                <Pagination
+                  page={meta.page}
+                  totalPages={meta.totalPages}
+                  total={meta.total}
+                  limit={meta.limit}
+                  onChange={setPage}
+                />
+              )}
+            </>
+          )}
+        </Card>
+      </div>
+
+      <IncomeDrawer
+        income={selected}
+        creating={creating}
+        categories={categories.data?.data ?? []}
+        departments={departments.data?.data ?? []}
+        onClose={() => {
+          setSelected(null);
+          setCreating(false);
+        }}
+        onSaved={handleSaved}
+        onCategoriesChanged={categories.reload}
+      />
+
+      <ConfirmDialog
+        open={bulkConfirm !== null}
+        title="Yozuvlarni ochirish"
+        message={
+          bulkConfirm === 'filter'
+            ? `Filtrga mos ${meta?.total ?? 0} ta yozuv savatga tushadi. 15 kun ichida tiklash mumkin.`
+            : `${selectedIds.size} ta yozuv savatga tushadi. 15 kun ichida tiklash mumkin.`
+        }
+        confirmLabel="Ochirish"
+        danger
+        loading={bulkDeleting}
+        onConfirm={() => void handleBulkDelete()}
+        onCancel={() => setBulkConfirm(null)}
+      />
+
+      <SimpleImportDialog
+        open={importOpen}
+        kind="income"
+        onClose={() => setImportOpen(false)}
+        onImported={(message) => {
+          setToast(message);
+          list.reload();
+          comparison.reload();
+        }}
+      />
+
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+    </>
+  );
+}
+
+===== C:\Projects\korxona-tahlil\apps\web\src\app\(dashboard)\daromadlar\hududlar\page.tsx (20637 bayt) =====
+'use client';
+
+import { useState, useRef } from 'react';
+import { useAuth } from '@/lib/auth-context';
+import { useAsync } from '@/lib/use-async';
+import { errorMessage } from '@/lib/error-message';
+import { ApiError } from '@/lib/api';
+import {
+  regionalIncomeApi,
+  downloadRegionalTemplate,
+  analyzeRegionalFile,
+  type RegionalAnalyzeResult,
+} from '@/features/incomes/regional-api';
+import { currentPeriod, formatPeriod, formatTiyin, formatPercent } from '@/lib/format';
+
+import { PageHeader } from '@/components/layout/page-header';
+import { Tabs } from '@/components/ui/tabs';
+import { PeriodPicker } from '@/components/shared/period-picker';
+import { ShareBar } from '@/components/shared/share-bar';
+import { Card, CardHeader, CardBody } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
+import { Money } from '@/components/ui/money';
+import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
+import { EmptyState, LoadingState } from '@/components/ui/states';
+import { Toast } from '@/components/ui/toast';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  IconDownload,
+  IconUpload,
+  IconAlert,
+  IconSpinner,
+} from '@/components/ui/icons';
+import { cn } from '@/lib/utils';
+
+const tabs = [
+  { href: '/daromadlar', label: "Ro'yxat" },
+  { href: '/daromadlar/tahlil', label: 'Tahlil' },
+  { href: '/daromadlar/hududlar', label: 'Hududlar' },
+  { href: '/daromadlar/natijalar', label: 'Xodim natijalari' },
+];
+
+export default function RegionalIncomePage() {
+  const { isAdmin } = useAuth();
+
+  const [period, setPeriod] = useState(currentPeriod());
+  const [analysis, setAnalysis] = useState<RegionalAnalyzeResult | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [replacePrevious, setReplacePrevious] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState('');
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(
+    null,
+  );
+
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const byRegion = useAsync(() => regionalIncomeApi.summaryByRegion(period), [period]);
+  const byService = useAsync(
+    () =>
+      regionalIncomeApi.summaryByService(
+        period,
+        selectedRegion ? Number(selectedRegion) : undefined,
+      ),
+    [period, selectedRegion],
+  );
+
+  function reset() {
+    setAnalysis(null);
+    setReplacePrevious(false);
+    if (inputRef.current) inputRef.current.value = '';
+  }
+
+  async function handleTemplate() {
+    setDownloading(true);
+    try {
+      await downloadRegionalTemplate(period);
+    } catch {
+      setToast({ message: 'Shablonni yuklab bo\u2018lmadi', tone: 'error' });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleFile(file: File) {
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      setToast({ message: 'Faqat Excel fayl yuklang', tone: 'error' });
+      return;
+    }
+
+    setUploading(true);
+    setAnalysis(null);
+
+    try {
+      const result = await analyzeRegionalFile(period, file);
+      setAnalysis(result);
+    } catch (err) {
+      setToast({
+        message: errorMessage(err),
+        tone: 'error',
+      });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleCommit() {
+    if (!analysis) return;
+
+    setCommitting(true);
+
+    try {
+      const result = await regionalIncomeApi.commit(
+        period,
+        analysis.rows,
+        replacePrevious,
+      );
+      setToast({
+        message: `${result.data.created} ta daromad yozuvi yaratildi`,
+        tone: 'success',
+      });
+      reset();
+      byRegion.reload();
+      byService.reload();
+    } catch (err) {
+      setToast({
+        message: errorMessage(err, 'Saqlashda xatolik'),
+        tone: 'error',
+      });
+    } finally {
+      setCommitting(false);
+      setConfirmOpen(false);
+    }
+  }
+
+  const regionOptions = [
+    { value: '', label: 'Barcha hududlar' },
+    ...(byRegion.data?.data.rows ?? []).map((row) => ({
+      value: String(row.regionCode ?? ''),
+      label: row.name,
+    })),
+  ];
+
+  const regionRows = byRegion.data?.data.rows ?? [];
+  const serviceRows = byService.data?.data.rows ?? [];
+
+  return (
+    <>
+      <PageHeader
+        title="Daromadlar"
+        description={`Hududlar \u00B7 ${formatPeriod(period)}`}
+      />
+
+      <Tabs items={tabs} className="bg-white px-6" />
+
+      <div className="space-y-4 p-6">
+        {/* Davr va shablon */}
+        <div className="flex flex-wrap items-center gap-3">
+          <PeriodPicker
+            value={period}
+            onChange={(value) => {
+              setPeriod(value);
+              reset();
+            }}
+          />
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void handleTemplate()}
+            loading={downloading}
+          >
+            <IconDownload className="size-4" />
+            Shablon yuklab olish
+          </Button>
+        </div>
+
+        {/* Yuklash zonasi */}
+        {isAdmin && !analysis && (
+          <Card>
+            <CardBody>
+              <div
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragging(false);
+                  const file = event.dataTransfer.files[0];
+                  if (file) void handleFile(file);
+                }}
+                onClick={() => inputRef.current?.click()}
+                className={cn(
+                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[--radius-card] border-2 border-dashed px-6 py-12 transition-colors',
+                  dragging
+                    ? 'border-brand-600 bg-brand-50'
+                    : 'border-[--color-line-strong] hover:border-brand-400 hover:bg-[--color-surface-muted]',
+                )}
+              >
+                {uploading ? (
+                  <>
+                    <IconSpinner className="size-8 animate-spin text-brand-700" />
+                    <p className="text-sm text-[--color-text-muted]">
+                      Fayl tahlil qilinmoqda&hellip;
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <IconUpload
+                      className="size-8 text-[--color-text-faint]"
+                      strokeWidth={1.5}
+                    />
+                    <p className="text-sm font-medium text-[--color-text]">
+                      To&rsquo;ldirilgan faylni shu yerga tashlang
+                    </p>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Bitta varaq, hududlar ustunlarda &middot; Soni va Summasi
+                    </p>
+                  </>
+                )}
+
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleFile(file);
+                  }}
+                />
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Tahlil natijasi */}
+        {analysis && (
+          <AnalysisView
+            analysis={analysis}
+            replacePrevious={replacePrevious}
+            onReplaceChange={setReplacePrevious}
+            onCommit={() => setConfirmOpen(true)}
+            onCancel={reset}
+            committing={committing}
+          />
+        )}
+
+        {/* Hududlar kesimi */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Hududlar bo'yicha daromad"
+            description={formatPeriod(period)}
+          />
+
+          {byRegion.loading ? (
+            <LoadingState />
+          ) : regionRows.length === 0 ? (
+            <EmptyState title="Bu davrda hududiy daromad yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Hudud</Th>
+                  <Th align="center" className="w-24">
+                    Xizmat
+                  </Th>
+                  <Th align="center" className="w-24">
+                    Soni
+                  </Th>
+                  <Th className="w-40">Ulush</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {regionRows.map((row) => (
+                  <Tr key={row.regionCode ?? 'none'}>
+                    <Td>{row.name}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.quantity || '\u2014'}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-income)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="income" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={4}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byRegion.data?.data.totalTiyin ?? 0}
+                      tone="income"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Xizmat turlari */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Xizmat turlari bo'yicha"
+            description="Eng katta daromaddan boshlab"
+            actions={
+              <div className="w-56">
+                <Select
+                  options={regionOptions}
+                  value={selectedRegion}
+                  onChange={(event) => setSelectedRegion(event.target.value)}
+                  className="h-9"
+                />
+              </div>
+            }
+          />
+
+          {byService.loading ? (
+            <LoadingState />
+          ) : serviceRows.length === 0 ? (
+            <EmptyState title="Ma'lumot yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Xizmat turi</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th align="right" className="w-32">
+                    O&apos;rtacha
+                  </Th>
+                  <Th className="w-32">Ulush</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {serviceRows.map((row) => (
+                  <Tr key={row.categoryCode}>
+                    <Td className="max-w-md truncate" title={row.label}>
+                      {row.label}
+                    </Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.quantity || '\u2014'}
+                    </Td>
+
+                    <Td money className="text-[--color-text-muted]">
+                      {row.averageTiyin ? formatTiyin(row.averageTiyin) : '\u2014'}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-income)"
+                        />
+                      </div>
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="income" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={4}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byService.data?.data.totalTiyin ?? 0}
+                      tone="income"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+      </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Yuklashni tasdiqlash"
+        message={
+          replacePrevious
+            ? `Bu davrdagi eski hududiy daromadlar o'chiriladi va ${analysis?.totalRows ?? 0} ta yangi yozuv yaratiladi.`
+            : `${analysis?.totalRows ?? 0} ta daromad yozuvi yaratiladi.`
+        }
+        confirmLabel="Tasdiqlash"
+        danger={replacePrevious}
+        loading={committing}
+        onConfirm={() => void handleCommit()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+
+      {toast && (
+        <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />
+      )}
+    </>
+  );
+}
+
+// ─────────── Tahlil natijasi ───────────
+
+function AnalysisView({
+  analysis,
+  replacePrevious,
+  onReplaceChange,
+  onCommit,
+  onCancel,
+  committing,
+}: {
+  analysis: RegionalAnalyzeResult;
+  replacePrevious: boolean;
+  onReplaceChange: (value: boolean) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  committing: boolean;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Yig'indi */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <SummaryBox label="Hududlar" value={String(analysis.regions.length)} />
+        <SummaryBox label="Yozuvlar" value={String(analysis.totalRows)} tone="income" />
+        <SummaryBox
+          label="Jami summa"
+          value={formatTiyin(analysis.totalTiyin)}
+          tone="income"
+        />
+      </div>
+
+      {/* Ogohlantirishlar */}
+      {analysis.unknownSheets.length > 0 && (
+        <div className="flex items-start gap-2.5 rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+          <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+          <div>
+            <p className="text-sm font-medium text-[--color-warn]">
+              Tanilmagan ustunlar
+            </p>
+            <p className="mt-0.5 text-xs text-[--color-text-muted]">
+              {analysis.unknownSheets.join(', ')} &mdash; bu ustunlar o&rsquo;tkazib
+              yuborildi
+            </p>
+          </div>
+        </div>
+      )}
+
+      {analysis.unknownServices.length > 0 && (
+        <Card className="overflow-hidden">
+          <CardHeader
+            title={`Tanilmagan xizmatlar \u2014 ${analysis.unknownServices.length} ta`}
+            description="Bu qatorlar hisobga olinmaydi"
+          />
+          <CardBody className="max-h-40 overflow-y-auto">
+            <ul className="space-y-1 text-xs text-[--color-text-muted]">
+              {analysis.unknownServices.slice(0, 20).map((item, index) => (
+                <li key={`${item.sheet}-${item.rowIndex}-${index}`}>
+                  <span className="money">{item.sheet}</span> &middot; {item.rowIndex}-qator
+                  &mdash; {item.label}
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
+      {analysis.hasPrevious && (
+        <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-[--color-warn]">
+                Bu davrda {analysis.previousCount} ta hududiy daromad bor
+              </p>
+
+              <div className="mt-3 space-y-2">
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] bg-white px-3 py-2.5">
+                  <input
+                    type="radio"
+                    checked={!replacePrevious}
+                    onChange={() => onReplaceChange(false)}
+                    className="mt-0.5 size-4"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">Qo&rsquo;shish</span>
+                    <span className="block text-xs text-[--color-text-muted]">
+                      Eski yozuvlar joyida qoladi
+                    </span>
+                  </span>
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] bg-white px-3 py-2.5">
+                  <input
+                    type="radio"
+                    checked={replacePrevious}
+                    onChange={() => onReplaceChange(true)}
+                    className="mt-0.5 size-4"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">Almashtirish</span>
+                    <span className="block text-xs text-[--color-text-muted]">
+                      Eski yozuvlar o&rsquo;chiriladi
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hududlar */}
+      <Card className="overflow-hidden">
+        <CardHeader
+          title="Shakllanadigan daromadlar"
+          description="Tasdiqlangandan keyin shu yozuvlar yaratiladi"
+        />
+
+        <Table>
+          <THead>
+            <Tr>
+              <Th>Hudud</Th>
+              <Th align="center" className="w-24">
+                Xizmat
+              </Th>
+              <Th align="center" className="w-24">
+                Soni
+              </Th>
+              <Th align="right" className="w-44">
+                Summa
+              </Th>
+            </Tr>
+          </THead>
+
+          <TBody>
+            {analysis.regions.map((region) => (
+              <Tr key={region.regionCode}>
+                <Td>{region.name}</Td>
+                <Td align="center" className="money text-[--color-text-muted]">
+                  {region.count}
+                </Td>
+                <Td align="center" className="money text-[--color-text-muted]">
+                  {region.quantity || '\u2014'}
+                </Td>
+                <Td money>
+                  <Money tiyin={region.totalTiyin} tone="income" />
+                </Td>
+              </Tr>
+            ))}
+          </TBody>
+
+          <TFoot>
+            <Tr>
+              <Td colSpan={3}>Jami</Td>
+              <Td money>
+                <Money
+                  tiyin={analysis.totalTiyin}
+                  tone="income"
+                  className="font-semibold"
+                />
+              </Td>
+            </Tr>
+          </TFoot>
+        </Table>
+      </Card>
+
+      {/* Amallar */}
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" onClick={onCancel} disabled={committing}>
+          Bekor qilish
+        </Button>
+        <Button onClick={onCommit} loading={committing}>
+          Tasdiqlash va saqlash
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SummaryBox({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'income';
+}) {
+  return (
+    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+        {label}
+      </p>
+      <p
+        className={cn(
+          'money mt-2 text-xl font-semibold',
+          tone === 'income' ? 'text-[--color-income]' : 'text-[--color-text]',
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+===== C:\Projects\korxona-tahlil\apps\web\src\app\(dashboard)\daromadlar\natijalar\page.tsx (38773 bayt) =====
+'use client';
+
+import {
+    analyzeResultsFile,
+    downloadResultsExcel,
+    downloadResultsTemplate,
+    EMPLOYMENT_LABELS,
+    resultsApi,
+    type CommitResult,
+    type RegionTotal,
+    type ResultBatch,
+    type ResultListRow,
+    type ResultsAnalysis,
+    type ResultTotals,
+} from '@/features/results/api';
+import { useAuth } from '@/lib/auth-context';
+import { errorMessage } from '@/lib/error-message';
+import {
+    currentPeriod,
+    formatDateTime,
+    formatPercent,
+    formatPeriod,
+    formatTiyin,
+} from '@/lib/format';
+import { useAsync } from '@/lib/use-async';
+import { useMemo, useRef, useState } from 'react';
+
+import { PageHeader } from '@/components/layout/page-header';
+import { PeriodPicker } from '@/components/shared/period-picker';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+    IconAlert,
+    IconCheck,
+    IconChevronDown,
+    IconDownload,
+    IconSpinner,
+    IconUpload,
+} from '@/components/ui/icons';
+import { Money } from '@/components/ui/money';
+import { Select } from '@/components/ui/select';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
+import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
+import { Tabs } from '@/components/ui/tabs';
+import { Toast } from '@/components/ui/toast';
+import { cn } from '@/lib/utils';
+
+const tabs = [
+  { href: '/daromadlar', label: "Ro'yxat" },
+  { href: '/daromadlar/tahlil', label: 'Tahlil' },
+  { href: '/daromadlar/hududlar', label: 'Hududlar' },
+  { href: '/daromadlar/natijalar', label: 'Xodim natijalari' },
+];
+
+type ToastState = { message: string; tone: 'success' | 'error' } | null;
+
+/** Bajarilish rangi: <80 qizil, 80–95 sariq, >95 yashil */
+function percentColor(percent: number | null): string {
+  if (percent == null) return 'text-[--color-text-faint]';
+  if (percent < 80) return 'text-[--color-expense]';
+  if (percent <= 95) return 'text-[--color-warn]';
+  return 'text-[--color-income]';
+}
+
+/** Nisbat rangi: maosh tushumdan katta bo'lsa (1 dan kichik) — qizil */
+function ratioColor(ratio: number | null): string {
+  if (ratio == null) return 'text-[--color-text-faint]';
+  if (ratio < 1) return 'text-[--color-expense]';
+  return 'text-[--color-text]';
+}
+
+function formatRatio(ratio: number | null): string {
+  if (ratio == null) return '\u2014';
+  return `${ratio.toFixed(2).replace('.', ',')}\u00D7`;
+}
+
+export default function EmployeeResultsPage() {
+  const { isAdmin } = useAuth();
+
+  const [period, setPeriod] = useState(currentPeriod());
+  const [analysis, setAnalysis] = useState<ResultsAnalysis | null>(null);
+  const [report, setReport] = useState<CommitResult | null>(null);
+
+  const [uploading, setUploading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  const [regionFilter, setRegionFilter] = useState('');
+  const [search, setSearch] = useState('');
+
+  const [cancelTarget, setCancelTarget] = useState<ResultBatch | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  const [toast, setToast] = useState<ToastState>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const regionCode = regionFilter === '' ? undefined : Number(regionFilter);
+
+  const list = useAsync(() => resultsApi.list(period, regionCode), [period, regionCode]);
+  const batches = useAsync(() => resultsApi.batches(period), [period]);
+
+  const data = list.data?.data;
+
+  const filteredRows = useMemo(() => {
+    const rows = data?.rows ?? [];
+    const query = search.trim().toLowerCase();
+    if (!query) return rows;
+
+    return rows.filter(
+      (row) =>
+        row.fullName.toLowerCase().includes(query) ||
+        row.pinfl.includes(query) ||
+        (row.districtName ?? '').toLowerCase().includes(query),
+    );
+  }, [data, search]);
+
+  function resetUpload() {
+    setAnalysis(null);
+    if (inputRef.current) inputRef.current.value = '';
+  }
+
+  async function handleTemplate() {
+    setDownloading(true);
+    try {
+      await downloadResultsTemplate(period);
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Shablonni yuklab bo\u2018lmadi'), tone: 'error' });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadResultsExcel(period, regionCode);
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Faylni yuklab bo\u2018lmadi'), tone: 'error' });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleFile(file: File) {
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      setToast({ message: 'Faqat Excel fayl yuklang', tone: 'error' });
+      return;
+    }
+
+    setUploading(true);
+    setAnalysis(null);
+    setReport(null);
+
+    try {
+      setAnalysis(await analyzeResultsFile(period, file));
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Faylni o\u2018qib bo\u2018lmadi'), tone: 'error' });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!analysis) return;
+
+    setSaving(true);
+
+    try {
+      const result = await resultsApi.commit(period, analysis.fileName, analysis.rows);
+
+      setReport(result.data);
+      setToast({ message: `${result.data.saved} ta xodim natijasi saqlandi`, tone: 'success' });
+
+      resetUpload();
+      list.reload();
+      batches.reload();
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Saqlashda xatolik'), tone: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCancelBatch() {
+    if (!cancelTarget) return;
+
+    setCancelling(true);
+
+    try {
+      const result = await resultsApi.cancel(cancelTarget.id);
+      const moved = result.data.payroll.moved.length;
+
+      setToast({
+        message:
+          'Yuklash bekor qilindi' +
+          (moved > 0 ? ` \u00B7 ish haqi qayta guruhlandi (${moved} xodim)` : ''),
+        tone: 'success',
+      });
+
+      setReport(null);
+      list.reload();
+      batches.reload();
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Bekor qilishda xatolik'), tone: 'error' });
+    } finally {
+      setCancelling(false);
+      setCancelTarget(null);
+    }
+  }
+
+  const regionOptions = [
+    { value: '', label: 'Barcha hududlar' },
+    ...(data?.regions ?? []).map((region) => ({
+      value: String(region.regionCode),
+      label: region.name,
+    })),
+  ];
+
+  return (
+    <>
+      <PageHeader
+        title="Daromadlar"
+        description={`Xodim natijalari \u00B7 ${formatPeriod(period)}`}
+      />
+
+      <Tabs items={tabs} className="bg-white px-6" />
+
+      <div className="space-y-4 p-6">
+        <p className="text-xs text-[--color-text-muted]">
+          Xodimlar tushirgan tushum &mdash; daromadga qo&rsquo;shilmaydi, hududiy daromadning
+          xodimlar kesimi. Shu oy ish haqisi bilan PINFL bo&rsquo;yicha solishtiriladi.
+        </p>
+
+        {/* Davr, shablon, eksport */}
+        <div className="flex flex-wrap items-center gap-3">
+          <PeriodPicker
+            value={period}
+            onChange={(value) => {
+              setPeriod(value);
+              setRegionFilter('');
+              resetUpload();
+              setReport(null);
+            }}
+          />
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void handleTemplate()}
+            loading={downloading}
+          >
+            <IconDownload className="size-4" />
+            Shablon
+          </Button>
+
+          {data && data.rows.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleExport()}
+              loading={exporting}
+            >
+              <IconDownload className="size-4" />
+              Excel{regionCode !== undefined ? ' (hudud)' : ''}
+            </Button>
+          )}
+        </div>
+
+        {/* Yuklash zonasi */}
+        {isAdmin && !analysis && (
+          <Card>
+            <CardBody>
+              <div
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragging(false);
+                  const file = event.dataTransfer.files[0];
+                  if (file) void handleFile(file);
+                }}
+                onClick={() => inputRef.current?.click()}
+                className={cn(
+                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[--radius-card] border-2 border-dashed px-6 py-10 transition-colors',
+                  dragging
+                    ? 'border-brand-600 bg-brand-50'
+                    : 'border-[--color-line-strong] hover:border-brand-400 hover:bg-[--color-surface-muted]',
+                )}
+              >
+                {uploading ? (
+                  <>
+                    <IconSpinner className="size-8 animate-spin text-brand-700" />
+                    <p className="text-sm text-[--color-text-muted]">Tekshirilmoqda&hellip;</p>
+                  </>
+                ) : (
+                  <>
+                    <IconUpload className="size-8 text-[--color-text-faint]" strokeWidth={1.5} />
+                    <p className="text-sm font-medium">Natijalar faylini shu yerga tashlang</p>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Hudud va tuman kodi, PINFL, turi (1/2), reja, tushum, ustama
+                    </p>
+                  </>
+                )}
+
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleFile(file);
+                  }}
+                />
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Tahlil natijasi */}
+        {analysis && (
+          <AnalysisView
+            analysis={analysis}
+            saving={saving}
+            onSave={() => void handleSave()}
+            onCancel={resetUpload}
+          />
+        )}
+
+        {/* Saqlash hisoboti */}
+        {report && <CommitReport report={report} onClose={() => setReport(null)} />}
+
+        {/* ─────── Saqlangan natijalar ─────── */}
+        {list.loading ? (
+          <LoadingState />
+        ) : list.error ? (
+          <ErrorState message={list.error} onRetry={list.reload} />
+        ) : !data || data.rows.length === 0 ? (
+          <Card>
+            <EmptyState
+              title="Bu oy uchun natijalar yo'q"
+              description="Shablonni to'ldirib yuklang"
+            />
+          </Card>
+        ) : (
+          <>
+            {/* Ish haqi yuklanmagan */}
+            {!data.payrollUploaded && (
+              <div className="flex items-start gap-2.5 rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+                <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+                <div>
+                  <p className="text-sm font-medium text-[--color-warn]">
+                    {formatPeriod(period)} uchun ish haqi yuklanmagan
+                  </p>
+                  <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                    Solishtirish uchun <b>Xarajatlar &rarr; Ish haqi</b> bo&rsquo;limidan shu oy
+                    faylini yuklang &mdash; ustunlar o&rsquo;zi to&rsquo;ladi.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Yig'indi */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <SummaryBox label="Xodimlar" value={String(data.rows.length)} />
+              <SummaryBox label="Reja" value={formatTiyin(data.totals.planTiyin)} />
+              <SummaryBox
+                label="Tushum"
+                value={formatTiyin(data.totals.factTiyin)}
+                className="text-[--color-income]"
+              />
+              <SummaryBox
+                label="Bajarilish"
+                value={formatPercent(data.totals.percent)}
+                className={percentColor(data.totals.percent)}
+              />
+              <SummaryBox label="Ustama" value={formatTiyin(data.totals.bonusTiyin)} />
+              <SummaryBox
+                label="Ish haqi"
+                value={data.payrollUploaded ? formatTiyin(data.totals.salaryTiyin) : 'yuklanmagan'}
+                className={data.payrollUploaded ? 'text-[--color-expense]' : 'text-[--color-warn]'}
+              />
+              <SummaryBox
+                label="Tushum / ish haqi"
+                value={formatRatio(data.totals.ratio)}
+                hint="Har 1 so'm maoshga tushum"
+                className={ratioColor(data.totals.ratio)}
+              />
+              <SummaryBox
+                label="Ish haqi ulushi"
+                value={formatPercent(data.totals.salaryShare)}
+                hint="Tushumning maoshga ketgan qismi"
+              />
+            </div>
+
+            {/* Maosh olgan, natijasi yo'q */}
+            <IssueBlock
+              tone="warn"
+              title="Maosh olgan, lekin natijalar faylida yo'q"
+              description="Shu oy ish haqi olgan viloyat xodimlari — markaz xodimlari kirmaydi"
+              count={(data.payrollOnly ?? []).length}
+            >
+              {(data.payrollOnly ?? []).map((item) => (
+                <IssueLine
+                  key={item.pinfl}
+                  left={`${item.fullName} · ${item.place}`}
+                  right={formatTiyin(item.salaryTiyin)}
+                />
+              ))}
+            </IssueBlock>
+
+            {/* Hududlar */}
+            {regionCode === undefined && (
+              <RegionTable
+                regions={data.regions}
+                totals={data.totals}
+                showSalary={data.payrollUploaded}
+              />
+            )}
+
+            {/* Xodimlar */}
+            <Card className="overflow-hidden">
+              <CardHeader
+                title="Xodimlar"
+                description={`${filteredRows.length} ta`}
+                actions={
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Ism, PINFL yoki tuman"
+                      className="h-9 w-56 rounded-[--radius-control] border border-[--color-line-strong] px-3 text-sm focus:border-brand-600 focus:outline-none"
+                    />
+                    <div className="w-52">
+                      <Select
+                        options={regionOptions}
+                        value={regionFilter}
+                        onChange={(event) => setRegionFilter(event.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
+                }
+              />
+
+              {filteredRows.length === 0 ? (
+                <EmptyState title="Topilmadi" />
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <THead>
+                      <Tr>
+                        <Th>Xodim</Th>
+                        <Th className="w-48">Hudud / Tuman</Th>
+                        <Th className="w-28">Turi</Th>
+                        <Th align="right" className="w-32">
+                          Reja
+                        </Th>
+                        <Th align="right" className="w-32">
+                          Tushum
+                        </Th>
+                        <Th align="right" className="w-20">
+                          Foiz
+                        </Th>
+                        <Th align="right" className="w-32">
+                          Ustama
+                        </Th>
+                        <Th align="right" className="w-32 bg-brand-50">
+                          Ish haqi
+                        </Th>
+                        <Th align="right" className="w-24 bg-brand-50">
+                          Nisbat
+                        </Th>
+                        <Th align="right" className="w-20 bg-brand-50">
+                          Ulush
+                        </Th>
+                      </Tr>
+                    </THead>
+
+                    <TBody>
+                      {filteredRows.map((row) => (
+                        <Tr key={row.pinfl}>
+                          <Td>
+                            <span className="font-medium">{row.fullName}</span>
+                            <p className="money text-xs text-[--color-text-faint]">{row.pinfl}</p>
+                          </Td>
+                          <Td className="text-[--color-text-muted]">
+                            {row.regionName}
+                            {row.districtName && (
+                              <p className="text-xs text-[--color-text-faint]">
+                                {row.districtName}
+                              </p>
+                            )}
+                          </Td>
+                          <Td>
+                            <Badge tone={row.employmentType === 'SHTAT' ? 'neutral' : 'warn'}>
+                              {EMPLOYMENT_LABELS[row.employmentType]}
+                            </Badge>
+                          </Td>
+                          <Td money className="text-[--color-text-muted]">
+                            <Money tiyin={row.planTiyin} />
+                          </Td>
+                          <Td money>
+                            <Money tiyin={row.factTiyin} tone="income" />
+                          </Td>
+                          <Td
+                            align="right"
+                            className={cn('money font-medium', percentColor(row.percent))}
+                          >
+                            {formatPercent(row.percent)}
+                          </Td>
+                          <Td money>
+                            <Money tiyin={row.bonusTiyin} />
+                          </Td>
+                          <Td align="right" className="bg-brand-50/40">
+                            <SalaryCell row={row} />
+                          </Td>
+                          <Td
+                            align="right"
+                            className={cn('money bg-brand-50/40 font-medium', ratioColor(row.ratio))}
+                          >
+                            {formatRatio(row.ratio)}
+                          </Td>
+                          <Td align="right" className="money bg-brand-50/40 text-[--color-text-muted]">
+                            {row.salaryShare == null ? '\u2014' : formatPercent(row.salaryShare)}
+                          </Td>
+                        </Tr>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* Tarix */}
+        <Card className="overflow-hidden">
+          <CardHeader title="Yuklashlar tarixi" description={formatPeriod(period)} />
+
+          {batches.loading ? (
+            <LoadingState />
+          ) : (batches.data?.data.length ?? 0) === 0 ? (
+            <EmptyState title="Bu oy uchun yuklash yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Fayl</Th>
+                  <Th className="w-32">Holat</Th>
+                  <Th align="center" className="w-24">
+                    Xodim
+                  </Th>
+                  <Th align="center" className="w-32">
+                    O&apos;zgargan
+                  </Th>
+                  <Th align="right" className="w-40">
+                    Tushum
+                  </Th>
+                  <Th className="w-40">Yuklagan</Th>
+                  <Th className="w-28" />
+                </Tr>
+              </THead>
+
+              <TBody>
+                {batches.data?.data.map((batch) => (
+                  <Tr key={batch.id} className={cn(batch.cancelledAt && 'opacity-50')}>
+                    <Td>
+                      {batch.fileName}
+                      <p className="text-xs text-[--color-text-muted]">
+                        {formatDateTime(batch.createdAt)}
+                      </p>
+                    </Td>
+                    <Td>
+                      <Badge tone={batch.cancelledAt ? 'neutral' : 'income'}>
+                        {batch.cancelledAt ? 'Bekor qilingan' : 'Amalda'}
+                      </Badge>
+                    </Td>
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {batch.totalRows}
+                    </Td>
+                    <Td align="center" className="money">
+                      {batch.movedCount > 0 ? (
+                        <span className="text-[--color-warn]">{batch.movedCount}</span>
+                      ) : (
+                        <span className="text-[--color-text-faint]">&mdash;</span>
+                      )}
+                    </Td>
+                    <Td money>
+                      <Money tiyin={batch.factTiyin} tone="income" />
+                    </Td>
+                    <Td className="text-[--color-text-muted]">{batch.uploadedBy.fullName}</Td>
+                    <Td>
+                      {isAdmin && !batch.cancelledAt && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCancelTarget(batch)}
+                          className="text-[--color-text-muted] hover:text-[--color-expense]"
+                        >
+                          Bekor qilish
+                        </Button>
+                      )}
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </Card>
+      </div>
+
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        title="Yuklashni bekor qilish"
+        message={`${cancelTarget?.fileName ?? ''} bekor qilinadi. Shu oy hudud tarixi o'chadi va ish haqi reestr bo'yicha qayta guruhlanadi.`}
+        confirmLabel="Bekor qilish"
+        danger
+        loading={cancelling}
+        onConfirm={() => void handleCancelBatch()}
+        onCancel={() => setCancelTarget(null)}
+      />
+
+      {toast && (
+        <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />
+      )}
+    </>
+  );
+}
+
+// ═══════════ Ish haqi katagi ═══════════
+
+function SalaryCell({ row }: { row: ResultListRow }) {
+  if (row.salaryStatus === 'ok' && row.salaryTiyin !== null) {
+    return <Money tiyin={row.salaryTiyin} tone="expense" />;
+  }
+
+  const labels: Record<Exclude<ResultListRow['salaryStatus'], 'ok'>, string> = {
+    zero: 'hisoblanmagan',
+    missing: "yo'q",
+    not_uploaded: '\u2014',
+  };
+
+  return (
+    <span
+      className={cn(
+        'text-xs',
+        row.salaryStatus === 'not_uploaded'
+          ? 'text-[--color-text-faint]'
+          : 'italic text-[--color-warn]',
+      )}
+    >
+      {labels[row.salaryStatus as Exclude<ResultListRow['salaryStatus'], 'ok'>]}
+    </span>
+  );
+}
+
+// ═══════════ Tahlil natijasi ═══════════
+
+function AnalysisView({
+  analysis,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  analysis: ResultsAnalysis;
+  saving: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const warnings =
+    analysis.missing.length +
+    analysis.invalidRows.length +
+    analysis.unknownDistricts.length +
+    analysis.nameMismatches.length +
+    analysis.bonusMismatches.length;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <SummaryBox label="Topildi" value={`${analysis.matchedRows} / ${analysis.totalRows}`} />
+        <SummaryBox label="Reja" value={formatTiyin(analysis.planTiyin)} />
+        <SummaryBox
+          label="Tushum"
+          value={formatTiyin(analysis.factTiyin)}
+          className="text-[--color-income]"
+        />
+        <SummaryBox
+          label="Bajarilish"
+          value={formatPercent(analysis.percent)}
+          className={percentColor(analysis.percent)}
+        />
+        <SummaryBox label="Ustama" value={formatTiyin(analysis.bonusTiyin)} />
+      </div>
+
+      {warnings === 0 &&
+        analysis.locationChanges.length === 0 &&
+        analysis.typeChanges.length === 0 && (
+          <div className="flex items-center gap-2 rounded-[--radius-card] border border-[--color-income] bg-[--color-income-soft] px-4 py-3 text-sm text-[--color-income]">
+            <IconCheck className="size-4" />
+            Fayl toza &mdash; hech qanday nomuvofiqlik topilmadi
+          </div>
+        )}
+
+      <IssueBlock
+        tone="expense"
+        title="Reestrda topilmadi — saqlanmaydi"
+        count={analysis.missing.length}
+      >
+        {analysis.missing.map((item) => (
+          <IssueLine
+            key={item.pinfl}
+            left={item.fullName || '(ismsiz)'}
+            right={`${item.pinfl} · ${item.rowIndex}-qator`}
+          />
+        ))}
+      </IssueBlock>
+
+      <IssueBlock
+        tone="expense"
+        title="Xato qatorlar — o'tkazib yuboriladi"
+        count={analysis.invalidRows.length}
+      >
+        {analysis.invalidRows.map((item) => (
+          <IssueLine key={item.rowIndex} left={`${item.rowIndex}-qator`} right={item.reason} />
+        ))}
+      </IssueBlock>
+
+      <IssueBlock
+        tone="warn"
+        title="Ustama qoidaga mos emas"
+        description="80% dan past — 0, 80–95% — tushumning 25%, 95% dan yuqori — 45%. Fayldagi qiymat saqlanadi"
+        count={analysis.bonusMismatches.length}
+      >
+        {analysis.bonusMismatches.map((item) => (
+          <IssueLine
+            key={item.pinfl}
+            left={`${item.fullName} · ${formatPercent(item.percent)}`}
+            right={`faylda ${formatTiyin(item.fileTiyin)} · qoida bo'yicha ${formatTiyin(item.expectedTiyin)}`}
+          />
+        ))}
+      </IssueBlock>
+
+      <IssueBlock
+        tone="warn"
+        title="Ism reestrdagidan farq qiladi"
+        description="PINFL xato yozilgan bo'lishi mumkin — tekshiring"
+        count={analysis.nameMismatches.length}
+      >
+        {analysis.nameMismatches.map((item) => (
+          <IssueLine
+            key={item.pinfl}
+            left={`Faylda: ${item.fileName}`}
+            right={`Reestrda: ${item.registryName}`}
+          />
+        ))}
+      </IssueBlock>
+
+      <IssueBlock
+        tone="warn"
+        title="Tuman topilmadi — tumansiz saqlanadi"
+        count={analysis.unknownDistricts.length}
+      >
+        {analysis.unknownDistricts.map((item) => (
+          <IssueLine
+            key={item.rowIndex}
+            left={`${item.rowIndex}-qator · ${item.region}`}
+            right={`"${item.value}"`}
+          />
+        ))}
+      </IssueBlock>
+
+      <IssueBlock
+        tone="info"
+        title="Hudud o'zgargan"
+        description="Shu oy uchun fayldagi hudud olinadi — ish haqi shunga ko'chadi"
+        count={analysis.locationChanges.length}
+      >
+        {analysis.locationChanges.map((item) => (
+          <IssueLine key={item.pinfl} left={item.fullName} right={`${item.from} → ${item.to}`} />
+        ))}
+      </IssueBlock>
+
+      <IssueBlock
+        tone="info"
+        title="Xodim turi o'zgargan"
+        description="Shu oy uchun fayldagi tur olinadi"
+        count={analysis.typeChanges.length}
+      >
+        {analysis.typeChanges.map((item) => (
+          <IssueLine key={item.pinfl} left={item.fullName} right={`${item.from} → ${item.to}`} />
+        ))}
+      </IssueBlock>
+
+      {analysis.hasPrevious && (
+        <p className="text-xs text-[--color-warn]">
+          Bu oy uchun natijalar allaqachon saqlangan &mdash; saqlasangiz, oldingisi almashtiriladi.
+        </p>
+      )}
+
+      <RegionTable
+        regions={analysis.regions}
+        totals={{
+          planTiyin: analysis.planTiyin,
+          factTiyin: analysis.factTiyin,
+          bonusTiyin: analysis.bonusTiyin,
+          salaryTiyin: '0',
+          percent: analysis.percent,
+          ratio: null,
+          salaryShare: null,
+        }}
+        showSalary={false}
+        title="Saqlanadigan natijalar"
+      />
+
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" onClick={onCancel} disabled={saving}>
+          Boshqa fayl
+        </Button>
+        <Button onClick={onSave} loading={saving} disabled={analysis.rows.length === 0}>
+          Saqlash ({analysis.rows.length} xodim)
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════ Saqlash hisoboti ═══════════
+
+function CommitReport({ report, onClose }: { report: CommitResult; onClose: () => void }) {
+  const moved = report.payroll.moved;
+  const movedTotal = moved.reduce((sum, item) => sum + Number(item.amountTiyin), 0);
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader
+        title="Saqlandi"
+        description={`${report.saved} ta xodim${report.replacedPrevious ? ' · oldingi yuklash almashtirildi' : ''}`}
+        actions={
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Yopish
+          </Button>
+        }
+      />
+
+      <CardBody className="space-y-3">
+        {report.payroll.batches === 0 ? (
+          <p className="text-sm text-[--color-text-muted]">
+            Bu oy uchun ish haqi hali yuklanmagan. Yuklanganda fayldagi hudud va turga qarab
+            darhol to&rsquo;g&rsquo;ri guruhlanadi.
+          </p>
+        ) : moved.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-[--color-income]">
+            <IconCheck className="size-4" />
+            Ish haqi to&rsquo;g&rsquo;ri joylashgan &mdash; hech narsa ko&rsquo;chmadi
+          </div>
+        ) : (
+          <>
+            <p className="text-sm">
+              Ish haqi qayta guruhlandi:{' '}
+              <span className="font-semibold">{moved.length} xodim</span>,{' '}
+              <span className="money font-semibold">{formatTiyin(String(movedTotal))}</span>{' '}
+              boshqa guruhga ko&rsquo;chdi. Jami ish haqi o&rsquo;zgarmadi.
+            </p>
+
+            <div className="max-h-72 overflow-y-auto rounded-[--radius-control] border border-[--color-line]">
+              <Table>
+                <THead>
+                  <Tr>
+                    <Th>Xodim</Th>
+                    <Th>Qayerdan</Th>
+                    <Th>Qayerga</Th>
+                    <Th align="right" className="w-36">
+                      Summa
+                    </Th>
+                  </Tr>
+                </THead>
+                <TBody>
+                  {moved.map((item) => (
+                    <Tr key={item.pinfl}>
+                      <Td className="font-medium">{item.fullName}</Td>
+                      <Td className="text-[--color-text-muted]">{item.from}</Td>
+                      <Td>{item.to}</Td>
+                      <Td money>
+                        <Money tiyin={item.amountTiyin} tone="expense" />
+                      </Td>
+                    </Tr>
+                  ))}
+                </TBody>
+              </Table>
+            </div>
+          </>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+// ═══════════ Hududlar jadvali ═══════════
+
+function RegionTable({
+  regions,
+  totals,
+  showSalary,
+  title = 'Hududlar bo\u2018yicha',
+}: {
+  regions: RegionTotal[];
+  totals: ResultTotals;
+  showSalary: boolean;
+  title?: string;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader title={title} />
+
+      <div className="overflow-x-auto">
+        <Table>
+          <THead>
+            <Tr>
+              <Th>Hudud</Th>
+              <Th align="center" className="w-20">
+                Xodim
+              </Th>
+              <Th align="right" className="w-36">
+                Reja
+              </Th>
+              <Th align="right" className="w-36">
+                Tushum
+              </Th>
+              <Th align="right" className="w-20">
+                Foiz
+              </Th>
+              <Th align="right" className="w-36">
+                Ustama
+              </Th>
+              {showSalary && (
+                <>
+                  <Th align="right" className="w-36 bg-brand-50">
+                    Ish haqi
+                  </Th>
+                  <Th align="right" className="w-24 bg-brand-50">
+                    Nisbat
+                  </Th>
+                  <Th align="right" className="w-20 bg-brand-50">
+                    Ulush
+                  </Th>
+                </>
+              )}
+            </Tr>
+          </THead>
+
+          <TBody>
+            {regions.map((region) => (
+              <Tr key={region.regionCode}>
+                <Td className="font-medium">{region.name}</Td>
+                <Td align="center" className="money text-[--color-text-muted]">
+                  {region.count}
+                </Td>
+                <Td money className="text-[--color-text-muted]">
+                  <Money tiyin={region.planTiyin} />
+                </Td>
+                <Td money>
+                  <Money tiyin={region.factTiyin} tone="income" />
+                </Td>
+                <Td align="right" className={cn('money font-medium', percentColor(region.percent))}>
+                  {formatPercent(region.percent)}
+                </Td>
+                <Td money>
+                  <Money tiyin={region.bonusTiyin} />
+                </Td>
+                {showSalary && (
+                  <>
+                    <Td money className="bg-brand-50/40">
+                      <Money tiyin={region.salaryTiyin} tone="expense" />
+                    </Td>
+                    <Td
+                      align="right"
+                      className={cn('money bg-brand-50/40 font-medium', ratioColor(region.ratio))}
+                    >
+                      {formatRatio(region.ratio)}
+                    </Td>
+                    <Td align="right" className="money bg-brand-50/40 text-[--color-text-muted]">
+                      {region.salaryShare == null ? '\u2014' : formatPercent(region.salaryShare)}
+                    </Td>
+                  </>
+                )}
+              </Tr>
+            ))}
+          </TBody>
+
+          <TFoot>
+            <Tr>
+              <Td>Jami</Td>
+              <Td align="center" className="money">
+                {regions.reduce((sum, region) => sum + region.count, 0)}
+              </Td>
+              <Td money>
+                <Money tiyin={totals.planTiyin} className="font-semibold" />
+              </Td>
+              <Td money>
+                <Money tiyin={totals.factTiyin} tone="income" className="font-semibold" />
+              </Td>
+              <Td align="right" className={cn('money font-semibold', percentColor(totals.percent))}>
+                {formatPercent(totals.percent)}
+              </Td>
+              <Td money>
+                <Money tiyin={totals.bonusTiyin} className="font-semibold" />
+              </Td>
+              {showSalary && (
+                <>
+                  <Td money>
+                    <Money tiyin={totals.salaryTiyin} tone="expense" className="font-semibold" />
+                  </Td>
+                  <Td
+                    align="right"
+                    className={cn('money font-semibold', ratioColor(totals.ratio))}
+                  >
+                    {formatRatio(totals.ratio)}
+                  </Td>
+                  <Td align="right" className="money font-semibold">
+                    {totals.salaryShare == null ? '\u2014' : formatPercent(totals.salaryShare)}
+                  </Td>
+                </>
+              )}
+            </Tr>
+          </TFoot>
+        </Table>
+      </div>
+    </Card>
+  );
+}
+
+// ═══════════ Yordamchi komponentlar ═══════════
+
+function IssueBlock({
+  tone,
+  title,
+  description,
+  count,
+  children,
+}: {
+  tone: 'expense' | 'warn' | 'info';
+  title: string;
+  description?: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (count === 0) return null;
+
+  const styles = {
+    expense: 'border-[--color-expense] bg-[--color-expense-soft] text-[--color-expense]',
+    warn: 'border-[--color-warn] bg-[--color-warn-soft] text-[--color-warn]',
+    info: 'border-brand-200 bg-brand-50 text-brand-800',
+  };
+
+  return (
+    <div className={cn('rounded-[--radius-card] border px-4 py-3', styles[tone])}>
+      <button
+        type="button"
+        onClick={() => setOpen((state) => !state)}
+        className="flex w-full items-start gap-2.5 text-left"
+      >
+        <IconAlert className="mt-0.5 size-4 shrink-0" />
+
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">
+            {title} &mdash; {count} ta
+          </span>
+          {description && (
+            <span className="mt-0.5 block text-xs text-[--color-text-muted]">{description}</span>
+          )}
+        </span>
+
+        <IconChevronDown
+          className={cn('mt-0.5 size-4 shrink-0 transition-transform', open && 'rotate-180')}
+        />
+      </button>
+
+      {open && <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">{children}</div>}
+    </div>
+  );
+}
+
+function IssueLine({ left, right }: { left: string; right: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-1.5 text-xs text-[--color-text]">
+      <span className="min-w-0 flex-1 truncate font-medium">{left}</span>
+      <span className="shrink-0 text-[--color-text-muted]">{right}</span>
+    </div>
+  );
+}
+
+function SummaryBox({
+  label,
+  value,
+  hint,
+  className,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  className?: string;
+}) {
+  return (
+    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+        {label}
+      </p>
+      <p className={cn('money mt-2 text-xl font-semibold', className)}>{value}</p>
+      {hint && <p className="mt-1 text-xs text-[--color-text-faint]">{hint}</p>}
+    </div>
+  );
+}
+
+===== C:\Projects\korxona-tahlil\apps\web\src\app\(dashboard)\daromadlar\tahlil\page.tsx (10911 bayt) =====
+'use client';
+
+import { useState } from 'react';
+import { useAsync } from '@/lib/use-async';
+import { incomesApi, type IncomeFilters } from '@/features/incomes/api';
+import { referencesApi } from '@/features/shared/references';
+import { currentPeriod, formatPeriod, formatPercent, formatTiyin } from '@/lib/format';
+
+import { PageHeader } from '@/components/layout/page-header';
+import { Tabs } from '@/components/ui/tabs';
+import { PeriodPicker } from '@/components/shared/period-picker';
+import { BarChart } from '@/components/shared/bar-chart';
+import { ShareBar } from '@/components/shared/share-bar';
+import { Select } from '@/components/ui/select';
+import { Card, CardHeader, CardBody } from '@/components/ui/card';
+import { Money } from '@/components/ui/money';
+import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
+import { EmptyState, LoadingState, ErrorState } from '@/components/ui/states';
+
+const tabs = [
+  { href: '/daromadlar', label: "Ro'yxat" },
+  { href: '/daromadlar/tahlil', label: 'Tahlil' },
+  { href: '/daromadlar/hududlar', label: 'Hududlar' },
+  { href: '/daromadlar/natijalar', label: 'Xodim natijalari' },
+];
+
+export default function IncomeAnalysisPage() {
+  const [period, setPeriod] = useState(currentPeriod());
+  const [departmentId, setDepartmentId] = useState('');
+
+  const filters: IncomeFilters = {
+    period,
+    departmentId: departmentId || undefined,
+  };
+
+  const departments = useAsync(() => referencesApi.departments(), []);
+
+  const byCategory = useAsync(
+    () => incomesApi.summaryByCategory(filters),
+    [period, departmentId],
+  );
+
+  const byDepartment = useAsync(
+    () => incomesApi.summaryByDepartment({ period }),
+    [period],
+  );
+
+  const receivables = useAsync(
+    () => incomesApi.receivables(filters),
+    [period, departmentId],
+  );
+
+  const trend = useAsync(
+    () => incomesApi.trend(12, departmentId || undefined),
+    [departmentId],
+  );
+
+  const departmentOptions = [
+    { value: '', label: "Barcha bo'limlar" },
+    ...(departments.data?.data ?? []).map((item) => ({
+      value: item.id,
+      label: item.name,
+    })),
+  ];
+
+  const categoryData = byCategory.data?.data;
+  const total = categoryData ? Number(categoryData.totalTiyin) : 0;
+  const paid = categoryData
+    ? categoryData.rows.reduce((sum, row) => sum + Number(row.paidTiyin), 0)
+    : 0;
+  const paidPercent = total > 0 ? (paid / total) * 100 : 0;
+
+  return (
+    <>
+      <PageHeader title="Daromadlar" description={formatPeriod(period)} />
+
+      <Tabs items={tabs} className="bg-white px-6" />
+
+      <div className="space-y-4 p-6">
+        {/* Filtrlar */}
+        <div className="flex flex-wrap items-center gap-3">
+          <PeriodPicker value={period} onChange={setPeriod} />
+
+          <div className="w-52">
+            <Select
+              options={departmentOptions}
+              value={departmentId}
+              onChange={(event) => setDepartmentId(event.target.value)}
+              className="h-9"
+            />
+          </div>
+        </div>
+
+        {/* To'lov holati */}
+        <Card>
+          <CardHeader
+            title="To'lov holati"
+            description="Hisoblangan va haqiqatda tushgan summa nisbati"
+          />
+          <CardBody>
+            {byCategory.loading ? (
+              <LoadingState />
+            ) : total === 0 ? (
+              <EmptyState title="Bu davrda daromad yo'q" />
+            ) : (
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                      Hisoblangan
+                    </p>
+                    <Money
+                      tiyin={categoryData?.totalTiyin ?? 0}
+                      className="mt-1 block text-lg font-semibold"
+                    />
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                      Tushgan
+                    </p>
+                    <Money
+                      tiyin={String(paid)}
+                      tone="income"
+                      className="mt-1 block text-lg font-semibold"
+                    />
+                    <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                      {formatPercent(paidPercent)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                      Qarzda
+                    </p>
+                    <Money
+                      tiyin={String(total - paid)}
+                      tone="expense"
+                      className="mt-1 block text-lg font-semibold"
+                    />
+                    <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                      {receivables.data?.data.count ?? 0} ta shartnoma
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex h-2 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+                  <div
+                    className="bg-[--color-income]"
+                    style={{ width: `${paidPercent}%` }}
+                    title="Tushgan"
+                  />
+                  <div
+                    className="bg-[--color-expense]"
+                    style={{ width: `${100 - paidPercent}%` }}
+                    title="Qarzda"
+                  />
+                </div>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Dinamika */}
+        <Card>
+          <CardHeader title="Oylik dinamika" description="Oxirgi 12 oy" />
+          <CardBody>
+            {trend.loading ? (
+              <LoadingState />
+            ) : trend.error ? (
+              <ErrorState message={trend.error} onRetry={trend.reload} />
+            ) : (
+              <BarChart
+                data={trend.data?.data ?? []}
+                color="var(--color-income)"
+              />
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Xizmat turlari */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Xizmat turlari bo'yicha"
+            description="Eng katta daromaddan boshlab"
+          />
+
+          {byCategory.loading ? (
+            <LoadingState />
+          ) : (categoryData?.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Bu davrda daromad yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Xizmat turi</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th className="w-40">Ulush</Th>
+                  <Th align="right" className="w-36">
+                    Tushgan
+                  </Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {categoryData?.rows.map((row) => (
+                  <Tr key={row.categoryCode}>
+                    <Td>{row.label}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-income)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td money className="text-[--color-text-muted]">
+                      {formatTiyin(row.paidTiyin)}
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="income" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={4}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={categoryData?.totalTiyin ?? 0}
+                      tone="income"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Bo'limlar */}
+        <Card className="overflow-hidden">
+          <CardHeader title="Bo'limlar bo'yicha" />
+
+          {byDepartment.loading ? (
+            <LoadingState />
+          ) : (byDepartment.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Bu davrda daromad yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Bo&apos;lim</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th className="w-40">Ulush</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {byDepartment.data?.data.rows.map((row) => (
+                  <Tr key={row.departmentId ?? 'none'}>
+                    <Td>{row.name}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-income)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="income" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={3}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byDepartment.data?.data.totalTiyin ?? 0}
+                      tone="income"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+      </div>
+    </>
+  );
+}
+
+===== apps\web\src\features\sections\api.ts (6104 bayt) =====
+import { api, type ApiResponse } from '@/lib/api';
+
+// ═══════════════════════════════════════════════════════════
+// Doimiy / Boshqa — backend bilan bir xil turlar
+// ═══════════════════════════════════════════════════════════
+
+export type SectionKind = 'expense' | 'income';
+export type SectionValue = 'DOIMIY' | 'BOSHQA';
+
+export interface SectionPart {
+  key: string;
+  label: string;
+  sumTiyin: string;
+  count: number;
+  /** Moduldan avtomatik yoziladi — o'tkazilmaydi */
+  locked: boolean;
+}
+
+export interface SectionSummary {
+  section: SectionValue;
+  sumTiyin: string;
+  count: number;
+  sharePercent: number;
+  previousTiyin: string;
+  previousChange: number | null;
+  lastYearTiyin: string;
+  lastYearChange: number | null;
+  unpaidTiyin: string;
+  unpaidCount: number;
+  parts: SectionPart[];
+}
+
+export interface SectionOverview {
+  kind: SectionKind;
+  period: string;
+  previousPeriod: string;
+  lastYearPeriod: string;
+  totalTiyin: string;
+  sections: SectionSummary[];
+}
+
+export interface SectionTrendPoint {
+  period: string;
+  doimiyTiyin: string;
+  boshqaTiyin: string;
+}
+
+export interface MoveResult {
+  section: SectionValue;
+  moved: number;
+  unchanged: number;
+  locked: number;
+  missing: number;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Yorliqlar va navigatsiya
+// ═══════════════════════════════════════════════════════════
+
+export const SECTION_LABELS: Record<SectionValue, string> = {
+  DOIMIY: 'Doimiy',
+  BOSHQA: 'Boshqa',
+};
+
+export const SECTION_HINTS: Record<SectionKind, Record<SectionValue, string>> = {
+  expense: {
+    DOIMIY: "Har oy takrorlanadigan xarajatlar: ish haqi, ijara va doimiy to'lovlar",
+    BOSHQA: 'Bir martalik va rejadan tashqari xarajatlar',
+  },
+  income: {
+    DOIMIY: 'Har oy keladigan asosiy tushumlar: hududlar xizmatlari va doimiy daromadlar',
+    BOSHQA: 'Bir martalik va rejadan tashqari tushumlar',
+  },
+};
+
+export interface NavTab {
+  href: string;
+  label: string;
+}
+
+interface KindNav {
+  title: string;
+  root: string;
+  /** Yangi yozuv sahifasi (bo'lsa) — ?section= qo'shiladi */
+  newHref: string | null;
+  sections: Record<SectionValue, { href: string; tabs: NavTab[] }>;
+  /** Bo'lim qismi → sahifa */
+  parts: Record<string, string>;
+}
+
+/**
+ * Doimiy — shu paytgacha qilingan hamma narsa (avvalgi yorliqlar to'liq).
+ * Boshqa — bir martalik yozuvlar.
+ */
+export const SECTION_NAV: Record<SectionKind, KindNav> = {
+  expense: {
+    title: 'Xarajatlar',
+    root: '/xarajatlar',
+    newHref: '/xarajatlar/yangi',
+    sections: {
+      DOIMIY: {
+        href: '/xarajatlar/doimiy',
+        tabs: [
+          { href: '/xarajatlar/doimiy', label: "Ro'yxat" },
+          { href: '/xarajatlar/tahlil', label: 'Tahlil' },
+          { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
+          { href: '/xarajatlar/tarkib', label: 'Ish haqi tarkibi' },
+          { href: '/xarajatlar/ijara', label: 'Ijara' },
+          { href: '/xarajatlar/mashinalar', label: 'Mashinalar' },
+        ],
+      },
+      BOSHQA: {
+        href: '/xarajatlar/boshqa',
+        tabs: [{ href: '/xarajatlar/boshqa', label: "Ro'yxat" }],
+      },
+    },
+    parts: {
+      PAYROLL: '/xarajatlar/ish-haqi',
+      LEASE: '/xarajatlar/ijara',
+      VEHICLE: '/xarajatlar/mashinalar',
+    },
+  },
+  income: {
+    title: 'Daromadlar',
+    root: '/daromadlar',
+    newHref: null,
+    sections: {
+      DOIMIY: {
+        href: '/daromadlar/doimiy',
+        tabs: [
+          { href: '/daromadlar/doimiy', label: "Ro'yxat" },
+          { href: '/daromadlar/tahlil', label: 'Tahlil' },
+          { href: '/daromadlar/hududlar', label: 'Hududlar' },
+          { href: '/daromadlar/natijalar', label: 'Natijalar' },
+        ],
+      },
+      BOSHQA: {
+        href: '/daromadlar/boshqa',
+        tabs: [{ href: '/daromadlar/boshqa', label: "Ro'yxat" }],
+      },
+    },
+    parts: {
+      REGIONAL: '/daromadlar/hududlar',
+    },
+  },
+};
+
+/** Qism sahifasi: modul bo'lsa o'z sahifasi, aks holda bo'lim ro'yxati */
+export function partHref(kind: SectionKind, section: SectionValue, partKey: string): string {
+  const nav = SECTION_NAV[kind];
+  return nav.parts[partKey] ?? nav.sections[section].href;
+}
+
+export function otherSection(section: SectionValue): SectionValue {
+  return section === 'DOIMIY' ? 'BOSHQA' : 'DOIMIY';
+}
+
+/** O'tkazish natijasi — foydalanuvchiga xabar */
+export function moveMessage(result: MoveResult): string {
+  const target = SECTION_LABELS[result.section];
+  const parts = [`${result.moved} ta yozuv «${target}»ga o'tkazildi`];
+  if (result.locked > 0) parts.push(`${result.locked} tasi qulflangan (ish haqi, ijara yoki hududlar tushumi)`);
+  if (result.unchanged > 0) parts.push(`${result.unchanged} tasi allaqachon shu bo'limda`);
+  return parts.join(', ');
+}
+
+// ═══════════════════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════════════════
+
+export const sectionsApi = {
+  overview: (kind: SectionKind, period: string) =>
+    api.get<ApiResponse<SectionOverview>>(`/sections/${kind}/overview`, { params: { period } }),
+
+  trend: (kind: SectionKind, from: string, to: string) =>
+    api.get<ApiResponse<SectionTrendPoint[]>>(`/sections/${kind}/trend`, { params: { from, to } }),
+
+  move: (kind: SectionKind, ids: string[], section: SectionValue) =>
+    api.post<ApiResponse<MoveResult>>(`/sections/${kind}/move`, { ids, section }),
+};
+
+===== apps\web\src\features\incomes\api.ts (5042 bayt) =====
+import { api, getToken, type ApiResponse, type PaginatedResponse } from '@/lib/api';
+import type {
+  Income,
+  CategorySummaryRow,
+  DepartmentSummaryRow,
+  TrendPoint,
+  ComparisonResult,
+  AbcRow,
+  PaymentMethod,
+  PaymentStatus,
+} from '@/lib/types';
+
+export interface IncomeFilters {
+  period?: string;
+  periodFrom?: string;
+  periodTo?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  departmentId?: string;
+  categoryCode?: string;
+  paymentStatus?: PaymentStatus;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface IncomeListMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  sumTiyin: string;
+  paidTiyin: string;
+  /** Hisoblangan, lekin tushmagan summa */
+  receivableTiyin: string;
+}
+
+export interface CreateIncomePayload {
+  date: string;
+  amountTiyin: number;
+  paidTiyin?: number;
+  categoryCode: string;
+  departmentId?: string;
+  clientName?: string;
+  description?: string;
+  contractNo?: string;
+  paymentStatus?: PaymentStatus;
+  paymentMethod?: PaymentMethod;
+}
+
+export type UpdateIncomePayload = Partial<CreateIncomePayload>;
+
+export interface IncomeCategorySummary {
+  categoryCode: string;
+  label: string;
+  amountTiyin: string;
+  paidTiyin: string;
+  count: number;
+  sharePercent: number;
+}
+
+export interface AbcResult {
+  rows: AbcRow[];
+  totalTiyin: string;
+  summary: { A: number; B: number; C: number };
+}
+
+export interface ReceivablesResult {
+  items: Income[];
+  totalTiyin: string;
+  count: number;
+}
+
+/** Daromadlar royxatini Excel faylga yuklab oladi */
+export async function downloadIncomesExcel(filters: IncomeFilters): Promise<void> {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      search.set(key, String(value));
+    }
+  }
+  search.delete('page');
+  search.delete('limit');
+
+  const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
+  const token = getToken();
+
+  const response = await fetch(`${base}/incomes/export?${search.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    throw new Error('Faylni yuklab bolmadi');
+  }
+
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : 'Daromadlar.xlsx';
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+}
+
+export const incomesApi = {
+  list: (filters: IncomeFilters) =>
+    api.get<PaginatedResponse<Income> & { meta: IncomeListMeta }>('/incomes', {
+      params: filters,
+    }),
+
+  getOne: (id: string) => api.get<ApiResponse<Income>>(`/incomes/${id}`),
+
+  create: (payload: CreateIncomePayload) =>
+    api.post<ApiResponse<Income>>('/incomes', payload),
+
+  update: (id: string, payload: UpdateIncomePayload) =>
+    api.patch<ApiResponse<Income>>(`/incomes/${id}`, payload),
+
+  remove: (id: string) => api.delete<ApiResponse<{ success: true }>>(`/incomes/${id}`),
+
+  removeMany: (ids: string[]) =>
+    api.post<ApiResponse<{ count: number }>>("/incomes/bulk-delete", { ids }),
+
+  removeByFilter: (filters: IncomeFilters) =>
+    api.post<ApiResponse<{ count: number }>>("/incomes/delete-by-filter", undefined, {
+      params: filters,
+    }),
+
+  countByFilter: (filters: IncomeFilters) =>
+    api.get<ApiResponse<{ count: number }>>("/incomes/count", { params: filters }),
+
+  restore: (id: string) => api.post<ApiResponse<Income>>(`/incomes/${id}/restore`),
+
+  deleted: (period?: string) =>
+    api.get<ApiResponse<Income[]>>("/incomes/deleted", { params: { period } }),
+
+  /** Eng katta yozuvlar */
+  top: (filters: IncomeFilters, limit = 5) =>
+    api.get<ApiResponse<Income[]>>("/incomes/top", {
+      params: { ...filters, limit },
+    }),
+
+  summaryByCategory: (filters: IncomeFilters) =>
+    api.get<ApiResponse<{ rows: IncomeCategorySummary[]; totalTiyin: string }>>(
+      '/incomes/summary/category',
+      { params: filters },
+    ),
+
+  summaryByDepartment: (filters: IncomeFilters) =>
+    api.get<ApiResponse<{ rows: DepartmentSummaryRow[]; totalTiyin: string }>>(
+      '/incomes/summary/department',
+      { params: filters },
+    ),
+
+  abc: (filters: IncomeFilters) =>
+    api.get<ApiResponse<AbcResult>>('/incomes/abc', { params: filters }),
+
+  receivables: (filters: IncomeFilters) =>
+    api.get<ApiResponse<ReceivablesResult>>('/incomes/receivables', {
+      params: filters,
+    }),
+
+  trend: (months = 12, departmentId?: string) =>
+    api.get<ApiResponse<TrendPoint[]>>('/incomes/trend', {
+      params: { months, departmentId },
+    }),
+
+  comparison: (period: string, departmentId?: string) =>
+    api.get<ApiResponse<ComparisonResult>>('/incomes/comparison', {
+      params: { period, departmentId },
+    }),
+};
+
+##### income-list.tsx — bosh qismi #####
+income-list.tsx — YO'Q
+##### BACKEND: incomes ichida section #####
+create-income.dto.ts:62: section?: 'DOIMIY' | 'BOSHQA';
+query-income.dto.ts:60: section?: 'DOIMIY' | 'BOSHQA';
+incomes.service.ts:106: if (query.section === 'DOIMIY' || query.section === 'BOSHQA') where.section = query.section;
+incomes.service.ts:166: section: dto.section === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY',

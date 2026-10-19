@@ -47,18 +47,18 @@ export function ConfirmDialog({
       <div
         role="alertdialog"
         aria-modal="true"
-        className="relative w-full max-w-sm rounded-[--radius-card] bg-white p-5 shadow-xl"
+        className="relative w-full max-w-sm rounded-(--radius-card) bg-white p-5 shadow-xl"
       >
         <div className="flex gap-3">
           {danger && (
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[--color-expense-soft]">
-              <IconAlert className="size-5 text-[--color-expense]" />
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-(--color-expense-soft)">
+              <IconAlert className="size-5 text-(--color-expense)" />
             </div>
           )}
 
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-[--color-text]">{title}</h3>
-            <p className="mt-1 text-sm text-[--color-text-muted]">{message}</p>
+            <h3 className="text-sm font-semibold text-(--color-text)">{title}</h3>
+            <p className="mt-1 text-sm text-(--color-text-muted)">{message}</p>
           </div>
         </div>
 

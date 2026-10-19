@@ -19,6 +19,7 @@ import { Toast } from '@/components/ui/toast';
 
 const tabs = [
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
+  { href: '/sozlamalar/komponentlar', label: 'Ish haqi komponentlari' },
   { href: '/sozlamalar/savat', label: 'Savat' },
   { href: '/sozlamalar/tarix', label: 'Tarix' },
   { href: '/sozlamalar/tekshiruv', label: 'Tekshiruv' },
@@ -97,8 +98,8 @@ export default function BackupPage() {
         <Card>
           <CardBody>
             <div className="flex items-start gap-4">
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[--color-income-soft]">
-                <IconCheck className="size-6 text-[--color-income]" />
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-(--color-income-soft)">
+                <IconCheck className="size-6 text-(--color-income)" />
               </div>
 
               <div className="min-w-0 flex-1">
@@ -106,19 +107,19 @@ export default function BackupPage() {
                   {stats?.count ?? 0} ta zaxira
                 </p>
 
-                <p className="mt-0.5 text-sm text-[--color-text-muted]">
+                <p className="mt-0.5 text-sm text-(--color-text-muted)">
                   {stats?.lastBackup
                     ? `Oxirgisi: ${formatDateTime(stats.lastBackup)}`
                     : 'Hali zaxira olinmagan'}
                 </p>
 
-                <p className="mt-2 text-xs text-[--color-text-faint]">
+                <p className="mt-2 text-xs text-(--color-text-faint)">
                   Har kuni soat 2:00 da avtomatik olinadi &middot;{' '}
                   {stats?.retentionDays ?? 30} kun saqlanadi
                 </p>
 
                 {stats?.directory && (
-                  <p className="money mt-1 text-xs text-[--color-text-faint]">
+                  <p className="money mt-1 text-xs text-(--color-text-faint)">
                     {stats.directory}
                   </p>
                 )}
@@ -126,7 +127,7 @@ export default function BackupPage() {
 
               {stats && stats.totalBytes > 0 && (
                 <div className="shrink-0 text-right">
-                  <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                  <p className="text-xs uppercase tracking-wide text-(--color-text-muted)">
                     Jami hajm
                   </p>
                   <p className="money mt-1 text-lg font-semibold">
@@ -167,11 +168,11 @@ export default function BackupPage() {
                   <Tr key={file.name}>
                     <Td className="money text-sm">{file.name}</Td>
 
-                    <Td className="text-sm text-[--color-text-muted]">
+                    <Td className="text-sm text-(--color-text-muted)">
                       {formatDateTime(file.createdAt)}
                     </Td>
 
-                    <Td align="right" className="money text-sm text-[--color-text-muted]">
+                    <Td align="right" className="money text-sm text-(--color-text-muted)">
                       {formatSize(file.sizeBytes)}
                     </Td>
 
@@ -197,12 +198,12 @@ export default function BackupPage() {
         <Card>
           <CardBody>
             <p className="text-sm font-medium">Zaxiradan tiklash</p>
-            <p className="mt-1 text-sm text-[--color-text-muted]">
+            <p className="mt-1 text-sm text-(--color-text-muted)">
               Tiklash dastur orqali bajarilmaydi &mdash; bu xavfli amal.
               Zarur bo&rsquo;lsa terminalda quyidagi buyruqni ishlating:
             </p>
 
-            <pre className="money mt-3 overflow-x-auto rounded-[--radius-control] bg-[--color-surface-sunken] px-3 py-2 text-xs">
+            <pre className="money mt-3 overflow-x-auto rounded-(--radius-control) bg-(--color-surface-sunken) px-3 py-2 text-xs">
               psql -U postgres -d korxona_tahlil -f zaxira_fayli.sql
             </pre>
           </CardBody>

@@ -67,9 +67,9 @@ export function MoneyInput({
   return (
     <div className="w-full">
       {label && (
-        <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-[--color-text]">
+        <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-(--color-text)">
           {label}
-          {required && <span className="ml-0.5 text-[--color-expense]">*</span>}
+          {required && <span className="ml-0.5 text-(--color-expense)">*</span>}
         </label>
       )}
 
@@ -85,24 +85,24 @@ export function MoneyInput({
           autoFocus={autoFocus}
           autoComplete="off"
           className={cn(
-            'money h-10 w-full rounded-[--radius-control] border bg-white px-3 pr-14 text-right text-sm',
-            'placeholder:text-[--color-text-faint]',
-            'transition-colors disabled:cursor-not-allowed disabled:bg-[--color-surface-sunken]',
+            'money h-10 w-full rounded-(--radius-control) border bg-white px-3 pr-14 text-right text-sm',
+            'placeholder:text-(--color-text-faint)',
+            'transition-colors disabled:cursor-not-allowed disabled:bg-(--color-surface-sunken)',
             error
-              ? 'border-[--color-expense] focus:border-[--color-expense]'
-              : 'border-[--color-line-strong] focus:border-brand-600',
+              ? 'border-(--color-expense) focus:border-(--color-expense)'
+              : 'border-(--color-line-strong) focus:border-brand-600',
           )}
         />
 
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[--color-text-muted]">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-(--color-text-muted)">
           so&apos;m
         </span>
       </div>
 
       {error ? (
-        <p className="mt-1 text-xs text-[--color-expense]">{error}</p>
+        <p className="mt-1 text-xs text-(--color-expense)">{error}</p>
       ) : hint ? (
-        <p className="mt-1 text-xs text-[--color-text-muted]">{hint}</p>
+        <p className="mt-1 text-xs text-(--color-text-muted)">{hint}</p>
       ) : null}
     </div>
   );

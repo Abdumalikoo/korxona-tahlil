@@ -5,18 +5,36 @@
  * Ularni formatTiyin yoki Money komponenti bilan korsating.
  */
 
-export type UserRole = "ADMIN" | "VIEWER";
+export type UserRole = "ADMIN" | "VIEWER" | "SKLADCHI";
 export type CostBehavior = "FIXED" | "VARIABLE" | "MIXED";
 export type CostScope = "DEPARTMENT" | "GENERAL";
 export type PaymentMethod = "CASH" | "BANK" | "CARD" | "OTHER";
 export type PaymentStatus = "PAID" | "PARTIAL" | "UNPAID";
-export type EntrySource = "MANUAL" | "IMPORT" | "PAYROLL";
+export type EntrySource = "MANUAL" | "IMPORT" | "PAYROLL" | "LEASE" | "VEHICLE" | "WAREHOUSE";
+/** Bo'lim: doimiy yoki boshqa (bir martalik) */
+export type EntrySection = "DOIMIY" | "BOSHQA";
+
+/** Ishchi rolga ochiq bo'limlar (admin va kuzatuvchida — null) */
+export interface UserAccess {
+  /** Kirgandan keyin ochiladigan sahifa */
+  home: string;
+  /** Ruxsat etilgan sahifalar (manzil prefiksi) */
+  pages: string[];
+  sections: string[];
+}
 
 export interface User {
   id: string;
   username: string;
   fullName: string;
   role: UserRole;
+  /** «Administrator», «Omborchi» … */
+  roleLabel?: string;
+  /** ID kod (ishchi rollarda): "SK-0001" */
+  loginCode?: string | null;
+  /** Admin bergan PIN — o'zi yangisini o'rnatmaguncha boshqa hech narsa ochilmaydi */
+  mustChangePin?: boolean;
+  access?: UserAccess | null;
 }
 
 export interface LoginResult {
@@ -28,6 +46,7 @@ export interface Department {
   id: string;
   code: string;
   name: string;
+  index: number;
   isActive: boolean;
   order: number;
   allocationWeight: number;
@@ -101,6 +120,7 @@ export interface Expense {
   vatTiyin: string | null;
 
   source: EntrySource;
+  section: EntrySection;
   createdAt: string;
   updatedAt: string;
 
@@ -124,6 +144,7 @@ export interface Income {
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
   source: EntrySource;
+  section: EntrySection;
   createdAt: string;
   category: CategoryRef;
   department: DepartmentRef | null;

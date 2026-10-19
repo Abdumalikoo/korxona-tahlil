@@ -39,14 +39,14 @@ export function SearchInput({
 
   return (
     <div className={`relative ${className ?? ''}`}>
-      <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[--color-text-faint]" />
+      <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-(--color-text-faint)" />
 
       <input
         type="text"
         value={local}
         onChange={(event) => setLocal(event.target.value)}
         placeholder={placeholder}
-        className="h-9 w-full rounded-[--radius-control] border border-[--color-line-strong] bg-white pl-9 pr-8 text-sm placeholder:text-[--color-text-faint] focus:border-brand-600"
+        className="h-9 w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white pl-9 pr-8 text-sm placeholder:text-(--color-text-faint) focus:border-brand-600"
       />
 
       {local && (
@@ -56,7 +56,7 @@ export function SearchInput({
             setLocal('');
             onChange('');
           }}
-          className="absolute right-2 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-[--color-text-faint] transition-colors hover:text-[--color-text]"
+          className="absolute right-2 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-(--color-text-faint) transition-colors hover:text-(--color-text)"
           aria-label="Tozalash"
         >
           <IconClose className="size-3.5" />

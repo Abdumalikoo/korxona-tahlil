@@ -100,6 +100,10 @@ export interface PayrollBatchDetail extends PayrollBatch {
 export interface ExpenseDetailEntry {
   id: string;
   totalTiyin: string;
+  /** To'liq ish haqi (soliq hisobotidagi) */
+  fullTiyin?: string;
+  /** Markaz hisobiga o'tgan qism (bayram, choraklik …) */
+  centerTiyin?: string;
   employee: {
     pinfl: string;
     fullName: string;
@@ -120,6 +124,8 @@ export interface ExpenseDetailGroup {
 
 export interface ExpenseDetail {
   isPayroll: boolean;
+  /** Markaz hisobidagi qism (bayram, choraklik) — hudud xodimlari ish haqi tarkibidan */
+  centerPart?: boolean;
   isCentral?: boolean;
   groups: ExpenseDetailGroup[];
   entries: ExpenseDetailEntry[];

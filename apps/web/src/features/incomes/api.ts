@@ -18,6 +18,7 @@ export interface IncomeFilters {
   dateTo?: string;
   departmentId?: string;
   categoryCode?: string;
+  section?: 'DOIMIY' | 'BOSHQA';
   paymentStatus?: PaymentStatus;
   search?: string;
   page?: number;
@@ -46,6 +47,7 @@ export interface CreateIncomePayload {
   contractNo?: string;
   paymentStatus?: PaymentStatus;
   paymentMethod?: PaymentMethod;
+  section?: 'DOIMIY' | 'BOSHQA';
 }
 
 export type UpdateIncomePayload = Partial<CreateIncomePayload>;

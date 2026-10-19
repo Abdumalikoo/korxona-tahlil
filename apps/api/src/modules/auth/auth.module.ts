@@ -6,8 +6,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 
-/** Token amal qilish muddati — sekundlarda (7 kun) */
-const TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** Token amal qilish muddati — sekundlarda (24 soat; JWT_TTL_SECONDS bilan o'zgaradi) */
+const TOKEN_TTL_SECONDS = 24 * 60 * 60;
 
 @Module({
   imports: [

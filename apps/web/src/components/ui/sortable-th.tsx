@@ -39,8 +39,8 @@ export function SortableTh({
         onClick={() => onSort(field)}
         className={cn(
           'flex w-full items-center gap-1 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors',
-          'hover:text-[--color-text]',
-          active ? 'text-[--color-text]' : 'text-[--color-text-muted]',
+          'hover:text-(--color-text)',
+          active ? 'text-(--color-text)' : 'text-(--color-text-muted)',
           align === 'right' && 'justify-end',
           align === 'center' && 'justify-center',
         )}

@@ -1,0 +1,3500 @@
+﻿TAHLIL INFO
+
+===== apps\analytics\app\__init__.py =====
+
+===== apps\analytics\app\config.py =====
+"""Sozlamalar вЂ” apps/analytics/.env faylidan o'qiladi."""
+
+from functools import lru_cache
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=BASE_DIR / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    #: Prisma bilan bir xil baza manzili (postgresql://user:pass@host:5432/db?schema=public)
+    database_url: str
+    #: NestJS bilan umumiy maxfiy kalit вЂ” boshqa hech kim murojaat qila olmasligi uchun
+    analytics_key: str
+    #: Xizmat porti (faqat 127.0.0.1 da tinglaydi)
+    port: int = 8001
+
+    @property
+    def psycopg_url(self) -> str:
+        """Prisma'ga xos ?schema=... kabi parametrlarni olib tashlaydi."""
+        parts = urlsplit(self.database_url)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()  # type: ignore[call-arg]
+
+
+===== apps\analytics\app\dataset.py =====
+"""Tahlil uchun yagona ma'lumot jadvali: oy Г— hudud.
+
+Har bir qator вЂ” bitta oy va bitta hudud (0 вЂ” Markaz, -1 вЂ” hududsiz umumkorxona).
+Barcha pul ustunlari so'mda (float), tiyindan o'girilgan.
+
+Ustunlar:
+  period, region_code, region_name,
+  expense_total, expense_doimiy, expense_boshqa,
+  expense_payroll, expense_lease, expense_other,
+  income_total, payroll_total, headcount
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+import pandas as pd
+
+from .db import query_df
+
+PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+#: Hududsiz (umumkorxona) yozuvlar uchun shartli kod
+NO_REGION = -1
+
+MONEY_COLUMNS = [
+    "expense_total",
+    "expense_doimiy",
+    "expense_boshqa",
+    "expense_payroll",
+    "expense_lease",
+
+    "expense_other",
+    "income_total",
+    "payroll_total",
+]
+
+
+@dataclass(frozen=True)
+class Metric:
+    key: str
+    label: str
+    unit: str  # "som" | "kishi"
+    #: O'sish yaxshimi (daromad вЂ” ha, xarajat вЂ” yo'q)
+    higher_is_better: bool
+
+
+METRICS: dict[str, Metric] = {
+    m.key: m
+    for m in [
+        Metric("expense_total", "Jami xarajat", "som", False),
+        Metric("expense_doimiy", "Doimiy xarajat", "som", False),
+        Metric("expense_boshqa", "Boshqa xarajat", "som", False),
+        Metric("expense_payroll", "Ish haqi xarajati", "som", False),
+        Metric("expense_lease", "Ijara xarajati", "som", False),
+        Metric("expense_other", "Qolgan xarajatlar", "som", False),
+        Metric("income_total", "Jami daromad", "som", True),
+        Metric("payroll_total", "Ish haqi fondi (hisoblangan)", "som", False),
+        Metric("headcount", "Xodimlar soni", "kishi", True),
+    ]
+}
+
+
+def validate_period(value: str, label: str) -> str:
+
+    if not PERIOD_RE.match(value or ""):
+        raise ValueError(f"{label} noto'g'ri (YYYY-MM)")
+    return value
+
+
+def period_range(start: str, end: str) -> list[str]:
+    """Oylar ro'yxati (ikkala chet ham kiradi)."""
+    y, m = map(int, start.split("-"))
+    result: list[str] = []
+    while f"{y}-{m:02d}" <= end and len(result) < 240:
+        result.append(f"{y}-{m:02d}")
+        m += 1
+        if m == 13:
+            y, m = y + 1, 1
+    return result
+
+
+def _expenses(start: str, end: str) -> pd.DataFrame:
+    return query_df(
+        """
+        SELECT period,
+               COALESCE("regionCode", %(none)s) AS region_code,
+               SUM("amountTiyin") AS total,
+               SUM("amountTiyin") FILTER (WHERE section = 'DOIMIY') AS doimiy,
+               SUM("amountTiyin") FILTER (WHERE section = 'BOSHQA') AS boshqa,
+               SUM("amountTiyin") FILTER (WHERE source = 'PAYROLL') AS payroll,
+               SUM("amountTiyin") FILTER (WHERE source = 'LEASE') AS lease
+        FROM expenses
+        WHERE "deletedAt" IS NULL AND period BETWEEN %(start)s AND %(end)s
+        GROUP BY 1, 2
+        """,
+        {"start": start, "end": end, "none": NO_REGION},
+
+    )
+
+
+def _incomes(start: str, end: str) -> pd.DataFrame:
+    return query_df(
+        """
+        SELECT period,
+               COALESCE("regionCode", %(none)s) AS region_code,
+               SUM("amountTiyin") AS total
+        FROM incomes
+        WHERE "deletedAt" IS NULL AND period BETWEEN %(start)s AND %(end)s
+        GROUP BY 1, 2
+        """,
+        {"start": start, "end": end, "none": NO_REGION},
+    )
+
+
+def _payroll(start: str, end: str) -> pd.DataFrame:
+    """Tasdiqlangan ish haqi yuklamalari: fond va xodimlar soni (hudud вЂ” xodim kartasidan)."""
+    return query_df(
+        """
+        SELECT pe.period,
+               e."regionCode" AS region_code,
+               SUM(pe."totalTiyin") AS total,
+               COUNT(DISTINCT pe."employeePinfl") AS headcount
+        FROM payroll_entries pe
+        JOIN payroll_batches pb ON pb.id = pe."batchId" AND pb.status = 'COMMITTED'
+        JOIN employees e ON e.pinfl = pe."employeePinfl"
+        WHERE pe."deletedAt" IS NULL AND pe.period BETWEEN %(start)s AND %(end)s
+        GROUP BY 1, 2
+        """,
+        {"start": start, "end": end},
+
+    )
+
+
+def _regions() -> dict[int, str]:
+    rows = query_df("SELECT code, name FROM regions")
+    names = {int(r.code): str(r.name) for r in rows.itertuples()} if not rows.empty else {}
+    names.setdefault(0, "Markaz")
+    names[NO_REGION] = "Umumkorxona"
+    return names
+
+
+def assemble(
+    expenses: pd.DataFrame,
+    incomes: pd.DataFrame,
+    payroll: pd.DataFrame,
+    regions: dict[int, str],
+) -> pd.DataFrame:
+    """Uch manbani oy Г— hudud jadvaliga birlashtiradi (sof funksiya вЂ” test qilinadi)."""
+    key = ["period", "region_code"]
+    frames: list[pd.DataFrame] = []
+
+    if not expenses.empty:
+        e = expenses.rename(
+            columns={
+                "total": "expense_total",
+                "doimiy": "expense_doimiy",
+                "boshqa": "expense_boshqa",
+                "payroll": "expense_payroll",
+                "lease": "expense_lease",
+            }
+        )
+        frames.append(e)
+
+    if not incomes.empty:
+        frames.append(incomes.rename(columns={"total": "income_total"}))
+    if not payroll.empty:
+        frames.append(payroll.rename(columns={"total": "payroll_total"}))
+
+    if not frames:
+        return pd.DataFrame(columns=[*key, "region_name", *MONEY_COLUMNS, "headcount"])
+
+    df = frames[0]
+    for other in frames[1:]:
+        df = df.merge(other, on=key, how="outer")
+
+    for column in [*MONEY_COLUMNS, "headcount"]:
+        if column not in df.columns:
+            df[column] = 0
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0)
+
+    # Tiyin в†’ so'm
+    for column in MONEY_COLUMNS:
+        df[column] = df[column].astype(float) / 100.0
+
+    df["expense_other"] = (df["expense_total"] - df["expense_payroll"] - df["expense_lease"]).clip(lower=0)
+    df["headcount"] = df["headcount"].astype(int)
+    df["region_code"] = df["region_code"].astype(int)
+    df["region_name"] = df["region_code"].map(
+        lambda c: "Umumkorxona" if int(c) == NO_REGION else regions.get(int(c), f"Hudud {c}")
+    )
+
+    return df.sort_values(key).reset_index(drop=True)[
+        [*key, "region_name", *MONEY_COLUMNS, "headcount"]
+    ]
+
+
+
+def load_panel(start: str, end: str) -> pd.DataFrame:
+    """Bazadan oy Г— hudud jadvalini yig'adi."""
+    validate_period(start, "Boshlanish oyi")
+    validate_period(end, "Tugash oyi")
+    if start > end:
+        raise ValueError("Boshlanish oyi tugash oyidan keyin")
+    return assemble(_expenses(start, end), _incomes(start, end), _payroll(start, end), _regions())
+
+
+def monthly(panel: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
+    """Korxona bo'yicha oylik jami вЂ” oraliqdagi har bir oy bilan (bo'sh oylar 0)."""
+    columns = [*MONEY_COLUMNS, "headcount"]
+    months = pd.DataFrame({"period": period_range(start, end)})
+    if panel.empty:
+        for column in columns:
+            months[column] = 0.0
+        return months
+    totals = panel.groupby("period", as_index=False)[columns].sum()
+    result = months.merge(totals, on="period", how="left").fillna(0)
+    result["headcount"] = result["headcount"].astype(int)
+    return result
+
+
+===== apps\analytics\app\db.py =====
+"""Baza bilan ishlash вЂ” faqat o'qish rejimida.
+
+Tahlil xizmati hech qachon ma'lumotni o'zgartirmaydi: har bir ulanish
+`read_only` rejimida ochiladi, yozishga urinish PostgreSQL xatosi beradi.
+"""
+
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from typing import Any
+
+import pandas as pd
+import psycopg
+from psycopg.rows import dict_row
+
+from .config import get_settings
+
+
+@contextmanager
+def connect() -> Iterator[psycopg.Connection]:
+    settings = get_settings()
+    with psycopg.connect(settings.psycopg_url, connect_timeout=5, row_factory=dict_row) as conn:
+        conn.read_only = True
+        yield conn
+
+
+def query(sql: str, params: Sequence[Any] | dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """SQL natijasini lug'atlar ro'yxati sifatida qaytaradi."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)  # type: ignore[arg-type]
+        return list(cur.fetchall())
+
+
+def query_df(sql: str, params: Sequence[Any] | dict[str, Any] | None = None) -> pd.DataFrame:
+    """SQL natijasini pandas DataFrame sifatida qaytaradi."""
+    return pd.DataFrame(query(sql, params))
+
+
+===== apps\analytics\app\formulas\__init__.py =====
+
+===== apps\analytics\app\formulas\base.py =====
+"""Formulalar katalogi вЂ” umumiy turlar, ro'yxatga olish va formatlash."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+
+import pandas as pd
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# Kirish parametrlari va natija
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+
+@dataclass
+class RunParams:
+    start: str
+    end: str
+    metric: str = "expense_total"
+    metric2: str = "headcount"
+    group_by: str = "section"
+
+
+@dataclass
+class Result:
+    """Formula natijasi вЂ” frontend shu tuzilmani chizadi."""
+
+    #: Asosiy raqam (katta shriftda)
+    headline: dict[str, Any] | None = None
+    #: Qo'shimcha ko'rsatkichlar: [{label, value, unit, hint}]
+
+    stats: list[dict[str, Any]] = field(default_factory=list)
+    #: Grafik: {type: line|bar|pie, x: [...], series: [{name, values, unit}]}
+    chart: dict[str, Any] | None = None
+    #: Jadval: {columns: [{key, label, unit}], rows: [{...}]}
+    table: dict[str, Any] | None = None
+    #: Oddiy tildagi xulosalar
+    interpretation: list[str] = field(default_factory=list)
+    #: Ogohlantirishlar (ma'lumot kam, nolga bo'lish va h.k.)
+    warnings: list[str] = field(default_factory=list)
+    #: Kuzatuvlar soni
+    n: int = 0
+    #: Ma'lumot yetarli emas вЂ” raqamlar ko'rsatilmaydi
+    insufficient: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "headline": self.headline,
+            "stats": self.stats,
+            "chart": self.chart,
+            "table": self.table,
+            "interpretation": self.interpretation,
+            "warnings": self.warnings,
+            "n": self.n,
+            "insufficient": self.insufficient,
+        }
+
+
+@dataclass(frozen=True)
+class Param:
+    key: str
+    label: str
+    kind: str  # "metric" | "group"
+
+    default: str
+    options: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class Formula:
+    id: str
+    title: str
+    category: str  # "Tavsifiy" | "Bog'liqlik" | ...
+    description: str
+    latex: str
+    #: Formuladagi belgilar izohi: {"X_t": "t oydagi qiymat"}
+    symbols: dict[str, str]
+    params: list[Param]
+    #: Kamida nechta oy kerak
+    min_periods: int
+    run: Callable[[pd.DataFrame, RunParams], Result]
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "category": self.category,
+            "description": self.description,
+            "latex": self.latex,
+            "symbols": self.symbols,
+            "minPeriods": self.min_periods,
+            "params": [
+                {"key": p.key, "label": p.label, "kind": p.kind, "default": p.default, "options": p.options}
+                for p in self.params
+            ],
+        }
+
+
+
+REGISTRY: dict[str, Formula] = {}
+
+
+def register(formula: Formula) -> Formula:
+    if formula.id in REGISTRY:
+        raise ValueError(f"Formula takrorlandi: {formula.id}")
+    REGISTRY[formula.id] = formula
+    return formula
+
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# Formatlash (o'zbekcha)
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun",
+          "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"]
+
+
+def fmt_period(period: str) -> str:
+    y, m = period.split("-")
+    return f"{MONTHS[int(m) - 1].capitalize()} {y}"
+
+
+def fmt_number(value: float, decimals: int = 0) -> str:
+    if value is None or (isinstance(value, float) and (math.isnan(value) or math.isinf(value))):
+        return "вЂ”"
+    text = f"{abs(value):,.{decimals}f}".replace(",", " ").replace(".", ",")
+    return f"-{text}" if value < 0 else text
+
+
+
+def fmt_money(value: float) -> str:
+    """So'mda: katta summalar mln/mlrd bilan."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return "вЂ”"
+    absolute = abs(value)
+    if absolute >= 1e9:
+        return f"{fmt_number(value / 1e9, 2)} mlrd so'm"
+    if absolute >= 1e6:
+        return f"{fmt_number(value / 1e6, 1)} mln so'm"
+    return f"{fmt_number(value)} so'm"
+
+
+def fmt_percent(value: float | None, decimals: int = 1, sign: bool = False) -> str:
+    if value is None or math.isnan(value) or math.isinf(value):
+        return "вЂ”"
+    prefix = "+" if sign and value > 0 else ""
+    return f"{prefix}{fmt_number(value, decimals)}%"
+
+
+def fmt_value(value: float, unit: str) -> str:
+    if unit == "som":
+        return fmt_money(value)
+    if unit == "percent":
+        return fmt_percent(value)
+    if unit == "kishi":
+        return f"{fmt_number(value)} kishi"
+    return fmt_number(value, 2)
+
+
+def safe_div(a: float, b: float) -> float | None:
+    if b == 0 or b is None or (isinstance(b, float) and math.isnan(b)):
+        return None
+
+    return a / b
+
+
+def clean(value: Any) -> Any:
+    """JSON uchun: NaN/inf в†’ None, numpy turlari в†’ oddiy."""
+    if value is None:
+        return None
+    if isinstance(value, float):
+        return None if math.isnan(value) or math.isinf(value) else round(value, 6)
+    if hasattr(value, "item"):
+        return clean(value.item())
+    return value
+
+
+===== apps\analytics\app\formulas\descriptive.py =====
+"""1-daraja: tavsifiy formulalar va oddiy bog'liqlik."""
+
+from __future__ import annotations
+
+import math
+
+import numpy as np
+import pandas as pd
+from scipy import stats as sps
+
+from ..dataset import METRICS, NO_REGION, monthly
+from .base import (
+    Formula,
+    Param,
+    Result,
+    RunParams,
+    clean,
+    fmt_money,
+    fmt_number,
+    fmt_percent,
+    fmt_period,
+    fmt_value,
+    register,
+    safe_div,
+)
+
+METRIC_KEYS = list(METRICS.keys())
+MONEY_METRICS = [k for k, m in METRICS.items() if m.unit == "som"]
+
+
+def _metric(key: str):
+    if key not in METRICS:
+        raise ValueError(f"Ko'rsatkich noto'g'ri: {key}")
+    return METRICS[key]
+
+
+def _series_chart(x: list[str], series: list[tuple[str, list[float], str]], kind: str = "line") -> dict:
+    return {
+        "type": kind,
+        "x": x,
+        "series": [{"name": name, "values": [clean(v) for v in values], "unit": unit} for name, values, unit in series],
+    }
+
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# 1. O'sish sur'ati
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+
+def run_growth(panel: pd.DataFrame, p: RunParams) -> Result:
+    metric = _metric(p.metric)
+    data = monthly(panel, p.start, p.end)
+    values = data[metric.key].astype(float).tolist()
+    periods = data["period"].tolist()
+    result = Result(n=len(values))
+
+    if len(values) < 2 or sum(1 for v in values if v) < 2:
+        result.insufficient = True
+        result.warnings.append("O'sishni hisoblash uchun kamida 2 oylik ma'lumot kerak")
+        return result
+
+    growth: list[float | None] = [None]
+    for prev, cur in zip(values[:-1], values[1:]):
+        rate = safe_div(cur - prev, prev)
+        growth.append(rate * 100 if rate is not None else None)
+
+    first_index = next(i for i, v in enumerate(values) if v)
+    last_index = max(i for i, v in enumerate(values) if v)
+    first, last = values[first_index], values[last_index]
+    steps = last_index - first_index
+    cagr = ((last / first) ** (1 / steps) - 1) * 100 if steps > 0 and first > 0 and last > 0 else None
+    total_change = safe_div(last - first, first)
+
+    valid = [(periods[i], g) for i, g in enumerate(growth) if g is not None]
+    top = max(valid, key=lambda item: item[1]) if valid else None
+    bottom = min(valid, key=lambda item: item[1]) if valid else None
+    zero_months = [periods[i] for i, v in enumerate(values) if not v]
+
+    result.headline = {
+        "label": "O'rtacha oylik o'sish (CAGR)",
+        "value": clean(cagr),
+        "unit": "percent",
+        "text": fmt_percent(cagr, 2, sign=True),
+    }
+    result.stats = [
+        {"label": f"Boshlang'ich ({fmt_period(periods[first_index])})", "value": clean(first), "unit": metric.unit, "text": fmt_value(first, metric.unit)},
+        {"label": f"Oxirgi ({fmt_period(periods[last_index])})", "value": clean(last), "unit": metric.unit, "text": fmt_value(last, metric.unit)},
+        {"label": "Umumiy o'zgarish", "value": clean(total_change * 100 if total_change is not None else None), "unit": "percent",
+         "text": fmt_percent(total_change * 100 if total_change is not None else None, 1, sign=True)},
+    ]
+    if top:
+        result.stats.append({"label": f"Eng katta o'sish вЂ” {fmt_period(top[0])}", "value": clean(top[1]), "unit": "percent", "text": fmt_percent(top[1], 1, sign=True)})
+    if bottom:
+        result.stats.append({"label": f"Eng katta pasayish вЂ” {fmt_period(bottom[0])}", "value": clean(bottom[1]), "unit": "percent", "text": fmt_percent(bottom[1], 1, sign=True)})
+
+    result.chart = {
+        **_series_chart(periods, [(metric.label, values, metric.unit)], "bar"),
+        "overlay": {"name": "Oylik o'sish, %", "values": [clean(g) for g in growth], "unit": "percent"},
+    }
+    result.table = {
+        "columns": [
+            {"key": "period", "label": "Oy", "unit": "period"},
+            {"key": "value", "label": metric.label, "unit": metric.unit},
+            {"key": "growth", "label": "O'sish, %", "unit": "percent"},
+        ],
+        "rows": [{"period": per, "value": clean(v), "growth": clean(g)} for per, v, g in zip(periods, values, growth)],
+    }
+
+    direction = "o'sgan" if last > first else "kamaygan"
+    good = (last > first) == metric.higher_is_better
+    result.interpretation.append(
+        f"{metric.label} {fmt_period(periods[first_index])}dagi {fmt_value(first, metric.unit)}dan "
+        f"{fmt_period(periods[last_index])}dagi {fmt_value(last, metric.unit)}gacha {direction} "
+        f"({fmt_percent(total_change * 100 if total_change is not None else None, 1, sign=True)})."
+    )
+    if cagr is not None and abs(cagr) < 0.5:
+        result.interpretation.append("O'rtacha oylik o'zgarish 0,5% dan kam вЂ” ko'rsatkich deyarli o'zgarmagan.")
+    elif cagr is not None:
+        result.interpretation.append(
+            f"Bu har oy o'rtacha {fmt_percent(abs(cagr), 2)} {'oвЂsish' if cagr >= 0 else 'kamayish'} demakdir "
+            f"вЂ” {'ijobiy' if good else 'eвЂ™tibor talab qiladigan'} holat."
+        )
+    if top and bottom and top[0] != bottom[0]:
+        result.interpretation.append(
+            f"Eng keskin sakrash {fmt_period(top[0])}da ({fmt_percent(top[1], 1, sign=True)}), "
+            f"eng katta tushish {fmt_period(bottom[0])}da ({fmt_percent(bottom[1], 1, sign=True)}) bo'lgan."
+        )
+    if zero_months:
+        result.warnings.append(
+            "Ma'lumot yo'q oylar: " + ", ".join(fmt_period(x) for x in zero_months[:6])
+            + (" va boshqalar" if len(zero_months) > 6 else "") + " вЂ” o'sish ular bo'yicha hisoblanmadi"
+        )
+    return result
+
+
+register(
+    Formula(
+        id="growth",
+        title="O'sish sur'ati",
+        category="Tavsifiy",
+        description="Ko'rsatkich oyma-oy qanchaga o'zgargani va butun davr bo'yicha o'rtacha oylik o'sish (CAGR).",
+        latex=r"g_t = \frac{X_t - X_{t-1}}{X_{t-1}} \times 100\%,\qquad CAGR = \left(\frac{X_T}{X_1}\right)^{\frac{1}{T-1}} - 1",
+        symbols={"X_t": "t oydagi qiymat", "g_t": "t oydagi o'sish", "T": "oylar soni", "CAGR": "o'rtacha oylik o'sish"},
+        params=[Param("metric", "Ko'rsatkich", "metric", "expense_total", METRIC_KEYS)],
+        min_periods=2,
+        run=run_growth,
+    )
+)
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# 2. Tarkib ulushi
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+GROUPS = {
+    "section": ("Bo'lim", [("expense_doimiy", "Doimiy"), ("expense_boshqa", "Boshqa")]),
+    "type": ("Xarajat turi", [("expense_payroll", "Ish haqi"), ("expense_lease", "Ijara"), ("expense_other", "Qolgan xarajatlar")]),
+}
+
+
+def _components(panel: pd.DataFrame, p: RunParams) -> tuple[str, pd.DataFrame]:
+    """Guruh bo'yicha komponentlar: period Г— komponent в†’ summa."""
+    data = monthly(panel, p.start, p.end)
+    if p.group_by == "region":
+        if panel.empty:
+            return "Hudud", pd.DataFrame(columns=["period", "name", "value"])
+        rows = panel.groupby(["period", "region_name"], as_index=False)["expense_total"].sum()
+        return "Hudud", rows.rename(columns={"region_name": "name", "expense_total": "value"})
+    if p.group_by not in GROUPS:
+        raise ValueError(f"Guruh noto'g'ri: {p.group_by}")
+    title, parts = GROUPS[p.group_by]
+    frames = [pd.DataFrame({"period": data["period"], "name": label, "value": data[col]}) for col, label in parts]
+    return title, pd.concat(frames, ignore_index=True)
+
+
+def run_share(panel: pd.DataFrame, p: RunParams) -> Result:
+    title, comp = _components(panel, p)
+    result = Result()
+    total = float(comp["value"].sum()) if not comp.empty else 0.0
+    if total <= 0:
+        result.insufficient = True
+        result.warnings.append("Tanlangan davrda xarajat yo'q")
+        return result
+
+    periods = sorted(comp["period"].unique())
+    active = [per for per in periods if comp.loc[comp["period"] == per, "value"].sum() > 0]
+    first_p, last_p = active[0], active[-1]
+
+    def shares(period: str | None) -> pd.Series:
+        rows = comp if period is None else comp[comp["period"] == period]
+        sums = rows.groupby("name")["value"].sum()
+        whole = sums.sum()
+        return (sums / whole * 100) if whole > 0 else sums * 0
+
+    overall = comp.groupby("name")["value"].sum().sort_values(ascending=False)
+    share_all = shares(None)
+    share_first = shares(first_p)
+    share_last = shares(last_p)
+    result.n = len(active)
+
+    rows = []
+    for name, value in overall.items():
+        s_first = float(share_first.get(name, 0.0))
+        s_last = float(share_last.get(name, 0.0))
+        rows.append({
+            "name": name,
+            "value": clean(float(value)),
+            "share": clean(float(share_all.get(name, 0.0))),
+            "shareFirst": clean(s_first),
+            "shareLast": clean(s_last),
+            "shift": clean(s_last - s_first),
+        })
+
+    leader = rows[0]
+    result.headline = {"label": f"Eng katta ulush вЂ” {leader['name']}", "value": leader["share"], "unit": "percent", "text": fmt_percent(leader["share"])}
+    result.stats = [
+        {"label": "Jami", "value": clean(total), "unit": "som", "text": fmt_money(total)},
+        {"label": "Tarkibiy qismlar", "value": len(rows), "unit": "count", "text": str(len(rows))},
+    ]
+    result.chart = {
+        "type": "pie",
+        "x": [r["name"] for r in rows],
+        "series": [{"name": "Ulush, %", "values": [r["share"] for r in rows], "unit": "percent"}],
+    }
+    result.table = {
+        "columns": [
+            {"key": "name", "label": title, "unit": "text"},
+            {"key": "value", "label": "Summa", "unit": "som"},
+            {"key": "share", "label": "Ulush, %", "unit": "percent"},
+            {"key": "shareFirst", "label": f"{fmt_period(first_p)}", "unit": "percent"},
+            {"key": "shareLast", "label": f"{fmt_period(last_p)}", "unit": "percent"},
+            {"key": "shift", "label": "Siljish, p.p.", "unit": "pp"},
+        ],
+        "rows": rows,
+    }
+
+    result.interpretation.append(
+        f"Tanlangan davrdagi jami xarajatning {fmt_percent(leader['share'])}i В«{leader['name']}В»ga to'g'ri keladi ({fmt_money(leader['value'])})."
+    )
+    if first_p != last_p:
+        mover = max(rows, key=lambda r: abs(r["shift"] or 0))
+        if abs(mover["shift"] or 0) >= 1:
+            verb = "oshgan" if (mover["shift"] or 0) > 0 else "kamaygan"
+            result.interpretation.append(
+                f"{fmt_period(first_p)} bilan {fmt_period(last_p)} solishtirilganda В«{mover['name']}В» ulushi "
+                f"{fmt_number(abs(mover['shift']), 1)} foiz punktga {verb} вЂ” tuzilmadagi eng katta siljish."
+            )
+        else:
+            result.interpretation.append("Davr boshi va oxirida tuzilma deyarli o'zgarmagan (siljish 1 foiz punktdan kam).")
+    return result
+
+
+register(
+    Formula(
+        id="share",
+        title="Tarkib ulushi",
+        category="Tavsifiy",
+        description="Xarajat qaysi qismlardan tashkil topgani va davr davomida tuzilma qanday siljigani.",
+        latex=r"s_i = \frac{X_i}{\sum_{j} X_j} \times 100\%,\qquad \Delta s_i = s_i^{\,oxirgi} - s_i^{\,birinchi}",
+        symbols={"X_i": "i-qism summasi", "s_i": "i-qism ulushi", "О”s_i": "ulush siljishi (foiz punkt)"},
+        params=[Param("group_by", "Guruhlash", "group", "section", ["section", "type", "region"])],
+        min_periods=1,
+        run=run_share,
+    )
+)
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# 3. Bir xodimga
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+
+def run_per_employee(panel: pd.DataFrame, p: RunParams) -> Result:
+    metric = _metric(p.metric)
+    if metric.unit != "som":
+        raise ValueError("Bir xodimga hisob faqat pul ko'rsatkichlari uchun")
+    data = monthly(panel, p.start, p.end)
+    result = Result()
+    staffed = data[data["headcount"] > 0]
+    if staffed.empty:
+        result.insufficient = True
+        result.warnings.append("Xodimlar soni noma'lum вЂ” tanlangan davr uchun ish haqi yuklanmagan")
+        return result
+
+    per = (data[metric.key] / data["headcount"].replace(0, np.nan)).tolist()
+    periods = data["period"].tolist()
+    valid = [(periods[i], v) for i, v in enumerate(per) if v is not None and not math.isnan(v)]
+    result.n = len(valid)
+    avg = float(staffed[metric.key].sum() / staffed["headcount"].sum())
+    first_v, last_v = valid[0][1], valid[-1][1]
+    change = safe_div(last_v - first_v, first_v)
+
+    result.headline = {"label": f"{metric.label} вЂ” bir xodimga (oyiga)", "value": clean(avg), "unit": "som", "text": fmt_money(avg)}
+    result.stats = [
+        {"label": "O'rtacha xodimlar soni", "value": clean(float(staffed["headcount"].mean())), "unit": "kishi", "text": f"{fmt_number(float(staffed['headcount'].mean()))} kishi"},
+        {"label": f"{fmt_period(valid[0][0])}", "value": clean(first_v), "unit": "som", "text": fmt_money(first_v)},
+        {"label": f"{fmt_period(valid[-1][0])}", "value": clean(last_v), "unit": "som", "text": fmt_money(last_v)},
+        {"label": "O'zgarish", "value": clean(change * 100 if change is not None else None), "unit": "percent", "text": fmt_percent(change * 100 if change is not None else None, 1, sign=True)},
+    ]
+    result.chart = _series_chart(periods, [("Bir xodimga", per, "som")], "line")
+
+    # Hududlar kesimi: davr jami / o'rtacha xodimlar
+    regional = panel[(panel["headcount"] > 0) & (panel["region_code"] != NO_REGION)]
+    rows = []
+    if not regional.empty:
+        grouped = regional.groupby("region_name").agg(value=(metric.key, "sum"), headcount=("headcount", "mean"), months=("period", "nunique"))
+        grouped["perHead"] = grouped["value"] / grouped["months"] / grouped["headcount"]
+        grouped = grouped.sort_values("perHead", ascending=False)
+        rows = [
+            {"name": name, "headcount": clean(float(r.headcount)), "value": clean(float(r.value)), "perHead": clean(float(r.perHead))}
+            for name, r in grouped.iterrows()
+        ]
+    result.table = {
+        "columns": [
+            {"key": "name", "label": "Hudud", "unit": "text"},
+            {"key": "headcount", "label": "O'rtacha xodim", "unit": "kishi"},
+            {"key": "value", "label": metric.label, "unit": "som"},
+            {"key": "perHead", "label": "Bir xodimga, oyiga", "unit": "som"},
+        ],
+        "rows": rows,
+    }
+
+    result.interpretation.append(
+        f"Tanlangan davrda bir xodimga oyiga o'rtacha {fmt_money(avg)} {metric.label.lower()} to'g'ri kelgan."
+    )
+    if change is not None and len(valid) > 1 and abs(change) < 0.005:
+        result.interpretation.append(
+            f"{fmt_period(valid[0][0])}dan {fmt_period(valid[-1][0])}gacha bu ko'rsatkich deyarli o'zgarmagan."
+        )
+    elif change is not None and len(valid) > 1:
+        result.interpretation.append(
+            f"{fmt_period(valid[0][0])}dan {fmt_period(valid[-1][0])}gacha bu ko'rsatkich {fmt_percent(abs(change * 100), 1)} "
+            f"{'oshgan' if change > 0 else 'kamaygan'}."
+        )
+    if len(rows) >= 2:
+        hi, lo = rows[0], rows[-1]
+        ratio = safe_div(hi["perHead"] or 0, lo["perHead"] or 0)
+        result.interpretation.append(
+            f"Eng yuqori вЂ” {hi['name']} ({fmt_money(hi['perHead'])}), eng past вЂ” {lo['name']} ({fmt_money(lo['perHead'])})"
+            + (f"; farq {fmt_number(ratio, 1)} baravar." if ratio else ".")
+        )
+    return result
+
+
+register(
+    Formula(
+        id="per_employee",
+        title="Bir xodimga to'g'ri keladigan",
+        category="Tavsifiy",
+        description="Xarajat, ish haqi yoki daromadning bir xodimga oylik miqdori вЂ” oylar va hududlar bo'yicha.",
+        latex=r"\bar{x}_t = \frac{X_t}{L_t}",
+        symbols={"X_t": "t oydagi summa", "L_t": "t oydagi xodimlar soni", "xМ„_t": "bir xodimga"},
+        params=[Param("metric", "Ko'rsatkich", "metric", "payroll_total", MONEY_METRICS)],
+        min_periods=1,
+        run=run_per_employee,
+    )
+)
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# 4. Ish haqi / daromad
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+
+def run_payroll_ratio(panel: pd.DataFrame, p: RunParams) -> Result:
+    data = monthly(panel, p.start, p.end)
+    result = Result()
+    wages = data["payroll_total"].where(data["payroll_total"] > 0, data["expense_payroll"])
+    income = data["income_total"]
+    mask = income > 0
+    if not mask.any():
+        result.insufficient = True
+        result.warnings.append("Tanlangan davrda daromad yozuvlari yo'q вЂ” nisbatni hisoblab bo'lmaydi")
+        return result
+
+    ratio = (wages / income.replace(0, np.nan) * 100).tolist()
+    periods = data["period"].tolist()
+    total_ratio = float(wages[mask].sum() / income[mask].sum() * 100)
+    result.n = int(mask.sum())
+    result.headline = {"label": "Ish haqi / daromad", "value": clean(total_ratio), "unit": "percent", "text": fmt_percent(total_ratio)}
+    result.stats = [
+        {"label": "Ish haqi", "value": clean(float(wages[mask].sum())), "unit": "som", "text": fmt_money(float(wages[mask].sum()))},
+        {"label": "Daromad", "value": clean(float(income[mask].sum())), "unit": "som", "text": fmt_money(float(income[mask].sum()))},
+    ]
+    result.chart = _series_chart(periods, [("Ish haqi / daromad, %", ratio, "percent")], "line")
+    result.interpretation.append(
+        f"Har 100 so'm daromadning {fmt_number(total_ratio, 1)} so'mi ish haqiga ketgan."
+    )
+    level = "juda yuqori вЂ” rentabellik xavf ostida" if total_ratio > 70 else "yuqori" if total_ratio > 50 else "me'yorda" if total_ratio > 25 else "past"
+    result.interpretation.append(f"Bu ulush {level} darajada.")
+    return result
+
+
+register(
+    Formula(
+        id="payroll_ratio",
+        title="Ish haqi / daromad nisbati",
+        category="Tavsifiy",
+        description="Daromadning qancha qismi ish haqiga sarflanishi (mehnat sig'imi).",
+        latex=r"w_t = \frac{W_t}{R_t} \times 100\%",
+        symbols={"W_t": "t oydagi ish haqi", "R_t": "t oydagi daromad", "w_t": "ish haqi ulushi"},
+        params=[],
+        min_periods=1,
+        run=run_payroll_ratio,
+    )
+)
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# 5. Konsentratsiya (HHI)
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+
+def run_hhi(panel: pd.DataFrame, p: RunParams) -> Result:
+    title, comp = _components(panel, p)
+    result = Result()
+    sums = comp.groupby("name")["value"].sum() if not comp.empty else pd.Series(dtype=float)
+    sums = sums[sums > 0]
+    if sums.empty:
+        result.insufficient = True
+        result.warnings.append("Tanlangan davrda xarajat yo'q")
+        return result
+
+    shares = sums / sums.sum() * 100
+    hhi = float((shares**2).sum())
+    effective = 10000 / hhi if hhi > 0 else None
+    result.n = len(sums)
+    level = "yuqori" if hhi > 2500 else "o'rtacha" if hhi > 1500 else "past"
+    result.headline = {"label": "HHI indeksi", "value": clean(hhi), "unit": "index", "text": fmt_number(hhi)}
+    result.stats = [
+        {"label": "Konsentratsiya", "value": level, "unit": "text", "text": level},
+        {"label": "Samarali qismlar soni", "value": clean(effective), "unit": "count", "text": fmt_number(effective or 0, 1)},
+        {"label": "Haqiqiy qismlar soni", "value": len(sums), "unit": "count", "text": str(len(sums))},
+    ]
+    ordered = shares.sort_values(ascending=False)
+    result.chart = {"type": "bar", "x": list(ordered.index), "series": [{"name": "Ulush, %", "values": [clean(float(v)) for v in ordered], "unit": "percent"}]}
+    result.table = {
+        "columns": [
+            {"key": "name", "label": title, "unit": "text"},
+            {"key": "share", "label": "Ulush, %", "unit": "percent"},
+            {"key": "square", "label": "UlushВІ", "unit": "index"},
+        ],
+        "rows": [{"name": k, "share": clean(float(v)), "square": clean(float(v) ** 2)} for k, v in ordered.items()],
+    }
+    result.interpretation.append(
+        f"HHI = {fmt_number(hhi)} вЂ” xarajatlar {title.lower()} bo'yicha {level} darajada jamlangan "
+        f"(1500 dan past вЂ” tarqoq, 2500 dan yuqori вЂ” bir joyga to'plangan)."
+    )
+    if effective and effective >= 0.9 * len(sums):
+        result.interpretation.append(
+            f"Xarajatlar {len(sums)} ta qism o'rtasida deyarli tekis taqsimlangan."
+        )
+    elif effective:
+        result.interpretation.append(
+            f"Amalda xarajatlar {fmt_number(effective, 1)} ta teng qismga bo'lingandek taqsimlangan, "
+            f"garchi qismlar soni {len(sums)} ta bo'lsa ham."
+        )
+    return result
+
+
+register(
+    Formula(
+        id="hhi",
+        title="Konsentratsiya indeksi (HHI)",
+        category="Tavsifiy",
+        description="Xarajatlar bir-ikki joyga to'planganmi yoki tekis taqsimlanganmi вЂ” HerfindahlвЂ“Hirschman indeksi.",
+        latex=r"HHI = \sum_{i=1}^{n} s_i^{2},\qquad N_{samarali} = \frac{10\,000}{HHI}",
+        symbols={"s_i": "i-qism ulushi (%)", "n": "qismlar soni", "HHI": "0 dan 10 000 gacha"},
+        params=[Param("group_by", "Guruhlash", "group", "region", ["region", "type", "section"])],
+        min_periods=1,
+        run=run_hhi,
+    )
+)
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# 6. Barqarorlik (variatsiya koeffitsiyenti)
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+
+def run_volatility(panel: pd.DataFrame, p: RunParams) -> Result:
+    metric = _metric(p.metric)
+    data = monthly(panel, p.start, p.end)
+    values = data[metric.key].astype(float)
+    active = values[values > 0]
+    result = Result(n=len(active))
+    if len(active) < 3:
+        result.insufficient = True
+        result.warnings.append("Barqarorlikni baholash uchun kamida 3 oylik ma'lumot kerak")
+        return result
+
+    mean = float(active.mean())
+    std = float(active.std(ddof=1))
+    cv = std / mean * 100 if mean else None
+    z = (values - mean) / std if std else values * 0
+    periods = data["period"].tolist()
+    outlier_idx = int(np.nanargmax(np.abs(z.where(values > 0)))) if std else 0
+
+    level = "barqaror" if (cv or 0) < 10 else "o'rtacha tebranuvchan" if (cv or 0) < 25 else "beqaror"
+    result.headline = {"label": "Variatsiya koeffitsiyenti", "value": clean(cv), "unit": "percent", "text": fmt_percent(cv)}
+    result.stats = [
+        {"label": "O'rtacha oylik", "value": clean(mean), "unit": metric.unit, "text": fmt_value(mean, metric.unit)},
+        {"label": "Standart og'ish (Пѓ)", "value": clean(std), "unit": metric.unit, "text": fmt_value(std, metric.unit)},
+        {"label": "Baho", "value": level, "unit": "text", "text": level},
+    ]
+    result.chart = {
+        **_series_chart(periods, [(metric.label, values.tolist(), metric.unit)], "bar"),
+        "bands": {"mean": clean(mean), "lower": clean(mean - std), "upper": clean(mean + std)},
+    }
+    result.table = {
+        "columns": [
+            {"key": "period", "label": "Oy", "unit": "period"},
+            {"key": "value", "label": metric.label, "unit": metric.unit},
+            {"key": "z", "label": "Og'ish (z)", "unit": "number"},
+        ],
+        "rows": [{"period": per, "value": clean(v), "z": clean(float(zz)) if v > 0 else None} for per, v, zz in zip(periods, values, z)],
+    }
+    result.interpretation.append(
+        f"{metric.label} oyiga o'rtacha {fmt_value(mean, metric.unit)}, odatdagi tebranish В±{fmt_value(std, metric.unit)} "
+        f"(o'rtachaning {fmt_percent(cv)}i) вЂ” ko'rsatkich {level}."
+    )
+    zmax = float(z.iloc[outlier_idx]) if std else 0
+    if abs(zmax) >= 1.5:
+        result.interpretation.append(
+            f"{fmt_period(periods[outlier_idx])} odatdagidan keskin farq qiladi "
+            f"({fmt_number(abs(zmax), 1)} Пѓ {'yuqori' if zmax > 0 else 'past'}) вЂ” shu oyni alohida ko'rib chiqing."
+        )
+    return result
+
+
+register(
+    Formula(
+        id="volatility",
+        title="Barqarorlik (tebranish)",
+        category="Tavsifiy",
+        description="Ko'rsatkich oydan-oyga qanchalik tebranadi va qaysi oy odatdan tashqari bo'lgan.",
+        latex=r"CV = \frac{\sigma}{\mu} \times 100\%,\qquad z_t = \frac{X_t - \mu}{\sigma}",
+        symbols={"Ој": "o'rtacha", "Пѓ": "standart og'ish", "CV": "variatsiya koeffitsiyenti", "z_t": "t oyning og'ishi"},
+        params=[Param("metric", "Ko'rsatkich", "metric", "expense_total", METRIC_KEYS)],
+        min_periods=3,
+        run=run_volatility,
+    )
+)
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# 7. Korrelyatsiya (hudud Г— oy kuzatuvlari)
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+MIN_CORRELATION_N = 8
+
+
+def run_correlation(panel: pd.DataFrame, p: RunParams) -> Result:
+    x_metric = _metric(p.metric)
+    y_metric = _metric(p.metric2)
+    result = Result()
+    if x_metric.key == y_metric.key:
+        raise ValueError("Ikki xil ko'rsatkich tanlang")
+
+    obs = panel[(panel["region_code"] != NO_REGION)][["period", "region_name", x_metric.key, y_metric.key]]
+    obs = obs[(obs[x_metric.key] > 0) & (obs[y_metric.key] > 0)]
+    result.n = len(obs)
+    if len(obs) < MIN_CORRELATION_N:
+        result.insufficient = True
+        result.warnings.append(
+            f"Bog'liqlikni ishonchli baholash uchun kamida {MIN_CORRELATION_N} ta kuzatuv (hudud Г— oy) kerak, hozir {len(obs)} ta"
+        )
+        return result
+
+    x = obs[x_metric.key].astype(float).to_numpy()
+    y = obs[y_metric.key].astype(float).to_numpy()
+    r, p_value = sps.pearsonr(x, y)
+    rho, _ = sps.spearmanr(x, y)
+    slope, intercept = np.polyfit(x, y, 1)
+
+    strength = "kuchli" if abs(r) >= 0.7 else "o'rtacha" if abs(r) >= 0.3 else "kuchsiz"
+    direction = "to'g'ri (biri oshsa, ikkinchisi ham oshadi)" if r > 0 else "teskari (biri oshsa, ikkinchisi kamayadi)"
+    significant = p_value < 0.05
+
+    result.headline = {"label": "Korrelyatsiya (r)", "value": clean(float(r)), "unit": "number", "text": fmt_number(float(r), 3)}
+    result.stats = [
+        {"label": "RВІ (tushuntirilgan ulush)", "value": clean(float(r**2) * 100), "unit": "percent", "text": fmt_percent(float(r**2) * 100)},
+        {"label": "p-qiymat", "value": clean(float(p_value)), "unit": "number", "text": fmt_number(float(p_value), 4)},
+        {"label": "Spearman ПЃ", "value": clean(float(rho)), "unit": "number", "text": fmt_number(float(rho), 3)},
+        {"label": "Kuzatuvlar", "value": len(obs), "unit": "count", "text": str(len(obs))},
+    ]
+    result.chart = {
+        "type": "scatter",
+        "xLabel": x_metric.label,
+        "yLabel": y_metric.label,
+        "points": [{"x": clean(float(a)), "y": clean(float(b)), "label": f"{reg} В· {fmt_period(per)}"} for a, b, reg, per in zip(x, y, obs["region_name"], obs["period"])],
+        "line": {"slope": clean(float(slope)), "intercept": clean(float(intercept))},
+        "xUnit": x_metric.unit,
+        "yUnit": y_metric.unit,
+    }
+    result.interpretation.append(
+        f"В«{x_metric.label}В» va В«{y_metric.label}В» o'rtasida {strength}, {direction} bog'liqlik bor (r = {fmt_number(float(r), 2)})."
+    )
+    result.interpretation.append(
+        f"В«{y_metric.label}В»dagi farqlarning taxminan {fmt_percent(float(r**2) * 100, 0)}i В«{x_metric.label}В» bilan izohlanadi."
+    )
+    result.interpretation.append(
+        "Natija statistik ahamiyatli (p < 0,05) вЂ” tasodif ehtimoli past."
+        if significant
+        else "Natija statistik ahamiyatli emas (p в‰Ґ 0,05) вЂ” bog'liqlik tasodifiy bo'lishi mumkin."
+    )
+    result.warnings.append("Bog'liqlik sabab-oqibatni isbotlamaydi: ikkala ko'rsatkichga uchinchi omil ta'sir qilayotgan bo'lishi mumkin.")
+    return result
+
+
+register(
+    Formula(
+        id="correlation",
+        title="Bog'liqlik (korrelyatsiya)",
+        category="Bog'liqlik",
+        description="Ikki ko'rsatkich birga o'zgaradimi вЂ” hududlar Г— oylar kuzatuvlari bo'yicha Pirson korrelyatsiyasi.",
+        latex=r"r = \frac{\sum_i (x_i-\bar{x})(y_i-\bar{y})}{\sqrt{\sum_i (x_i-\bar{x})^2 \sum_i (y_i-\bar{y})^2}}",
+        symbols={"x_i, y_i": "i-kuzatuv (hudud Г— oy)", "xМ„, Иі": "o'rtachalar", "r": "в€’1 dan +1 gacha"},
+        params=[
+            Param("metric", "1-ko'rsatkich (X)", "metric", "headcount", METRIC_KEYS),
+            Param("metric2", "2-ko'rsatkich (Y)", "metric", "expense_total", METRIC_KEYS),
+        ],
+        min_periods=2,
+        run=run_correlation,
+    )
+)
+
+
+===== apps\analytics\app\main.py =====
+"""Korxona tahlil вЂ” matematik va ekonometrik hisob-kitob xizmati.
+
+Faqat NestJS API murojaat qiladi (X-Analytics-Key sarlavhasi bilan).
+Ishga tushirish:  .venv\\Scripts\\python -m uvicorn app.main:app --port 8001 --reload
+"""
+
+import platform
+import secrets
+import time
+from importlib.metadata import PackageNotFoundError, version
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, Header, HTTPException, status
+from pydantic import BaseModel, Field
+
+from . import dataset
+from .config import get_settings
+from .db import query
+from .formulas import descriptive  # noqa: F401 вЂ” formulalarni ro'yxatga oladi
+from .formulas.base import REGISTRY, RunParams, clean
+
+app = FastAPI(
+    title="Korxona tahlil вЂ” Modellar",
+    version="0.2.0",
+    docs_url="/docs",
+    redoc_url=None,
+)
+
+LIBRARIES = ["numpy", "pandas", "scipy", "statsmodels", "linearmodels", "pyreadstat"]
+
+GROUP_LABELS = {"section": "Doimiy / Boshqa", "type": "Xarajat turi", "region": "Hududlar"}
+
+PERIOD_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+
+
+def require_key(x_analytics_key: Annotated[str | None, Header()] = None) -> None:
+    """NestJS bilan umumiy kalitni tekshiradi (vaqt bo'yicha xavfsiz solishtirish)."""
+    expected = get_settings().analytics_key
+    if not x_analytics_key or not secrets.compare_digest(x_analytics_key, expected):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Kalit noto'g'ri")
+
+
+def library_versions() -> dict[str, str | None]:
+    result: dict[str, str | None] = {}
+    for name in LIBRARIES:
+        try:
+            result[name] = version(name)
+        except PackageNotFoundError:
+            result[name] = None
+    return result
+
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# Holat
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+
+@app.get("/health", dependencies=[Depends(require_key)])
+def health() -> dict:
+    """Xizmat holati: Python, kutubxonalar va baza bilan aloqa."""
+    started = time.perf_counter()
+    database: dict = {"ok": False}
+    try:
+        rows = query(
+            """
+            SELECT
+              (SELECT count(*) FROM expenses  WHERE "deletedAt" IS NULL) AS expenses,
+              (SELECT count(*) FROM incomes   WHERE "deletedAt" IS NULL) AS incomes,
+              (SELECT min(period) FROM expenses WHERE "deletedAt" IS NULL) AS first_period,
+              (SELECT max(period) FROM expenses WHERE "deletedAt" IS NULL) AS last_period
+            """
+        )
+        database = {"ok": True, **rows[0]}
+    except Exception as error:  # noqa: BLE001 вЂ” holatni ko'rsatish uchun
+        database = {"ok": False, "error": str(error).splitlines()[0][:300]}
+
+    return {
+        "ok": database["ok"],
+        "python": platform.python_version(),
+        "libraries": library_versions(),
+        "database": database,
+        "formulas": len(REGISTRY),
+        "tookMs": round((time.perf_counter() - started) * 1000),
+    }
+
+
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# Formulalar
+# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+
+
+class RunBody(BaseModel):
+    start: str = Field(pattern=PERIOD_PATTERN)
+    end: str = Field(pattern=PERIOD_PATTERN)
+    metric: str | None = None
+    metric2: str | None = None
+    groupBy: str | None = None
+
+
+@app.get("/formulas", dependencies=[Depends(require_key)])
+def formulas() -> dict:
+    """Katalog: formulalar, ko'rsatkichlar va guruhlash turlari."""
+    return {
+        "formulas": [f.describe() for f in REGISTRY.values()],
+        "metrics": [
+            {"key": m.key, "label": m.label, "unit": m.unit, "higherIsBetter": m.higher_is_better}
+            for m in dataset.METRICS.values()
+        ],
+        "groups": [{"key": k, "label": v} for k, v in GROUP_LABELS.items()],
+    }
+
+
+@app.post("/formulas/{formula_id}/run", dependencies=[Depends(require_key)])
+def run_formula(formula_id: str, body: RunBody) -> dict:
+    """Formulani tanlangan davr va parametrlar bilan hisoblaydi."""
+    formula = REGISTRY.get(formula_id)
+    if not formula:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Formula topilmadi")
+    if body.start > body.end:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Boshlanish oyi tugash oyidan keyin")
+
+    defaults = {p.key: p.default for p in formula.params}
+    params = RunParams(
+        start=body.start,
+        end=body.end,
+        metric=body.metric or defaults.get("metric", "expense_total"),
+        metric2=body.metric2 or defaults.get("metric2", "headcount"),
+        group_by=body.groupBy or defaults.get("group_by", "section"),
+    )
+
+    started = time.perf_counter()
+    try:
+        months = len(dataset.period_range(params.start, params.end))
+        if months < formula.min_periods:
+            raise ValueError(f"Bu formula uchun kamida {formula.min_periods} oy tanlang")
+        panel_df = dataset.load_panel(params.start, params.end)
+        result = formula.run(panel_df, params)
+    except ValueError as error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
+
+    return {
+        "formula": formula.describe(),
+        "params": {
+            "start": params.start,
+            "end": params.end,
+            "metric": params.metric,
+            "metric2": params.metric2,
+            "groupBy": params.group_by,
+        },
+        "result": result.to_dict(),
+        "tookMs": round((time.perf_counter() - started) * 1000),
+    }
+
+
+@app.get("/panel", dependencies=[Depends(require_key)])
+def panel(start: str, end: str) -> dict:
+    """Oy Г— hudud jadvali вЂ” tekshirish va eksport uchun."""
+    try:
+        df = dataset.load_panel(start, end)
+    except ValueError as error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
+    return {
+        "columns": list(df.columns),
+        "rows": [{k: clean(v) for k, v in row.items()} for row in df.to_dict(orient="records")],
+    }
+
+===== apps\api\src\modules\modeling\modeling.service.ts =====
+import {
+    BadRequestException,
+    Injectable,
+    Logger,
+    ServiceUnavailableException,
+} from '@nestjs/common';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/**
+ * Python tahlil xizmati (apps/analytics) bilan aloqa.
+ *
+ * Xizmat faqat 127.0.0.1 da ishlaydi va X-Analytics-Key kalitini talab qiladi.
+ * Kalit apps/analytics/.env faylidan o'qiladi вЂ” bitta joyda saqlanadi.
+ */
+@Injectable()
+export class ModelingService {
+  private readonly logger = new Logger(ModelingService.name);
+  private readonly baseUrl = process.env.ANALYTICS_URL ?? 'http://127.0.0.1:8001';
+  private readonly key = process.env.ANALYTICS_KEY ?? this.readKeyFromEnvFile();
+
+  /** apps/analytics/.env dan ANALYTICS_KEY ni o'qiydi */
+  private readKeyFromEnvFile(): string {
+    const candidates = [
+      process.env.ANALYTICS_ENV_FILE,
+      resolve(process.cwd(), '../analytics/.env'),
+      resolve(process.cwd(), 'apps/analytics/.env'),
+    ].filter((path): path is string => Boolean(path));
+
+    for (const path of candidates) {
+      if (!existsSync(path)) continue;
+      const match = /^\s*ANALYTICS_KEY\s*=\s*"?([^"\r\n]+)"?\s*$/m.exec(readFileSync(path, 'utf8'));
+      if (match?.[1]) return match[1].trim();
+    }
+    this.logger.warn('ANALYTICS_KEY topilmadi вЂ” apps/analytics/.env faylini tekshiring');
+    return '';
+  }
+
+  /** Python xizmatiga so'rov; javob JSON */
+  async call<T>(path: string, init: { method?: 'GET' | 'POST'; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        method: init.method ?? 'GET',
+        headers: {
+          'X-Analytics-Key': this.key,
+          ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+        signal: AbortSignal.timeout(init.timeoutMs ?? 60_000),
+      });
+    } catch (error) {
+      this.logger.warn(`Tahlil xizmatiga ulanib bo'lmadi: ${String(error)}`);
+      throw new ServiceUnavailableException(
+        "Tahlil xizmati ishlamayapti. apps\\analytics papkasida run.ps1 ni ishga tushiring",
+      );
+    }
+
+    const text = await response.text();
+    let data: unknown = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { detail: text.slice(0, 300) };
+    }
+
+    if (!response.ok) {
+      const detail = (data as { detail?: unknown } | null)?.detail;
+      const message =
+        typeof detail === 'string'
+          ? detail
+          : response.status === 401
+            ? "Tahlil xizmati kaliti mos emas (ANALYTICS_KEY)"
+            : `Tahlil xizmati xatosi (${response.status})`;
+      if (response.status >= 500 || response.status === 401) {
+        throw new ServiceUnavailableException(message);
+      }
+      throw new BadRequestException(message);
+    }
+
+    return data as T;
+  }
+
+  health() {
+    return this.call<Record<string, unknown>>('/health', { timeoutMs: 10_000 });
+  }
+
+  /** Formulalar katalogi, ko'rsatkichlar va guruhlash turlari */
+  catalog() {
+    return this.call<Record<string, unknown>>('/formulas', { timeoutMs: 10_000 });
+  }
+
+  /** Formulani hisoblash */
+  run(id: string, body: RunInput) {
+    if (!/^[a-z0-9_]{2,40}$/.test(id)) throw new BadRequestException('Formula nomi noto\'g\'ri');
+    const period = /^\d{4}-(0[1-9]|1[0-2])$/;
+    if (!period.test(body.start ?? '') || !period.test(body.end ?? '')) {
+      throw new BadRequestException('Davr noto\'g\'ri (YYYY-MM)');
+    }
+    if (body.start > body.end) throw new BadRequestException('Boshlanish oyi tugash oyidan keyin');
+
+    const clean = (value: unknown) =>
+      typeof value === 'string' && /^[a-z_]{1,40}$/.test(value) ? value : undefined;
+
+    return this.call<Record<string, unknown>>(`/formulas/${id}/run`, {
+      method: 'POST',
+      body: {
+        start: body.start,
+        end: body.end,
+        metric: clean(body.metric),
+        metric2: clean(body.metric2),
+        groupBy: clean(body.groupBy),
+      },
+    });
+  }
+
+  /** Oy Г— hudud jadvali */
+  panel(start: string, end: string) {
+    const period = /^\d{4}-(0[1-9]|1[0-2])$/;
+    if (!period.test(start ?? '') || !period.test(end ?? '')) {
+      throw new BadRequestException('Davr noto\'g\'ri (YYYY-MM)');
+    }
+    return this.call<Record<string, unknown>>(`/panel?start=${start}&end=${end}`);
+  }
+}
+
+export interface RunInput {
+  start: string;
+  end: string;
+  metric?: string;
+  metric2?: string;
+  groupBy?: string;
+}
+
+
+===== apps\web\src\app\(dashboard)\page.tsx =====
+'use client';
+
+import {
+  DateRangePicker,
+  defaultRange,
+  type DateRange,
+} from '@/components/shared/date-range-picker';
+import { expensesApi } from '@/features/expenses/api';
+import { incomesApi } from '@/features/incomes/api';
+import { useAuth } from '@/lib/auth-context';
+import { useAsync } from '@/lib/use-async';
+import Link from 'next/link';
+import { useState } from 'react';
+
+import { IconDashboard, IconTrendUp, IconWallet } from '@/components/ui/icons';
+import { Money } from '@/components/ui/money';
+
+export default function DashboardPage() {
+  const { user } = useAuth();
+  const [range, setRange] = useState<DateRange>(defaultRange);
+
+  const filters = { dateFrom: range.from, dateTo: range.to, limit: 1 };
+
+  const expenses = useAsync(() => expensesApi.list(filters), [range.from, range.to]);
+  const incomes = useAsync(() => incomesApi.list(filters), [range.from, range.to]);
+
+  const expenseTotal = expenses.data?.meta.sumTiyin ?? '0';
+  const incomeTotal = incomes.data?.meta.sumTiyin ?? '0';
+  const profit = String(Number(incomeTotal) - Number(expenseTotal));
+
+  const query = `?dateFrom=${range.from}&dateTo=${range.to}`;
+
+  return (
+    <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center p-6">
+      <div className="mx-auto w-full max-w-5xl">
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <p className="text-sm text-[--color-text-muted]">{user?.fullName}</p>
+          <DateRangePicker value={range} onChange={setRange} />
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-3">
+          <SectionCard
+            href={`/tahlil/daromad${query}`}
+            label="Daromad"
+            icon={<IconTrendUp className="size-10" strokeWidth={1.5} />}
+            accent="text-[--color-income]"
+            hover="hover:border-[--color-income]"
+            tiyin={incomeTotal}
+            tone="income"
+            loading={incomes.loading}
+            count={incomes.data?.meta.total}
+          />
+
+          <SectionCard
+            href={`/tahlil/xarajat${query}`}
+            label="Xarajat"
+            icon={<IconWallet className="size-10" strokeWidth={1.5} />}
+            accent="text-[--color-expense]"
+            hover="hover:border-[--color-expense]"
+            tiyin={expenseTotal}
+            tone="expense"
+            loading={expenses.loading}
+            count={expenses.data?.meta.total}
+          />
+
+          <SectionCard
+            href={`/tahlil/umumiy${query}`}
+            label="Tahlil"
+            icon={<IconDashboard className="size-10" strokeWidth={1.5} />}
+            accent="text-brand-700"
+            hover="hover:border-brand-600"
+            tiyin={profit}
+            tone="auto"
+            loading={expenses.loading || incomes.loading}
+            hint="Foyda"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SectionCard({
+  href,
+  label,
+  icon,
+  accent,
+  hover,
+  tiyin,
+  tone,
+  loading,
+  count,
+  hint,
+}: {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+  accent: string;
+  hover: string;
+  tiyin: string;
+  tone: 'income' | 'expense' | 'auto';
+  loading: boolean;
+  count?: number;
+  hint?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`group flex flex-col items-center justify-center gap-3 rounded-[--radius-card] border border-[--color-line] bg-white py-12 transition-all hover:shadow-md ${hover}`}
+    >
+      <div className={`transition-transform group-hover:scale-110 ${accent}`}>
+        {icon}
+      </div>
+
+      <span className="text-xl font-semibold text-[--color-text]">{label}</span>
+
+      {loading ? (
+        <span className="h-7 w-32 animate-pulse rounded bg-[--color-surface-sunken]" />
+      ) : (
+        <Money tiyin={tiyin} tone={tone} className="text-lg font-semibold" />
+      )}
+
+      <span className="text-xs text-[--color-text-faint]">
+        {hint ?? (count !== undefined ? `${count} ta yozuv` : '')}
+      </span>
+    </Link>
+  );
+}
+
+
+===== apps\web\src\app\(dashboard)\tahlil\daromad\page.tsx =====
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { useAsync } from '@/lib/use-async';
+import { incomesApi } from '@/features/incomes/api';
+import { regionalIncomeApi } from '@/features/incomes/regional-api';
+import {
+  currentPeriod,
+  formatPeriod,
+  formatPercent,
+  formatDate,
+  formatTiyin,
+} from '@/lib/format';
+
+import { PageHeader } from '@/components/layout/page-header';
+import {
+  DateRangePicker,
+  defaultRange,
+  type DateRange,
+} from '@/components/shared/date-range-picker';
+import { BarChart } from '@/components/shared/bar-chart';
+import { ShareBar } from '@/components/shared/share-bar';
+import { Card, CardHeader, CardBody } from '@/components/ui/card';
+import { Money, Change } from '@/components/ui/money';
+import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
+import { EmptyState, LoadingState } from '@/components/ui/states';
+
+export default function IncomeAnalysisPage() {
+  const searchParams = useSearchParams();
+
+  const [range, setRange] = useState<DateRange>(() => {
+    const from = searchParams.get("dateFrom");
+    const to = searchParams.get("dateTo");
+    return from && to ? { from, to } : defaultRange();
+  });
+
+  // Solishtirish uchun oxirgi oy
+  const period = range.to.slice(0, 7);
+
+  const filters = { period };
+
+  const comparison = useAsync(() => incomesApi.comparison(period), [period]);
+  const trend = useAsync(() => incomesApi.trend(12), []);
+  const byCategory = useAsync(() => incomesApi.summaryByCategory(filters), [period]);
+  const byDepartment = useAsync(() => incomesApi.summaryByDepartment(filters), [period]);
+  const byRegion = useAsync(() => regionalIncomeApi.summaryByRegion(period), [period]);
+  const byService = useAsync(() => regionalIncomeApi.summaryByService(period), [period]);
+  const top = useAsync(() => incomesApi.top(filters, 5), [period]);
+
+  const current = comparison.data?.data.current;
+  const previous = comparison.data?.data.previous;
+  const lastYear = comparison.data?.data.lastYear;
+
+  const categoryData = byCategory.data?.data;
+  const total = categoryData ? Number(categoryData.totalTiyin) : 0;
+  const paid = categoryData
+    ? categoryData.rows.reduce((sum, row) => sum + Number(row.paidTiyin), 0)
+    : 0;
+  const paidPercent = total > 0 ? (paid / total) * 100 : 0;
+
+  // Xizmatlar bo'yicha jami soni
+  const serviceRows = byService.data?.data.rows ?? [];
+  const totalQuantity = serviceRows.reduce((sum, row) => sum + row.quantity, 0);
+
+  return (
+    <>
+      <PageHeader
+        title="Daromad tahlili"
+        description={`${formatDate(range.from)} вЂ” ${formatDate(range.to)}`}
+        actions={
+          <div className="flex items-center gap-3">
+            <DateRangePicker value={range} onChange={setRange} />
+            <Link
+              href="/"
+              className="text-sm text-[--color-text-muted] hover:text-[--color-text]"
+            >
+              Bosh sahifa
+            </Link>
+          </div>
+        }
+      />
+
+      <div className="space-y-4 p-6">
+        {/* Ko'rsatkichlar */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            label="Jami daromad"
+            tiyin={current?.amountTiyin ?? 0}
+            hint={current ? `${current.count} ta yozuv` : undefined}
+          />
+
+          <MetricCard
+            label="O'tgan oyga nisbatan"
+            tiyin={previous?.amountTiyin ?? 0}
+            change={previous?.changePercent}
+            hint={previous ? formatPeriod(previous.period) : undefined}
+          />
+
+          <MetricCard
+            label="O'tgan yilning shu oyi"
+            tiyin={lastYear?.amountTiyin ?? 0}
+            change={lastYear?.changePercent}
+            hint={lastYear ? formatPeriod(lastYear.period) : undefined}
+          />
+
+          <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+              Ko&rsquo;rsatilgan xizmat
+            </p>
+            <p className="money mt-2 text-xl font-semibold">
+              {totalQuantity > 0 ? totalQuantity.toLocaleString('uz') : '\u2014'}
+            </p>
+            <p className="mt-1.5 text-xs text-[--color-text-muted]">
+              {totalQuantity > 0 && total > 0
+                ? `O'rtacha ${formatTiyin(String(Math.round(total / totalQuantity)))}`
+                : 'Hududiy hisobotdan'}
+            </p>
+          </div>
+        </div>
+
+        {/* To'lov holati */}
+        {total > 0 && (
+          <Card>
+            <CardHeader
+              title="To'lov holati"
+              description="Hisoblangan va haqiqatda tushgan summa"
+            />
+            <CardBody>
+              <div className="space-y-3">
+                <div className="flex h-2.5 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+                  <div
+                    className="bg-[--color-income] transition-all"
+                    style={{ width: `${paidPercent}%` }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2">
+                    <span className="size-2 rounded-full bg-[--color-income]" />
+                    <span className="text-[--color-text-muted]">Tushgan</span>
+                    <Money tiyin={String(paid)} tone="income" className="font-medium" />
+                    <span className="money text-xs text-[--color-text-faint]">
+                      {formatPercent(paidPercent)}
+                    </span>
+                  </span>
+
+                  <span className="flex items-center gap-2">
+                    <span className="text-[--color-text-muted]">Qarzda</span>
+                    <Money
+                      tiyin={String(total - paid)}
+                      tone="expense"
+                      className="font-medium"
+                    />
+                  </span>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Dinamika */}
+        <Card>
+          <CardHeader title="Oylik dinamika" description="Oxirgi 12 oy" />
+          <CardBody>
+            {trend.loading ? (
+              <LoadingState />
+            ) : (
+              <BarChart data={trend.data?.data ?? []} color="var(--color-income)" />
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Hududlar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Hududlar bo'yicha"
+            description="Daromadning asosiy manbai"
+          />
+
+          {byRegion.loading ? (
+            <LoadingState />
+          ) : (byRegion.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Hududiy daromad yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Hudud</Th>
+                  <Th align="center" className="w-24">
+                    Xizmat
+                  </Th>
+                  <Th align="center" className="w-24">
+                    Soni
+                  </Th>
+                  <Th className="w-36">Ulush</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {byRegion.data?.data.rows.map((row) => (
+                  <Tr key={row.regionCode ?? 'none'}>
+                    <Td className="font-medium">{row.name}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.quantity || '\u2014'}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-income)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="income" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={4}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byRegion.data?.data.totalTiyin ?? 0}
+                      tone="income"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Eng katta yozuvlar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Eng katta 5 daromad"
+            description="Alohida yozuvlar bo'yicha"
+          />
+
+          {top.loading ? (
+            <LoadingState />
+          ) : (top.data?.data.length ?? 0) === 0 ? (
+            <EmptyState title="Yozuv yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th className="w-10" />
+                  <Th className="w-28">Sana</Th>
+                  <Th>Xizmat turi</Th>
+                  <Th className="w-44">Mijoz / Hudud</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {top.data?.data.map((item, index) => (
+                  <Tr key={item.id}>
+                    <Td className="money text-center text-[--color-text-faint]">
+                      {index + 1}
+                    </Td>
+
+                    <Td className="money text-[--color-text-muted]">
+                      {formatDate(item.date)}
+                    </Td>
+
+                    <Td className="max-w-md truncate">{item.category.label}</Td>
+
+                    <Td className="text-[--color-text-muted]">
+                      {item.clientName ?? item.region?.name ?? '\u2014'}
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={item.amountTiyin} tone="income" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </Card>
+
+        {/* Xizmat turlari */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Xizmat turlari"
+            description="Eng katta daromaddan boshlab"
+          />
+
+          {byService.loading ? (
+            <LoadingState />
+          ) : serviceRows.length === 0 ? (
+            <EmptyState title="Ma'lumot yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Xizmat turi</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th align="right" className="w-32">
+                    O&apos;rtacha
+                  </Th>
+                  <Th className="w-32">Ulush</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {serviceRows.map((row) => (
+                  <Tr key={row.categoryCode}>
+                    <Td className="max-w-md truncate" title={row.label}>
+                      {row.label}
+                    </Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.quantity || '\u2014'}
+                    </Td>
+
+                    <Td money className="text-[--color-text-muted]">
+                      {row.averageTiyin ? formatTiyin(row.averageTiyin) : '\u2014'}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-income)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="income" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={4}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byService.data?.data.totalTiyin ?? 0}
+                      tone="income"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Bo'limlar */}
+        <Card className="overflow-hidden">
+          <CardHeader title="Bo'limlar bo'yicha" />
+
+          {byDepartment.loading ? (
+            <LoadingState />
+          ) : (byDepartment.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Ma'lumot yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Bo&apos;lim</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th className="w-36">Ulush</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {byDepartment.data?.data.rows.map((row) => (
+                  <Tr key={row.departmentId ?? 'none'}>
+                    <Td className="truncate">{row.name}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-income)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="income" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={3}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byDepartment.data?.data.totalTiyin ?? 0}
+                      tone="income"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+      </div>
+    </>
+  );
+}
+
+function MetricCard({
+  label,
+  tiyin,
+  change,
+  hint,
+}: {
+  label: string;
+  tiyin: string | number;
+  change?: number | null;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+        {label}
+      </p>
+
+      <div className="mt-2">
+        <Money tiyin={tiyin} tone="income" className="text-xl font-semibold" />
+      </div>
+
+      <div className="mt-1.5 flex items-center gap-2">
+        {change !== undefined && <Change percent={change} positiveIsGood />}
+        {hint && <span className="text-xs text-[--color-text-muted]">{hint}</span>}
+      </div>
+    </div>
+  );
+}
+
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\_components\analysis-nav.tsx =====
+'use client';
+
+import {
+  IconAlert,
+  IconChart,
+  IconDashboard,
+  IconTrendUp,
+  IconUsers,
+  IconWallet,
+} from '@/components/ui/icons';
+
+export type AnalysisTab =
+  | 'overview'
+  | 'dynamics'
+  | 'efficiency'
+  | 'structure'
+  | 'revenue'
+  | 'expenses'
+  | 'insights';
+
+interface TabItem {
+  key: AnalysisTab;
+  label: string;
+  question: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  accent: string;
+  hover: string;
+}
+
+export const ANALYSIS_TABS: TabItem[] = [
+  {
+    key: 'overview',
+    label: 'Umumiy holat',
+    question: 'Korxona foydada ishlayaptimi?',
+    icon: IconDashboard,
+    accent: 'text-brand-700',
+    hover: 'hover:border-brand-600',
+  },
+  {
+    key: 'dynamics',
+    label: 'Dinamika',
+    question: 'Vaqt davomida nima bo\u2018ldi?',
+    icon: IconChart,
+    accent: 'text-[--color-warn]',
+    hover: 'hover:border-[--color-warn]',
+  },
+  {
+    key: 'efficiency',
+    label: 'Samaradorlik',
+    question: 'Qayerda qanday natija bor?',
+    icon: IconUsers,
+    accent: 'text-brand-700',
+    hover: 'hover:border-brand-600',
+  },
+  {
+    key: 'structure',
+    label: 'Daromad va xarajat tarkibi',
+    question: 'Pul qayerdan kelib, qayerga ketmoqda?',
+    icon: IconChart,
+    accent: 'text-brand-700',
+    hover: 'hover:border-brand-600',
+  },
+  {
+    key: 'revenue',
+    label: 'Daromad tarkibi',
+    question: 'Daromad nimadan keladi?',
+    icon: IconTrendUp,
+    accent: 'text-[--color-income]',
+    hover: 'hover:border-[--color-income]',
+  },
+  {
+    key: 'expenses',
+    label: 'Xarajat tarkibi',
+    question: 'Pul qayerga ketmoqda?',
+    icon: IconWallet,
+    accent: 'text-[--color-expense]',
+    hover: 'hover:border-[--color-expense]',
+  },
+  {
+    key: 'insights',
+    label: 'Xulosa',
+    question: 'Nima o\u2018zgardi, nimaga e\u2019tibor berish kerak?',
+    icon: IconAlert,
+    accent: 'text-[--color-warn]',
+    hover: 'hover:border-[--color-warn]',
+  },
+];
+
+/**
+ * Tahlil bo'limlari вЂ” ekran markazida katta kartochkalar.
+ * Bittasini bosganda o'sha bo'lim to'liq ochiladi.
+ */
+export function AnalysisCards({ onSelect }: { onSelect: (tab: AnalysisTab) => void }) {
+  return (
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {ANALYSIS_TABS.map((tab) => {
+        const Icon = tab.icon;
+
+        return (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => onSelect(tab.key)}
+            className={`group flex flex-col items-center justify-center gap-3 rounded-[--radius-card] border border-[--color-line] bg-white px-6 py-10 text-center transition-all hover:shadow-md ${tab.hover}`}
+          >
+            <Icon
+              className={`size-10 transition-transform group-hover:scale-110 ${tab.accent}`}
+              strokeWidth={1.5}
+            />
+
+            <span className="text-lg font-semibold text-[--color-text]">{tab.label}</span>
+
+            <span className="text-sm text-[--color-text-muted]">{tab.question}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function tabLabel(tab: AnalysisTab): string {
+  return ANALYSIS_TABS.find((item) => item.key === tab)?.label ?? '';
+}
+
+export function tabQuestion(tab: AnalysisTab): string {
+  return ANALYSIS_TABS.find((item) => item.key === tab)?.question ?? '';
+}
+
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\_components\dynamics-tab.tsx =====
+'use client';
+
+import { dashboardApi } from '@/features/dashboard/api';
+import { formatPeriod } from '@/lib/format';
+import { useAsync } from '@/lib/use-async';
+
+import type { DateRange } from '@/components/shared/date-range-picker';
+import { LineChart } from '@/components/shared/line-chart';
+import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { Money } from '@/components/ui/money';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
+import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
+import { periodOf } from './range-utils';
+
+/**
+ * Vaqt davomidagi o'zgarish вЂ” oxirgi 12 oy.
+ *
+ * Oraliq oxirgi oyi bo'yicha hisoblanadi: sentabr tanlansa,
+ * oktabr 2025 вЂ” sentabr 2026 ko'rsatiladi.
+ */
+export function DynamicsTab({ range }: { range: DateRange }) {
+  const period = periodOf(range.to);
+  const trend = useAsync(() => dashboardApi.trend(12, period), [period]);
+
+  if (trend.loading) return <LoadingState />;
+  if (trend.error) return <ErrorState message={trend.error} onRetry={trend.reload} />;
+
+  const rows = trend.data?.data ?? [];
+
+  // Faqat harakat bo'lgan oylar statistikaga kiradi
+  const active = rows
+    .map((row) => ({
+      period: row.period,
+      income: Number(row.incomeTiyin),
+      expense: Number(row.expenseTiyin),
+      profit: Number(row.profitTiyin),
+    }))
+    .filter((row) => row.income > 0 || row.expense > 0);
+
+  if (active.length === 0) {
+    return (
+      <Card>
+        <EmptyState title="Oxirgi 12 oyda ma'lumot yo'q" />
+      </Card>
+    );
+  }
+
+  const count = active.length;
+  const avgIncome = active.reduce((sum, row) => sum + row.income, 0) / count;
+  const avgExpense = active.reduce((sum, row) => sum + row.expense, 0) / count;
+  const profitable = active.filter((row) => row.profit > 0).length;
+
+  const best = active.reduce((a, b) => (b.profit > a.profit ? b : a));
+  const worst = active.reduce((a, b) => (b.profit < a.profit ? b : a));
+
+  return (
+    <div className="space-y-4">
+      {/* Qisqa xulosa */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryBox label="O'rtacha oylik daromad">
+          <Money tiyin={String(Math.round(avgIncome))} tone="income" />
+        </SummaryBox>
+
+        <SummaryBox label="O'rtacha oylik xarajat">
+          <Money tiyin={String(Math.round(avgExpense))} tone="expense" />
+        </SummaryBox>
+
+        <SummaryBox label="Foydali oylar">
+          <span className="money">
+            {profitable} / {count}
+          </span>
+        </SummaryBox>
+
+        <SummaryBox label="Eng yaxshi / eng yomon">
+          <span className="text-sm">
+            <span className="text-[--color-income]">{formatPeriod(best.period)}</span>
+            <span className="text-[--color-text-faint]"> / </span>
+            <span className="text-[--color-expense]">{formatPeriod(worst.period)}</span>
+          </span>
+        </SummaryBox>
+      </div>
+
+      {/* Grafik */}
+      <Card>
+        <CardHeader
+          title="Daromad va xarajat"
+          description="Chiziqlar kesishgan joy вЂ” zarar oyi"
+        />
+        <CardBody>
+          <LineChart data={rows} />
+        </CardBody>
+      </Card>
+
+      {/* Oylik jadval */}
+      <Card className="overflow-hidden">
+        <CardHeader title="Oyma-oy" description="Yangi oydan boshlab" />
+
+        <Table>
+          <THead>
+            <Tr>
+              <Th className="w-32">Oy</Th>
+              <Th align="right">Daromad</Th>
+              <Th align="right">Xarajat</Th>
+              <Th align="right">Foyda</Th>
+              <Th align="right" className="w-24">
+                Nisbat
+              </Th>
+            </Tr>
+          </THead>
+
+          <TBody>
+            {[...rows].reverse().map((row) => {
+              const income = Number(row.incomeTiyin);
+              const expense = Number(row.expenseTiyin);
+              const ratio = income > 0 ? expense / income : null;
+              const isEmpty = income === 0 && expense === 0;
+
+              return (
+                <Tr key={row.period} className={cn(isEmpty && 'opacity-40')}>
+                  <Td className="text-[--color-text-muted]">{formatPeriod(row.period)}</Td>
+                  <Td money>
+                    <Money tiyin={row.incomeTiyin} tone="income" />
+                  </Td>
+                  <Td money>
+                    <Money tiyin={row.expenseTiyin} tone="expense" />
+                  </Td>
+                  <Td money>
+                    <Money tiyin={row.profitTiyin} tone="auto" />
+                  </Td>
+                  <Td
+                    align="right"
+                    className={cn(
+                      'money text-xs',
+                      ratio === null
+                        ? 'text-[--color-text-faint]'
+                        : ratio < 1
+                          ? 'text-[--color-income]'
+                          : 'text-[--color-expense]',
+                    )}
+                  >
+                    {ratio === null ? '\u2014' : ratio.toFixed(2)}
+                  </Td>
+                </Tr>
+              );
+            })}
+          </TBody>
+        </Table>
+      </Card>
+    </div>
+  );
+}
+
+function SummaryBox({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+        {label}
+      </p>
+      <div className="mt-2 text-lg font-semibold">{children}</div>
+    </div>
+  );
+}
+
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\_components\efficiency-tab.tsx =====
+'use client';
+
+import type { DateRange } from '@/components/shared/date-range-picker';
+
+/** Vaqtincha - keyingi qadamda to'ldiriladi */
+export function EfficiencyTab(_props: { range: DateRange }) {
+  return <p className="text-sm text-[--color-text-muted]">Tayyorlanmoqda</p>;
+}
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\_components\expenses-tab.tsx =====
+'use client';
+
+import type { DateRange } from '@/components/shared/date-range-picker';
+import { SalaryStructureCard } from '@/features/salary-composition/salary-structure';
+
+/**
+ * Xarajat tarkibi вЂ” "Pul qayerga ketmoqda?"
+ * Hozircha: ish haqi tuzilmasi (eng katta xarajat moddasi).
+ */
+export function ExpensesTab({ range }: { range: DateRange }) {
+  return (
+    <div className="space-y-4">
+      <SalaryStructureCard range={range} />
+    </div>
+  );
+}
+
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\_components\insights-tab.tsx =====
+'use client';
+
+import type { DateRange } from '@/components/shared/date-range-picker';
+
+/** Vaqtincha - keyingi qadamda to'ldiriladi */
+export function InsightsTab(_props: { range: DateRange }) {
+  return <p className="text-sm text-[--color-text-muted]">Tayyorlanmoqda</p>;
+}
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\_components\overview-tab.tsx =====
+'use client';
+
+import { expensesApi } from '@/features/expenses/api';
+import { incomesApi } from '@/features/incomes/api';
+import { formatDate, formatPercent } from '@/lib/format';
+import { useAsync } from '@/lib/use-async';
+
+import type { DateRange } from '@/components/shared/date-range-picker';
+import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { Change, Money } from '@/components/ui/money';
+import { ErrorState, LoadingState } from '@/components/ui/states';
+import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
+import { percentChange, previousRange } from './range-utils';
+
+interface Totals {
+  income: number;
+  paid: number;
+  expense: number;
+  profit: number;
+  margin: number | null;
+}
+
+/** Ikki so'rov javobidan yig'indilarni chiqaradi */
+function buildTotals(
+  data:
+    | [
+        { meta: { sumTiyin: string; paidTiyin: string } },
+        { meta: { sumTiyin: string } },
+      ]
+    | null
+    | undefined,
+): Totals {
+  const income = Number(data?.[0].meta.sumTiyin ?? 0);
+  const paid = Number(data?.[0].meta.paidTiyin ?? 0);
+  const expense = Number(data?.[1].meta.sumTiyin ?? 0);
+  const profit = income - expense;
+
+  return {
+    income,
+    paid,
+    expense,
+    profit,
+    margin: income > 0 ? (profit / income) * 100 : null,
+  };
+}
+
+/**
+ * Umumiy holat вЂ” korxona foydada ishlayaptimi.
+ *
+ * Tanlangan oraliq unga teng oldingi davr bilan solishtiriladi.
+ */
+export function OverviewTab({ range }: { range: DateRange }) {
+  const prev = previousRange(range);
+
+  const current = useAsync(
+    () =>
+      Promise.all([
+        incomesApi.list({ dateFrom: range.from, dateTo: range.to, limit: 1 }),
+        expensesApi.list({ dateFrom: range.from, dateTo: range.to, limit: 1 }),
+      ]),
+    [range.from, range.to],
+  );
+
+  const previous = useAsync(
+    () =>
+      Promise.all([
+        incomesApi.list({ dateFrom: prev.from, dateTo: prev.to, limit: 1 }),
+        expensesApi.list({ dateFrom: prev.from, dateTo: prev.to, limit: 1 }),
+      ]),
+    [prev.from, prev.to],
+  );
+
+  if (current.loading) return <LoadingState />;
+  if (current.error) {
+    return <ErrorState message={current.error} onRetry={current.reload} />;
+  }
+
+  const now = buildTotals(current.data);
+  const before = buildTotals(previous.data);
+
+  const isProfit = now.profit >= 0;
+  const costRatio = now.income > 0 ? now.expense / now.income : null;
+
+  const maxValue = Math.max(now.income, now.expense, 1);
+  const paidPercent = now.income > 0 ? (now.paid / now.income) * 100 : null;
+
+  const incomeChange = percentChange(now.income, before.income);
+  const expenseChange = percentChange(now.expense, before.expense);
+  const profitChange = percentChange(now.profit, before.profit);
+
+  const marginDiff =
+    now.margin !== null && before.margin !== null ? now.margin - before.margin : null;
+
+  const growthGap =
+    incomeChange !== null && expenseChange !== null ? incomeChange - expenseChange : null;
+
+  return (
+    <div className="space-y-4">
+      {/* Asosiy javob */}
+      <Card>
+        <CardBody className="space-y-5">
+          <div className="text-center">
+            <p className="text-sm text-[--color-text-muted]">
+              Har 1 so&rsquo;m daromadga
+            </p>
+            <p
+              className={cn(
+                'money mt-1 text-4xl font-bold',
+                costRatio === null
+                  ? 'text-[--color-text-faint]'
+                  : costRatio < 1
+                    ? 'text-[--color-income]'
+                    : 'text-[--color-expense]',
+              )}
+            >
+              {costRatio === null ? '\u2014' : costRatio.toFixed(2)}
+            </p>
+            <p className="text-sm text-[--color-text-muted]">so&rsquo;m xarajat</p>
+          </div>
+
+          <div className="space-y-3">
+            <CompareBar
+              label="Daromad"
+              value={now.income}
+              width={(now.income / maxValue) * 100}
+              tone="income"
+            />
+            <CompareBar
+              label="Xarajat"
+              value={now.expense}
+              width={(now.expense / maxValue) * 100}
+              tone="expense"
+            />
+          </div>
+
+          <div
+            className={cn(
+              'flex items-center justify-between rounded-[--radius-control] px-4 py-3',
+              isProfit ? 'bg-[--color-income-soft]' : 'bg-[--color-expense-soft]',
+            )}
+          >
+            <span className="text-sm font-medium">{isProfit ? 'Foyda' : 'Zarar'}</span>
+
+            <div className="flex items-center gap-3">
+              <span
+                className={cn(
+                  'money text-xs',
+                  isProfit ? 'text-[--color-income]' : 'text-[--color-expense]',
+                )}
+              >
+                {formatPercent(now.margin)}
+              </span>
+              <Money
+                tiyin={String(now.profit)}
+                tone="auto"
+                className="text-lg font-semibold"
+              />
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Ko'rsatkichlar */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Daromad" tiyin={now.income} tone="income" change={incomeChange} good />
+        <KpiCard
+          label="Xarajat"
+          tiyin={now.expense}
+          tone="expense"
+          change={expenseChange}
+          good={false}
+        />
+        <KpiCard label="Foyda" tiyin={now.profit} tone="auto" change={profitChange} good />
+
+        <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+            Rentabellik
+          </p>
+          <p
+            className={cn(
+              'money mt-2 text-xl font-semibold',
+              (now.margin ?? 0) >= 0 ? 'text-[--color-income]' : 'text-[--color-expense]',
+            )}
+          >
+            {formatPercent(now.margin)}
+          </p>
+          <p className="mt-1.5 text-xs text-[--color-text-muted]">
+            {marginDiff === null
+              ? 'Foyda / daromad'
+              : `${marginDiff >= 0 ? '+' : ''}${marginDiff.toFixed(1)} punkt`}
+          </p>
+        </div>
+      </div>
+
+      {/* O'sish sur'ati */}
+      {growthGap !== null && (
+        <div
+          className={cn(
+            'rounded-[--radius-card] border px-4 py-3',
+            growthGap >= 0
+              ? 'border-[--color-income] bg-[--color-income-soft]'
+              : 'border-[--color-expense] bg-[--color-expense-soft]',
+          )}
+        >
+          <p
+            className={cn(
+              'text-sm font-medium',
+              growthGap >= 0 ? 'text-[--color-income]' : 'text-[--color-expense]',
+            )}
+          >
+            {growthGap >= 0
+              ? "Daromad xarajatdan tezroq o'smoqda"
+              : "Xarajat daromaddan tezroq o'smoqda"}
+          </p>
+          <p className="mt-0.5 text-xs text-[--color-text-muted]">
+            Daromad {formatPercent(incomeChange)}, xarajat {formatPercent(expenseChange)}{' '}
+            &middot; farq {growthGap >= 0 ? '+' : ''}
+            {growthGap.toFixed(1)} punkt
+          </p>
+        </div>
+      )}
+
+      {/* Solishtirish jadvali */}
+      <Card className="overflow-hidden">
+        <CardHeader
+          title="Oldingi teng davr bilan"
+          description={`${formatDate(prev.from)} \u2014 ${formatDate(prev.to)}`}
+        />
+
+        {previous.loading ? (
+          <LoadingState />
+        ) : (
+          <Table>
+            <THead>
+              <Tr>
+                <Th>Ko&apos;rsatkich</Th>
+                <Th align="right" className="w-40">
+                  Hozir
+                </Th>
+                <Th align="right" className="w-40">
+                  Oldin
+                </Th>
+                <Th align="right" className="w-28">
+                  O&apos;zgarish
+                </Th>
+              </Tr>
+            </THead>
+
+            <TBody>
+              <CompareRow
+                label="Daromad"
+                now={now.income}
+                before={before.income}
+                change={incomeChange}
+                good
+              />
+              <CompareRow
+                label="Xarajat"
+                now={now.expense}
+                before={before.expense}
+                change={expenseChange}
+                good={false}
+              />
+              <CompareRow
+                label="Foyda"
+                now={now.profit}
+                before={before.profit}
+                change={profitChange}
+                good
+              />
+            </TBody>
+          </Table>
+        )}
+      </Card>
+
+      {/* Tushum intizomi */}
+      {paidPercent !== null && (
+        <Card>
+          <CardHeader
+            title="Tushum"
+            description="Hisoblangan daromadning qancha qismi haqiqatda tushgan"
+          />
+          <CardBody className="space-y-3">
+            <div className="flex h-2.5 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+              <div
+                className="bg-[--color-income] transition-all"
+                style={{ width: `${paidPercent}%` }}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span>
+                <span className="text-[--color-text-muted]">Tushgan </span>
+                <Money tiyin={String(now.paid)} tone="income" className="font-medium" />
+                <span className="money ml-2 text-xs text-[--color-text-faint]">
+                  {formatPercent(paidPercent)}
+                </span>
+              </span>
+
+              <span>
+                <span className="text-[--color-text-muted]">Qarzda </span>
+                <Money
+                  tiyin={String(now.income - now.paid)}
+                  tone="expense"
+                  className="font-medium"
+                />
+              </span>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Yordamchi komponentlar в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+function CompareBar({
+  label,
+  value,
+  width,
+  tone,
+}: {
+  label: string;
+  value: number;
+  width: number;
+  tone: 'income' | 'expense';
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between">
+        <span className="text-sm text-[--color-text-muted]">{label}</span>
+        <Money tiyin={String(value)} tone={tone} className="text-sm font-semibold" />
+      </div>
+      <div className="h-3 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+        <div
+          className={cn(
+            'h-full rounded-full transition-all',
+            tone === 'income' ? 'bg-[--color-income]' : 'bg-[--color-expense]',
+          )}
+          style={{ width: `${width}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  tiyin,
+  tone,
+  change,
+  good,
+}: {
+  label: string;
+  tiyin: number;
+  tone: 'income' | 'expense' | 'auto';
+  change: number | null;
+  good: boolean;
+}) {
+  return (
+    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+        {label}
+      </p>
+      <Money tiyin={String(tiyin)} tone={tone} className="mt-2 block text-xl font-semibold" />
+      <div className="mt-1.5">
+        <Change percent={change} positiveIsGood={good} />
+      </div>
+    </div>
+  );
+}
+
+function CompareRow({
+  label,
+  now,
+  before,
+  change,
+  good,
+}: {
+  label: string;
+  now: number;
+  before: number;
+  change: number | null;
+  good: boolean;
+}) {
+  return (
+    <Tr>
+      <Td className="font-medium">{label}</Td>
+      <Td money>
+        <Money tiyin={String(now)} tone="auto" />
+      </Td>
+      <Td money className="text-[--color-text-muted]">
+        <Money tiyin={String(before)} />
+      </Td>
+      <Td align="right">
+        <Change percent={change} positiveIsGood={good} />
+      </Td>
+    </Tr>
+  );
+}
+
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\_components\range-utils.ts =====
+import type { DateRange } from '@/components/shared/date-range-picker';
+
+const DAY_MS = 86_400_000;
+
+function toMs(iso: string): number {
+  return Date.parse(`${iso}T00:00:00Z`);
+}
+
+function toIso(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Oraliqdagi kunlar soni вЂ” ikki chekka ham kiradi */
+export function rangeDays(range: DateRange): number {
+  return Math.round((toMs(range.to) - toMs(range.from)) / DAY_MS) + 1;
+}
+
+/**
+ * Tanlangan oraliqqa teng uzunlikdagi oldingi davr.
+ * 01.04 вЂ” 30.06 tanlansa, 01.01 вЂ” 31.03 qaytadi.
+ */
+export function previousRange(range: DateRange): DateRange {
+  const days = rangeDays(range);
+  const prevTo = toMs(range.from) - DAY_MS;
+  const prevFrom = prevTo - (days - 1) * DAY_MS;
+
+  return { from: toIso(prevFrom), to: toIso(prevTo) };
+}
+
+/** "2026-09-18" в†’ "2026-09" */
+export function periodOf(iso: string): string {
+  return iso.slice(0, 7);
+}
+
+/** Nol bazada null вЂ” "cheksiz o'sish" ko'rsatilmasligi uchun */
+export function percentChange(current: number, previous: number): number | null {
+  if (previous === 0) return null;
+  return ((current - previous) / Math.abs(previous)) * 100;
+}
+
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\_components\revenue-tab.tsx =====
+'use client';
+
+import type { DateRange } from '@/components/shared/date-range-picker';
+
+/** Vaqtincha - keyingi qadamda to'ldiriladi */
+export function RevenueTab(_props: { range: DateRange }) {
+  return <p className="text-sm text-[--color-text-muted]">Tayyorlanmoqda</p>;
+}
+
+===== apps\web\src\app\(dashboard)\tahlil\umumiy\page.tsx =====
+'use client';
+
+import {
+  DateRangePicker,
+  defaultRange,
+  type DateRange,
+} from '@/components/shared/date-range-picker';
+import { IconArrowRight } from '@/components/ui/icons';
+import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useState } from 'react';
+
+import {
+  ANALYSIS_TABS,
+  AnalysisCards,
+  tabLabel,
+  tabQuestion,
+  type AnalysisTab,
+} from './_components/analysis-nav';
+import { DynamicsTab } from './_components/dynamics-tab';
+import { EfficiencyTab } from './_components/efficiency-tab';
+import { ExpensesTab } from './_components/expenses-tab';
+import { InsightsTab } from './_components/insights-tab';
+import { OverviewTab } from './_components/overview-tab';
+import { RevenueTab } from './_components/revenue-tab';
+import { StructureExplorer } from '@/features/structure/structure-explorer';
+import { StructureOverview } from '@/features/structure/structure-overview';
+
+const VALID_TABS = ANALYSIS_TABS.map((item) => item.key);
+
+export default function GeneralAnalysisPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [range, setRange] = useState<DateRange>(() => {
+    const from = searchParams.get('dateFrom');
+    const to = searchParams.get('dateTo');
+    return from && to ? { from, to } : defaultRange();
+  });
+
+  // null вЂ” bo'limlar tanlash ekrani
+  const [tab, setTab] = useState<AnalysisTab | null>(() => {
+    const value = searchParams.get('tab') as AnalysisTab | null;
+    return value && VALID_TABS.includes(value) ? value : null;
+  });
+
+  /** Holatni manzilga yozamiz вЂ” sahifa yangilansa ham saqlanadi */
+  function syncUrl(nextRange: DateRange, nextTab: AnalysisTab | null) {
+    const params = new URLSearchParams({
+      dateFrom: nextRange.from,
+      dateTo: nextRange.to,
+    });
+    if (nextTab) params.set('tab', nextTab);
+
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
+  function changeRange(next: DateRange) {
+    setRange(next);
+    syncUrl(next, tab);
+  }
+
+  function openTab(next: AnalysisTab | null) {
+    setTab(next);
+    syncUrl(range, next);
+    window.scrollTo({ top: 0 });
+  }
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Bo'limlar tanlash ekrani в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  if (!tab) {
+    return (
+      <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center p-6">
+        <div className="mx-auto w-full max-w-5xl">
+          <div className="mb-8 flex flex-col items-center gap-3">
+            <h1 className="text-2xl font-semibold">Tahlil</h1>
+            <DateRangePicker value={range} onChange={changeRange} />
+          </div>
+
+          <AnalysisCards onSelect={openTab} />
+
+          <div className="mt-8 text-center">
+            <Link
+              href="/"
+              className="text-sm text-[--color-text-muted] hover:text-[--color-text]"
+            >
+              Bosh sahifaga qaytish
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Tanlangan bo'lim в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  return (
+    <div className="space-y-4 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => openTab(null)}
+          className="flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline"
+        >
+          <IconArrowRight className="size-4 rotate-180" />
+          Bo&rsquo;limlarga qaytish
+        </button>
+
+        <DateRangePicker value={range} onChange={changeRange} />
+      </div>
+
+      <div>
+        <h1 className="text-xl font-semibold">{tabLabel(tab)}</h1>
+        <p className="text-sm text-[--color-text-muted]">{tabQuestion(tab)}</p>
+      </div>
+
+      {tab === 'overview' && <OverviewTab range={range} />}
+      {tab === 'dynamics' && <DynamicsTab range={range} />}
+      {tab === 'efficiency' && <EfficiencyTab range={range} />}
+      {tab === 'structure' && <StructureOverview range={range} />}
+      {tab === 'revenue' && (
+        <div className="space-y-6">
+          <StructureExplorer kind="income" range={range} />
+          <RevenueTab range={range} />
+        </div>
+      )}
+      {tab === 'expenses' && (
+        <div className="space-y-6">
+          <StructureExplorer kind="expense" range={range} />
+          <ExpensesTab range={range} />
+        </div>
+      )}
+      {tab === 'insights' && <InsightsTab range={range} />}
+    </div>
+  );
+}
+
+
+===== apps\web\src\app\(dashboard)\tahlil\xarajat\page.tsx =====
+'use client';
+
+import { expensesApi, type BreakdownNode } from '@/features/expenses/api';
+import {
+  formatDate,
+  formatPercent,
+  formatPeriod
+} from '@/lib/format';
+import { useAsync } from '@/lib/use-async';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { useState } from 'react';
+
+import { PageHeader } from '@/components/layout/page-header';
+import { BarChart } from '@/components/shared/bar-chart';
+import { BreakdownTree } from '@/components/shared/breakdown-tree';
+import {
+  DateRangePicker,
+  defaultRange,
+  type DateRange,
+} from '@/components/shared/date-range-picker';
+import { DonutChart } from '@/components/shared/donut-chart';
+import { ShareBar } from '@/components/shared/share-bar';
+import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { IconAlert } from '@/components/ui/icons';
+import { Change, Money } from '@/components/ui/money';
+import { EmptyState, LoadingState } from '@/components/ui/states';
+import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
+import { SalaryStructureCard } from '@/features/salary-composition/salary-structure';
+
+export default function ExpenseAnalysisPage() {
+  const searchParams = useSearchParams();
+
+  // URL dan davr olamiz, bolmasa yil boshidan
+  const [range, setRange] = useState<DateRange>(() => {
+    const from = searchParams.get("dateFrom");
+    const to = searchParams.get("dateTo");
+    return from && to ? { from, to } : defaultRange();
+  });
+
+  const filters = { dateFrom: range.from, dateTo: range.to };
+
+  // Solishtirish va ogohlantirish oxirgi oy boyicha
+  const lastPeriod = range.to.slice(0, 7);
+
+  const comparison = useAsync(() => expensesApi.comparison(lastPeriod), [lastPeriod]);
+  const trend = useAsync(() => expensesApi.trend(12), []);
+  const byGroup = useAsync(() => expensesApi.summaryByGroup(filters), [range.from, range.to]);
+  const byCategory = useAsync(() => expensesApi.summaryByCategory(filters), [range.from, range.to]);
+  const byDepartment = useAsync(() => expensesApi.summaryByDepartment(filters), [range.from, range.to]);
+  const byRegion = useAsync(() => expensesApi.summaryByRegion(filters), [range.from, range.to]);
+  const top = useAsync(() => expensesApi.top(filters, 5), [range.from, range.to]);
+  const spikes = useAsync(() => expensesApi.spikes(lastPeriod, 30), [lastPeriod]);
+  const breakdown = useAsync(() => expensesApi.breakdown(filters), [range.from, range.to]);
+
+  const [selected, setSelected] = useState<BreakdownNode | null>(null);
+
+  const current = comparison.data?.data.current;
+  const previous = comparison.data?.data.previous;
+  const lastYear = comparison.data?.data.lastYear;
+
+  // O'rtacha yozuv вЂ” jami / soni
+  const totalTiyin = Number(current?.amountTiyin ?? 0);
+  const count = current?.count ?? 0;
+  const averageTiyin = count > 0 ? Math.round(totalTiyin / count) : 0;
+
+  const spikeRows = spikes.data?.data.rows ?? [];
+
+  return (
+    <>
+      <PageHeader
+        title="Xarajat tahlili"
+            description={`${formatDate(range.from)} вЂ” ${formatDate(range.to)}`}
+        actions={
+          <div className="flex items-center gap-3">
+            <DateRangePicker value={range} onChange={setRange} />
+            <Link
+              href="/"
+              className="text-sm text-[--color-text-muted] hover:text-[--color-text]"
+            >
+              Bosh sahifa
+            </Link>
+          </div>
+        }
+      />
+
+      <div className="space-y-4 p-6">
+        {/* Ko'rsatkichlar */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            label="Jami xarajat"
+            tiyin={current?.amountTiyin ?? 0}
+            hint={count > 0 ? `${count} ta yozuv` : undefined}
+          />
+
+          <MetricCard
+            label="O'tgan oyga nisbatan"
+            tiyin={previous?.amountTiyin ?? 0}
+            change={previous?.changePercent}
+            hint={previous ? formatPeriod(previous.period) : undefined}
+          />
+
+          <MetricCard
+            label="O'tgan yilning shu oyi"
+            tiyin={lastYear?.amountTiyin ?? 0}
+            change={lastYear?.changePercent}
+            hint={lastYear ? formatPeriod(lastYear.period) : undefined}
+          />
+
+          <MetricCard
+            label="O'rtacha yozuv"
+            tiyin={String(averageTiyin)}
+            hint="Bitta yozuvning o'rtacha summasi"
+          />
+        </div>
+
+        {/* Keskin oshgan moddalar */}
+        {spikeRows.length > 0 && (
+          <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] p-4">
+            <div className="flex items-start gap-3">
+              <IconAlert className="mt-0.5 size-5 shrink-0 text-[--color-warn]" />
+
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[--color-warn]">
+                  Keskin oshgan moddalar
+                </p>
+                <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                  O&rsquo;tgan oyga nisbatan 30% dan ko&rsquo;p
+                </p>
+
+                <div className="mt-3 space-y-1.5">
+                  {spikeRows.map((row) => (
+                    <div
+                      key={row.categoryCode}
+                      className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-2"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm">{row.label}</span>
+
+                      <span className="shrink-0 text-xs">
+                        {row.isNew ? (
+                          <span className="font-medium text-[--color-warn]">yangi</span>
+                        ) : (
+                          <Change percent={row.changePercent} positiveIsGood={false} />
+                        )}
+                      </span>
+
+                      <Money
+                        tiyin={row.currentTiyin}
+                        tone="expense"
+                        className="w-32 shrink-0 text-right text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dinamika */}
+        <Card>
+          <CardHeader title="Oylik dinamika" description="Oxirgi 12 oy" />
+          <CardBody>
+            {trend.loading ? (
+              <LoadingState />
+            ) : (
+              <BarChart data={trend.data?.data ?? []} color="var(--color-expense)" />
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Tarkib daraxti */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Xarajat tarkibi"
+            description="Qatorni bosib ichiga kiring"
+          />
+
+          {breakdown.loading ? (
+            <LoadingState />
+          ) : (breakdown.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Bu davrda xarajat yoq" />
+          ) : (
+            <>
+              <CardBody className="border-b border-[--color-line]">
+                <DonutChart
+                  slices={(selected?.children ?? breakdown.data?.data.rows ?? []).map(
+                    (node) => ({
+                      key: node.key,
+                      label: node.label,
+                      amountTiyin: node.amountTiyin,
+                      sharePercent: node.sharePercent,
+                    }),
+                  )}
+                  totalTiyin={
+                    selected?.amountTiyin ?? breakdown.data?.data.totalTiyin ?? "0"
+                  }
+                />
+
+                {selected && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(null)}
+                    className="mt-3 text-xs font-medium text-brand-700 hover:underline"
+                  >
+                    Umumiy korinishga qaytish
+                  </button>
+                )}
+              </CardBody>
+
+              <BreakdownTree
+                nodes={breakdown.data?.data.rows ?? []}
+                selectedKey={selected?.key ?? null}
+                onSelect={(node) =>
+                  setSelected(node && node.children.length > 0 ? node : null)
+                }
+              />
+            </>
+          )}
+        </Card>
+
+        {/* Ish haqi tuzilmasi */}
+        <SalaryStructureCard range={range} compact />
+
+        {/* Guruhlar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Xarajat guruhlari"
+            description="Asosiy yo'nalishlar bo'yicha"
+          />
+
+          {byGroup.loading ? (
+            <LoadingState />
+          ) : (byGroup.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Bu davrda xarajat yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Guruh</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th className="w-36">Ulush</Th>
+                  <Th align="center" className="w-28">
+                    O&apos;zgarish
+                  </Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {byGroup.data?.data.rows.map((row) => (
+                  <Tr key={row.code}>
+                    <Td className="font-medium">{row.label}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-expense)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td align="center">
+                      <Change percent={row.changePercent} positiveIsGood={false} />
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="expense" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={4}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byGroup.data?.data.totalTiyin ?? 0}
+                      tone="expense"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Eng katta yozuvlar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Eng katta 5 xarajat"
+            description="Alohida yozuvlar bo'yicha"
+          />
+
+          {top.loading ? (
+            <LoadingState />
+          ) : (top.data?.data.length ?? 0) === 0 ? (
+            <EmptyState title="Yozuv yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th className="w-10" />
+                  <Th className="w-28">Sana</Th>
+                  <Th>Kategoriya</Th>
+                  <Th>Tavsif</Th>
+                  <Th className="w-44">Bo&apos;lim / Hudud</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {top.data?.data.map((item, index) => (
+                  <Tr key={item.id}>
+                    <Td className="money text-center text-[--color-text-faint]">
+                      {index + 1}
+                    </Td>
+
+                    <Td className="money text-[--color-text-muted]">
+                      {formatDate(item.date)}
+                    </Td>
+
+                    <Td>{item.category.label}</Td>
+
+                    <Td className="max-w-xs truncate text-[--color-text-muted]">
+                      {item.description ?? '\u2014'}
+                    </Td>
+
+                    <Td className="text-[--color-text-muted]">
+                      {item.department?.name ?? item.region?.name ?? 'Umumkorxona'}
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={item.amountTiyin} tone="expense" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </Card>
+
+        {/* Kategoriyalar */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Kategoriyalar"
+            description="Eng katta xarajatdan boshlab"
+          />
+
+          {byCategory.loading ? (
+            <LoadingState />
+          ) : (byCategory.data?.data.rows.length ?? 0) === 0 ? (
+            <EmptyState title="Bu davrda xarajat yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Kategoriya</Th>
+                  <Th align="center" className="w-20">
+                    Soni
+                  </Th>
+                  <Th className="w-36">Ulush</Th>
+                  <Th align="right" className="w-40">
+                    Summa
+                  </Th>
+                </Tr>
+              </THead>
+
+              <TBody>
+                {byCategory.data?.data.rows.map((row) => (
+                  <Tr key={row.categoryCode}>
+                    <Td className="max-w-md truncate">{row.label}</Td>
+
+                    <Td align="center" className="money text-[--color-text-muted]">
+                      {row.count}
+                    </Td>
+
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-expense)"
+                        />
+                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                          {formatPercent(row.sharePercent)}
+                        </span>
+                      </div>
+                    </Td>
+
+                    <Td money>
+                      <Money tiyin={row.amountTiyin} tone="expense" />
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+
+              <TFoot>
+                <Tr>
+                  <Td colSpan={3}>Jami</Td>
+                  <Td money>
+                    <Money
+                      tiyin={byCategory.data?.data.totalTiyin ?? 0}
+                      tone="expense"
+                      className="font-semibold"
+                    />
+                  </Td>
+                </Tr>
+              </TFoot>
+            </Table>
+          )}
+        </Card>
+
+        {/* Hududlar va bo'limlar */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="overflow-hidden">
+            <CardHeader title="Hududlar bo'yicha" />
+
+            {byRegion.loading ? (
+              <LoadingState />
+            ) : (byRegion.data?.data.rows.length ?? 0) === 0 ? (
+              <EmptyState title="Ma'lumot yo'q" />
+            ) : (
+              <Table>
+                <THead>
+                  <Tr>
+                    <Th>Hudud</Th>
+                    <Th className="w-28">Ulush</Th>
+                    <Th align="right" className="w-36">
+                      Summa
+                    </Th>
+                  </Tr>
+                </THead>
+
+                <TBody>
+                  {byRegion.data?.data.rows.map((row) => (
+                    <Tr key={row.regionCode ?? 'none'}>
+                      <Td className="truncate">{row.name}</Td>
+                      <Td>
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-expense)"
+                        />
+                      </Td>
+                      <Td money>
+                        <Money tiyin={row.amountTiyin} tone="expense" />
+                      </Td>
+                    </Tr>
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </Card>
+
+          <Card className="overflow-hidden">
+            <CardHeader title="Bo'limlar bo'yicha" />
+
+            {byDepartment.loading ? (
+              <LoadingState />
+            ) : (byDepartment.data?.data.rows.length ?? 0) === 0 ? (
+              <EmptyState title="Ma'lumot yo'q" />
+            ) : (
+              <Table>
+                <THead>
+                  <Tr>
+                    <Th>Bo&apos;lim</Th>
+                    <Th className="w-28">Ulush</Th>
+                    <Th align="right" className="w-36">
+                      Summa
+                    </Th>
+                  </Tr>
+                </THead>
+
+                <TBody>
+                  {byDepartment.data?.data.rows.map((row) => (
+                    <Tr key={row.departmentId ?? 'none'}>
+                      <Td className="truncate">{row.name}</Td>
+                      <Td>
+                        <ShareBar
+                          percent={row.sharePercent}
+                          color="var(--color-expense)"
+                        />
+                      </Td>
+                      <Td money>
+                        <Money tiyin={row.amountTiyin} tone="expense" />
+                      </Td>
+                    </Tr>
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </Card>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function MetricCard({
+  label,
+  tiyin,
+  change,
+  hint,
+}: {
+  label: string;
+  tiyin: string | number;
+  change?: number | null;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+        {label}
+      </p>
+
+      <div className="mt-2">
+        <Money tiyin={tiyin} tone="expense" className="text-xl font-semibold" />
+      </div>
+
+      <div className="mt-1.5 flex items-center gap-2">
+        {change !== undefined && <Change percent={change} positiveIsGood={false} />}
+        {hint && <span className="text-xs text-[--color-text-muted]">{hint}</span>}
+      </div>
+    </div>
+  );
+}
+

@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 
 const tabs = [
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
+  { href: '/sozlamalar/komponentlar', label: 'Ish haqi komponentlari' },
   { href: '/sozlamalar/savat', label: 'Savat' },
   { href: '/sozlamalar/tarix', label: 'Tarix' },
   { href: '/sozlamalar/tekshiruv', label: 'Tekshiruv' },
@@ -27,21 +28,21 @@ const tabs = [
 
 const severityStyles = {
   error: {
-    border: 'border-[--color-expense]',
-    bg: 'bg-[--color-expense-soft]',
-    text: 'text-[--color-expense]',
+    border: 'border-(--color-expense)',
+    bg: 'bg-(--color-expense-soft)',
+    text: 'text-(--color-expense)',
     label: 'Xato',
   },
   warning: {
-    border: 'border-[--color-warn]',
-    bg: 'bg-[--color-warn-soft]',
-    text: 'text-[--color-warn]',
+    border: 'border-(--color-warn)',
+    bg: 'bg-(--color-warn-soft)',
+    text: 'text-(--color-warn)',
     label: 'Ogohlantirish',
   },
   info: {
-    border: 'border-[--color-line-strong]',
-    bg: 'bg-[--color-surface-muted]',
-    text: 'text-[--color-text-muted]',
+    border: 'border-(--color-line-strong)',
+    bg: 'bg-(--color-surface-muted)',
+    text: 'text-(--color-text-muted)',
     label: "Ma'lumot",
   },
 };
@@ -115,21 +116,21 @@ export default function IntegrityPage() {
                     className={cn(
                       'flex size-12 shrink-0 items-center justify-center rounded-full',
                       issues.length === 0
-                        ? 'bg-[--color-income-soft]'
+                        ? 'bg-(--color-income-soft)'
                         : errors > 0
-                          ? 'bg-[--color-expense-soft]'
-                          : 'bg-[--color-warn-soft]',
+                          ? 'bg-(--color-expense-soft)'
+                          : 'bg-(--color-warn-soft)',
                     )}
                   >
                     {issues.length === 0 ? (
-                      <IconCheck className="size-6 text-[--color-income]" />
+                      <IconCheck className="size-6 text-(--color-income)" />
                     ) : (
                       <IconAlert
                         className={cn(
                           'size-6',
                           errors > 0
-                            ? 'text-[--color-expense]'
-                            : 'text-[--color-warn]',
+                            ? 'text-(--color-expense)'
+                            : 'text-(--color-warn)',
                         )}
                       />
                     )}
@@ -142,7 +143,7 @@ export default function IntegrityPage() {
                         : `${issues.length} ta muammo topildi`}
                     </p>
 
-                    <p className="mt-0.5 text-sm text-[--color-text-muted]">
+                    <p className="mt-0.5 text-sm text-(--color-text-muted)">
                       {issues.length === 0
                         ? 'Hech qanday nomuvofiqlik aniqlanmadi'
                         : [
@@ -154,7 +155,7 @@ export default function IntegrityPage() {
                     </p>
 
                     {data && (
-                      <p className="mt-1 text-xs text-[--color-text-faint]">
+                      <p className="mt-1 text-xs text-(--color-text-faint)">
                         Tekshirilgan: {formatDateTime(data.checkedAt)}
                       </p>
                     )}
@@ -196,7 +197,7 @@ function IssueCard({
   return (
     <div
       className={cn(
-        'rounded-[--radius-card] border p-4',
+        'rounded-(--radius-card) border p-4',
         style.border,
         style.bg,
       )}
@@ -214,7 +215,7 @@ function IssueCard({
                 </span>
               </p>
 
-              <p className="mt-1 text-sm text-[--color-text-muted]">
+              <p className="mt-1 text-sm text-(--color-text-muted)">
                 {issue.description}
               </p>
             </div>
@@ -231,17 +232,17 @@ function IssueCard({
               <button
                 type="button"
                 onClick={() => setExpanded((state) => !state)}
-                className="text-xs font-medium text-[--color-text-muted] hover:text-[--color-text]"
+                className="text-xs font-medium text-(--color-text-muted) hover:text-(--color-text)"
               >
                 {expanded ? 'Yashirish' : 'Tafsilotlarni ko\u2018rish'}
               </button>
 
               {expanded && (
-                <ul className="mt-2 space-y-1 rounded-[--radius-control] bg-white px-3 py-2">
+                <ul className="mt-2 space-y-1 rounded-(--radius-control) bg-white px-3 py-2">
                   {issue.details.map((detail, index) => (
                     <li
                       key={index}
-                      className="money text-xs text-[--color-text-muted]"
+                      className="money text-xs text-(--color-text-muted)"
                     >
                       {detail}
                     </li>

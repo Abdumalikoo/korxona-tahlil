@@ -1,5 +1,7 @@
 'use client';
 
+import { useMonthChange, usePeriod } from '@/lib/period';
+import { DeleteDataButton } from '@/components/shared/delete-data';
 import {
   analyzeFile,
   downloadMissing,
@@ -8,38 +10,36 @@ import {
   type AnalyzeResult,
   type PayrollBatch,
 } from '@/features/payroll/api';
+import { compositionApi, type CheckSummary } from '@/features/salary-composition/api';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
-import { currentPeriod, formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
+import { formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
+import Link from 'next/link';
 import { useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { PeriodPicker } from '@/components/shared/period-picker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { IconAlert, IconDownload, IconSpinner, IconUpload } from '@/components/ui/icons';
+import { IconAlert, IconCheck, IconDownload, IconSpinner, IconUpload } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { EmptyState, LoadingState } from '@/components/ui/states';
 import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
-import { Tabs } from '@/components/ui/tabs';
+import { SectionTabs } from '@/features/sections/section-tabs';
 import { Toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 
-const tabs = [
-  { href: '/xarajatlar', label: "Ro'yxat" },
-  { href: '/xarajatlar/tahlil', label: 'Tahlil' },
-  { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
-];
 
 type ToastState = { message: string; tone: 'success' | 'error' } | null;
 
 export default function PayrollPage() {
   const { isAdmin } = useAuth();
 
-  const [period, setPeriod] = useState(currentPeriod());
+
+  /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
+  const { month: period } = usePeriod();
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
   const [replacePrevious, setReplacePrevious] = useState(false);
 
@@ -55,6 +55,8 @@ export default function PayrollPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const batches = useAsync(() => payrollApi.batches(period), [period]);
+  /** Ish haqi tarkibi shu oy soliq hisobotiga mosmi */
+  const composition = useAsync(() => compositionApi.check(period), [period]);
 
   function reset() {
     setAnalysis(null);
@@ -113,6 +115,7 @@ export default function PayrollPage() {
 
       reset();
       batches.reload();
+      composition.reload();
     } catch (err) {
       setToast({ message: errorMessage(err, 'Saqlashda xatolik'), tone: 'error' });
     } finally {
@@ -129,6 +132,7 @@ export default function PayrollPage() {
       await payrollApi.cancel(cancelTarget.id);
       setToast({ message: 'Yuklash bekor qilindi, xarajatlar savatga tushdi', tone: 'success' });
       batches.reload();
+      composition.reload();
     } catch (err) {
       setToast({ message: errorMessage(err, 'Bekor qilishda xatolik'), tone: 'error' });
     } finally {
@@ -137,23 +141,24 @@ export default function PayrollPage() {
     }
   }
 
+  // Oy almashganda: yuklash oynasi va tanlovlar tozalanadi
+  useMonthChange(period, () => {
+    reset();
+  });
+
   return (
     <>
-      <PageHeader title="Xarajatlar" description={`Ish haqi \u00B7 ${formatPeriod(period)}`} />
+      <PageHeader
+        title="Xarajatlar"
+        description={`Ish haqi \u00B7 ${formatPeriod(period)}`}
+        actions={<DeleteDataButton target="PAYROLL" month={period} place="Xarajatlar › Ish haqi" onDone={() => batches.reload()} />}
+      />
 
-      <Tabs items={tabs} className="bg-white px-6" />
+      <SectionTabs kind="expense" section="DOIMIY" />
 
       <div className="space-y-4 p-6">
-        {/* Davr va shablon */}
+        {/* Shablon (oy — yuqori panelda) */}
         <div className="flex flex-wrap items-center gap-3">
-          <PeriodPicker
-            value={period}
-            onChange={(value) => {
-              setPeriod(value);
-              reset();
-            }}
-          />
-
           <Button
             variant="secondary"
             size="sm"
@@ -163,6 +168,12 @@ export default function PayrollPage() {
             <IconDownload className="size-4" />
             Shablon
           </Button>
+
+          <CompositionStatus
+            check={composition.data?.data ?? null}
+            loading={composition.loading}
+            period={period}
+          />
         </div>
 
         {/* Yuklash zonasi */}
@@ -183,22 +194,22 @@ export default function PayrollPage() {
                 }}
                 onClick={() => inputRef.current?.click()}
                 className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[--radius-card] border-2 border-dashed px-6 py-12 transition-colors',
+                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-(--radius-card) border-2 border-dashed px-6 py-12 transition-colors',
                   dragging
                     ? 'border-brand-600 bg-brand-50'
-                    : 'border-[--color-line-strong] hover:border-brand-400 hover:bg-[--color-surface-muted]',
+                    : 'border-(--color-line-strong) hover:border-brand-400 hover:bg-(--color-surface-muted)',
                 )}
               >
                 {uploading ? (
                   <>
                     <IconSpinner className="size-8 animate-spin text-brand-700" />
-                    <p className="text-sm text-[--color-text-muted]">O&rsquo;qilmoqda&hellip;</p>
+                    <p className="text-sm text-(--color-text-muted)">O&rsquo;qilmoqda&hellip;</p>
                   </>
                 ) : (
                   <>
-                    <IconUpload className="size-8 text-[--color-text-faint]" strokeWidth={1.5} />
+                    <IconUpload className="size-8 text-(--color-text-faint)" strokeWidth={1.5} />
                     <p className="text-sm font-medium">Excel faylni shu yerga tashlang</p>
-                    <p className="text-xs text-[--color-text-muted]">
+                    <p className="text-xs text-(--color-text-muted)">
                       yoki bosib tanlang &middot; PINFL va summa. Summa bo&rsquo;sh yoki 0 &mdash;
                       &ldquo;hisoblanmagan&rdquo;
                     </p>
@@ -241,7 +252,7 @@ export default function PayrollPage() {
           {batches.loading ? (
             <LoadingState />
           ) : (batches.data?.data.length ?? 0) === 0 ? (
-            <EmptyState title="Bu davrda yuklash yo'q" />
+            <EmptyState title="Bu davrda yuklash yo'q" hint="upload" />
           ) : (
             <Table>
               <THead>
@@ -264,7 +275,7 @@ export default function PayrollPage() {
                   <Tr key={batch.id} className={cn(batch.status === 'CANCELLED' && 'opacity-50')}>
                     <Td>
                       <span className="truncate">{batch.fileName}</span>
-                      <p className="text-xs text-[--color-text-muted]">
+                      <p className="text-xs text-(--color-text-muted)">
                         {formatDateTime(batch.createdAt)}
                       </p>
                     </Td>
@@ -275,7 +286,7 @@ export default function PayrollPage() {
                       </Badge>
                     </Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {batch._count?.entries ?? batch.matchedRows}
                     </Td>
 
@@ -283,7 +294,7 @@ export default function PayrollPage() {
                       <Money tiyin={batch.totalTiyin} tone="expense" />
                     </Td>
 
-                    <Td className="text-[--color-text-muted]">{batch.uploadedBy.fullName}</Td>
+                    <Td className="text-(--color-text-muted)">{batch.uploadedBy.fullName}</Td>
 
                     <Td>
                       {isAdmin && batch.status === 'COMMITTED' && (
@@ -291,7 +302,7 @@ export default function PayrollPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setCancelTarget(batch)}
-                          className="text-[--color-text-muted] hover:text-[--color-expense]"
+                          className="text-(--color-text-muted) hover:text-(--color-expense)"
                         >
                           Bekor qilish
                         </Button>
@@ -375,26 +386,26 @@ function AnalysisView({
 
       {/* Hisoblanmaganlar */}
       {analysis.zeroEmployees.length > 0 && (
-        <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
+        <div className="rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
           <div className="flex items-start gap-2.5">
-            <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+            <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-[--color-warn]">
+                <p className="text-sm font-medium text-(--color-warn)">
                   {analysis.zeroEmployees.length} ta xodimga ish haqi hisoblanmagan
                 </p>
 
                 <button
                   type="button"
                   onClick={() => setShowZero((state) => !state)}
-                  className="text-xs font-medium text-[--color-text-muted] hover:text-[--color-text]"
+                  className="text-xs font-medium text-(--color-text-muted) hover:text-(--color-text)"
                 >
                   {showZero ? 'Yashirish' : 'Ro\u2018yxatni ko\u2018rish'}
                 </button>
               </div>
 
-              <p className="mt-0.5 text-xs text-[--color-text-muted]">
+              <p className="mt-0.5 text-xs text-(--color-text-muted)">
                 Ular saqlanadi va tahlilda &ldquo;hisoblanmagan&rdquo; deb ko&rsquo;rinadi
               </p>
 
@@ -403,12 +414,12 @@ function AnalysisView({
                   {analysis.zeroEmployees.map((employee) => (
                     <div
                       key={employee.pinfl}
-                      className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-1.5 text-xs"
+                      className="flex items-center justify-between gap-3 rounded-(--radius-control) bg-white px-3 py-1.5 text-xs"
                     >
                       <span className="min-w-0 flex-1 truncate font-medium">
                         {employee.fullName}
                       </span>
-                      <span className="shrink-0 text-[--color-text-muted]">{employee.place}</span>
+                      <span className="shrink-0 text-(--color-text-muted)">{employee.place}</span>
                     </div>
                   ))}
                 </div>
@@ -436,7 +447,7 @@ function AnalysisView({
               {analysis.missing.map((row) => (
                 <span
                   key={`${row.rowIndex}-${row.pinfl}`}
-                  className="money rounded bg-[--color-expense-soft] px-2 py-1 text-xs text-[--color-expense]"
+                  className="money rounded bg-(--color-expense-soft) px-2 py-1 text-xs text-(--color-expense)"
                 >
                   {row.pinfl}
                   <span className="ml-1.5 opacity-60">{row.rowIndex}-qator</span>
@@ -455,7 +466,7 @@ function AnalysisView({
             description="O'tkazib yuboriladi"
           />
           <CardBody className="max-h-40 overflow-y-auto">
-            <ul className="space-y-1 text-sm text-[--color-text-muted]">
+            <ul className="space-y-1 text-sm text-(--color-text-muted)">
               {analysis.invalidRows.map((row) => (
                 <li key={row.rowIndex}>
                   <span className="money">{row.rowIndex}-qator</span> &mdash; {row.reason}
@@ -468,7 +479,7 @@ function AnalysisView({
 
       {/* Takroriy PINFL */}
       {analysis.duplicates.length > 0 && (
-        <p className="text-xs text-[--color-text-muted]">
+        <p className="text-xs text-(--color-text-muted)">
           {analysis.duplicates.length} ta xodim faylda bir necha marta uchradi &mdash; summalari
           qo&rsquo;shildi.
         </p>
@@ -476,8 +487,8 @@ function AnalysisView({
 
       {/* Oldingi yuklash */}
       {analysis.hasPrevious && (
-        <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] px-4 py-3">
-          <p className="text-sm font-medium text-[--color-warn]">
+        <div className="rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
+          <p className="text-sm font-medium text-(--color-warn)">
             Bu oy uchun {analysis.previousCount} ta yuklash allaqachon saqlangan
           </p>
 
@@ -525,14 +536,14 @@ function AnalysisView({
             {analysis.groups.map((group) => (
               <Tr key={group.label}>
                 <Td>{group.label}</Td>
-                <Td align="center" className="money text-[--color-text-muted]">
+                <Td align="center" className="money text-(--color-text-muted)">
                   {group.count}
                 </Td>
                 <Td align="center" className="money">
                   {group.zeroCount > 0 ? (
-                    <span className="text-[--color-warn]">{group.zeroCount}</span>
+                    <span className="text-(--color-warn)">{group.zeroCount}</span>
                   ) : (
-                    <span className="text-[--color-text-faint]">&mdash;</span>
+                    <span className="text-(--color-text-faint)">&mdash;</span>
                   )}
                 </Td>
                 <Td money>
@@ -576,15 +587,15 @@ function SummaryBox({
   tone?: 'neutral' | 'income' | 'expense' | 'warn';
 }) {
   const colors = {
-    neutral: 'text-[--color-text]',
-    income: 'text-[--color-income]',
-    expense: 'text-[--color-expense]',
-    warn: 'text-[--color-warn]',
+    neutral: 'text-(--color-text)',
+    income: 'text-(--color-income)',
+    expense: 'text-(--color-expense)',
+    warn: 'text-(--color-warn)',
   };
 
   return (
-    <div className="rounded-[--radius-card] border border-[--color-line] bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
         {label}
       </p>
       <p className={cn('money mt-2 text-xl font-semibold', colors[tone])}>{value}</p>
@@ -606,15 +617,77 @@ function ChoiceCard({
   return (
     <label
       className={cn(
-        'flex cursor-pointer items-start gap-2.5 rounded-[--radius-control] border bg-white px-3 py-2.5',
+        'flex cursor-pointer items-start gap-2.5 rounded-(--radius-control) border bg-white px-3 py-2.5',
         checked ? 'border-brand-600' : 'border-transparent',
       )}
     >
       <input type="radio" checked={checked} onChange={onChange} className="mt-0.5 size-4" />
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{title}</span>
-        <span className="block text-xs text-[--color-text-muted]">{description}</span>
+        <span className="block text-xs text-(--color-text-muted)">{description}</span>
       </span>
     </label>
+  );
+}
+
+// ─────── Ish haqi tarkibi holati ───────
+
+/** Tanlangan oy tarkibi soliq hisobotiga mosmi — bosilsa Tarkib tabiga o'tadi */
+function CompositionStatus({
+  check,
+  loading,
+  period,
+}: {
+  check: CheckSummary | null;
+  loading: boolean;
+  period: string;
+}) {
+  if (loading || !check) {
+    return (
+      <span className="inline-flex h-8 items-center gap-1.5 px-2 text-xs text-(--color-text-faint)">
+        <IconSpinner className="size-3.5 animate-spin" />
+        Tarkib tekshirilmoqda
+      </span>
+    );
+  }
+
+  const config = {
+    MATCHED: {
+      label: 'Tarkib mos',
+      className: 'border-(--color-income) bg-(--color-income-soft) text-(--color-income)',
+      icon: 'check' as const,
+    },
+    MISMATCH: {
+      label: `Tarkib mos emas \u00B7 ${check.mismatchCount} ta farq`,
+      className: 'border-(--color-expense) bg-(--color-expense-soft) text-(--color-expense)',
+      icon: 'alert' as const,
+    },
+    NO_PAYROLL: {
+      label: 'Tarkib bor, soliq hisoboti yo\u2018q',
+      className: 'border-(--color-warn) bg-(--color-warn-soft) text-(--color-warn)',
+      icon: 'alert' as const,
+    },
+    NOT_UPLOADED: {
+      label: 'Tarkib yuklanmagan',
+      className:
+        'border-(--color-line-strong) bg-white text-(--color-text-muted) hover:text-(--color-text)',
+      icon: 'none' as const,
+    },
+  }[check.state];
+
+  return (
+    <Link
+      href={`/xarajatlar/tarkib?period=${period}`}
+      title="Ish haqi tarkibi bo‘limiga o‘tish"
+      className={cn(
+        'inline-flex h-8 items-center gap-1.5 rounded-(--radius-control) border px-3 text-xs font-medium transition-opacity hover:opacity-80',
+        config.className,
+      )}
+    >
+      {config.icon === 'check' && <IconCheck className="size-3.5" />}
+      {config.icon === 'alert' && <IconAlert className="size-3.5" />}
+      {config.icon === 'none' && <span className="size-2 rounded-full bg-(--color-line-strong)" />}
+      {config.label}
+    </Link>
   );
 }

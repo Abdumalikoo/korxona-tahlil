@@ -43,3 +43,22 @@ backups/
 *.xls
 *.csv
 !templates/*.xlsx
+
+apps/api/storage/
+apps/analytics/.venv/
+apps/analytics/.env
+__pycache__/
+
+# korxona-tahlil (avtomatik qo'shildi)
+.turbo/
+coverage/
+.env.*
+/*.ps1
+*-backup-[0-9]*/
+schema-backup-*.prisma
+/*.xlsx
+/*.xls
+/*.csv
+/*.docx
+/*.pdf
+/*.zip

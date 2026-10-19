@@ -1,14 +1,15 @@
 'use client';
 
+import { usePeriod } from '@/lib/period';
 import { expensesApi, type ExpenseFilters } from '@/features/expenses/api';
 import { referencesApi } from '@/features/shared/references';
-import { currentPeriod, formatPercent, formatPeriod } from '@/lib/format';
+import { formatPercent, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { useState } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
+import { DeleteDataButton } from '@/components/shared/delete-data';
 import { BarChart } from '@/components/shared/bar-chart';
-import { PeriodPicker } from '@/components/shared/period-picker';
 import { ShareBar } from '@/components/shared/share-bar';
 import { BehaviorBadge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -17,16 +18,12 @@ import { Money, Change } from '@/components/ui/money';
 import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
-import { Tabs } from '@/components/ui/tabs';
+import { SectionTabs } from '@/features/sections/section-tabs';
 
-const tabs = [
-  { href: '/xarajatlar', label: "Ro'yxat" },
-  { href: '/xarajatlar/tahlil', label: 'Tahlil' },
-          { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
-];
 
 export default function ExpenseAnalysisPage() {
-  const [period, setPeriod] = useState(currentPeriod());
+  /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
+  const { month: period } = usePeriod();
   const [departmentId, setDepartmentId] = useState('');
 
   const filters: ExpenseFilters = {
@@ -80,15 +77,17 @@ export default function ExpenseAnalysisPage() {
 
   return (
     <>
-      <PageHeader title="Xarajatlar" description={formatPeriod(period)} />
+      <PageHeader
+        title="Xarajatlar"
+        description={formatPeriod(period)}
+        actions={<DeleteDataButton target="EXPENSE" size="sm" month={period} place="Xarajatlar › Tahlil" onDone={() => window.location.reload()} />}
+      />
 
-      <Tabs items={tabs} className="bg-white px-6" />
+      <SectionTabs kind="expense" section="DOIMIY" />
 
       <div className="space-y-4 p-6">
         {/* ─────────── Filtrlar ─────────── */}
         <div className="flex flex-wrap items-center gap-3">
-          <PeriodPicker value={period} onChange={setPeriod} />
-
           <Select
             options={departmentOptions}
             value={departmentId}
@@ -98,14 +97,14 @@ export default function ExpenseAnalysisPage() {
         </div>
 
         {(spikes.data?.data.rows.length ?? 0) > 0 && (
-          <div className="rounded-[--radius-card] border border-[--color-warn] bg-[--color-warn-soft] p-4">
+          <div className="rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) p-4">
             <div className="flex items-start gap-3">
-              <IconAlert className="mt-0.5 size-5 shrink-0 text-[--color-warn]" />
+              <IconAlert className="mt-0.5 size-5 shrink-0 text-(--color-warn)" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-[--color-warn]">
+                <p className="text-sm font-medium text-(--color-warn)">
                   Keskin o&rsquo;zgargan moddalar
                 </p>
-                <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                <p className="mt-0.5 text-xs text-(--color-text-muted)">
                   O&rsquo;tgan oyga nisbatan 30% dan ko&rsquo;p oshgan yoki yangi paydo bo&rsquo;lgan
                 </p>
 
@@ -113,13 +112,13 @@ export default function ExpenseAnalysisPage() {
                   {spikes.data?.data.rows.map((row) => (
                     <div
                       key={row.categoryCode}
-                      className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-white px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-(--radius-control) bg-white px-3 py-2"
                     >
                       <span className="min-w-0 flex-1 truncate text-sm">{row.label}</span>
 
-                      <span className="shrink-0 text-xs text-[--color-text-muted]">
+                      <span className="shrink-0 text-xs text-(--color-text-muted)">
                         {row.isNew ? (
-                          <span className="font-medium text-[--color-warn]">yangi</span>
+                          <span className="font-medium text-(--color-warn)">yangi</span>
                         ) : (
                           <Change percent={row.changePercent} positiveIsGood={false} />
                         )}
@@ -149,66 +148,66 @@ export default function ExpenseAnalysisPage() {
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                    <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
                       Doimiy
                     </p>
                     <Money
                       tiyin={behavior.fixedTiyin}
                       className="mt-1 block text-lg font-semibold"
                     />
-                    <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                    <p className="mt-0.5 text-xs text-(--color-text-muted)">
                       {formatPercent(behaviorShare(behavior.fixedTiyin))}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                    <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
                       O&apos;zgaruvchan
                     </p>
                     <Money
                       tiyin={behavior.variableTiyin}
                       className="mt-1 block text-lg font-semibold"
                     />
-                    <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                    <p className="mt-0.5 text-xs text-(--color-text-muted)">
                       {formatPercent(behaviorShare(behavior.variableTiyin))}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                    <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
                       Aralash
                     </p>
                     <Money
                       tiyin={behavior.mixedTiyin}
                       className="mt-1 block text-lg font-semibold"
                     />
-                    <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                    <p className="mt-0.5 text-xs text-(--color-text-muted)">
                       {formatPercent(behaviorShare(behavior.mixedTiyin))}
                     </p>
                   </div>
                 </div>
 
                 {/* Nisbat chizig'i */}
-                <div className="flex h-2 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+                <div className="flex h-2 overflow-hidden rounded-full bg-(--color-surface-sunken)">
                   <div
                     className="bg-brand-700"
                     style={{ width: `${behaviorShare(behavior.fixedTiyin)}%` }}
                     title="Doimiy"
                   />
                   <div
-                    className="bg-[--color-warn]"
+                    className="bg-(--color-warn)"
                     style={{ width: `${behaviorShare(behavior.variableTiyin)}%` }}
                     title="O'zgaruvchan"
                   />
                   <div
-                    className="bg-[--color-text-faint]"
+                    className="bg-(--color-text-faint)"
                     style={{ width: `${behaviorShare(behavior.mixedTiyin)}%` }}
                     title="Aralash"
                   />
                 </div>
               </div>
             ) : (
-              <EmptyState title="Bu davrda xarajat yo'q" />
+              <EmptyState title="Bu davrda xarajat yo'q" hint="period" />
             )}
           </CardBody>
         </Card>
@@ -242,7 +241,7 @@ export default function ExpenseAnalysisPage() {
           ) : byCategory.error ? (
             <ErrorState message={byCategory.error} onRetry={byCategory.reload} />
           ) : (byCategory.data?.data.rows.length ?? 0) === 0 ? (
-            <EmptyState title="Bu davrda xarajat yo'q" />
+            <EmptyState title="Bu davrda xarajat yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -268,14 +267,14 @@ export default function ExpenseAnalysisPage() {
                       {row.behavior && <BehaviorBadge behavior={row.behavior} />}
                     </Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.count}
                     </Td>
 
                     <Td>
                       <div className="flex items-center gap-2">
                         <ShareBar percent={row.sharePercent} />
-                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-muted)">
                           {formatPercent(row.sharePercent)}
                         </span>
                       </div>
@@ -314,7 +313,7 @@ export default function ExpenseAnalysisPage() {
           {byDepartment.loading ? (
             <LoadingState />
           ) : (byDepartment.data?.data.rows.length ?? 0) === 0 ? (
-            <EmptyState title="Bu davrda xarajat yo'q" />
+            <EmptyState title="Bu davrda xarajat yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -335,14 +334,14 @@ export default function ExpenseAnalysisPage() {
                   <Tr key={row.departmentId ?? 'none'}>
                     <Td>{row.name}</Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.count}
                     </Td>
 
                     <Td>
                       <div className="flex items-center gap-2">
                         <ShareBar percent={row.sharePercent} />
-                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-muted)">
                           {formatPercent(row.sharePercent)}
                         </span>
                       </div>

@@ -18,6 +18,7 @@ import { Tabs } from '@/components/ui/tabs';
 
 const tabs = [
   { href: '/sozlamalar/xarajat', label: 'Xarajat' },
+  { href: '/sozlamalar/komponentlar', label: 'Ish haqi komponentlari' },
   { href: '/sozlamalar/savat', label: 'Savat' },
   { href: '/sozlamalar/tarix', label: 'Tarix' },
   { href: '/sozlamalar/tekshiruv', label: 'Tekshiruv' },
@@ -50,6 +51,7 @@ const entityLabels: Record<string, string> = {
   income: 'Daromad',
   category: 'Kategoriya',
   department: "Bo'lim",
+  user: 'Foydalanuvchi',
 };
 
 export default function AuditPage() {
@@ -99,6 +101,7 @@ export default function AuditPage() {
                 { value: 'employee', label: 'Xodimlar' },
                 { value: 'expense', label: 'Xarajatlar' },
                 { value: 'income', label: 'Daromadlar' },
+                { value: 'user', label: 'Foydalanuvchilar' },
               ]}
               value={entity}
               onChange={(event) => {
@@ -117,6 +120,7 @@ export default function AuditPage() {
                 { value: 'UPDATE', label: "O'zgartirish" },
                 { value: 'DELETE', label: "O'chirish" },
                 { value: 'IMPORT', label: 'Import' },
+                { value: 'LOGIN', label: 'Kirish' },
               ]}
               value={action}
               onChange={(event) => {
@@ -152,7 +156,7 @@ export default function AuditPage() {
                 <TBody>
                   {items.map((log) => (
                     <Tr key={log.id}>
-                      <Td className="money text-xs text-[--color-text-muted]">
+                      <Td className="money text-xs text-(--color-text-muted)">
                         {formatDateTime(log.createdAt)}
                       </Td>
 
@@ -162,7 +166,7 @@ export default function AuditPage() {
                         </Badge>
                       </Td>
 
-                      <Td className="text-[--color-text-muted]">
+                      <Td className="text-(--color-text-muted)">
                         {entityLabels[log.entityType] ?? log.entityType}
                       </Td>
 
@@ -170,7 +174,7 @@ export default function AuditPage() {
                         <ChangeDetails log={log} />
                       </Td>
 
-                      <Td className="text-[--color-text-muted]">
+                      <Td className="text-(--color-text-muted)">
                         {log.user.fullName}
                       </Td>
                     </Tr>
@@ -210,7 +214,7 @@ function ChangeDetails({ log }: { log: AuditLog }) {
       {summary && <p className="text-sm font-medium">{summary}</p>}
 
       {entries.slice(0, 4).map(([field, change]) => (
-        <p key={field} className="text-xs text-[--color-text-muted]">
+        <p key={field} className="text-xs text-(--color-text-muted)">
           <span className="font-medium">{fieldLabel(field)}:</span>{' '}
           {change.from !== null && change.from !== undefined && (
             <>
@@ -223,7 +227,7 @@ function ChangeDetails({ log }: { log: AuditLog }) {
       ))}
 
       {entries.length > 4 && (
-        <p className="text-xs text-[--color-text-faint]">
+        <p className="text-xs text-(--color-text-faint)">
           va yana {entries.length - 4} ta
         </p>
       )}

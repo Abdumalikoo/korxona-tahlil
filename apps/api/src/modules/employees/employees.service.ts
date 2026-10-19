@@ -85,7 +85,18 @@ export class EmployeesService {
   private async buildWhere(query: QueryEmployeeDto): Promise<Prisma.EmployeeWhereInput> {
     const where: Prisma.EmployeeWhereInput = {};
 
-    if (!query.includeInactive) {
+    // Umumiy «Davr» oxiri o'tgan kun bo'lsa — o'sha kuni ishlayotganlar (ishga kirish / bo'shash sanalari bo'yicha)
+    const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+    const activeOn = query.activeOn && query.activeOn < today ? query.activeOn : null;
+
+    if (activeOn && !query.includeInactive) {
+      // Kun oxiri (Toshkent): keyingi kun 00:00
+      const nextDay = new Date(Date.parse(`${activeOn}T00:00:00+05:00`) + 86_400_000);
+      where.AND = [
+        { OR: [{ hiredAt: null }, { hiredAt: { lt: nextDay } }] },
+        { OR: [{ firedAt: { gte: nextDay } }, { firedAt: null, isActive: true }] },
+      ];
+    } else if (!query.includeInactive) {
       where.isActive = true;
     }
 

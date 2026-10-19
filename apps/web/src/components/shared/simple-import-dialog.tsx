@@ -26,6 +26,8 @@ import { cn } from '@/lib/utils';
 interface SimpleImportDialogProps {
   open: boolean;
   kind: ImportKind;
+  /** Qaysi bo'limga yoziladi (standart - Doimiy) */
+  section?: 'DOIMIY' | 'BOSHQA';
   onClose: () => void;
   onImported: (message: string) => void;
 }
@@ -39,6 +41,7 @@ interface SimpleImportDialogProps {
 export function SimpleImportDialog({
   open,
   kind,
+  section,
   onClose,
   onImported,
 }: SimpleImportDialogProps) {
@@ -99,7 +102,7 @@ export function SimpleImportDialog({
     setSaving(true);
 
     try {
-      const result = await simpleImportApi.commit(kind, analysis.rows);
+      const result = await simpleImportApi.commit(kind, analysis.rows, section);
       onImported(`${result.data.created} ta yozuv qo\u2018shildi`);
       reset();
       onClose();
@@ -121,17 +124,17 @@ export function SimpleImportDialog({
       <div
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-2xl rounded-[--radius-card] bg-white shadow-xl"
+        className="relative w-full max-w-2xl rounded-(--radius-card) bg-white shadow-xl"
       >
         {/* Sarlavha */}
-        <div className="flex items-center justify-between border-b border-[--color-line] px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-(--color-line) px-5 py-3.5">
           <h3 className="text-sm font-semibold">{title}</h3>
 
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="flex size-7 items-center justify-center rounded text-[--color-text-muted] transition-colors hover:bg-[--color-surface-sunken] hover:text-[--color-text]"
+            className="flex size-7 items-center justify-center rounded text-(--color-text-muted) transition-colors hover:bg-(--color-surface-sunken) hover:text-(--color-text)"
             aria-label="Yopish"
           >
             <IconClose className="size-4" />
@@ -140,7 +143,7 @@ export function SimpleImportDialog({
 
         <div className="space-y-4 px-5 py-4">
           {error && (
-            <div className="rounded-[--radius-control] bg-[--color-expense-soft] px-3 py-2.5 text-sm text-[--color-expense]">
+            <div className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2.5 text-sm text-(--color-expense)">
               {error}
             </div>
           )}
@@ -148,10 +151,10 @@ export function SimpleImportDialog({
           {!analysis ? (
             <>
               {/* Shablon */}
-              <div className="flex items-center justify-between gap-3 rounded-[--radius-control] bg-[--color-surface-muted] px-4 py-3">
+              <div className="flex items-center justify-between gap-3 rounded-(--radius-control) bg-(--color-surface-muted) px-4 py-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Shablon</p>
-                  <p className="text-xs text-[--color-text-muted]">
+                  <p className="text-xs text-(--color-text-muted)">
                     Ikki ustun: nomi va summa
                   </p>
                 </div>
@@ -182,29 +185,29 @@ export function SimpleImportDialog({
                 }}
                 onClick={() => inputRef.current?.click()}
                 className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[--radius-card] border-2 border-dashed px-6 py-10 transition-colors',
+                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-(--radius-card) border-2 border-dashed px-6 py-10 transition-colors',
                   dragging
                     ? 'border-brand-600 bg-brand-50'
-                    : 'border-[--color-line-strong] hover:border-brand-400 hover:bg-[--color-surface-muted]',
+                    : 'border-(--color-line-strong) hover:border-brand-400 hover:bg-(--color-surface-muted)',
                 )}
               >
                 {uploading ? (
                   <>
                     <IconSpinner className="size-7 animate-spin text-brand-700" />
-                    <p className="text-sm text-[--color-text-muted]">
+                    <p className="text-sm text-(--color-text-muted)">
                       O&rsquo;qilmoqda&hellip;
                     </p>
                   </>
                 ) : (
                   <>
                     <IconUpload
-                      className="size-7 text-[--color-text-faint]"
+                      className="size-7 text-(--color-text-faint)"
                       strokeWidth={1.5}
                     />
                     <p className="text-sm font-medium">
                       To&rsquo;ldirilgan faylni tashlang
                     </p>
-                    <p className="text-xs text-[--color-text-muted]">
+                    <p className="text-xs text-(--color-text-muted)">
                       yoki bosib tanlang
                     </p>
                   </>
@@ -222,7 +225,7 @@ export function SimpleImportDialog({
                 />
               </div>
 
-              <p className="text-xs text-[--color-text-muted]">
+              <p className="text-xs text-(--color-text-muted)">
                 Yozuvlar bugungi sana bilan, Umumkorxona bo&rsquo;limiga
                 qo&rsquo;shiladi. Keyin ro&rsquo;yxatdan tahrirlashingiz mumkin.
               </p>
@@ -245,15 +248,15 @@ export function SimpleImportDialog({
 
               {/* Xato qatorlar */}
               {analysis.invalidRows.length > 0 && (
-                <div className="rounded-[--radius-control] border border-[--color-warn] bg-[--color-warn-soft] px-3 py-2.5">
+                <div className="rounded-(--radius-control) border border-(--color-warn) bg-(--color-warn-soft) px-3 py-2.5">
                   <div className="flex items-start gap-2">
-                    <IconAlert className="mt-0.5 size-4 shrink-0 text-[--color-warn]" />
+                    <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-[--color-warn]">
+                      <p className="text-sm font-medium text-(--color-warn)">
                         {analysis.invalidRows.length} ta qator o&rsquo;tkazib
                         yuborildi
                       </p>
-                      <ul className="mt-1 space-y-0.5 text-xs text-[--color-text-muted]">
+                      <ul className="mt-1 space-y-0.5 text-xs text-(--color-text-muted)">
                         {analysis.invalidRows.slice(0, 5).map((row) => (
                           <li key={row.rowIndex}>
                             {row.rowIndex}-qator &mdash; {row.reason}
@@ -266,7 +269,7 @@ export function SimpleImportDialog({
               )}
 
               {/* Ro'yxat */}
-              <div className="max-h-72 overflow-y-auto rounded-[--radius-control] border border-[--color-line]">
+              <div className="max-h-72 overflow-y-auto rounded-(--radius-control) border border-(--color-line)">
                 <Table>
                   <THead>
                     <Tr>
@@ -310,7 +313,7 @@ export function SimpleImportDialog({
         </div>
 
         {/* Amallar */}
-        <div className="flex justify-end gap-2 border-t border-[--color-line] bg-[--color-surface-muted] px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-(--color-line) bg-(--color-surface-muted) px-5 py-3">
           {analysis ? (
             <>
               <Button variant="secondary" size="sm" onClick={reset} disabled={saving}>
@@ -341,14 +344,14 @@ function SummaryBox({
   tone?: 'neutral' | 'income';
 }) {
   return (
-    <div className="rounded-[--radius-control] bg-[--color-surface-muted] p-3">
-      <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+    <div className="rounded-(--radius-control) bg-(--color-surface-muted) p-3">
+      <p className="text-xs uppercase tracking-wide text-(--color-text-muted)">
         {label}
       </p>
       <p
         className={cn(
           'money mt-1 text-base font-semibold',
-          tone === 'income' ? 'text-[--color-income]' : 'text-[--color-text]',
+          tone === 'income' ? 'text-(--color-income)' : 'text-(--color-text)',
         )}
       >
         {value}

@@ -23,11 +23,11 @@ export function Toast({ message, tone = 'success', onClose, duration = 3000 }: T
     <div
       role="status"
       className={cn(
-        'fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-[--radius-card]',
+        'fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-(--radius-card)',
         'border px-4 py-3 shadow-lg',
         tone === 'success'
-          ? 'border-[--color-income] bg-[--color-income-soft] text-[--color-income]'
-          : 'border-[--color-expense] bg-[--color-expense-soft] text-[--color-expense]',
+          ? 'border-(--color-income) bg-(--color-income-soft) text-(--color-income)'
+          : 'border-(--color-expense) bg-(--color-expense-soft) text-(--color-expense)',
       )}
     >
       {tone === 'error' && <IconAlert className="size-4 shrink-0" />}

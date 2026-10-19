@@ -40,7 +40,7 @@ export function BreakdownTree({
   }
 
   return (
-    <div className="divide-y divide-[--color-line]">
+    <div className="divide-y divide-(--color-line)">
       {nodes.map((node) => (
         <TreeRow
           key={node.key}
@@ -83,7 +83,7 @@ function TreeRow({
       <div
         className={cn(
           'flex items-center gap-3 px-4 py-2.5 transition-colors',
-          isSelected ? 'bg-brand-50' : 'hover:bg-[--color-surface-muted]',
+          isSelected ? 'bg-brand-50' : 'hover:bg-(--color-surface-muted)',
           hasChildren && 'cursor-pointer',
         )}
         style={{ paddingLeft: `${16 + depth * 24}px` }}
@@ -97,7 +97,7 @@ function TreeRow({
           {hasChildren && (
             <IconChevronDown
               className={cn(
-                'size-4 text-[--color-text-muted] transition-transform',
+                'size-4 text-(--color-text-muted) transition-transform',
                 !isOpen && '-rotate-90',
               )}
             />
@@ -109,14 +109,14 @@ function TreeRow({
           className={cn(
             'min-w-0 flex-1 truncate text-sm',
             depth === 0 && 'font-medium',
-            depth > 1 && 'text-[--color-text-muted]',
+            depth > 1 && 'text-(--color-text-muted)',
           )}
         >
           {node.label}
         </span>
 
         {/* Yozuvlar soni */}
-        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-faint]">
+        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-faint)">
           {node.count}
         </span>
 
@@ -125,7 +125,7 @@ function TreeRow({
           <ShareBar percent={node.sharePercent} color={color} />
         </span>
 
-        <span className="money w-14 shrink-0 text-right text-xs text-[--color-text-muted]">
+        <span className="money w-14 shrink-0 text-right text-xs text-(--color-text-muted)">
           {formatPercent(node.sharePercent)}
         </span>
 

@@ -13,7 +13,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   ) {
     const secret = config.get<string>('JWT_SECRET');
     if (!secret) {
-      throw new Error('JWT_SECRET .env faylida ko\u2018rsatilmagan');
+      throw new Error('JWT_SECRET .env faylida ko‘rsatilmagan');
     }
 
     super({
@@ -23,10 +23,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
+  /** Hisob bloklangan, PIN tiklangan yoki rol o'zgargan bo'lsa — eski token qabul qilinmaydi */
   async validate(payload: JwtPayload): Promise<AuthUser> {
-    const user = await this.auth.validateById(payload.sub);
+    const user = await this.auth.validateById(payload.sub, payload.tv);
     if (!user) {
-      throw new UnauthorizedException('Sessiya yaroqsiz');
+      throw new UnauthorizedException('Sessiya yaroqsiz — qaytadan kiring');
     }
     return user;
   }

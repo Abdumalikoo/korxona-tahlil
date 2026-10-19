@@ -33,7 +33,11 @@ function yearStart(): string {
 /** N oy oldingi sana */
 function monthsAgo(count: number): string {
   const now = new Date(Date.now() + TASHKENT_OFFSET_HOURS * 3600_000);
+  const day = now.getUTCDate();
+  now.setUTCDate(1);
   now.setUTCMonth(now.getUTCMonth() - count);
+  const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  now.setUTCDate(Math.min(day, last));
   return now.toISOString().slice(0, 10);
 }
 
@@ -50,7 +54,7 @@ const presets = [
   {
     label: "O'tgan yil",
     range: () => {
-      const year = new Date().getFullYear() - 1;
+      const year = new Date(Date.now() + TASHKENT_OFFSET_HOURS * 3600_000).getUTCFullYear() - 1;
       return { from: `${year}-01-01`, to: `${year}-12-31` };
     },
   },
@@ -95,9 +99,9 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
       <button
         type="button"
         onClick={() => setOpen((state) => !state)}
-        className="flex h-9 items-center gap-2 rounded-[--radius-control] border border-[--color-line-strong] bg-white px-3 text-sm transition-colors hover:bg-[--color-surface-sunken]"
+        className="flex h-9 items-center gap-2 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3 text-sm transition-colors hover:bg-(--color-surface-sunken)"
       >
-        <IconCalendar className="size-4 text-[--color-text-muted]" />
+        <IconCalendar className="size-4 text-(--color-text-muted)" />
 
         <span className="money whitespace-nowrap">
           {formatDate(value.from)} &mdash; {formatDate(value.to)}
@@ -105,14 +109,14 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
 
         <IconChevronDown
           className={cn(
-            'size-4 text-[--color-text-muted] transition-transform',
+            'size-4 text-(--color-text-muted) transition-transform',
             open && 'rotate-180',
           )}
         />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-80 rounded-[--radius-card] border border-[--color-line] bg-white p-3 shadow-lg">
+        <div className="absolute right-0 top-full z-30 mt-1 w-80 rounded-(--radius-card) border border-(--color-line) bg-white p-3 shadow-lg">
           {/* Tez tanlash */}
           <div className="space-y-1">
             {presets.map((preset) => (
@@ -120,20 +124,20 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
                 key={preset.label}
                 type="button"
                 onClick={() => apply(preset.range())}
-                className="w-full rounded-[--radius-control] px-3 py-2 text-left text-sm transition-colors hover:bg-[--color-surface-sunken]"
+                className="w-full rounded-(--radius-control) px-3 py-2 text-left text-sm transition-colors hover:bg-(--color-surface-sunken)"
               >
                 {preset.label}
               </button>
             ))}
           </div>
 
-          <div className="my-3 border-t border-[--color-line]" />
+          <div className="my-3 border-t border-(--color-line)" />
 
           {/* Qo'lda tanlash */}
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-[--color-text-muted]">
+                <label className="mb-1 block text-xs font-medium text-(--color-text-muted)">
                   Dan
                 </label>
                 <input
@@ -143,12 +147,12 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
                   onChange={(event) =>
                     setDraft((state) => ({ ...state, from: event.target.value }))
                   }
-                  className="w-full rounded-[--radius-control] border border-[--color-line-strong] px-2 py-1.5 text-sm"
+                  className="w-full rounded-(--radius-control) border border-(--color-line-strong) px-2 py-1.5 text-sm"
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-[--color-text-muted]">
+                <label className="mb-1 block text-xs font-medium text-(--color-text-muted)">
                   Gacha
                 </label>
                 <input
@@ -158,7 +162,7 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
                   onChange={(event) =>
                     setDraft((state) => ({ ...state, to: event.target.value }))
                   }
-                  className="w-full rounded-[--radius-control] border border-[--color-line-strong] px-2 py-1.5 text-sm"
+                  className="w-full rounded-(--radius-control) border border-(--color-line-strong) px-2 py-1.5 text-sm"
                 />
               </div>
             </div>
@@ -167,7 +171,7 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
               type="button"
               onClick={() => apply(draft)}
               disabled={!draft.from || !draft.to}
-              className="w-full rounded-[--radius-control] bg-brand-800 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-900 disabled:bg-brand-300"
+              className="w-full rounded-(--radius-control) bg-brand-800 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-900 disabled:bg-brand-300"
             >
               Qo&rsquo;llash
             </button>

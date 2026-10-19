@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
+import { chmod, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Zaxiralar shuncha kun saqlanadi */
@@ -122,6 +122,7 @@ export class BackupService {
       });
     });
 
+    await chmod(filePath, 0o600).catch(() => undefined);
     const info = await stat(filePath);
 
     this.logger.log(`Zaxira olindi: ${fileName} (${info.size} bayt)`);

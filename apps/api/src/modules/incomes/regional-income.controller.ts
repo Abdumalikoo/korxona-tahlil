@@ -23,6 +23,8 @@ interface CommitBody {
   rows: {
     regionCode: number;
     regionName: string;
+    districtId?: string | null;
+    districtName?: string | null;
     categoryCode: string;
     categoryLabel: string;
     quantity: number | null;
@@ -34,7 +36,7 @@ interface CommitBody {
 export class RegionalIncomeController {
   constructor(private readonly regional: RegionalIncomeService) {}
 
-  /** Bitta varaqli shablon — hududlar ustunlarda */
+  /** Tuman kesimidagi shablon — har bir viloyat alohida varaqda, tumanlar ustunlarda */
   @Get('template')
   async template(@Query('period') period: string, @Res() response: Response) {
     const { buffer, filename } = await this.regional.buildTemplate(period);
@@ -80,6 +82,8 @@ export class RegionalIncomeController {
         return {
           regionCode: Number(row.regionCode),
           regionName: String(row.regionName),
+          districtId: row.districtId ? String(row.districtId) : null,
+          districtName: row.districtName ? String(row.districtName) : null,
           categoryCode: String(row.categoryCode),
           categoryLabel: String(row.categoryLabel),
           quantity:
@@ -101,13 +105,26 @@ export class RegionalIncomeController {
     return { data };
   }
 
+  /** Bitta viloyat tumanlari bo'yicha (tumansiz yozuvlar — alohida qator) */
+  @Get('summary/district')
+  async summaryByDistrict(
+    @Query('period') period: string,
+    @Query('regionCode') regionCode: string,
+  ) {
+    const data = await this.regional.summaryByDistrict(period, Number(regionCode));
+    return { data };
+  }
+
+  /** Xizmat turlari bo'yicha; districtId="-" — tumanga bo'linmagan yozuvlar */
   @Get('summary/service')
   async summaryByService(
     @Query('period') period: string,
     @Query('regionCode') regionCode?: string,
+    @Query('districtId') districtId?: string,
   ) {
     const code = regionCode === undefined || regionCode === '' ? undefined : Number(regionCode);
-    const data = await this.regional.summaryByService(period, code);
+    const district = districtId === undefined || districtId === '' ? undefined : districtId;
+    const data = await this.regional.summaryByService(period, code, district);
     return { data };
   }
 }

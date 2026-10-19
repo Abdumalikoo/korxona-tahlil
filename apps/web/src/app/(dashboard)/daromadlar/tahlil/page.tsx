@@ -1,14 +1,15 @@
 'use client';
 
+import { usePeriod } from '@/lib/period';
 import { useState } from 'react';
 import { useAsync } from '@/lib/use-async';
 import { incomesApi, type IncomeFilters } from '@/features/incomes/api';
 import { referencesApi } from '@/features/shared/references';
-import { currentPeriod, formatPeriod, formatPercent, formatTiyin } from '@/lib/format';
+import { formatPeriod, formatPercent, formatTiyin } from '@/lib/format';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { Tabs } from '@/components/ui/tabs';
-import { PeriodPicker } from '@/components/shared/period-picker';
+import { DeleteDataButton } from '@/components/shared/delete-data';
+import { SectionTabs } from '@/features/sections/section-tabs';
 import { BarChart } from '@/components/shared/bar-chart';
 import { ShareBar } from '@/components/shared/share-bar';
 import { Select } from '@/components/ui/select';
@@ -17,15 +18,10 @@ import { Money } from '@/components/ui/money';
 import { Table, THead, TBody, TFoot, Tr, Th, Td } from '@/components/ui/table';
 import { EmptyState, LoadingState, ErrorState } from '@/components/ui/states';
 
-const tabs = [
-  { href: '/daromadlar', label: "Ro'yxat" },
-  { href: '/daromadlar/tahlil', label: 'Tahlil' },
-  { href: '/daromadlar/hududlar', label: 'Hududlar' },
-  { href: '/daromadlar/natijalar', label: 'Xodim natijalari' },
-];
 
 export default function IncomeAnalysisPage() {
-  const [period, setPeriod] = useState(currentPeriod());
+  /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
+  const { month: period } = usePeriod();
   const [departmentId, setDepartmentId] = useState('');
 
   const filters: IncomeFilters = {
@@ -72,15 +68,17 @@ export default function IncomeAnalysisPage() {
 
   return (
     <>
-      <PageHeader title="Daromadlar" description={formatPeriod(period)} />
+      <PageHeader
+        title="Daromadlar"
+        description={formatPeriod(period)}
+        actions={<DeleteDataButton target="INCOME" size="sm" month={period} place="Daromadlar › Tahlil" onDone={() => window.location.reload()} />}
+      />
 
-      <Tabs items={tabs} className="bg-white px-6" />
+      <SectionTabs kind="income" section="DOIMIY" />
 
       <div className="space-y-4 p-6">
         {/* Filtrlar */}
         <div className="flex flex-wrap items-center gap-3">
-          <PeriodPicker value={period} onChange={setPeriod} />
-
           <div className="w-52">
             <Select
               options={departmentOptions}
@@ -101,12 +99,12 @@ export default function IncomeAnalysisPage() {
             {byCategory.loading ? (
               <LoadingState />
             ) : total === 0 ? (
-              <EmptyState title="Bu davrda daromad yo'q" />
+              <EmptyState title="Bu davrda daromad yo'q" hint="period" />
             ) : (
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                    <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
                       Hisoblangan
                     </p>
                     <Money
@@ -116,7 +114,7 @@ export default function IncomeAnalysisPage() {
                   </div>
 
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                    <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
                       Tushgan
                     </p>
                     <Money
@@ -124,13 +122,13 @@ export default function IncomeAnalysisPage() {
                       tone="income"
                       className="mt-1 block text-lg font-semibold"
                     />
-                    <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                    <p className="mt-0.5 text-xs text-(--color-text-muted)">
                       {formatPercent(paidPercent)}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-[--color-text-muted]">
+                    <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
                       Qarzda
                     </p>
                     <Money
@@ -138,20 +136,20 @@ export default function IncomeAnalysisPage() {
                       tone="expense"
                       className="mt-1 block text-lg font-semibold"
                     />
-                    <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                    <p className="mt-0.5 text-xs text-(--color-text-muted)">
                       {receivables.data?.data.count ?? 0} ta shartnoma
                     </p>
                   </div>
                 </div>
 
-                <div className="flex h-2 overflow-hidden rounded-full bg-[--color-surface-sunken]">
+                <div className="flex h-2 overflow-hidden rounded-full bg-(--color-surface-sunken)">
                   <div
-                    className="bg-[--color-income]"
+                    className="bg-(--color-income)"
                     style={{ width: `${paidPercent}%` }}
                     title="Tushgan"
                   />
                   <div
-                    className="bg-[--color-expense]"
+                    className="bg-(--color-expense)"
                     style={{ width: `${100 - paidPercent}%` }}
                     title="Qarzda"
                   />
@@ -188,7 +186,7 @@ export default function IncomeAnalysisPage() {
           {byCategory.loading ? (
             <LoadingState />
           ) : (categoryData?.rows.length ?? 0) === 0 ? (
-            <EmptyState title="Bu davrda daromad yo'q" />
+            <EmptyState title="Bu davrda daromad yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -212,7 +210,7 @@ export default function IncomeAnalysisPage() {
                   <Tr key={row.categoryCode}>
                     <Td>{row.label}</Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.count}
                     </Td>
 
@@ -222,13 +220,13 @@ export default function IncomeAnalysisPage() {
                           percent={row.sharePercent}
                           color="var(--color-income)"
                         />
-                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-muted)">
                           {formatPercent(row.sharePercent)}
                         </span>
                       </div>
                     </Td>
 
-                    <Td money className="text-[--color-text-muted]">
+                    <Td money className="text-(--color-text-muted)">
                       {formatTiyin(row.paidTiyin)}
                     </Td>
 
@@ -262,7 +260,7 @@ export default function IncomeAnalysisPage() {
           {byDepartment.loading ? (
             <LoadingState />
           ) : (byDepartment.data?.data.rows.length ?? 0) === 0 ? (
-            <EmptyState title="Bu davrda daromad yo'q" />
+            <EmptyState title="Bu davrda daromad yo'q" hint="period" />
           ) : (
             <Table>
               <THead>
@@ -283,7 +281,7 @@ export default function IncomeAnalysisPage() {
                   <Tr key={row.departmentId ?? 'none'}>
                     <Td>{row.name}</Td>
 
-                    <Td align="center" className="money text-[--color-text-muted]">
+                    <Td align="center" className="money text-(--color-text-muted)">
                       {row.count}
                     </Td>
 
@@ -293,7 +291,7 @@ export default function IncomeAnalysisPage() {
                           percent={row.sharePercent}
                           color="var(--color-income)"
                         />
-                        <span className="money w-12 shrink-0 text-right text-xs text-[--color-text-muted]">
+                        <span className="money w-12 shrink-0 text-right text-xs text-(--color-text-muted)">
                           {formatPercent(row.sharePercent)}
                         </span>
                       </div>
