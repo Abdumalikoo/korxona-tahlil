@@ -103,6 +103,38 @@ export interface UnassignedResult {
   policyExcludedTiyin: string;
 }
 
+export interface UnassignedDetail {
+  side: 'expense' | 'income';
+  id: string;
+  date: string;
+  period: string;
+  amountTiyin: string;
+  categoryCode: string;
+  categoryLabel: string;
+  section: string;
+  source: string;
+  sourceLabel: string;
+  counterparty: string | null;
+  description: string | null;
+  documentNo: string | null;
+  paymentMethod: string | null;
+  paymentStatus: string | null;
+  dueDate: string | null;
+  responsible: string | null;
+  vatTiyin: string | null;
+  paidTiyin: string | null;
+  quantity: number | null;
+  recurrence: string | null;
+  district: string | null;
+  createdBy: { fullName: string; username: string; role: string } | null;
+  createdAt: string;
+  updatedAt: string | null;
+  file: { fileName: string; period: string | null; uploadedAt: string; uploadedBy: string | null } | null;
+  payroll: { period: string; fileName: string | null; scope: string } | null;
+  /** Shu kontragent bilan boshqa yozuvlar qayerga yozilgan */
+  hints: { unitKey: string; name: string; count: number; totalTiyin: string; lastDate: string }[];
+}
+
 export const SOURCE_LABELS: Record<string, string> = {
   MANUAL: "Qo'lda",
   IMPORT: 'Fayldan',
@@ -123,6 +155,7 @@ export const regionsApi = {
     api.get<ApiResponse<UnassignedResult>>('/structure/regions/unassigned', {
       params: { from: range.from, to: range.to, section },
     }),
+  unassignedItem: (side: 'expense' | 'income', id: string) => api.get<ApiResponse<UnassignedDetail>>(`/structure/regions/unassigned/${side}/${id}`),
 };
 
 // ═══════════════════════════════════════════════════════════

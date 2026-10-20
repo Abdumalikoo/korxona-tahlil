@@ -6,12 +6,12 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
 import { compact, pct, som, TONE, type SectionFilter } from '@/features/structure/api';
 import { SearchBox, SmallButton } from '@/features/structure/parts';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
-import { formatDate, formatPeriodShort } from '@/lib/format';
+import { formatDate, formatDateTime, formatPeriod, formatPeriodShort } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
-import { regionsApi, SOURCE_LABELS, type UnassignedGroup, type UnassignedItem, type UnassignedResult, type UnassignedSide } from './api';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { regionsApi, SOURCE_LABELS, type UnassignedDetail, type UnassignedGroup, type UnassignedItem, type UnassignedResult, type UnassignedSide } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // «Hududga biriktirilmagan» — ichida nima bor.
@@ -56,7 +56,28 @@ function Content({ data }: { data: UnassignedResult }) {
   const [facet, setFacet] = useState<Facet>(null);
   const [query, setQuery] = useState('');
   const [shown, setShown] = useState(PAGE);
+  /** Ichiga kirilgan yozuv (ro'yxat holati — filtr, qidiruv — saqlanib qoladi) */
+  const [openId, setOpenIdState] = useState<string | null>(null);
   const current: UnassignedSide = data[side];
+  // Ichiga kirganda — panel tepasidan; qaytganda — ro'yxatdagi o'sha joyga
+  const root = useRef<HTMLDivElement>(null);
+  const savedScroll = useRef(0);
+  const restore = useRef<number | null>(null);
+  const scroller = () => root.current?.closest<HTMLElement>('.overflow-y-auto') ?? null;
+  const setOpenId = (id: string | null) => {
+    const el = scroller();
+    if (id) {
+      savedScroll.current = el?.scrollTop ?? 0;
+      restore.current = 0;
+    } else restore.current = savedScroll.current;
+    setOpenIdState(id);
+  };
+  useLayoutEffect(() => {
+    if (restore.current === null) return;
+    const el = scroller();
+    if (el) el.scrollTop = restore.current;
+    restore.current = null;
+  }, [openId]);
   const policy = Number(data.policyExcludedTiyin);
 
   const switchSide = (s: Side) => {
@@ -90,6 +111,13 @@ function Content({ data }: { data: UnassignedResult }) {
     );
   };
 
+  if (openId)
+    return (
+      <div ref={root}>
+        <ItemDetail side={side} id={openId} onBack={() => setOpenId(null)} />
+      </div>
+    );
+
   if (data.expense.count === 0 && data.income.count === 0) {
     return (
       <div className="rounded-xl border border-dashed border-(--color-line) px-6 py-10 text-center">
@@ -100,7 +128,7 @@ function Content({ data }: { data: UnassignedResult }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div ref={root} className="space-y-5">
       {/* Jami */}
       <div className="grid gap-3 sm:grid-cols-2">
         <SideTile active={side === 'expense'} onClick={() => switchSide('expense')} label="Xarajat" total={expense} count={data.expense.count} color={TONE.expense} soft={TONE.expenseSoft} />
@@ -160,7 +188,7 @@ function Content({ data }: { data: UnassignedResult }) {
               {items.length} ta yozuv · <b className="tabular-nums text-(--color-text)">{som(itemsTotal)}</b>
               {current.truncated && !facet && !query && ` · eng katta ${current.items.length} tasi ko'rsatilgan (jami ${current.count} ta)`}
             </p>
-            <ItemsTable items={items.slice(0, shown)} side={side} />
+            <ItemsTable items={items.slice(0, shown)} side={side} onOpen={setOpenId} />
             {items.length > shown && (
               <div className="mt-2 text-center">
                 <SmallButton onClick={() => setShown((n) => n + PAGE)}>Yana {Math.min(PAGE, items.length - shown)} ta ko&apos;rsatish</SmallButton>
@@ -280,7 +308,7 @@ function Months({ data, side }: { data: UnassignedResult; side: Side }) {
   );
 }
 
-function ItemsTable({ items, side }: { items: UnassignedItem[]; side: Side }) {
+function ItemsTable({ items, side, onOpen }: { items: UnassignedItem[]; side: Side; onOpen: (id: string) => void }) {
   if (items.length === 0) return <p className="mt-3 rounded-lg border border-dashed border-(--color-line) px-4 py-6 text-center text-sm text-(--color-text-muted)">Mos yozuv topilmadi</p>;
   return (
     <div className="mt-2 overflow-x-auto rounded-lg border border-(--color-line)">
@@ -296,7 +324,14 @@ function ItemsTable({ items, side }: { items: UnassignedItem[]; side: Side }) {
         </thead>
         <tbody>
           {items.map((it) => (
-            <tr key={it.id} className="border-t border-(--color-line) align-top hover:bg-(--color-surface-muted)/60">
+            <tr
+              key={it.id}
+              onClick={() => onOpen(it.id)}
+              onKeyDown={(e) => (e.key === 'Enter' ? onOpen(it.id) : undefined)}
+              tabIndex={0}
+              title="Bosing — yozuvning to'liq ma'lumoti"
+              className="group cursor-pointer border-t border-(--color-line) align-top outline-none hover:bg-brand-50/50 focus-visible:bg-brand-50"
+            >
               <td className="whitespace-nowrap px-3 py-2 tabular-nums text-(--color-text-muted)">{formatDate(it.date)}</td>
               <td className="max-w-[14rem] px-3 py-2">
                 <span className="line-clamp-2">{it.categoryLabel}</span>
@@ -314,11 +349,175 @@ function ItemsTable({ items, side }: { items: UnassignedItem[]; side: Side }) {
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums" title={som(it.amountTiyin)}>
                 {compact(it.amountTiyin)}
+                <span className="ml-1.5 text-(--color-text-faint) group-hover:text-brand-600">›</span>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Bitta yozuv ichi: kim kiritgan, qachon, qayerdan (fayl / vedomost), barcha maydonlar
+// va «qaysi hududniki bo'lishi mumkin» — shu kontragentning boshqa yozuvlari qayerga yozilgani
+// ═══════════════════════════════════════════════════════════
+
+const METHOD: Record<string, string> = { CASH: 'Naqd', BANK: "Bank o'tkazmasi", CARD: 'Karta', OTHER: 'Boshqa' };
+const STATUS: Record<string, string> = { PAID: "To'langan", PARTIAL: "Qisman to'langan", UNPAID: "To'lanmagan" };
+
+function ItemDetail({ side, id, onBack }: { side: Side; id: string; onBack: () => void }) {
+  const result = useAsync(() => regionsApi.unassignedItem(side, id).then((r) => r.data), [side, id]);
+  const d = result.data;
+  return (
+    <div className="space-y-4">
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:underline">
+        ‹ Ro&apos;yxatga qaytish
+      </button>
+      {result.error ? <ErrorState message={result.error} onRetry={result.reload} /> : !d ? <LoadingState label="Yozuv ochilmoqda" /> : <DetailBody d={d} />}
+    </div>
+  );
+}
+
+function DetailBody({ d }: { d: UnassignedDetail }) {
+  const color = d.side === 'expense' ? TONE.expense : TONE.income;
+  const soft = d.side === 'expense' ? TONE.expenseSoft : TONE.incomeSoft;
+  const rows: [string, ReactNode][] = [
+    ['Sana', `${formatDate(d.date)} · ${formatPeriod(d.period)}`],
+    ['Modda', d.categoryLabel],
+    [d.side === 'expense' ? 'Kontragent' : 'Mijoz', d.counterparty],
+    ['Izoh', d.description],
+    [d.side === 'expense' ? 'Hujjat №' : 'Shartnoma №', d.documentNo],
+    ["Bo'lim", d.section === 'BOSHQA' ? 'Boshqa' : 'Doimiy'],
+    ["To'lov usuli", d.paymentMethod ? (METHOD[d.paymentMethod] ?? d.paymentMethod) : null],
+    ["To'lov holati", d.paymentStatus ? (STATUS[d.paymentStatus] ?? d.paymentStatus) : null],
+    ["To'lov muddati", d.dueDate ? formatDate(d.dueDate) : null],
+    ["To'langan", d.paidTiyin && d.paidTiyin !== '0' ? som(d.paidTiyin) : null],
+    ['Miqdor', d.quantity !== null ? String(d.quantity) : null],
+    ['QQS', d.vatTiyin ? som(d.vatTiyin) : null],
+    ["Mas'ul", d.responsible],
+    ['Takrorlanish', d.recurrence],
+    ['Tuman', d.district],
+  ];
+  return (
+    <>
+      <div className="rounded-xl border px-5 py-4" style={{ borderColor: color, background: soft }}>
+        <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color }}>
+          {d.side === 'expense' ? 'Xarajat' : 'Daromad'} · hududga biriktirilmagan
+        </p>
+        <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-heading">{som(d.amountTiyin)}</p>
+        <p className="mt-1 text-sm text-(--color-text)">
+          {d.counterparty ? <b>{d.counterparty}</b> : <span className="text-(--color-text-muted)">{d.side === 'expense' ? 'Kontragent' : 'Mijoz'} ko&apos;rsatilmagan</span>}
+          <span className="text-(--color-text-muted)"> · {d.categoryLabel}</span>
+        </p>
+      </div>
+
+      {/* Kim va qayerdan */}
+      <section className="grid gap-3 sm:grid-cols-2">
+        <InfoCard title="Kim kiritgan">
+          {d.createdBy ? (
+            <>
+              <p className="font-semibold text-heading">{d.createdBy.fullName}</p>
+              <p className="text-xs text-(--color-text-muted)">@{d.createdBy.username}</p>
+            </>
+          ) : (
+            <p className="text-(--color-text-muted)">Noma&apos;lum</p>
+          )}
+          <p className="mt-1.5 text-xs text-(--color-text-muted)">Kiritilgan: {formatDateTime(d.createdAt)}</p>
+          {d.updatedAt && d.updatedAt !== d.createdAt && <p className="text-xs text-(--color-text-muted)">Oxirgi o&apos;zgarish: {formatDateTime(d.updatedAt)}</p>}
+        </InfoCard>
+        <InfoCard title="Qayerdan kelgan">
+          <p className="font-semibold text-heading">{d.sourceLabel}</p>
+          {d.file && (
+            <>
+              <p className="mt-1 break-all text-sm">{d.file.fileName}</p>
+              <p className="text-xs text-(--color-text-muted)">
+                yuklangan {formatDateTime(d.file.uploadedAt)}
+                {d.file.uploadedBy ? ` · ${d.file.uploadedBy}` : ''}
+                {d.file.period ? ` · ${formatPeriod(d.file.period)} oyi` : ''}
+              </p>
+            </>
+          )}
+          {d.payroll && (
+            <p className="mt-1 text-xs text-(--color-text-muted)">
+              Vedomost: {formatPeriod(d.payroll.period)}
+              {d.payroll.fileName ? ` · ${d.payroll.fileName}` : ''}
+            </p>
+          )}
+        </InfoCard>
+      </section>
+
+      {/* Qaysi hududniki bo'lishi mumkin */}
+      <section className="rounded-xl border border-(--color-line) px-4 py-3">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">Qaysi hududniki bo&apos;lishi mumkin</h4>
+        {d.hints.length === 0 ? (
+          <p className="mt-1.5 text-sm text-(--color-text-muted)">
+            {d.counterparty ? `«${d.counterparty}» bilan boshqa yozuv yo'q — hududni hujjatdan aniqlash kerak.` : `${d.side === 'expense' ? 'Kontragent' : 'Mijoz'} ko'rsatilmagan — hududni hujjat yoki izohdan aniqlash kerak.`}
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 text-xs text-(--color-text-muted)">«{d.counterparty}» bilan boshqa yozuvlar shu yerlarga yozilgan:</p>
+            <ul className="mt-2 space-y-1.5">
+              {d.hints.map((h, i) => (
+                <li key={h.unitKey} className={cn('flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm', i === 0 && h.unitKey !== 'none' ? 'bg-brand-50 ring-1 ring-brand-200' : 'bg-(--color-surface-muted)')}>
+                  <span className="min-w-0">
+                    <span className={cn('block truncate', i === 0 && h.unitKey !== 'none' && 'font-semibold text-brand-800')}>
+                      {h.name}
+                      {i === 0 && h.unitKey !== 'none' && <span className="ml-2 rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">ehtimol</span>}
+                    </span>
+                    <span className="text-[11px] text-(--color-text-faint)">oxirgisi {formatDate(h.lastDate)}</span>
+                  </span>
+                  <span className="shrink-0 text-right tabular-nums">
+                    <b>{h.count} ta</b>
+                    <span className="block text-[11px] text-(--color-text-muted)">{compact(h.totalTiyin)}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      {/* Barcha maydonlar */}
+      <section>
+        <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">Yozuv ma&apos;lumotlari</h4>
+        <dl className="divide-y divide-(--color-line) rounded-xl border border-(--color-line)">
+          {rows
+            .filter(([, v]) => v !== null && v !== undefined && v !== '')
+            .map(([k, v]) => (
+              <div key={k} className="grid grid-cols-[9rem_minmax(0,1fr)] gap-3 px-4 py-2 text-sm">
+                <dt className="text-(--color-text-muted)">{k}</dt>
+                <dd className="break-words">{v}</dd>
+              </div>
+            ))}
+          <div className="grid grid-cols-[9rem_minmax(0,1fr)] gap-3 px-4 py-2 text-sm">
+            <dt className="text-(--color-text-muted)">Hudud</dt>
+            <dd className="font-medium text-amber-700">ko&apos;rsatilmagan</dd>
+          </div>
+          <div className="grid grid-cols-[9rem_minmax(0,1fr)] gap-3 px-4 py-2 text-xs">
+            <dt className="text-(--color-text-faint)">ID</dt>
+            <dd className="break-all font-mono text-(--color-text-faint)">{d.id}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <p className="text-xs text-(--color-text-muted)">
+        Hududini qo&apos;yish uchun yozuvni{' '}
+        <Link href={`/${d.side === 'expense' ? 'xarajatlar' : 'daromadlar'}/${d.section === 'BOSHQA' ? 'boshqa' : 'doimiy'}?q=${encodeURIComponent(d.counterparty ?? d.description ?? '')}`} className="font-semibold text-brand-700 underline">
+          {d.side === 'expense' ? 'Xarajatlar' : 'Daromadlar'} ro&apos;yxatida
+        </Link>{' '}
+        oching (qidiruv tayyor turadi; {formatPeriod(d.period)} oyini tanlang).
+      </p>
+    </>
+  );
+}
+
+function InfoCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-(--color-line) px-4 py-3">
+      <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">{title}</h4>
+      {children}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ChangesService } from './changes.service';
 import { RegionsService } from './regions.service';
 import { UnassignedService } from './unassigned.service';
@@ -28,6 +28,12 @@ export class RegionsController {
   @Get('unassigned')
   async unassignedOf(@Query('from') from?: string, @Query('to') to?: string, @Query('section') section?: string) {
     return { data: await this.unassigned.list({ from, to, section }) };
+  }
+
+  /** Biriktirilmagan bitta yozuv — to'liq: kim kiritgan, fayl, qaysi hududniki bo'lishi mumkin */
+  @Get('unassigned/:side/:id')
+  async unassignedItem(@Param('side') side: string, @Param('id') id: string) {
+    return { data: await this.unassigned.detail(side, id) };
   }
 
   /** O'zgarishlar: oy bo'yicha oylik hisoblangan xodimlar, ishga olingan, bo'shagan, ishlamagan, ko'chgan (?month=YYYY-MM yoki ?to=YYYY-MM-DD) */
