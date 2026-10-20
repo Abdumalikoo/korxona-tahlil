@@ -312,6 +312,8 @@ export interface WarehouseDemoStatus {
 export interface SignerT {
   title: string;
   name: string;
+  /** Xodimlar bo'limidan tanlangan — dalolatnomada ism shu xodimdan olinadi */
+  pinfl?: string | null;
 }
 export interface ActKindTexts {
   title: string;
@@ -326,6 +328,8 @@ export interface ActKindTexts {
 export interface ActRegionOverride {
   approverPosition?: string;
   approverName?: string;
+  approverPinfl?: string;
+  storekeeperPinfl?: string;
   company?: string;
   city?: string;
   storekeeperTitle?: string;
@@ -337,11 +341,13 @@ export interface ActTemplate {
   company: string;
   approverPosition: string;
   approverName: string;
+  approverPinfl: string | null;
   approveDate: 'doc' | 'blank';
   actDate: 'doc' | 'blank';
   city: string;
   storekeeperTitle: string;
   storekeeperName: string;
+  storekeeperPinfl: string | null;
   agreedHeading: string;
   agreed: SignerT[];
   columns: string[];
@@ -353,6 +359,31 @@ export interface ActTemplate {
   footer: boolean;
   kinds: Record<DocKind, ActKindTexts>;
   regions: Record<string, ActRegionOverride>;
+}
+
+/** Dalolatnoma mazmuni (serverda shablon bo'yicha to'ldirilgan) */
+export interface ActModel {
+  number: string;
+  kind: DocKind;
+  approve: string[];
+  approveBold: boolean;
+  title: string;
+  title2: string;
+  cancelled: boolean;
+  dateText: string;
+  city: string;
+  intro: string[];
+  lead: string;
+  columns: string[];
+  rows: string[][];
+  total: string[];
+  closing: string[];
+  liability: string;
+  note: string | null;
+  signatures: { label: string; name: string | null }[];
+  agreedHeading: string;
+  agreed: { title: string; name: string }[];
+  footer: string | null;
 }
 
 /** Holat uchun tayyor variantlar (dalolatnoma «Ҳолати» ustuni) */
@@ -406,6 +437,8 @@ export const warehouseApi = {
   docs: (params: { kind?: DocKind; from?: string; to?: string; search?: string } = {}) =>
     api.get<ApiResponse<WarehouseDoc[]>>('/warehouse/docs', { params: { kind: params.kind, from: params.from, to: params.to, search: params.search || undefined } }),
   doc: (id: string) => api.get<ApiResponse<WarehouseDoc>>(`/warehouse/docs/${id}`),
+  /** Dalolatnoma — ekranda ko'rish uchun (Word bilan bir xil mazmun) */
+  actView: (id: string) => api.get<ApiResponse<ActModel>>(`/warehouse/docs/${id}/act-view`),
   createDoc: (payload: DocPayload) => api.post<ApiResponse<WarehouseDoc>>('/warehouse/docs', payload),
   cancelDoc: (id: string) => api.post<ApiResponse<WarehouseDoc>>(`/warehouse/docs/${id}/cancel`),
 

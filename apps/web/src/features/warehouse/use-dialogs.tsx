@@ -21,7 +21,8 @@ export interface WarehouseDialogs {
   newDoc: (kind: DocKind, assetIds?: string[]) => void;
   /** Omborchi: kirimni xaridchi yozadi — omborchi «Qabul qilish» sahifasida tasdiqlaydi */
   keeper: boolean;
-  openDoc: (id: string) => void;
+  /** tab='act' — dalolatnomaning o'zi ochiladi */
+  openDoc: (id: string, tab?: 'info' | 'act') => void;
   openAsset: (id: string) => void;
   notify: (message: string, tone?: 'success' | 'error') => void;
   element: ReactNode;
@@ -35,6 +36,7 @@ export function useWarehouseDialogs(onChanged: () => void): WarehouseDialogs {
   const { user } = useAuth();
   const keeper = user?.role === 'SKLADCHI';
   const [docId, setDocId] = useState<string | null>(null);
+  const [docTab, setDocTab] = useState<'info' | 'act'>('info');
   const [assetId, setAssetId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
 
@@ -50,8 +52,9 @@ export function useWarehouseDialogs(onChanged: () => void): WarehouseDialogs {
     },
     [router, keeper],
   );
-  const openDoc = useCallback((id: string) => {
+  const openDoc = useCallback((id: string, tab: 'info' | 'act' = 'info') => {
     setAssetId(null);
+    setDocTab(tab);
     setDocId(id);
   }, []);
   const openAsset = useCallback((id: string) => {
@@ -63,6 +66,7 @@ export function useWarehouseDialogs(onChanged: () => void): WarehouseDialogs {
     <>
       <DocDrawer
         docId={docId}
+        initialTab={docTab}
         onClose={() => setDocId(null)}
         onChanged={(message) => {
           notify(message);

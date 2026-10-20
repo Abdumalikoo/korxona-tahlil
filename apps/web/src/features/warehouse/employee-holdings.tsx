@@ -5,6 +5,7 @@ import { formatDate, formatTiyin } from '@/lib/format';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { downloadCard, qtyText, warehouseApi, type Holdings } from './api';
+import { useWarehouseDialogs } from './use-dialogs';
 
 // ═══════════════════════════════════════════════════════════
 // Xodim kartochkasida: unga dalolatnoma bilan berilgan asosiy vositalar va TMZ (omborning «Kimda nima bor»i).
@@ -15,6 +16,9 @@ export function EmployeeHoldings({ pinfl }: { pinfl: string }) {
   const [data, setData] = useState<Holdings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState(0);
+  /** Vosita bosilsa — kartasi: kimlarda bo'lgani, harakat tarixi, dalolatnomalar */
+  const w = useWarehouseDialogs(() => setTick((t) => t + 1));
 
   useEffect(() => {
     let alive = true;
@@ -27,7 +31,7 @@ export function EmployeeHoldings({ pinfl }: { pinfl: string }) {
     return () => {
       alive = false;
     };
-  }, [pinfl]);
+  }, [pinfl, tick]);
 
   if (error) return null;
   const total = data ? data.assets.reduce((s, a) => s + Number(a.priceTiyin), 0) : 0;
@@ -68,12 +72,19 @@ export function EmployeeHoldings({ pinfl }: { pinfl: string }) {
       ) : (
         <div className="max-h-64 overflow-y-auto rounded-(--radius-control) border border-(--color-line)">
           {data.assets.map((a) => (
-            <div key={a.id} className="flex items-center gap-3 border-b border-(--color-line) px-3 py-1.5 text-sm last:border-b-0">
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => w.openAsset(a.id)}
+              title="Bosing — kimlarda bo'lgani, tarixi va dalolatnomalari"
+              className="flex w-full items-center gap-3 border-b border-(--color-line) px-3 py-1.5 text-left text-sm last:border-b-0 hover:bg-brand-50"
+            >
               <span className="w-24 shrink-0 font-mono text-[11px] font-semibold text-brand-700">{a.inventoryNo}</span>
               <span className="min-w-0 flex-1 truncate">{a.name}</span>
               <span className="shrink-0 text-[11px] text-(--color-text-muted)">{formatDate(a.acquiredAt)}</span>
               <span className="money w-24 shrink-0 text-right text-xs">{formatTiyin(a.priceTiyin)}</span>
-            </div>
+              <span className="shrink-0 text-xs text-(--color-text-faint)">›</span>
+            </button>
           ))}
           {data.tmz.map((t) => (
             <div key={t.itemId} className="flex items-center gap-3 border-b border-(--color-line) px-3 py-1.5 text-sm last:border-b-0">
@@ -86,6 +97,7 @@ export function EmployeeHoldings({ pinfl }: { pinfl: string }) {
           ))}
         </div>
       )}
+      {w.element}
       <Link href={`/ombor/kimda?holderPinfl=${pinfl}`} className="mt-2 inline-block text-xs text-brand-700 hover:underline">
         Omborda ochish → qaytarish, boshqaga o&apos;tkazish
       </Link>

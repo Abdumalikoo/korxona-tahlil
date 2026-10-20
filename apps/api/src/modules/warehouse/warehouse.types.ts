@@ -333,3 +333,31 @@ export interface CountListItem {
   createdAt: string;
   finishedAt: string | null;
 }
+
+/** Dalolatnoma mazmuni — Word va ekrandagi ko'rinish bir xil (warehouse.acts.ts › model) */
+export interface ActModel {
+  number: string;
+  kind: StockDocKind;
+  /** O'ng yuqori blok: «ТАСДИҚЛАЙМАН», tashkilot, lavozim, imzo + ism, sana */
+  approve: string[];
+  approveBold: boolean;
+  title: string;
+  title2: string;
+  cancelled: boolean;
+  dateText: string;
+  city: string;
+  /** Kirish va tomonlar — har biri alohida xatboshi */
+  intro: string[];
+  lead: string;
+  columns: string[];
+  rows: string[][];
+  total: string[];
+  closing: string[];
+  liability: string;
+  note: string | null;
+  /** «Lavozim:» — qalin, o'ngda imzo chizig'i va ism (name null — oddiy qator) */
+  signatures: { label: string; name: string | null }[];
+  agreedHeading: string;
+  agreed: { title: string; name: string }[];
+  footer: string | null;
+}

@@ -29,7 +29,7 @@ export function AssetDrawer({
   onClose: () => void;
   /** Tez amal: shu vosita oldindan tanlangan hujjat formasi ochiladi */
   onAction: (kind: DocKind, assetId: string) => void;
-  onOpenDoc: (docId: string) => void;
+  onOpenDoc: (docId: string, tab?: 'info' | 'act') => void;
   onChanged: (message: string) => void;
 }) {
   const { canWrite, isWorker } = useAuth();
@@ -154,6 +154,9 @@ export function AssetDrawer({
           </div>
           {saveError && <p className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2 text-sm text-(--color-expense)">{saveError}</p>}
 
+          {/* Kimlarda bo'lgan: qachondan qachongacha */}
+          <HolderPeriods moves={moves} onOpenDoc={(id) => onOpenDoc(id, 'act')} />
+
           {/* Harakat tarixi */}
           <div>
             <p className="mb-2 text-sm font-semibold text-heading">
@@ -170,8 +173,8 @@ export function AssetDrawer({
                       <span className="font-semibold text-heading">{formatDate(m.date)}</span>
                       <DocKindBadge kind={m.kind} />
                       {m.docId && m.docNumber && (
-                        <button type="button" onClick={() => onOpenDoc(m.docId!)} className="money font-semibold text-brand-700 hover:underline">
-                          {m.docNumber}
+                        <button type="button" onClick={() => onOpenDoc(m.docId!, 'act')} className="money font-semibold text-brand-700 hover:underline" title="Dalolatnomani ochish">
+                          {m.docNumber} · dalolatnoma
                         </button>
                       )}
                     </div>
@@ -193,5 +196,73 @@ export function AssetDrawer({
         </div>
       ) : null}
     </Drawer>
+  );
+}
+
+// ─────────── Kimlarda bo'lgan: davrlar ───────────
+
+function daysBetween(a: string, b: string): number {
+  return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000));
+}
+
+function durationText(days: number): string {
+  if (days < 1) return '1 kundan kam';
+  const y = Math.floor(days / 365);
+  const m = Math.floor((days % 365) / 30);
+  const d = days - y * 365 - m * 30;
+  return [y ? `${y} yil` : '', m ? `${m} oy` : '', !y && d ? `${d} kun` : ''].filter(Boolean).join(' ') || `${days} kun`;
+}
+
+/** Harakatlardan: har bir egasi — qachondan qachongacha (hozirgisi alohida), dalolatnoma bilan */
+function HolderPeriods({ moves, onOpenDoc }: { moves: AssetMove[]; onOpenDoc: (docId: string) => void }) {
+  const asc = [...moves].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const periods: { who: string; inStock: boolean; from: string; to: string | null; docId: string | null; docNumber: string | null; writtenOff: boolean }[] = [];
+  for (let i = 0; i < asc.length; i++) {
+    const m = asc[i]!;
+    const next = asc[i + 1];
+    if (m.kind === 'WRITE_OFF') {
+      periods.push({ who: 'Hisobdan chiqarilgan', inStock: false, from: m.date, to: null, docId: m.docId, docNumber: m.docNumber, writtenOff: true });
+      break;
+    }
+    const inStock = m.kind === 'RECEIPT' || m.kind === 'RETURN' || m.to.text === 'Ombor';
+    periods.push({ who: inStock ? 'Omborda' : m.to.text, inStock, from: m.date, to: next ? next.date : null, docId: m.docId, docNumber: m.docNumber, writtenOff: false });
+  }
+  if (periods.length === 0) return null;
+  const people = periods.filter((p) => !p.inStock && !p.writtenOff).length;
+  return (
+    <div>
+      <p className="mb-2 text-sm font-semibold text-heading">
+        Kimlarda bo&apos;lgan <span className="font-normal text-(--color-text-muted)">· {people} ta egasi</span>
+      </p>
+      <ol className="space-y-1.5">
+        {[...periods].reverse().map((p, i) => {
+          const current = i === 0;
+          return (
+            <li
+              key={`${p.from}-${i}`}
+              className={cn(
+                'flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg border px-3 py-2 text-sm',
+                current ? (p.writtenOff ? 'border-red-200 bg-red-50' : p.inStock ? 'border-(--color-line) bg-(--color-surface-muted)' : 'border-brand-300 bg-brand-50') : 'border-(--color-line) bg-white',
+              )}
+            >
+              <span className={cn('min-w-0 flex-1 truncate font-medium', current ? 'text-heading' : 'text-(--color-text)')}>
+                {current && !p.writtenOff && <span className="mr-1.5 rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">hozir</span>}
+                {p.who}
+              </span>
+              <span className="tabular-nums text-xs text-(--color-text-muted)">
+                {formatDate(p.from)} → {p.to ? formatDate(p.to) : p.writtenOff ? '' : 'hozirgacha'}
+                {!p.writtenOff && <b className="ml-1.5 text-(--color-text)">{durationText(daysBetween(p.from, p.to ?? today))}</b>}
+              </span>
+              {p.docId && p.docNumber && (
+                <button type="button" onClick={() => onOpenDoc(p.docId!)} className="money text-xs font-semibold text-brand-700 hover:underline">
+                  {p.docNumber}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }

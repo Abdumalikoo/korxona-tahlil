@@ -10,7 +10,8 @@ import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatDateTime, formatTiyin } from '@/lib/format';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { DOC_KIND_HINTS, downloadAct, qtyText, warehouseApi, type WarehouseDoc } from './api';
+import { DOC_KIND_HINTS, downloadAct, qtyText, warehouseApi, type ActModel, type WarehouseDoc } from './api';
+import { ActPaper } from './act-paper';
 import { DocKindBadge, Field } from './bits';
 
 // ═══════════════════════════════════════════════════════════
@@ -23,8 +24,11 @@ export function DocDrawer({
   onClose,
   onChanged,
   onOpenAsset,
+  initialTab = 'info',
 }: {
   docId: string | null;
+  /** Ochilganda qaysi yorliq: dalolatnomaga to'g'ridan-to'g'ri o'tish uchun 'act' */
+  initialTab?: 'info' | 'act';
   onClose: () => void;
   /** Bekor qilingandan keyin ro'yxatni yangilash */
   onChanged: (message: string) => void;
@@ -41,9 +45,16 @@ export function DocDrawer({
   const [cancelling, setCancelling] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [tick, setTick] = useState(0);
+  /** Ma'lumot yoki dalolatnomaning o'zi (qog'ozda, Word bilan bir xil) */
+  const [tab, setTab] = useState<'info' | 'act'>('info');
+  const [act, setAct] = useState<ActModel | null>(null);
+  const [actError, setActError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!docId) return;
+    setTab(initialTab);
+    setAct(null);
+    setActError(null);
     setDoc(null);
     setLoading(true);
     setError(null);
@@ -55,7 +66,15 @@ export function DocDrawer({
       .finally(() => setLoading(false));
   }, [docId, tick]);
 
-  const act = async () => {
+  useEffect(() => {
+    if (!docId || tab !== 'act' || act) return;
+    warehouseApi
+      .actView(docId)
+      .then((r) => setAct(r.data))
+      .catch((e) => setActError(errorMessage(e, "Dalolatnomani ochib bo'lmadi")));
+  }, [docId, tab, act]);
+
+  const download = async () => {
     if (!doc) return;
     setDownloading(true);
     setActionError(null);
@@ -106,7 +125,7 @@ export function DocDrawer({
               <Button variant="secondary" onClick={onClose}>
                 Yopish
               </Button>
-              <Button onClick={() => void act()} loading={downloading}>
+              <Button onClick={() => void download()} loading={downloading}>
                 <IconDownload className="size-4" />
                 Dalolatnoma (Word)
               </Button>
@@ -118,8 +137,23 @@ export function DocDrawer({
           <LoadingState />
         ) : error ? (
           <ErrorState message={error} onRetry={() => setTick((t) => t + 1)} />
+        ) : doc && tab === 'act' ? (
+          <div className="space-y-3">
+            <DocTabs tab={tab} onTab={setTab} />
+            {actError ? (
+              <ErrorState message={actError} onRetry={() => setActError(null)} />
+            ) : !act ? (
+              <LoadingState label="Dalolatnoma tayyorlanmoqda" />
+            ) : (
+              <div className="-mx-1 rounded-xl bg-(--color-surface-muted) p-3">
+                <ActPaper m={act} />
+              </div>
+            )}
+            <p className="text-[11px] text-(--color-text-faint)">Shablon bo&apos;yicha (Ombor › Dalolatnoma shabloni). Word fayli ham aynan shunday.</p>
+          </div>
         ) : doc ? (
           <div className="space-y-5">
+            <DocTabs tab={tab} onTab={setTab} />
             {doc.cancelled && (
               <p className="rounded-(--radius-control) border border-(--color-expense) bg-(--color-expense-soft) px-3 py-2 text-sm font-semibold text-(--color-expense)">
                 Bu hujjat bekor qilingan — qoldiq va xarajatlarda hisobga olinmaydi.
@@ -257,5 +291,22 @@ export function DocDrawer({
         onCancel={() => setConfirm(false)}
       />
     </>
+  );
+}
+
+function DocTabs({ tab, onTab }: { tab: 'info' | 'act'; onTab: (t: 'info' | 'act') => void }) {
+  return (
+    <div className="inline-flex gap-0.5 rounded-(--radius-control) bg-(--color-surface-sunken) p-0.5 text-sm font-medium">
+      {(
+        [
+          ['info', "Ma'lumot"],
+          ['act', 'Dalolatnoma'],
+        ] as const
+      ).map(([v, label]) => (
+        <button key={v} type="button" onClick={() => onTab(v)} className={tab === v ? 'rounded-[calc(var(--radius-control)-2px)] bg-white px-3 py-1.5 shadow-sm' : 'px-3 py-1.5 text-(--color-text-muted) hover:text-(--color-text)'}>
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }

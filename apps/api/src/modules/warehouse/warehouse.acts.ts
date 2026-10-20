@@ -17,7 +17,7 @@ import {
   WidthType,
 } from 'docx';
 import type { StockDocKind } from '@prisma/client';
-import { ACT_TITLES, type CountView, type DocView, type HoldingsView } from './warehouse.types';
+import { ACT_TITLES, type ActModel, type CountView, type DocView, type HoldingsView } from './warehouse.types';
 import { cyrDate, fill, latinToCyrillic, personName, resolveTemplate, sanitizeTemplate, WarehouseTemplates, type ActTemplate } from './warehouse.template';
 import { WarehouseCounts } from './warehouse.counts';
 import { WarehouseService } from './warehouse.service';
@@ -276,14 +276,14 @@ export class WarehouseActs {
 
   async build(docId: string): Promise<{ buffer: Buffer; filename: string }> {
     const d = await this.warehouse.doc(docId);
-    const tpl = await this.templates.get();
+    const tpl = await this.templates.forActs();
     const buffer = await this.packAct(d, tpl);
     return { buffer, filename: `${d.number} - dalolatnoma.docx` };
   }
 
   /** Shablon namunasi: sozlamadagi (yoki saqlanmagan) shablon bilan sinov hujjati */
   async buildSample(kind: StockDocKind, regionCode: number | null, draft?: unknown): Promise<{ buffer: Buffer; filename: string }> {
-    const tpl = draft ? sanitizeTemplate(draft) : await this.templates.get();
+    const tpl = await this.templates.withPeople(draft ? sanitizeTemplate(draft) : await this.templates.get());
     const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
     const place = (holder: string | null, text: string): DocView['to'] => ({
       departmentId: null,
@@ -328,9 +328,7 @@ export class WarehouseActs {
     return { buffer, filename: `namuna - ${ACT_TITLES[kind]}${regionCode ? ` - hudud ${regionCode}` : ''}.docx` };
   }
 
-  private async packAct(d: DocView, base: ActTemplate): Promise<Buffer> {
-    const regionCode = d.to.regionCode ?? d.from?.regionCode ?? null;
-    const tpl = resolveTemplate(base, regionCode);
+  private async packAct(d: DocView, tpl: ActTemplate): Promise<Buffer> {
     const document = new Document({
       creator: 'Korxona tahlil',
       title: `${ACT_TITLES[d.kind]} № ${d.number}`,
@@ -378,12 +376,83 @@ export class WarehouseActs {
     };
   }
 
-  private body(d: DocView, tpl: ActTemplate): (Paragraph | Table)[] {
+  /**
+   * Dalolatnoma mazmuni — bitta joyda: Word ham, ekrandagi ko'rinish ham shundan chiziladi.
+   * Matnlar shablondan, o'rinbosarlar to'ldirilgan; ismlar — shablon qoidasi bo'yicha (qisqa / kirill).
+   */
+  model(d: DocView, base: ActTemplate): ActModel {
+    const regionCode = d.to.regionCode ?? d.from?.regionCode ?? null;
+    const tpl = resolveTemplate(base, regionCode);
     const k = tpl.kinds[d.kind];
     const vars = WarehouseActs.parties(d, tpl);
     const f = (t: string) => fill(fill(t, vars), vars);
+    const approve: string[] = [];
+    if (tpl.approveHeading.trim()) approve.push(tpl.approveHeading);
+    if (tpl.company.trim()) approve.push(tpl.company);
+    if (tpl.approverPosition.trim()) approve.push(tpl.approverPosition);
+    approve.push(`____________ ${personName(tpl, tpl.approverName)}`);
+    approve.push(cyrDate(tpl.approveDate === 'doc' ? d.date : null));
+
+    const rows: string[][] = [];
+    let n = 0;
+    let qty = 0;
+    for (const l of d.lines) {
+      if (d.kind !== 'RECEIPT' && l.kind === 'ASSET') continue;
+      n += 1;
+      qty += l.qty;
+      const inv = l.kind === 'ASSET' && d.kind === 'RECEIPT' ? this.inventoryRange(d, l.itemName) : l.itemCode;
+      rows.push([String(n), l.itemName + (l.note ? ` (${l.note})` : ''), inv, l.unit || tpl.unitDefault, qtyText(l.qty), som(l.amountTiyin), tpl.conditionDefault]);
+    }
+    if (d.kind !== 'RECEIPT') {
+      for (const a of d.assets) {
+        n += 1;
+        qty += 1;
+        rows.push([String(n), a.name, a.inventoryNo, tpl.unitDefault, '1', som(a.priceTiyin), (tpl.namesScript === 'cyrl' ? latinToCyrillic(a.condition?.trim() || '') : a.condition?.trim()) || tpl.conditionDefault]);
+      }
+    }
+    const signatures = k.signatures
+      .filter((line) => line.trim())
+      .map((line) => {
+        const text = f(line);
+        const at = text.indexOf(':');
+        return at > 0 ? { label: text.slice(0, at + 1), name: text.slice(at + 1).trim() } : { label: text, name: null };
+      });
+    return {
+      number: d.number,
+      kind: d.kind,
+      approve,
+      approveBold: !!tpl.approveHeading.trim(),
+      title: k.title.trim() ? f(k.title) : '',
+      title2: k.title2.trim() ? f(k.title2) : '',
+      cancelled: d.cancelled,
+      dateText: tpl.actDate === 'doc' ? cyrDate(d.date).replace('-йил', ' йил') : `“___” _______ ${d.date.slice(0, 4)} йил`,
+      city: tpl.city,
+      intro: [k.intro, ...k.parties].filter((x) => x.trim()).map(f),
+      lead: k.lead.trim() ? f(k.lead) : '',
+      columns: tpl.columns,
+      rows,
+      total: ['', tpl.totalLabel, '', '', qtyText(qty), som(d.totalTiyin), ''],
+      closing: k.closing.filter((x) => x.trim()).map(f),
+      liability: k.liability.trim() ? f(k.liability) : '',
+      note: d.note ? `Изоҳ: ${d.note}` : null,
+      signatures,
+      agreedHeading: tpl.agreed.length ? tpl.agreedHeading : '',
+      agreed: tpl.agreed.map((a) => ({ title: a.title, name: personName(tpl, a.name) })),
+      footer: tpl.footer ? `№ ${d.number} · «Korxona tahlil»` : null,
+    };
+  }
+
+  /** Ekranda ko'rish uchun: hujjat dalolatnomasi (Word bilan bir xil) */
+  async view(docId: string): Promise<ActModel> {
+    const d = await this.warehouse.doc(docId);
+    return this.model(d, await this.templates.forActs());
+  }
+
+  private body(d: DocView, tpl: ActTemplate): (Paragraph | Table)[] {
+    const m = this.model(d, tpl);
     const out: (Paragraph | Table)[] = [];
     const run = (text: string, bold = false) => new TextRun({ text, bold, font: FONT, size: ACT_SIZE });
+    const tab = () => new TextRun({ children: [new Tab()], font: FONT, size: ACT_SIZE });
     const para = (children: TextRun[], o: { align?: (typeof AlignmentType)[keyof typeof AlignmentType]; after?: number; before?: number; indent?: number; firstLine?: number; tabs?: boolean } = {}) =>
       new Paragraph({
         alignment: o.align,
@@ -393,27 +462,17 @@ export class WarehouseActs {
         children,
       });
 
-    // Tasdiqlash bloki (o'ng tomonda)
+    // Tasdiqlash bloki (o'ng tomonda): 1-qator qalin (sarlavha bo'lsa)
     const IND = 5600;
-    if (tpl.approveHeading.trim()) out.push(para([run(tpl.approveHeading, true)], { indent: IND }));
-    if (tpl.company.trim()) out.push(para([run(tpl.company)], { indent: IND }));
-    if (tpl.approverPosition.trim()) out.push(para([run(tpl.approverPosition)], { indent: IND }));
-    out.push(para([run(`____________ ${tpl.approverName}`)], { indent: IND }));
-    out.push(para([run(cyrDate(tpl.approveDate === 'doc' ? d.date : null))], { indent: IND, after: 240 }));
+    m.approve.forEach((line, i) => out.push(para([run(line, i === 0 && m.approveBold)], { indent: IND, after: i === m.approve.length - 1 ? 240 : 0 })));
 
-    // Sarlavha
-    if (k.title.trim()) out.push(para([run(f(k.title), true)], { align: AlignmentType.CENTER }));
-    if (k.title2.trim()) out.push(para([run(f(k.title2), true)], { align: AlignmentType.CENTER, after: d.cancelled ? 0 : 120 }));
-    if (d.cancelled) out.push(para([run('(БЕКОР ҚИЛИНГАН)', true)], { align: AlignmentType.CENTER, after: 120 }));
+    if (m.title) out.push(para([run(m.title, true)], { align: AlignmentType.CENTER }));
+    if (m.title2) out.push(para([run(m.title2, true)], { align: AlignmentType.CENTER, after: m.cancelled ? 0 : 120 }));
+    if (m.cancelled) out.push(para([run('(БЕКОР ҚИЛИНГАН)', true)], { align: AlignmentType.CENTER, after: 120 }));
+    out.push(para([run(m.dateText), tab(), run(m.city)], { tabs: true, after: 200 }));
 
-    // Sana — shahar
-    const dateText = tpl.actDate === 'doc' ? cyrDate(d.date).replace('-йил', ' йил') : `“___” _______ ${d.date.slice(0, 4)} йил`;
-    out.push(para([run(dateText), new TextRun({ children: [new Tab()], font: FONT, size: ACT_SIZE }), run(tpl.city)], { tabs: true, after: 200 }));
-
-    // Tomonlar
-    if (k.intro.trim()) out.push(para([run(f(k.intro))], { firstLine: 709 }));
-    for (const line of k.parties) if (line.trim()) out.push(para([run(f(line))], { firstLine: 709 }));
-    if (k.lead.trim()) out.push(para([run(f(k.lead))], { firstLine: 709, before: 120, after: 120 }));
+    for (const line of m.intro) out.push(para([run(line)], { firstLine: 709 }));
+    if (m.lead) out.push(para([run(m.lead)], { firstLine: 709, before: 120, after: 120 }));
 
     // Jadval: Т/р | ТМБ номи | Инвентар рақами | Ўлчов бирлиги | Миқдори | Нархи | Ҳолати
     const W = [5, 30, 14, 10, 9, 14, 18];
@@ -425,50 +484,25 @@ export class WarehouseActs {
         verticalAlign: VerticalAlign.CENTER,
         children: [new Paragraph({ alignment: i === 1 ? AlignmentType.LEFT : AlignmentType.CENTER, children: [new TextRun({ text, bold, font: FONT, size: TABLE_SIZE })] })],
       });
-    const rows: TableRow[] = [new TableRow({ tableHeader: true, children: tpl.columns.map((h, i) => c(h, i, true)) })];
-    let n = 0;
-    let qty = 0;
-    for (const l of d.lines) {
-      if (d.kind !== 'RECEIPT' && l.kind === 'ASSET') continue;
-      n += 1;
-      qty += l.qty;
-      const inv = l.kind === 'ASSET' && d.kind === 'RECEIPT' ? this.inventoryRange(d, l.itemName) : l.itemCode;
-      rows.push(new TableRow({ children: [String(n), l.itemName + (l.note ? ` (${l.note})` : ''), inv, l.unit || tpl.unitDefault, qtyText(l.qty), som(l.amountTiyin), tpl.conditionDefault].map((v, i) => c(v, i)) }));
-    }
-    if (d.kind !== 'RECEIPT') {
-      for (const a of d.assets) {
-        n += 1;
-        qty += 1;
-        rows.push(new TableRow({ children: [String(n), a.name, a.inventoryNo, tpl.unitDefault, '1', som(a.priceTiyin), (tpl.namesScript === 'cyrl' ? latinToCyrillic(a.condition?.trim() || '') : a.condition?.trim()) || tpl.conditionDefault].map((v, i) => c(v, i)) }));
-      }
-    }
-    rows.push(new TableRow({ children: ['', tpl.totalLabel, '', '', qtyText(qty), som(d.totalTiyin), ''].map((v, i) => c(v, i, true)) }));
+    const rows: TableRow[] = [new TableRow({ tableHeader: true, children: m.columns.map((h, i) => c(h, i, true)) })];
+    for (const r of m.rows) rows.push(new TableRow({ children: r.map((v, i) => c(v, i)) }));
+    rows.push(new TableRow({ children: m.total.map((v, i) => c(v, i, true)) }));
     out.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }));
     out.push(para([], { after: 120 }));
 
-    for (const line of k.closing) if (line.trim()) out.push(para([run(f(line))], { firstLine: 709, align: AlignmentType.JUSTIFIED }));
-    if (k.liability.trim()) out.push(para([run(f(k.liability))], { firstLine: 709, before: 120, align: AlignmentType.JUSTIFIED }));
-    if (d.note) out.push(para([run(`Изоҳ: ${d.note}`)], { firstLine: 709, before: 120 }));
+    for (const line of m.closing) out.push(para([run(line)], { firstLine: 709, align: AlignmentType.JUSTIFIED }));
+    if (m.liability) out.push(para([run(m.liability)], { firstLine: 709, before: 120, align: AlignmentType.JUSTIFIED }));
+    if (m.note) out.push(para([run(m.note)], { firstLine: 709, before: 120 }));
 
-    // Imzolar
     out.push(para([], { after: 120 }));
-    for (const line of k.signatures) {
-      if (!line.trim()) continue;
-      const text = f(line);
-      const at = text.indexOf(':');
-      out.push(
-        at > 0
-          ? para([run(text.slice(0, at + 1), true), new TextRun({ children: [new Tab()], font: FONT, size: ACT_SIZE }), run(`__________ ${text.slice(at + 1).trim()}`)], { tabs: true, before: 200 })
-          : para([run(text)], { before: 200 }),
-      );
+    for (const s of m.signatures) {
+      out.push(s.name !== null ? para([run(s.label, true), tab(), run(`__________ ${s.name}`)], { tabs: true, before: 200 }) : para([run(s.label)], { before: 200 }));
     }
-    if (tpl.agreed.length) {
-      out.push(para([run(tpl.agreedHeading, true)], { before: 280 }));
-      for (const a of tpl.agreed) {
-        out.push(para([run(`${a.title}:`), new TextRun({ children: [new Tab()], font: FONT, size: ACT_SIZE }), run(`__________ ${a.name}`)], { tabs: true, before: 160 }));
-      }
+    if (m.agreed.length) {
+      out.push(para([run(m.agreedHeading, true)], { before: 280 }));
+      for (const a of m.agreed) out.push(para([run(`${a.title}:`), tab(), run(`__________ ${a.name}`)], { tabs: true, before: 160 }));
     }
-    if (tpl.footer) out.push(para([new TextRun({ text: `№ ${d.number} · «Korxona tahlil»`, font: FONT, size: 14, color: '808080' })], { before: 360 }));
+    if (m.footer) out.push(para([new TextRun({ text: m.footer, font: FONT, size: 14, color: '808080' })], { before: 360 }));
     return out;
   }
 

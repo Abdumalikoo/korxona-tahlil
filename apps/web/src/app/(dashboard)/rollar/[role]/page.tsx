@@ -14,6 +14,7 @@ import { cashApi, dmy } from '@/features/cashbook/api';
 import { th } from '@/features/cashbook/desk';
 import { rdApi } from '@/features/regional-desk/api';
 import { qtyText, warehouseApi } from '@/features/warehouse/api';
+import { useWarehouseDialogs } from '@/features/warehouse/use-dialogs';
 import { ROLE_ENTRY, useAuth } from '@/lib/auth-context';
 import { formatDate, formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
@@ -114,6 +115,8 @@ export default function RoleDashboardPage() {
   const counts = useAsync(() => (hasWarehouse ? warehouseApi.counts() : Promise.resolve(null)), [hasWarehouse]);
   const cars = useAsync(() => (hasVehicles ? vehiclesApi.list(month) : Promise.resolve(null)), [hasVehicles, month]);
   const carSum = useAsync(() => (hasVehicles ? vehiclesApi.summary(month, month) : Promise.resolve(null)), [hasVehicles, month]);
+  /** Ombor harakati bosilsa — o'sha hujjatning dalolatnomasi */
+  const w = useWarehouseDialogs(() => overview.reload());
 
   if (overview.loading && !data) return <LoadingState />;
   if (overview.error || !data) return <ErrorState message={overview.error ?? 'Rol topilmadi'} onRetry={overview.reload} />;
@@ -447,7 +450,12 @@ export default function RoleDashboardPage() {
           ) : (
             <ul className="divide-y divide-(--color-line)">
               {data.activity.map((a) => (
-                <li key={`${a.type}-${a.id}`} className={cn('flex items-center gap-3 px-5 py-2.5', a.cancelled && 'opacity-50')}>
+                <li
+                  key={`${a.type}-${a.id}`}
+                  onClick={a.type === 'STOCK' ? () => w.openDoc(a.id, 'act') : undefined}
+                  title={a.type === 'STOCK' ? 'Bosing — dalolatnoma' : undefined}
+                  className={cn('flex items-center gap-3 px-5 py-2.5', a.cancelled && 'opacity-50', a.type === 'STOCK' && 'cursor-pointer hover:bg-brand-50/60')}
+                >
                   <span className="w-24 shrink-0 text-xs tabular-nums text-(--color-text-faint)">{timeOf(a.at)}</span>
                   <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', TYPE[a.type].chip)}>{TYPE[a.type].label}</span>
                   <span className="min-w-0 flex-1">
@@ -462,6 +470,7 @@ export default function RoleDashboardPage() {
         </Card>
       </div>
 
+      {w.element}
       <RenameRoleDialog role={renaming ? role : null} onClose={() => setRenaming(false)} onDone={() => overview.reload()} />
     </>
   );

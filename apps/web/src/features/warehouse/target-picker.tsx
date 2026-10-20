@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { warehouseApi, type EmployeeOption, type WarehouseLookups } from './api';
 
 // ═══════════════════════════════════════════════════════════
-// Kimga / qayerga: bo'lim yoki hudud va odam (Xodimlar ro'yxatidan yoki qo'lda yozilgan ism).
+// Kimga / qayerga: bo'lim yoki hudud va odam — faqat Xodimlar ro'yxatidan (ism qo'lda yozilmaydi).
 // Xodim tanlansa — bo'lim/hudud bo'sh bo'lsa uning joyi avtomatik olinadi (backend ham shunday qiladi).
 // ═══════════════════════════════════════════════════════════
 
@@ -111,18 +111,14 @@ export function TargetPicker({
                     <span className="ml-2 text-xs text-(--color-text-muted)">{[e.position, e.place].filter(Boolean).join(' · ')}</span>
                   </button>
                 ))}
-                {search.trim().length >= 3 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange({ ...value, holderPinfl: '', holderName: search.trim() });
-                      setSearch('');
-                      setOpen(false);
-                    }}
-                    className={cn('block w-full border-t border-(--color-line) px-3 py-2 text-left text-sm text-brand-700 hover:bg-brand-50')}
-                  >
-                    «{search.trim()}» — ro&apos;yxatda yo&apos;q, shu ism bilan yozish
-                  </button>
+                {found.length === 0 && search.trim().length >= 3 && (
+                  <p className="border-t border-(--color-line) px-3 py-2 text-xs text-(--color-text-muted)">
+                    Topilmadi. Ism qo&apos;lda yozilmaydi — xodim avval{' '}
+                    <a href="/xodimlar" className="font-semibold text-brand-700 hover:underline">
+                      Xodimlar bo&apos;limiga
+                    </a>{' '}
+                    qo&apos;shilishi kerak (dalolatnoma tasdiqlangunga qadar mulk o&apos;sha xodimda turadi).
+                  </p>
                 )}
                 {found.length === 0 && search.trim().length < 3 && <p className="px-3 py-2 text-xs text-(--color-text-muted)">Kamida 3 harf yozing</p>}
               </div>

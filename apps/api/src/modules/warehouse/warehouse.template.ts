@@ -18,6 +18,8 @@ export const ACT_TEMPLATE_KEY = 'warehouse.act.template';
 export interface Signer {
   title: string;
   name: string;
+  /** Xodimlar bo'limidan tanlangan bo'lsa — ism (va bo'sh lavozim) shu xodimdan olinadi */
+  pinfl?: string | null;
 }
 
 export interface KindTexts {
@@ -41,6 +43,8 @@ export interface KindTexts {
 export interface RegionOverride {
   approverPosition?: string;
   approverName?: string;
+  approverPinfl?: string;
+  storekeeperPinfl?: string;
   company?: string;
   city?: string;
   storekeeperTitle?: string;
@@ -54,6 +58,8 @@ export interface ActTemplate {
   company: string;
   approverPosition: string;
   approverName: string;
+  /** Rahbar Xodimlar bo'limidan: ism dalolatnoma tuzilganda shu xodimdan olinadi (yozilgan ism — zaxira) */
+  approverPinfl: string | null;
   /** Tasdiqlash sanasi: hujjat sanasi yoki bo'sh (qo'lda yoziladi) */
   approveDate: 'doc' | 'blank';
   /** Dalolatnoma sanasi qatori: hujjat sanasi yoki bo'sh «“___” _______ 2026 йил» */
@@ -61,6 +67,7 @@ export interface ActTemplate {
   city: string;
   storekeeperTitle: string;
   storekeeperName: string;
+  storekeeperPinfl: string | null;
   agreedHeading: string;
   agreed: Signer[];
   /** Jadval ustunlari: Т/р, ТМБ номи, Инвентар рақами, Ўлчов бирлиги, Миқдори, Нархи, Ҳолати */
@@ -85,11 +92,13 @@ export const DEFAULT_TEMPLATE: ActTemplate = {
   company: '“Солиқ-сервис” АЖ',
   approverPosition: 'директори',
   approverName: 'Х.Базаров',
+  approverPinfl: null,
   approveDate: 'doc',
   actDate: 'blank',
   city: 'Тошкент шаҳар',
   storekeeperTitle: 'омбор мудири',
   storekeeperName: 'Маматова Х.',
+  storekeeperPinfl: null,
   agreedHeading: 'Келишилди:',
   agreed: [
     { title: 'Бош бухгалтер', name: 'Эргашов С.' },
@@ -176,12 +185,17 @@ function strList(v: unknown, fallback: string[], max = 1000, count = 12): string
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, max)).slice(0, count) : fallback;
 }
 
+/** JShShIR — 14 raqam */
+export function pinflOf(v: unknown): string | null {
+  return typeof v === 'string' && /^\d{14}$/.test(v.trim()) ? v.trim() : null;
+}
+
 function signers(v: unknown, fallback: Signer[]): Signer[] {
   if (!Array.isArray(v)) return fallback;
   return v
     .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object')
-    .map((x) => ({ title: str(x.title, '', 120).trim(), name: str(x.name, '', 120).trim() }))
-    .filter((x) => x.title || x.name)
+    .map((x) => ({ title: str(x.title, '', 120).trim(), name: str(x.name, '', 120).trim(), pinfl: pinflOf(x.pinfl) }))
+    .filter((x) => x.title || x.name || x.pinfl)
     .slice(0, 10);
 }
 
@@ -214,6 +228,10 @@ export function sanitizeTemplate(raw: unknown): ActTemplate {
     for (const f of ['approverPosition', 'approverName', 'company', 'city', 'storekeeperTitle', 'storekeeperName'] as const) {
       if (typeof r[f] === 'string' && (r[f] as string).trim()) o[f] = (r[f] as string).trim().slice(0, 200);
     }
+    for (const f of ['approverPinfl', 'storekeeperPinfl'] as const) {
+      const v = pinflOf(r[f]);
+      if (v) o[f] = v;
+    }
     const ag = signers(r.agreed, []);
     if (ag.length) o.agreed = ag;
     if (Object.keys(o).length) regions[code] = o;
@@ -224,11 +242,13 @@ export function sanitizeTemplate(raw: unknown): ActTemplate {
     company: str(x.company, d.company, 200),
     approverPosition: str(x.approverPosition, d.approverPosition, 200),
     approverName: str(x.approverName, d.approverName, 200),
+    approverPinfl: pinflOf(x.approverPinfl),
     approveDate: x.approveDate === 'blank' ? 'blank' : x.approveDate === 'doc' ? 'doc' : d.approveDate,
     actDate: x.actDate === 'doc' ? 'doc' : x.actDate === 'blank' ? 'blank' : d.actDate,
     city: str(x.city, d.city, 120),
     storekeeperTitle: str(x.storekeeperTitle, d.storekeeperTitle, 120),
     storekeeperName: str(x.storekeeperName, d.storekeeperName, 120),
+    storekeeperPinfl: pinflOf(x.storekeeperPinfl),
     agreedHeading: str(x.agreedHeading, d.agreedHeading, 120),
     agreed: signers(x.agreed, d.agreed),
     columns: cols.length === 7 ? cols : d.columns,
@@ -251,10 +271,12 @@ export function resolveTemplate(t: ActTemplate, regionCode: number | null): ActT
     ...t,
     approverPosition: o.approverPosition ?? t.approverPosition,
     approverName: o.approverName ?? t.approverName,
+    approverPinfl: o.approverPinfl ?? (o.approverName ? null : t.approverPinfl),
     company: o.company ?? t.company,
     city: o.city ?? t.city,
     storekeeperTitle: o.storekeeperTitle ?? t.storekeeperTitle,
     storekeeperName: o.storekeeperName ?? t.storekeeperName,
+    storekeeperPinfl: o.storekeeperPinfl ?? (o.storekeeperName ? null : t.storekeeperPinfl),
     agreed: o.agreed?.length ? o.agreed : t.agreed,
     regionApplied: true,
   };
@@ -333,6 +355,49 @@ export class WarehouseTemplates {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  /**
+   * Xodimlar bo'limidan tanlangan imzochilar: ism (va bo'sh lavozim) hozirgi reestrdan olinadi.
+   * Xodim topilmasa — shablonda saqlangan ism qoladi.
+   */
+  async withPeople<T extends ActTemplate>(t: T): Promise<T> {
+    const pins = new Set<string>();
+    const add = (v?: string | null) => v && pins.add(v);
+    add(t.approverPinfl);
+    add(t.storekeeperPinfl);
+    t.agreed.forEach((a) => add(a.pinfl));
+    for (const r of Object.values(t.regions)) {
+      add(r.approverPinfl);
+      add(r.storekeeperPinfl);
+      r.agreed?.forEach((a) => add(a.pinfl));
+    }
+    if (!pins.size) return t;
+    const rows = await this.prisma.employee.findMany({ where: { pinfl: { in: [...pins] } }, select: { pinfl: true, fullName: true, position: true } });
+    const by = new Map(rows.map((r) => [r.pinfl, r]));
+    const name = (pinfl: string | null | undefined, fallback: string) => (pinfl && by.get(pinfl)?.fullName) || fallback;
+    const signer = (s: Signer): Signer => (s.pinfl && by.has(s.pinfl) ? { ...s, name: by.get(s.pinfl)!.fullName, title: s.title || by.get(s.pinfl)!.position || '' } : s);
+    const regions: Record<string, RegionOverride> = {};
+    for (const [code, r] of Object.entries(t.regions)) {
+      regions[code] = {
+        ...r,
+        ...(r.approverPinfl ? { approverName: name(r.approverPinfl, r.approverName ?? '') } : {}),
+        ...(r.storekeeperPinfl ? { storekeeperName: name(r.storekeeperPinfl, r.storekeeperName ?? '') } : {}),
+        ...(r.agreed ? { agreed: r.agreed.map(signer) } : {}),
+      };
+    }
+    return {
+      ...t,
+      approverName: name(t.approverPinfl, t.approverName),
+      storekeeperName: name(t.storekeeperPinfl, t.storekeeperName),
+      agreed: t.agreed.map(signer),
+      regions,
+    };
+  }
+
+  /** Dalolatnoma uchun: saqlangan shablon + Xodimlar bo'limidagi ismlar */
+  async forActs(): Promise<ActTemplate> {
+    return this.withPeople(await this.get());
+  }
 
   async get(): Promise<ActTemplate> {
     const row = await this.prisma.setting.findUnique({ where: { key: ACT_TEMPLATE_KEY } });

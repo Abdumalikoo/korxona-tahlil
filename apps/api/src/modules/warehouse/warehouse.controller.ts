@@ -247,6 +247,12 @@ export class WarehouseController {
     return { data: await this.warehouse.doc(id) };
   }
 
+  /** Dalolatnoma — ekranda ko'rish uchun (Word bilan bir xil mazmun) */
+  @Get('docs/:id/act-view')
+  async actView(@Param('id') id: string) {
+    return { data: await this.acts.view(id) };
+  }
+
   /** Word dalolatnoma */
   @Get('docs/:id/act')
   async act(@Param('id') id: string, @Res() response: Response) {
