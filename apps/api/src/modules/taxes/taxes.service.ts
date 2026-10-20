@@ -13,6 +13,8 @@ import { PrismaService } from '../prisma/prisma.service';
 //       MANUAL           — har oy summa kiritiladi (jadval: hudud/Markaz × soliq turi; Excel shablon ham bor);
 //       PAYROLL_PERCENT  — ish haqidan foiz (masalan ijtimoiy soliq 12%): har oy vedomostdan avtomatik,
 //                          xodim ishlagan hudud (Markazda — bo'lim) bo'yicha.
+//       Daromaddan foiz (har qanday turga, faqat belgilangan oylar uchun) — masalan QQS 2026-04: Markaz va har hudud
+//                          daromadining 12% i; shu oylarda katak avtomatik (qo'lda kiritilmaydi), boshqa oylarda — o'z usuli.
 //   • Yozuvlar — Xarajatlar jadvalida (source = TAX): Tahlil, Solishtirma, hisobotlar o'zi ko'radi.
 //     documentNo: «TAX» — qo'lda, «TAX-AUTO» — avtomatik (qayta hisoblanadi). Xarajatlar ro'yxatidan tahrirlanmaydi.
 //   • «Markaz hisobidan» belgilangan tur — qaysi hududda yozilsa ham Markaz xarajati (Xarajatlar siyosati bilan bir xil).
@@ -38,11 +40,17 @@ export interface TaxType {
   center: boolean;
   active: boolean;
   order: number;
+  /** Daromaddan foiz: shu oylarda (incomePeriods) summa = hudud / Markaz daromadi × foiz */
+  incomeRate?: number | null;
+  incomePeriods?: string[];
 }
+
+/** Bir martalik sozlama: QQS 2026-04 — daromadning 12% i (foydalanuvchi so'rovi) */
+const QQS_APRIL_KEY = 'tax.qqs-2026-04.applied';
 
 export const DEFAULT_TAX_TYPES: TaxType[] = [
   { code: 'IJTIMOIY', name: 'Ijtimoiy soliq', method: 'PAYROLL_PERCENT', rate: 12, center: false, active: true, order: 10 },
-  { code: 'QQS', name: "Qo'shilgan qiymat solig'i (QQS)", method: 'MANUAL', rate: null, center: true, active: true, order: 20 },
+  { code: 'QQS', name: "Qo'shilgan qiymat solig'i (QQS)", method: 'MANUAL', rate: null, center: true, active: true, order: 20, incomeRate: 12, incomePeriods: ['2026-04'] },
   { code: 'FOYDA', name: "Foyda solig'i", method: 'MANUAL', rate: null, center: true, active: true, order: 30 },
   { code: 'MOLMULK', name: "Mol-mulk solig'i", method: 'MANUAL', rate: null, center: false, active: true, order: 40 },
   { code: 'YER', name: "Yer solig'i", method: 'MANUAL', rate: null, center: false, active: true, order: 50 },
@@ -61,17 +69,27 @@ export interface TaxUnit {
 
 export interface TaxCell {
   amountTiyin: string;
-  /** Avtomatik: hisob asosi (ish haqi fondi) */
+  /** Avtomatik: hisob asosi (ish haqi fondi yoki daromad) */
   baseTiyin?: string;
+}
+
+/** Shu oyda daromaddan hisoblanadimi */
+export function incomeAuto(t: TaxType, period: string): boolean {
+  return Boolean(t.active && t.incomeRate && t.incomeRate > 0 && t.incomePeriods?.includes(period));
+}
+
+function cleanPeriods(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.map((x) => String(x).trim()).filter((x) => /^\d{4}-(0[1-9]|1[0-2])$/.test(x)))].sort();
 }
 
 export interface TaxMonth {
   period: string;
-  types: (TaxType & { categoryCode: string; totalTiyin: string; previousTiyin: string })[];
+  types: (TaxType & { categoryCode: string; totalTiyin: string; previousTiyin: string; incomeAuto: boolean })[];
   units: TaxUnit[];
   /** tur → birlik → qiymat */
   cells: Record<string, Record<string, TaxCell>>;
-  totals: { totalTiyin: string; previousTiyin: string; autoTiyin: string; manualTiyin: string; centerTiyin: string; payrollTiyin: string };
+  totals: { totalTiyin: string; previousTiyin: string; autoTiyin: string; manualTiyin: string; centerTiyin: string; payrollTiyin: string; incomeTiyin: string };
   months: string[];
   /** tur → 12 oy */
   trend: Record<string, string[]>;
@@ -120,7 +138,35 @@ export class TaxesService implements OnApplicationBootstrap {
   ) {}
 
   onApplicationBootstrap(): void {
-    setTimeout(() => void this.syncAll().catch((e: unknown) => this.logger.warn(`Soliqlar: ${(e as Error).message}`)), 10_000);
+    setTimeout(
+      () =>
+        void this.applyQqsApril()
+          .then(() => this.syncAll())
+          .catch((e: unknown) => this.logger.warn(`Soliqlar: ${(e as Error).message}`)),
+      10_000,
+    );
+  }
+
+  /**
+   * Bir marta: saqlangan soliq turlarida QQS ga «2026-04 — daromaddan 12%» qo'shiladi
+   * (keyin foydalanuvchi o'zgartirsa yoki olib tashlasa — qayta qo'shilmaydi).
+   */
+  async applyQqsApril(): Promise<boolean> {
+    const flag = await this.prisma.setting.findUnique({ where: { key: QQS_APRIL_KEY } });
+    if (flag) return false;
+    const row = await this.prisma.setting.findUnique({ where: { key: TAX_TYPES_KEY } });
+    if (Array.isArray(row?.value)) {
+      const list = (row!.value as unknown[]).map((x) => ({ ...(x as Record<string, unknown>) }));
+      const qqs = list.find((x) => x.code === 'QQS') ?? list.find((x) => /qqs|qo.?shilgan qiymat/i.test(String(x.name ?? '')));
+      if (qqs) {
+        qqs.incomeRate = typeof qqs.incomeRate === 'number' && qqs.incomeRate > 0 ? qqs.incomeRate : 12;
+        qqs.incomePeriods = cleanPeriods([...(Array.isArray(qqs.incomePeriods) ? qqs.incomePeriods : []), '2026-04']);
+        await this.prisma.setting.update({ where: { key: TAX_TYPES_KEY }, data: { value: list as unknown as object } });
+      }
+    }
+    await this.prisma.setting.upsert({ where: { key: QQS_APRIL_KEY }, create: { key: QQS_APRIL_KEY, value: { at: new Date().toISOString() } }, update: {} });
+    this.logger.log("Soliqlar: QQS 2026-04 — daromadning 12% i (avtomatik) yoqildi");
+    return true;
   }
 
   /** Yarim soatda bir: ish haqi o'zgargan bo'lsa — avtomatik soliqlar yangilanadi */
@@ -146,6 +192,8 @@ export class TaxesService implements OnApplicationBootstrap {
         center: x.center === true,
         active: x.active !== false,
         order: typeof x.order === 'number' ? x.order : (i + 1) * 10,
+        incomeRate: typeof x.incomeRate === 'number' && x.incomeRate > 0 ? x.incomeRate : null,
+        incomePeriods: cleanPeriods(x.incomePeriods),
       }))
       .sort((a, b) => a.order - b.order);
   }
@@ -183,7 +231,21 @@ export class TaxesService implements OnApplicationBootstrap {
       const method: TaxMethod = x.method === 'PAYROLL_PERCENT' ? 'PAYROLL_PERCENT' : 'MANUAL';
       const rate = method === 'PAYROLL_PERCENT' ? Number(x.rate) : null;
       if (method === 'PAYROLL_PERCENT' && (!Number.isFinite(rate) || rate! <= 0 || rate! > 100)) throw new BadRequestException(`${name}: foiz 0 dan katta, 100 dan kichik bo'lsin`);
-      return { code, name: name.slice(0, 120), method, rate: rate === null ? null : Math.round(rate * 100) / 100, center: x.center === true, active: x.active !== false, order: (i + 1) * 10 };
+      const irRaw = x.incomeRate === null || x.incomeRate === undefined || x.incomeRate === '' ? null : Number(x.incomeRate);
+      if (irRaw !== null && (!Number.isFinite(irRaw) || irRaw <= 0 || irRaw > 100)) throw new BadRequestException(`${name}: daromaddan foiz 0 dan katta, 100 dan kichik bo'lsin`);
+      const incomePeriods = cleanPeriods(x.incomePeriods);
+      if (irRaw !== null && !incomePeriods.length) throw new BadRequestException(`${name}: daromaddan foiz qaysi oylar uchun — oyni kiriting (masalan 2026-04)`);
+      return {
+        code,
+        name: name.slice(0, 120),
+        method,
+        rate: rate === null ? null : Math.round(rate * 100) / 100,
+        center: x.center === true,
+        active: x.active !== false,
+        order: (i + 1) * 10,
+        incomeRate: irRaw === null ? null : Math.round(irRaw * 100) / 100,
+        incomePeriods: irRaw === null ? [] : incomePeriods,
+      };
     });
     // O'chirilgan tur: yozuvi bo'lsa — o'chirilmaydi, faqat nofaol qilinadi
     for (const b of before) {
@@ -238,6 +300,21 @@ export class TaxesService implements OnApplicationBootstrap {
     return out;
   }
 
+  /** Oy daromadi: Markaz (bitta) va har hudud */
+  private async incomeBase(period: string): Promise<Map<string, { regionCode: number; base: bigint }>> {
+    const rows = await this.prisma.income.groupBy({ by: ['regionCode'], where: { period, deletedAt: null }, _sum: { amountTiyin: true } });
+    const out = new Map<string, { regionCode: number; base: bigint }>();
+    for (const r of rows) {
+      const rc = r.regionCode ?? CENTRAL;
+      const key = rc === CENTRAL ? 'center' : `r:${rc}`;
+      const u = out.get(key) ?? { regionCode: rc, base: 0n };
+      u.base += r._sum.amountTiyin ?? 0n;
+      out.set(key, u);
+    }
+    for (const [k, u] of out) if (u.base <= 0n) out.delete(k);
+    return out;
+  }
+
   private async systemUserId(): Promise<string | null> {
     return (await this.prisma.user.findFirst({ where: { role: 'ADMIN' }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id ?? (await this.prisma.user.findFirst({ select: { id: true } }))?.id ?? null;
   }
@@ -256,14 +333,33 @@ export class TaxesService implements OnApplicationBootstrap {
   }
 
   private async syncPeriodNow(period: string): Promise<number> {
-    const types = (await this.types()).filter((t) => t.method === 'PAYROLL_PERCENT' && t.active && t.rate);
+    const all = await this.types();
+    const byIncome = all.filter((t) => incomeAuto(t, period));
+    const types = all.filter((t) => t.method === 'PAYROLL_PERCENT' && t.active && t.rate && !byIncome.includes(t));
     const base = types.length ? await this.payrollBase(period) : new Map();
-    const want: { categoryCode: string; regionCode: number; departmentId: string | null; amount: bigint; base: bigint; name: string; rate: number }[] = [];
+    const income = byIncome.length ? await this.incomeBase(period) : new Map<string, { regionCode: number; base: bigint }>();
+    const want: { categoryCode: string; regionCode: number; departmentId: string | null; amount: bigint; base: bigint; name: string; rate: number; from: 'payroll' | 'income' }[] = [];
     for (const t of types) {
       const bp = BigInt(Math.round(t.rate! * 100));
       for (const u of base.values()) {
         const amount = (u.base * bp + 5000n) / 10000n;
-        if (amount > 0n) want.push({ categoryCode: taxCategory(t.code), regionCode: u.regionCode, departmentId: u.departmentId, amount, base: u.base, name: t.name, rate: t.rate! });
+        if (amount > 0n) want.push({ categoryCode: taxCategory(t.code), regionCode: u.regionCode, departmentId: u.departmentId, amount, base: u.base, name: t.name, rate: t.rate!, from: 'payroll' });
+      }
+    }
+    for (const t of byIncome) {
+      const bp = BigInt(Math.round(t.incomeRate! * 100));
+      for (const u of income.values()) {
+        const amount = (u.base * bp + 5000n) / 10000n;
+        if (amount > 0n) want.push({ categoryCode: taxCategory(t.code), regionCode: u.regionCode, departmentId: null, amount, base: u.base, name: t.name, rate: t.incomeRate!, from: 'income' });
+      }
+    }
+    // Daromaddan hisoblanadigan oyda shu turning qo'lda yozuvlari ikki marta sanalmasin — savatga
+    if (byIncome.length) {
+      const cats = byIncome.map((t) => taxCategory(t.code));
+      const manual = await this.prisma.expense.findMany({ where: { period, source: 'TAX', documentNo: MANUAL_TAG, deletedAt: null, categoryCode: { in: cats } }, select: { id: true } });
+      if (manual.length) {
+        await this.prisma.expense.updateMany({ where: { id: { in: manual.map((x) => x.id) } }, data: { deletedAt: new Date() } });
+        this.logger.log(`Soliqlar ${period}: daromaddan hisoblanadigan turlarning ${manual.length} ta qo'lda yozuvi savatga o'tkazildi`);
       }
     }
     const have = await this.prisma.expense.findMany({
@@ -291,7 +387,7 @@ export class TaxesService implements OnApplicationBootstrap {
                 categoryCode: w.categoryCode,
                 regionCode: w.regionCode,
                 departmentId: w.departmentId,
-                description: `${w.name} ${String(w.rate).replace('.', ',')}% — ${w.regionCode === CENTRAL ? `Markaz${w.departmentId ? `: ${dn.get(w.departmentId) ?? "bo'lim"}` : ''}` : (rn.get(w.regionCode) ?? `Hudud ${w.regionCode}`)} ish haqi fondidan (${(Number(w.base) / 100).toLocaleString('ru-RU')} so'm)`.slice(0, 500),
+                description: `${w.name} ${String(w.rate).replace('.', ',')}% — ${w.regionCode === CENTRAL ? `Markaz${w.departmentId ? `: ${dn.get(w.departmentId) ?? "bo'lim"}` : ''}` : (rn.get(w.regionCode) ?? `Hudud ${w.regionCode}`)} ${w.from === 'income' ? 'daromadidan' : 'ish haqi fondidan'} (${(Number(w.base) / 100).toLocaleString('ru-RU')} so'm)`.slice(0, 500),
                 documentNo: AUTO_TAG,
                 paymentMethod: 'BANK' as const,
                 paymentStatus: 'PAID' as const,
@@ -315,7 +411,8 @@ export class TaxesService implements OnApplicationBootstrap {
         this.prisma.payrollBatch.findMany({ where: { status: 'COMMITTED' }, select: { period: true }, distinct: ['period'] }),
         this.prisma.expense.findMany({ where: { source: 'TAX', documentNo: AUTO_TAG, deletedAt: null }, select: { period: true }, distinct: ['period'] }),
       ]);
-      const periods = [...new Set([...batches.map((b) => b.period), ...autos.map((a) => a.period)])].sort();
+      const incomeMonths = (await this.types()).flatMap((t) => (t.incomeRate ? (t.incomePeriods ?? []) : []));
+      const periods = [...new Set([...batches.map((b) => b.period), ...autos.map((a) => a.period), ...incomeMonths])].sort();
       for (const p of periods) await this.syncPeriod(p);
       return { periods: periods.length };
     })();
@@ -341,6 +438,7 @@ export class TaxesService implements OnApplicationBootstrap {
       select: { period: true, categoryCode: true, regionCode: true, departmentId: true, amountTiyin: true, documentNo: true, source: true },
     });
     const base = await this.payrollBase(period);
+    const income = types.some((t) => incomeAuto(t, period)) ? await this.incomeBase(period) : new Map<string, { regionCode: number; base: bigint }>();
     const cells: Record<string, Record<string, TaxCell>> = {};
     const trend: Record<string, string[]> = {};
     const byType = new Map<string, { cur: bigint; prev: bigint }>();
@@ -371,7 +469,15 @@ export class TaxesService implements OnApplicationBootstrap {
       c.amountTiyin = (BigInt(c.amountTiyin) + r.amountTiyin).toString();
       byUnit[key] = c;
     }
-    for (const t of types.filter((x) => x.method === 'PAYROLL_PERCENT')) {
+    for (const t of types.filter((x) => incomeAuto(x, period))) {
+      const byUnit = (cells[t.code] ??= {});
+      for (const [key, u] of income) {
+        const c = byUnit[key] ?? { amountTiyin: '0' };
+        c.baseTiyin = (BigInt(c.baseTiyin ?? '0') + u.base).toString();
+        byUnit[key] = c;
+      }
+    }
+    for (const t of types.filter((x) => x.method === 'PAYROLL_PERCENT' && !incomeAuto(x, period))) {
       const byUnit = (cells[t.code] ??= {});
       for (const u of base.values()) {
         const key = u.regionCode === CENTRAL ? 'center' : `r:${u.regionCode}`;
@@ -391,7 +497,7 @@ export class TaxesService implements OnApplicationBootstrap {
     }
     return {
       period,
-      types: types.map((t) => ({ ...t, categoryCode: taxCategory(t.code), totalTiyin: (byType.get(t.code)?.cur ?? 0n).toString(), previousTiyin: (byType.get(t.code)?.prev ?? 0n).toString() })),
+      types: types.map((t) => ({ ...t, categoryCode: taxCategory(t.code), totalTiyin: (byType.get(t.code)?.cur ?? 0n).toString(), previousTiyin: (byType.get(t.code)?.prev ?? 0n).toString(), incomeAuto: incomeAuto(t, period) })),
       units,
       cells,
       totals: {
@@ -401,6 +507,7 @@ export class TaxesService implements OnApplicationBootstrap {
         manualTiyin: manual.toString(),
         centerTiyin: center.toString(),
         payrollTiyin: [...base.values()].reduce((s, u) => s + u.base, 0n).toString(),
+        incomeTiyin: [...income.values()].reduce((s, u) => s + u.base, 0n).toString(),
       },
       months,
       trend,
@@ -421,6 +528,7 @@ export class TaxesService implements OnApplicationBootstrap {
       const t = byCode.get(String(c?.type ?? ''));
       if (!t) throw new BadRequestException(`${i + 1}: soliq turi topilmadi`);
       if (t.method !== 'MANUAL') throw new BadRequestException(`${t.name} — ish haqidan avtomatik hisoblanadi, qo'lda kiritilmaydi`);
+      if (incomeAuto(t, period)) throw new BadRequestException(`${t.name} — ${period} da daromaddan ${t.incomeRate}% avtomatik hisoblanadi, qo'lda kiritilmaydi`);
       const u = unitBy.get(String(c?.unit ?? ''));
       if (!u) throw new BadRequestException(`${i + 1}: hudud topilmadi`);
       const amount = parseTiyin(c.amountTiyin);
@@ -475,7 +583,7 @@ export class TaxesService implements OnApplicationBootstrap {
     const prev = await this.month(shift(period, -1));
     const cur = await this.month(period);
     const cells: CellInput[] = [];
-    for (const t of prev.types.filter((x) => x.method === 'MANUAL' && x.active)) {
+    for (const t of prev.types.filter((x) => x.method === 'MANUAL' && x.active && !incomeAuto(x, period))) {
       for (const [unit, c] of Object.entries(prev.cells[t.code] ?? {})) {
         if (BigInt(c.amountTiyin) <= 0n || BigInt(cur.cells[t.code]?.[unit]?.amountTiyin ?? '0') > 0n) continue;
         if (!cur.units.some((u) => u.key === unit)) continue;
@@ -491,7 +599,7 @@ export class TaxesService implements OnApplicationBootstrap {
   async template(periodInput: unknown): Promise<{ buffer: Buffer; filename: string }> {
     const period = assertPeriod(periodInput);
     const m = await this.month(period);
-    const manual = m.types.filter((t) => t.method === 'MANUAL' && t.active);
+    const manual = m.types.filter((t) => t.method === 'MANUAL' && t.active && !t.incomeAuto);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Soliqlar', { views: [{ state: 'frozen', ySplit: 2, xSplit: 1 }] });
     ws.getCell(1, 1).value = `Soliqlar · ${period} · so'mda (kod: ${manual.map((t) => t.code).join(', ')})`;
@@ -531,7 +639,7 @@ export class TaxesService implements OnApplicationBootstrap {
     }
     const ws = wb.worksheets[0];
     if (!ws) throw new BadRequestException("Faylda varaq yo'q");
-    const types = (await this.types()).filter((t) => t.method === 'MANUAL');
+    const types = (await this.types()).filter((t) => t.method === 'MANUAL' && !incomeAuto(t, period));
     const units = await this.units();
     const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[ʼ‘’`']/g, '').replace(/\s+/g, ' ').trim();
     const text = (v: ExcelJS.CellValue): string => (v && typeof v === 'object' ? ('result' in v ? String(v.result ?? '') : 'richText' in v ? v.richText.map((p) => p.text).join('') : 'text' in v ? String(v.text) : '') : String(v ?? ''));

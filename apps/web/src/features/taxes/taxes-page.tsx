@@ -92,6 +92,7 @@ function TypesEditor({ isAdmin, onSaved }: { isAdmin: boolean; onSaved: (msg: st
                 <th className="px-5 py-2">Nomi</th>
                 <th className="px-3 py-2">Qanday hisoblanadi</th>
                 <th className="px-3 py-2">Foiz</th>
+                <th className="px-3 py-2" title="Belgilangan oylarda summa = Markaz va har hudud daromadi × foiz (qo'lda kiritilmaydi)">Daromaddan % (oylar)</th>
                 <th className="px-3 py-2">Markaz hisobidan</th>
                 <th className="px-3 py-2">Faol</th>
                 <th className="px-3 py-2" />
@@ -131,6 +132,30 @@ function TypesEditor({ isAdmin, onSaved }: { isAdmin: boolean; onSaved: (msg: st
                           onChange={(e) => set(i, { rate: e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) })}
                         />
                         %
+                      </span>
+                    ) : (
+                      <span className="text-(--color-text-faint)">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    {t.method !== 'PAYROLL_PERCENT' ? (
+                      <span className="inline-flex items-center gap-1">
+                        <input
+                          className="w-14 rounded-md border border-(--color-line) px-2 py-1.5 text-right text-sm tabular-nums"
+                          value={t.incomeRate ?? ''}
+                          placeholder="—"
+                          disabled={!isAdmin}
+                          onChange={(e) => set(i, { incomeRate: e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) })}
+                        />
+                        %
+                        <input
+                          className="w-36 rounded-md border border-(--color-line) px-2 py-1.5 text-sm tabular-nums"
+                          value={(t.incomePeriods ?? []).join(', ')}
+                          placeholder="2026-04, 2026-05"
+                          title="Qaysi oylar uchun (YYYY-MM, vergul bilan)"
+                          disabled={!isAdmin}
+                          onChange={(e) => set(i, { incomePeriods: e.target.value.split(/[,\s]+/).filter(Boolean) })}
+                        />
                       </span>
                     ) : (
                       <span className="text-(--color-text-faint)">—</span>
@@ -262,8 +287,12 @@ export function TaxesPage() {
                 tone="text-(--color-expense)"
                 sub={prev ? `o'tgan oy ${compact(prev)} · ${total >= prev ? '+' : ''}${pct(prev ? ((total - prev) / prev) * 100 : null)}` : "o'tgan oy yo'q"}
               />
-              <Kpi label="Ish haqidan (avtomatik)" value={compact(t!.autoTiyin)} sub={m.hasPayroll ? `ish haqi fondi ${compact(t!.payrollTiyin)}` : "bu oy vedomost yuklanmagan"} />
-              <Kpi label="Qo'lda / Excel" value={compact(t!.manualTiyin)} sub={`${m.types.filter((x) => x.method === 'MANUAL' && x.active).length} ta soliq turi`} />
+              <Kpi
+                label="Avtomatik"
+                value={compact(t!.autoTiyin)}
+                sub={[m.hasPayroll ? `ish haqi fondi ${compact(t!.payrollTiyin)}` : 'vedomost yuklanmagan', m.types.some((x) => x.incomeAuto) ? `daromad ${compact(t!.incomeTiyin ?? '0')}` : null].filter(Boolean).join(' · ')}
+              />
+              <Kpi label="Qo'lda / Excel" value={compact(t!.manualTiyin)} sub={`${m.types.filter((x) => x.method === 'MANUAL' && x.active && !x.incomeAuto).length} ta soliq turi`} />
               <Kpi label="Markaz hisobidan" value={compact(t!.centerTiyin)} sub="Markazda yozilgan va «Markaz hisobidan» turlar" />
             </div>
 
@@ -306,7 +335,13 @@ export function TaxesPage() {
               <div className="flex flex-wrap items-center gap-2 border-b border-(--color-line) px-5 py-3">
                 <div className="mr-auto">
                   <p className="text-sm font-semibold text-heading">{formatPeriod(period)}: Markaz va hududlar</p>
-                  <p className="text-xs text-(--color-text-muted)">Kataklarga so&apos;mda yozing, keyin «Saqlash». Kulrang — ish haqidan avtomatik (o&apos;zgartirilmaydi).</p>
+                  <p className="text-xs text-(--color-text-muted)">
+                    Kataklarga so&apos;mda yozing, keyin «Saqlash». Kulrang — avtomatik (ish haqidan yoki shu oy daromadidan), o&apos;zgartirilmaydi.
+                    {m.types
+                      .filter((x) => x.incomeAuto)
+                      .map((x) => ` ${x.name}: Markaz va har hudud daromadining ${String(x.incomeRate).replace('.', ',')}%.`)
+                      .join('')}
+                  </p>
                 </div>
                 <label className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
                   <input type="checkbox" className="size-3.5" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> nofaol turlar
@@ -336,7 +371,7 @@ export function TaxesPage() {
                         <th key={x.code} className="min-w-32 px-2 py-2 text-right normal-case tracking-normal">
                           <span className="block text-xs font-semibold text-heading">{x.name}</span>
                           <span className="block text-[10px] font-normal">
-                            {x.method === 'PAYROLL_PERCENT' ? `ish haqidan ${String(x.rate ?? '').replace('.', ',')}%` : "qo'lda"}
+                            {x.incomeAuto ? `daromaddan ${String(x.incomeRate ?? '').replace('.', ',')}% (shu oy)` : x.method === 'PAYROLL_PERCENT' ? `ish haqidan ${String(x.rate ?? '').replace('.', ',')}%` : "qo'lda"}
                             {x.center ? ' · Markaz hisobidan' : ''}
                             {!x.active ? ' · nofaol' : ''}
                           </span>
@@ -353,10 +388,17 @@ export function TaxesPage() {
                           <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-5 py-1.5 text-heading">{u.name}</td>
                           {types.map((x) => {
                             const k = `${x.code}|${u.key}`;
-                            if (x.method === 'PAYROLL_PERCENT') {
+                            if (x.method === 'PAYROLL_PERCENT' || x.incomeAuto) {
                               const c = m.cells[x.code]?.[u.key];
+                              const tip = x.incomeAuto
+                                ? c?.baseTiyin
+                                  ? `Daromad ${compact(c.baseTiyin)} × ${x.incomeRate}%`
+                                  : "Bu oy daromad yo'q"
+                                : c?.baseTiyin
+                                  ? `Ish haqi fondi ${compact(c.baseTiyin)} × ${x.rate}%`
+                                  : "Ish haqi yo'q";
                               return (
-                                <td key={k} className="min-w-28 whitespace-nowrap bg-(--color-surface-muted)/60 px-3 py-1.5 text-right tabular-nums text-(--color-text-muted)" title={c?.baseTiyin ? `Ish haqi fondi ${compact(c.baseTiyin)} × ${x.rate}%` : "Ish haqi yo'q"}>
+                                <td key={k} className="min-w-28 whitespace-nowrap bg-(--color-surface-muted)/60 px-3 py-1.5 text-right tabular-nums text-(--color-text-muted)" title={tip}>
                                   {c && BigInt(c.amountTiyin) > 0n ? compact(c.amountTiyin) : '—'}
                                 </td>
                               );

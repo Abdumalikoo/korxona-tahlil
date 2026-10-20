@@ -13,6 +13,9 @@ export interface TaxType {
   center: boolean;
   active: boolean;
   order: number;
+  /** Daromaddan foiz — faqat incomePeriods oylarida (masalan QQS 2026-04: 12%) */
+  incomeRate?: number | null;
+  incomePeriods?: string[];
 }
 
 export interface TaxUnit {
@@ -29,10 +32,10 @@ export interface TaxCell {
 
 export interface TaxMonth {
   period: string;
-  types: (TaxType & { categoryCode: string; totalTiyin: string; previousTiyin: string })[];
+  types: (TaxType & { categoryCode: string; totalTiyin: string; previousTiyin: string; incomeAuto?: boolean })[];
   units: TaxUnit[];
   cells: Record<string, Record<string, TaxCell>>;
-  totals: { totalTiyin: string; previousTiyin: string; autoTiyin: string; manualTiyin: string; centerTiyin: string; payrollTiyin: string };
+  totals: { totalTiyin: string; previousTiyin: string; autoTiyin: string; manualTiyin: string; centerTiyin: string; payrollTiyin: string; incomeTiyin?: string };
   months: string[];
   trend: Record<string, string[]>;
   hasPayroll: boolean;
