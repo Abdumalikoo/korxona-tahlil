@@ -42,7 +42,7 @@ export const INTROS: Record<string, PageIntro> = {
     from: `${BOTH_SRC}, Xodimlar bo'limi`,
     how: "Viloyatni bosing — tumanlar, tumanni bosing — xizmatlar va xodimlar ochiladi. Markaz — yuqoridagi «Markaz» yorlig'ida.",
   },
-  '/solishtirma/umumiy': {
+  '/tahlil/korxona': {
     what: "Butun korxona bitta ekranda: Markaz va barcha hududlar bir jadvalda — daromad, xarajat tarkibi, natija, rentabellik va Markazni qoplash.",
     from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
     how: "Yuqorida korxona jami (Hududlar | Markaz bo'yicha), so'ng natija ko'prigi va jadval. Qatorni bosing — o'sha hudud yoki Markaz sahifasi ochiladi.",

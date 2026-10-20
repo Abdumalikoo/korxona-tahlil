@@ -20,14 +20,14 @@ import { centerCover } from './center-cover';
 import { Bridge, EXPENSE_BAR } from './regions-charts';
 
 // ═══════════════════════════════════════════════════════════
-// Solishtirma › Umumiy manba — butun korxona bitta ekranda:
+// Bosh sahifa › Umumiy (Daromad · Xarajat · Tahlil yonida) — butun korxona bitta ekranda:
 // Markaz va barcha hududlar bir jadvalda, bir xil ustunlar bilan.
 //   1) Korxona jami: daromad, xarajat, natija — har biri Hududlar | Markaz bo'yicha bo'lingan
 //   2) Natija qanday shakllanadi: hududlar foydasi → Markaz → korxona natijasi
 //   3) Umumiy jadval: har bir birlik — daromad, xarajat tarkibi (ish haqi, ijara, mashinalar,
 //      asosiy vositalar, hududlar uchun, boshqa), natija, rentabellik, o'zgarish, xodimlar, 12 oy
 //   4) Ulushlar va 12 oylik dinamika
-// Qatorni bosish — o'sha hudud (Solishtirma › Hududlar) yoki Markaz sahifasiga o'tadi.
+// Qatorni bosish — o'sha hudud (Solishtirma › Hududlar) yoki Markaz (Solishtirma › Markaz) sahifasiga o'tadi.
 // ═══════════════════════════════════════════════════════════
 
 /** Markaz rangi — butun sahifada bir xil */
@@ -121,7 +121,7 @@ export function OverallView({ range }: { range: DateRange }) {
   return (
     <div className="space-y-4">
       <PanelHeader
-        title="Umumiy manba: Markaz va hududlar birga"
+        title="Umumiy: Markaz va hududlar birga"
         description={
           data
             ? `${formatDate(data.range.from)} — ${formatDate(data.range.to)} · solishtirish: ${data.compareLabel} (${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)})`
