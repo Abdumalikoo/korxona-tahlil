@@ -47,6 +47,11 @@ export const INTROS: Record<string, PageIntro> = {
     from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
     how: "Yuqorida korxona jami (Hududlar | Markaz bo'yicha), so'ng natija ko'prigi va jadval. Qatorni bosing — o'sha hudud yoki Markaz sahifasi ochiladi.",
   },
+  '/xarajatlar/internet': {
+    what: "Internet to'lovlari: qaysi shartnomaga qancha to'lanmoqda, kimga va qayerga (Markaz, Markaz bo'limi yoki hudud) biriktiriladi.",
+    from: "Bank ro'yxati (har oy: summa | shartnoma ustunlari) yoki Internet shabloni",
+    how: "Faylni yuklang — shartnoma raqami to'lov izohidan o'zi olinadi; har shartnomaga provayder, izoh va biriktirishni tanlab «Xarajat sifatida saqlash».",
+  },
   '/solishtirma/ozgarishlar': {
     what: "Xodimlar o'zgarishi: bu oy nechta xodimga oylik hisoblandi (hududlar va Markaz), o'tgan oyga nisbatan kim ishga olindi, bo'shadi, ishlamadi yoki ko'chdi.",
     from: "Ish haqi vedomostlari, Xodimlar reestri (ishga kirgan va bo'shagan sana), natijalar faylidagi hudud tarixi",

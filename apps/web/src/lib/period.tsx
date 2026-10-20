@@ -166,7 +166,7 @@ const PERIOD_PATHS: { path: string; mode: PeriodMode; exact?: boolean; except?: 
   { path: '/xodimlar', mode: 'range' },
   // Manba: ro'yxatlar, yuklashlar va oy bo'yicha hisobotlar
   { path: '/daromadlar', mode: 'month' },
-  { path: '/xarajatlar', mode: 'month', except: ['/xarajatlar/yangi'] },
+  { path: '/xarajatlar', mode: 'month', except: ['/xarajatlar/yangi', '/xarajatlar/internet'] },
   // Ombor: umumiy ko'rinish va hujjatlar — davr bo'yicha; qoldiq va asosiy vositalar — bugungi holat
   { path: '/ombor', mode: 'range', exact: true },
   { path: '/ombor/hujjatlar', mode: 'range' },

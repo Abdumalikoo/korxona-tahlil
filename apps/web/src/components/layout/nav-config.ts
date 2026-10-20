@@ -110,6 +110,7 @@ export const MENU: NavItem[] = [
       { label: 'Ish haqi', href: '/xarajatlar/ish-haqi', description: 'Ish haqi vedomostlari' },
       { label: 'Ish haqi tarkibi', href: '/xarajatlar/tarkib', description: "Ish haqi komponentlar bo'yicha" },
       { label: 'Ijara', href: '/xarajatlar/ijara', description: "Ijara shartnomalari va to'lovlar" },
+      { label: 'Internet', href: '/xarajatlar/internet', description: "Internet shartnomalari: kimga to'lanadi, qayerga biriktiriladi, oylik to'lovlar" },
       { label: 'Tahlil', href: '/xarajatlar/tahlil', description: 'Xarajat dinamikasi va tarkibi' },
       { label: 'Soliqlar', href: '/xarajatlar/soliqlar', description: "Hamma soliqlar: hudud va Markaz bo'yicha, ish haqidan foizlilar avtomatik" },
       { label: 'Asosiy vositalar', href: '/xarajatlar/asosiy-vositalar', description: "Balansdagi vositalar va oylik sarfi (eskirish)" },
