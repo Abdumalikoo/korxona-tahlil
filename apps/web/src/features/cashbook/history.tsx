@@ -1,7 +1,7 @@
 'use client';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { Button } from '@/components/ui/button';
+import { buttonClass } from '@/components/ui/button';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/error-message';
@@ -136,8 +136,8 @@ export function CashHistory({ base = '/buxgalteriya/kunlik', embedded = false }:
         title="Tarix"
         description="Saqlangan kunlik ma'lumotnomalar · ming so'mda"
         actions={
-          <Link href={`${base}?sana=${todayInput()}`}>
-            <Button>Bugungi kun</Button>
+          <Link href={`${base}?sana=${todayInput()}`} className={buttonClass()}>
+            Bugungi kun
           </Link>
         }
       />

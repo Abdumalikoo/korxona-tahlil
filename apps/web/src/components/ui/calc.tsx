@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { calcToLines, qFull, type Calc } from '@/lib/calc';
 import { cn } from '@/lib/utils';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 // ═══════════════════════════════════════════════════════════
@@ -148,28 +148,46 @@ function useCalcPopover() {
   return { anchor, close, toggle };
 }
 
+/**
+ * Bosiladigan belgi — <button> emas, <span role="button">: qiymat ko'pincha bosiladigan qator
+ * (<button>) ichida turadi, <button> ichida <button> esa HTMLda mumkin emas (hydration xatosi).
+ * Klaviatura: Tab bilan keladi, Enter / Probel bilan ochiladi.
+ */
+function triggerProps(toggle: (el: HTMLElement) => void) {
+  return {
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: (e: ReactMouseEvent<HTMLElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggle(e.currentTarget);
+    },
+    onKeyDown: (e: ReactKeyboardEvent<HTMLElement>) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggle(e.currentTarget);
+    },
+  };
+}
+
 /** Raqamning o'zi bosiladi: nuqtali tagchiziq, ustiga kelganda ko'k */
 export function CalcValue({ calc, children, className }: { calc: Calc | null | undefined; children: ReactNode; className?: string }) {
   const { anchor, close, toggle } = useCalcPopover();
   if (!calc) return <>{children}</>;
   return (
     <>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          toggle(e.currentTarget);
-        }}
+      <span
+        {...triggerProps(toggle)}
         title="Qanday hisoblandi? — bosing"
         className={cn(
-          'cursor-help rounded-sm text-inherit underline decoration-current/35 decoration-dotted underline-offset-[3px] transition-colors hover:bg-brand-50 hover:decoration-brand-500',
+          'cursor-help rounded-sm text-inherit underline outline-none focus-visible:ring-2 focus-visible:ring-brand-400 decoration-current/35 decoration-dotted underline-offset-[3px] transition-colors hover:bg-brand-50 hover:decoration-brand-500',
           anchor && 'bg-brand-50 decoration-brand-500',
           className,
         )}
       >
         {children}
-      </button>
+      </span>
       {anchor && <CalcPanel calc={calc} anchor={anchor} onClose={close} />}
     </>
   );
@@ -181,23 +199,18 @@ export function CalcButton({ calc, className }: { calc: Calc | null | undefined;
   if (!calc) return null;
   return (
     <>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          toggle(e.currentTarget);
-        }}
+      <span
+        {...triggerProps(toggle)}
         title={`Qanday hisoblandi: ${calc.title}`}
         aria-label={`Qanday hisoblandi: ${calc.title}`}
         className={cn(
-          'inline-flex h-5 shrink-0 items-center justify-center rounded-md border px-1.5 font-serif text-[11px] font-semibold italic leading-none transition-colors',
+          'inline-flex h-5 shrink-0 cursor-pointer items-center justify-center rounded-md border px-1.5 outline-none focus-visible:ring-2 focus-visible:ring-brand-400 font-serif text-[11px] font-semibold italic leading-none transition-colors',
           anchor ? 'border-brand-500 bg-brand-600 text-white' : 'border-brand-200 bg-brand-50 text-brand-700 hover:border-brand-400',
           className,
         )}
       >
         ƒx
-      </button>
+      </span>
       {anchor && <CalcPanel calc={calc} anchor={anchor} onClose={close} />}
     </>
   );

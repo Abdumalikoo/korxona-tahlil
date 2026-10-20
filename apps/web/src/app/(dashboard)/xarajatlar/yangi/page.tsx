@@ -20,7 +20,7 @@ import { MoneyInput } from '@/components/shared/money-input';
 import { QuickCategoryDialog } from '@/components/shared/quick-category-dialog';
 import { DuplicateWarning } from '@/features/expenses/duplicate-warning';
 import type { Expense } from '@/lib/types';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
 import { Card, CardBody, CardFooter } from '@/components/ui/card';
 import { IconChevronDown } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
@@ -252,10 +252,8 @@ export default function NewExpensePage() {
         title={section === 'BOSHQA' ? 'Yangi xarajat · Boshqa' : 'Yangi xarajat · Doimiy'}
         description="Yulduzcha bilan belgilangan maydonlar majburiy"
         actions={
-          <Link href={backHref}>
-            <Button variant="ghost" size="sm">
-              Bekor qilish
-            </Button>
+          <Link href={backHref} className={buttonClass('ghost', 'sm')}>
+            Bekor qilish
           </Link>
         }
       />

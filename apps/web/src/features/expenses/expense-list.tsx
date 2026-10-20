@@ -24,7 +24,7 @@ import { SearchInput } from '@/components/shared/search-input';
 import { SimpleImportDialog } from '@/components/shared/simple-import-dialog';
 import { StatCard } from '@/components/shared/stat-card';
 import { Badge, BehaviorBadge, PaymentBadge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { IconArrowRight, IconEdit, IconPlus, IconWallet } from '@/components/ui/icons';
@@ -418,11 +418,9 @@ export function ExpenseList({ section }: { section: SectionValue }) {
               }
               action={
                 !hasFilters && isAdmin ? (
-                  <Link href={newHref}>
-                    <Button size="sm">
-                      <IconPlus className="size-4" />
-                      Yangi xarajat
-                    </Button>
+                  <Link href={newHref} className={buttonClass('primary', 'sm')}>
+                    <IconPlus className="size-4" />
+                    Yangi xarajat
                   </Link>
                 ) : undefined
               }

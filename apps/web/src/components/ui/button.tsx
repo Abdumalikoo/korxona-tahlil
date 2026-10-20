@@ -32,6 +32,12 @@ const sizes: Record<Size, string> = {
   lg: 'h-11 px-5 text-base gap-2',
 };
 
+/** Tugma ko'rinishi — havola (<Link>) uchun: <Link className={buttonClass('primary', 'sm')}>.
+ *  <Link> ichiga <Button> qo'yib bo'lmaydi (<a> ichida <button> — HTMLda noto'g'ri). */
+export function buttonClass(variant: Variant = 'primary', size: Size = 'md', className?: string): string {
+  return cn('inline-flex items-center justify-center whitespace-nowrap rounded-(--radius-control) font-medium transition-colors duration-150', variants[variant], sizes[size], className);
+}
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
     variant = 'primary',
