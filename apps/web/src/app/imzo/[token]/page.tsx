@@ -23,6 +23,8 @@ interface PublicAct {
   locked: boolean;
   /** Hujjat hali saqlanmagan — omborchi tasdiqdan keyin saqlaydi */
   draft: boolean;
+  /** DOC — hujjat, TEMPLATE — dalolatnoma shablonini tasdiqlash */
+  subject?: 'DOC' | 'TEMPLATE';
   act: ActModel;
 }
 
@@ -121,7 +123,7 @@ export default function SignPage() {
     <main className="min-h-dvh bg-[#f3f5f8] pb-10 text-[#1b2430]">
       <header className="sticky top-0 z-10 border-b border-black/5 bg-white/90 px-4 py-3 backdrop-blur">
         <p className="text-[11px] font-semibold tracking-wide text-[#5b6b7f] uppercase">Korxona tahlil · Ombor</p>
-        <h1 className="text-base font-semibold">{data ? `${data.kindLabel} № ${data.number}` : 'Dalolatnoma'}</h1>
+        <h1 className="text-base font-semibold">{data ? (data.subject === 'TEMPLATE' ? 'Dalolatnoma shablonini tasdiqlash' : `${data.kindLabel} № ${data.number}`) : 'Dalolatnoma'}</h1>
       </header>
 
       <div className="mx-auto max-w-xl space-y-4 px-4 pt-4">
@@ -147,7 +149,11 @@ export default function SignPage() {
                   {data.signedAt ? ` · ${when(data.signedAt)}` : ''}
                 </p>
                 <p className="mt-2 text-xs text-emerald-900/70">
-                  {data.draft
+                  {data.subject === 'TEMPLATE'
+                    ? data.draft
+                      ? "Omborchi saqlagach shablon kuchga kiradi, tasdiqlangan nusxa bazaga va Telegramga yuboriladi."
+                      : 'Shablon saqlandi. Tasdiqlangan nusxa Telegramga yuborildi.'
+                    : data.draft
                     ? "Omborchi hujjatni saqlagach, imzoli nusxa bazaga yoziladi va Telegram botga ulangan bo'lsangiz — sizga ham yuboriladi."
                     : "Imzoli nusxa saqlandi. Telegram botga ulangan bo'lsangiz — nusxa sizga ham yuborildi."}
                 </p>
@@ -159,9 +165,13 @@ export default function SignPage() {
               </Card>
             ) : (
               <Card>
-                <p className="text-sm text-[#5b6b7f]">Imzolovchi</p>
+                <p className="text-sm text-[#5b6b7f]">{data.subject === 'TEMPLATE' ? 'Tasdiqlovchi' : 'Imzolovchi'}</p>
                 <p className="text-lg font-semibold">{data.signerName}</p>
-                <p className="mt-1 text-xs text-[#5b6b7f]">Quyidagi dalolatnomani o&apos;qib chiqing, so&apos;ng pastda tasdiqlang.</p>
+                <p className="mt-1 text-xs text-[#5b6b7f]">
+                  {data.subject === 'TEMPLATE'
+                    ? "Bu — ombor dalolatnomalarining yangi shabloni (namunada misol xodim va vosita). Ko'rib chiqing va pastda tasdiqlang."
+                    : "Quyidagi dalolatnomani o'qib chiqing, so'ng pastda tasdiqlang."}
+                </p>
               </Card>
             )}
 
@@ -269,7 +279,11 @@ export default function SignPage() {
 
                     <label className="flex items-start gap-3 rounded-xl bg-[#f3f5f8] p-3">
                       <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[#2563eb]" />
-                      <span className="text-sm">Dalolatnoma bilan tanishdim, unda ko&apos;rsatilgan mol-mulkni {data.act.kind === 'RETURN' ? 'topshirdim' : 'qabul qildim'} va unga moddiy javobgarligimni tasdiqlayman.</span>
+                      <span className="text-sm">
+                        {data.subject === 'TEMPLATE'
+                          ? "Dalolatnoma shabloni bilan tanishdim va uni tasdiqlayman — ombor dalolatnomalari shu shakl bo'yicha tuziladi."
+                          : `Dalolatnoma bilan tanishdim, unda ko'rsatilgan mol-mulkni ${data.act.kind === 'RETURN' ? 'topshirdim' : 'qabul qildim'} va unga moddiy javobgarligimni tasdiqlayman.`}
+                      </span>
                     </label>
 
                     {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">{error}</p>}

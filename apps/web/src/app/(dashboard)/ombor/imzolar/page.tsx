@@ -8,7 +8,7 @@ import { IconDownload } from '@/components/ui/icons';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { SubTabs } from '@/components/ui/tabs';
 import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
-import { downloadSignedAct, warehouseApi, type SignListItem } from '@/features/warehouse/api';
+import { downloadSignArchive, warehouseApi, type SignListItem } from '@/features/warehouse/api';
 import { DocKindBadge } from '@/features/warehouse/bits';
 import { useWarehouseDialogs } from '@/features/warehouse/use-dialogs';
 import { errorMessage } from '@/lib/error-message';
@@ -43,9 +43,9 @@ export default function WarehouseSignsPage() {
   const tgMissing = signed.filter((r) => r.telegram?.employee !== 'yuborildi' || r.telegram?.archive !== 'yuborildi').length;
 
   const download = async (r: SignListItem) => {
-    setBusy(r.docId);
+    setBusy(r.id);
     try {
-      await downloadSignedAct({ id: r.docId, number: r.number });
+      await downloadSignArchive(r.id, r.docId ? `${r.number} - dalolatnoma (imzolangan).docx` : `Dalolatnoma shabloni - tasdiqlangan ${r.date}.docx`);
     } catch (e) {
       w.notify(errorMessage(e, "Imzoli nusxani yuklab bo'lmadi"), 'error');
     } finally {
@@ -114,11 +114,11 @@ export default function WarehouseSignsPage() {
               </THead>
               <TBody>
                 {rows.map((r) => (
-                  <Tr key={r.docId} clickable onClick={() => w.openDoc(r.docId, 'act')}>
+                  <Tr key={r.id} clickable onClick={() => (r.docId ? w.openDoc(r.docId, 'act') : void download(r))}>
                     <Td className="money font-semibold text-brand-700">{r.number}</Td>
                     <Td>{formatDate(r.date)}</Td>
                     <Td>
-                      <DocKindBadge kind={r.kind} />
+                      {r.kind === 'TEMPLATE' ? <Badge tone="brand">Shablon tasdig&apos;i</Badge> : <DocKindBadge kind={r.kind} />}
                     </Td>
                     <Td className="font-medium text-heading">
                       {r.signerName}
@@ -138,7 +138,7 @@ export default function WarehouseSignsPage() {
                         <button
                           type="button"
                           title="Imzolangan nusxa (Word)"
-                          disabled={busy === r.docId}
+                          disabled={busy === r.id}
                           onClick={(e) => {
                             e.stopPropagation();
                             void download(r);

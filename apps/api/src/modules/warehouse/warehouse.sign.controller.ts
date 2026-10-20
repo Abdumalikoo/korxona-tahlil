@@ -48,6 +48,27 @@ export class WarehouseSignController {
     return { data: await this.signs.commitDraft(id, userId) };
   }
 
+  /** Imzoli nusxa (Word) — tasdiq raqami bo'yicha (shablon tasdig'i ham) */
+  @Get('sign-drafts/:id/archive')
+  async draftArchive(@Param('id') id: string, @Res() response: Response) {
+    this.send(response, await this.signs.archiveById(id));
+  }
+
+  // ── Dalolatnoma shablonini rahbar tasdiqlashi: «Tasdiqlash» → QR → rahbar imzosi → «Saqlash» ──
+
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('act-template/approval')
+  @HttpCode(HttpStatus.OK)
+  async templateDraft(@Body() body: { template?: unknown; signerPinfl?: string | null; origin?: string }, @CurrentUser('id') userId: string) {
+    return { data: await this.signs.createTemplateDraft(body?.template, body?.signerPinfl, body?.origin, userId) };
+  }
+
+  /** Shablonning oxirgi tasdig'i: kim, qachon */
+  @Get('act-template/approval')
+  async templateApproval() {
+    return { data: await this.signs.lastTemplateApproval() };
+  }
+
   // ── Saqlangan hujjatni keyin imzolatish ──
 
   @Get('docs/:id/sign')
@@ -81,7 +102,10 @@ export class WarehouseSignController {
   /** Imzolangan nusxa (Word) */
   @Get('docs/:id/sign/archive')
   async archive(@Param('id') id: string, @Res() response: Response) {
-    const file = await this.signs.archiveFile(id);
+    this.send(response, await this.signs.archiveFile(id));
+  }
+
+  private send(response: Response, file: { buffer: Buffer; filename: string }) {
     response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     response.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.filename)}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
     response.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');

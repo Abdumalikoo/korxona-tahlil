@@ -13,11 +13,19 @@ export function ActPaper({ m, className }: { m: ActModel; className?: string }) 
   return (
     <div className={cn('mx-auto max-w-[640px] bg-white px-8 py-7 font-serif text-[13px] leading-snug text-black shadow-card ring-1 ring-black/5', className)}>
       <div className="ml-auto w-[48%]">
-        {m.approve.map((line, i) => (
-          <p key={i} className={cn(i === 0 && m.approveBold && 'font-bold')}>
-            {line}
-          </p>
-        ))}
+        {m.approve.map((line, i) =>
+          m.sign?.status === 'SIGNED' && m.sign.approveLine === i && (m.sign.signature || m.sign.photo) ? (
+            <p key={i} className="flex items-end gap-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={(m.sign.signature || m.sign.photo)!} alt="tasdiq" className={m.sign.signature ? '-mb-1 h-10 w-auto max-w-[8rem] object-contain' : 'size-10 rounded-md object-cover ring-1 ring-emerald-300'} />
+              <span>{line.replace(/^_+/, '')}</span>
+            </p>
+          ) : (
+            <p key={i} className={cn(i === 0 && m.approveBold && 'font-bold')}>
+              {line}
+            </p>
+          ),
+        )}
       </div>
       {m.title && <p className="mt-4 text-center font-bold">{m.title}</p>}
       {m.title2 && <p className="text-center font-bold">{m.title2}</p>}

@@ -9,11 +9,13 @@ import { SubTabs } from '@/components/ui/tabs';
 import { Toast } from '@/components/ui/toast';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
+import { formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EmployeePick } from './act-paper';
-import { downloadActSample, warehouseApi, type ActKindTexts, type ActRegionOverride, type ActTemplate, type DocKind, type EmployeeOption, type SignerT } from './api';
+import { TemplateApproveDialog } from './template-approve';
+import { downloadActSample, downloadSignArchive, warehouseApi, type ActKindTexts, type ActRegionOverride, type ActTemplate, type DocKind, type EmployeeOption, type SignerT } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Ombor › Dalolatnoma shabloni — ikki rejim:
@@ -446,6 +448,9 @@ export function ActTemplateEditor() {
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  /** Tasdiqlash oynasi: saqlanadigan shablon */
+  const [approveTpl, setApproveTpl] = useState<ActTemplate | null>(null);
+  const approval = useAsync(() => warehouseApi.templateApproval(), []);
   /** O'rinbosar qo'yish: oxirgi tahrirlangan maydon */
   const active = useRef<{ el: HTMLTextAreaElement | HTMLInputElement; apply: (v: string) => void } | null>(null);
 
@@ -510,10 +515,10 @@ export function ActTemplateEditor() {
     });
   };
 
-  const save = async () => {
-    setBusy('save');
+  /** «Tasdiqlash»: shablon rahbar tasdiqlagandan keyin saqlanadi (QR → imzo → Saqlash) */
+  const save = () => {
     setErr(null);
-    try {
+    {
       const clean: ActTemplate = {
         ...t,
         kinds: Object.fromEntries(
@@ -521,14 +526,7 @@ export function ActTemplateEditor() {
         ) as ActTemplate['kinds'],
         agreed: t.agreed.filter((a) => a.title.trim() || a.name.trim() || a.pinfl),
       };
-      const r = await warehouseApi.saveActTemplate(clean);
-      setT(r.data);
-      setSaved(JSON.stringify(r.data));
-      setToast('Shablon saqlandi — yangi dalolatnomalar shu bo‘yicha chiqadi');
-    } catch (e) {
-      setErr(errorMessage(e, "Saqlab bo'lmadi"));
-    } finally {
-      setBusy(null);
+      setApproveTpl(clean);
     }
   };
 
@@ -605,9 +603,17 @@ export function ActTemplateEditor() {
       <div className={cn('sticky bottom-3 z-20 order-last flex flex-wrap items-center gap-2 rounded-xl px-4 py-3 shadow-card backdrop-blur', dirty ? 'bg-amber-50/95 ring-1 ring-amber-200' : 'bg-white/95')}>
         <div className="mr-auto min-w-0">
           <p className="text-sm text-(--color-text-muted)">
-            {dirty ? <span className="font-semibold text-(--color-warn)">Saqlanmagan o&apos;zgarishlar bor</span> : "Hamma ombor dalolatnomalari shu shablon bo'yicha chiqadi"}
+            {dirty ? <span className="font-semibold text-(--color-warn)">Saqlanmagan o&apos;zgarishlar bor — rahbar tasdiqlagach saqlanadi</span> : "Hamma ombor dalolatnomalari shu shablon bo'yicha chiqadi"}
             {regionCodes.length > 0 && ` · ${regionCodes.length} ta hudud alohida`}
           </p>
+          {approval.data?.data && (
+            <p className="text-[11px] text-(--color-text-faint)">
+              Oxirgi tasdiq: <span className="font-medium text-emerald-700">{approval.data.data.signerName}</span> · {formatDateTime(approval.data.data.savedAt)} · {approval.data.data.method === 'PHOTO' ? 'yuz surati' : 'imzo'} ·{' '}
+              <button type="button" className="font-semibold text-brand-700 hover:underline" onClick={() => void downloadSignArchive(approval.data!.data!.id, 'Dalolatnoma shabloni - tasdiqlangan.docx').catch((e) => setErr(errorMessage(e)))}>
+                Word
+              </button>
+            </p>
+          )}
         </div>
         {editable && (
           <>
@@ -617,8 +623,8 @@ export function ActTemplateEditor() {
             <Button variant="secondary" size="sm" disabled={!dirty} onClick={() => setT(JSON.parse(saved) as ActTemplate)}>
               Bekor qilish
             </Button>
-            <Button size="sm" loading={busy === 'save'} disabled={!dirty} onClick={save}>
-              Saqlash
+            <Button size="sm" disabled={!dirty} onClick={save} title="Rahbar QR kod orqali tasdiqlagach saqlanadi">
+              Tasdiqlash (QR kod)
             </Button>
           </>
         )}
@@ -862,6 +868,17 @@ export function ActTemplateEditor() {
           setSaved(JSON.stringify(r.data));
           setConfirmReset(false);
           setToast('Standart shablon tiklandi');
+        }}
+      />
+      <TemplateApproveDialog
+        template={approveTpl}
+        onClose={() => setApproveTpl(null)}
+        onSaved={(nt) => {
+          setT(nt);
+          setSaved(JSON.stringify(nt));
+          setApproveTpl(null);
+          approval.reload();
+          setToast('Shablon tasdiqlandi va saqlandi — nusxasi Telegramga yuborildi');
         }}
       />
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}

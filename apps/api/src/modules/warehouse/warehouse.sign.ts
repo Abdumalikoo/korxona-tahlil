@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { esc, TelegramService } from '../telegram/telegram.service';
 import { WarehouseActs } from './warehouse.acts';
 import { WarehouseService } from './warehouse.service';
-import { personName, WarehouseTemplates } from './warehouse.template';
+import { personName, pinflOf, sanitizeTemplate, WarehouseTemplates, type ActTemplate } from './warehouse.template';
 import type { ActModel, ActSignInfo, DocInput, DocView } from './warehouse.types';
 
 // ═══════════════════════════════════════════════════════════
@@ -71,6 +71,23 @@ export interface NoSignNeeded {
   reason: string;
 }
 
+export interface SignListItem {
+  /** Tasdiq raqami (imzoli nusxani yuklash uchun) */
+  id: string;
+  /** Hujjat (shablon tasdig'ida — null) */
+  docId: string | null;
+  number: string;
+  kind: string;
+  kindLabel: string;
+  date: string;
+  signerName: string;
+  status: string;
+  method: string | null;
+  createdAt: string;
+  signedAt: string | null;
+  telegram: SignStatus['telegram'];
+}
+
 export interface PublicAct {
   status: 'PENDING' | 'SIGNED' | 'CANCELLED';
   number: string;
@@ -82,6 +99,8 @@ export interface PublicAct {
   locked: boolean;
   /** Hujjat hali saqlanmagan (imzodan keyin omborchi saqlaydi) */
   draft: boolean;
+  /** DOC — hujjat (xodim qabul qiladi), TEMPLATE — dalolatnoma shablonini rahbar tasdiqlaydi */
+  subject: 'DOC' | 'TEMPLATE';
   act: ActModel;
 }
 
@@ -89,6 +108,14 @@ interface DraftData {
   input: DocInput;
   view: DocView;
 }
+
+/** Shablonni tasdiqlash: saqlanadigan shablon va saqlangan vaqt */
+interface TemplateDraft {
+  template: ActTemplate;
+  savedAt?: string;
+}
+
+const TEMPLATE = 'TEMPLATE';
 
 function isLocal(host: string): boolean {
   return /^(localhost|127\.|0\.0\.0\.0|\[?::1\]?)/i.test(host);
@@ -162,6 +189,12 @@ export class WarehouseSigns {
     return QRCode.toDataURL(url, { margin: 1, width, errorCorrectionLevel: 'M' });
   }
 
+  private templateOf(row: Row): TemplateDraft | null {
+    if (row.kind !== TEMPLATE) return null;
+    const v = row.draft as unknown as TemplateDraft | null;
+    return v && typeof v === 'object' && v.template ? v : null;
+  }
+
   private draftOf(row: Row): DraftData | null {
     const v = row.draft as unknown as DraftData | null;
     return v && typeof v === 'object' && v.view && v.input ? v : null;
@@ -184,6 +217,7 @@ export class WarehouseSigns {
       signature: row.signature ?? null,
       photo: row.photo ?? null,
       method: row.method ?? null,
+      subject: row.kind === TEMPLATE ? 'TEMPLATE' : 'DOC',
     };
   }
 
@@ -229,6 +263,11 @@ export class WarehouseSigns {
   // ═════════════ Saqlashdan oldin: «Tasdiqlash» → QR → imzo → «Saqlash» ═════════════
 
   private async draftDto(row: Row): Promise<SignDraft> {
+    const tdata = this.templateOf(row);
+    if (tdata) {
+      const act = await this.acts.sampleModel('ISSUE', tdata.template, await this.infoOf(row));
+      return { ...(await this.dto(row)), id: row.id, saved: !!tdata.savedAt, expired: this.expired(row), act };
+    }
     const data = this.draftOf(row);
     const tpl = await this.templates.forActs();
     let act: ActModel;
@@ -271,6 +310,80 @@ export class WarehouseSigns {
     return this.draftDto(row);
   }
 
+  // ═════════════ Dalolatnoma shablonini rahbar tasdiqlashi ═════════════
+
+  /**
+   * Shablon «Tasdiqlash»: shablon hali saqlanmaydi — namunasi tayyorlanadi va tasdiqlovchi rahbar uchun QR beriladi.
+   * Tasdiqlovchi — tanlangan xodim yoki shablondagi rahbar (Xodimlar bo'limidan).
+   */
+  async createTemplateDraft(template: unknown, signerPinfl: string | null | undefined, origin: string | null | undefined, userId: string): Promise<SignDraft> {
+    if (!template || typeof template !== 'object') throw new BadRequestException("Shablon noto'g'ri");
+    const clean = sanitizeTemplate(template);
+    const pin = pinflOf(signerPinfl) ?? clean.approverPinfl;
+    if (!pin) throw new BadRequestException("Tasdiqlovchini tanlang — shablonda rahbar Xodimlar bo'limidan tanlanmagan");
+    const emp = await this.prisma.employee.findUnique({ where: { pinfl: pin }, select: { fullName: true } });
+    if (!emp) throw new BadRequestException("Tasdiqlovchi xodim Xodimlar bo'limida topilmadi");
+    await this.prisma.stockDocSign.updateMany({ where: { docId: null, kind: TEMPLATE, createdById: userId, status: 'PENDING' }, data: { status: 'CANCELLED' } });
+    const row = await this.prisma.stockDocSign.create({
+      data: {
+        docId: null,
+        kind: TEMPLATE,
+        token: randomBytes(18).toString('base64url'),
+        status: 'PENDING',
+        draft: { template: clean } as unknown as Prisma.InputJsonValue,
+        signerPinfl: pin,
+        signerName: emp.fullName,
+        baseUrl: publicBase(origin),
+        createdById: userId,
+      },
+    });
+    return this.draftDto(row);
+  }
+
+  /** Imzolangan shablonni saqlash: shablon bazaga, tasdiqlangan namuna (Word) arxivga va Telegram'ga */
+  private async commitTemplate(row: Row, data: TemplateDraft, userId: string): Promise<{ doc: null; template: ActTemplate; sign: SignStatus }> {
+    if (data.savedAt) return { doc: null, template: await this.templates.get(), sign: await this.dto(row) };
+    const lock = await this.prisma.stockDocSign.updateMany({ where: { id: row.id, status: 'SIGNED' }, data: { status: 'SAVING' } });
+    if (lock.count !== 1) throw new ConflictException('Saqlanmoqda — biroz kuting');
+    let template: ActTemplate;
+    try {
+      template = await this.templates.save(data.template, userId);
+    } catch (e) {
+      await this.prisma.stockDocSign.updateMany({ where: { id: row.id, status: 'SAVING' }, data: { status: 'SIGNED' } });
+      throw e;
+    }
+    const savedAt = new Date();
+    const signed = { ...row, status: 'SIGNED' };
+    const file = await this.acts.buildSample('ISSUE', null, template, await this.infoOf(signed));
+    const day = new Date(savedAt.getTime() + 5 * 3600_000).toISOString().slice(0, 10);
+    const archiveName = `Dalolatnoma shabloni - tasdiqlangan ${day}.docx`;
+    await this.prisma.stockDocSign.update({
+      where: { id: row.id },
+      data: { status: 'SIGNED', draft: { template, savedAt: savedAt.toISOString() } as unknown as Prisma.InputJsonValue, archive: new Uint8Array(file.buffer), archiveName },
+    });
+    await this.deliver(row.id, 'Dalolatnoma shabloni', row.signerPinfl, row.signerName, file.buffer, archiveName, row.signedAt ?? savedAt, row.method, 'Shablon tasdiqlandi — yangi dalolatnomalar shu bo‘yicha chiqadi.').catch((e) =>
+      this.log.warn((e as Error).message),
+    );
+    return { doc: null, template, sign: await this.dto((await this.prisma.stockDocSign.findUnique({ where: { id: row.id } }))!) };
+  }
+
+  /** Shablonning oxirgi tasdig'i (shablon sahifasida ko'rsatiladi) */
+  async lastTemplateApproval(): Promise<{ id: string; signerName: string; signedAt: string | null; method: string | null; savedAt: string } | null> {
+    const rows = await this.prisma.stockDocSign.findMany({ where: { kind: TEMPLATE, status: 'SIGNED' }, orderBy: { updatedAt: 'desc' }, take: 20 });
+    for (const r of rows) {
+      const t = this.templateOf(r);
+      if (t?.savedAt) return { id: r.id, signerName: r.signerName, signedAt: r.signedAt?.toISOString() ?? null, method: r.method ?? null, savedAt: t.savedAt };
+    }
+    return null;
+  }
+
+  /** Imzoli nusxa (Word) — tasdiq raqami bo'yicha (shablon tasdig'i uchun ham) */
+  async archiveById(id: string): Promise<{ buffer: Buffer; filename: string }> {
+    const row = await this.prisma.stockDocSign.findUnique({ where: { id } });
+    if (!row?.archive) throw new NotFoundException('Imzolangan nusxa yo‘q');
+    return { buffer: Buffer.from(row.archive), filename: row.archiveName ?? 'dalolatnoma (imzolangan).docx' };
+  }
+
   private async draftRow(id: string): Promise<Row> {
     const row = await this.prisma.stockDocSign.findUnique({ where: { id } });
     if (!row || (!row.draft && !row.docId)) throw new NotFoundException('Tasdiqlash topilmadi');
@@ -283,7 +396,7 @@ export class WarehouseSigns {
 
   async cancelDraft(id: string): Promise<SignDraft> {
     const row = await this.draftRow(id);
-    if (row.docId) throw new BadRequestException('Hujjat allaqachon saqlangan');
+    if (row.docId || this.templateOf(row)?.savedAt) throw new BadRequestException('Allaqachon saqlangan');
     return this.draftDto(await this.prisma.stockDocSign.update({ where: { id }, data: { status: 'CANCELLED' } }));
   }
 
@@ -291,11 +404,14 @@ export class WarehouseSigns {
    * «Saqlash» (faqat imzolangandan keyin): hujjat bazaga yoziladi, imzoli nusxa saqlanadi va Telegram'ga yuboriladi.
    * Imzolangandan keyin ombordagi holat o'zgarib, dalolatnoma mazmuni boshqacha chiqsa — saqlanmaydi (qayta imzolatiladi).
    */
-  async commitDraft(id: string, userId: string): Promise<{ doc: DocView; sign: SignStatus }> {
+  async commitDraft(id: string, userId: string): Promise<{ doc: DocView | null; template?: ActTemplate; sign: SignStatus }> {
     const row = await this.draftRow(id);
     if (row.docId) return { doc: await this.warehouse.doc(row.docId), sign: await this.dto(row) };
-    if (row.status === 'PENDING') throw new BadRequestException('Xodim hali imzolamagan — QR kod orqali imzolangach saqlanadi');
+    const tdata = this.templateOf(row);
+    if (tdata?.savedAt) return this.commitTemplate(row, tdata, userId);
+    if (row.status === 'PENDING') throw new BadRequestException(tdata ? 'Rahbar hali tasdiqlamagan — QR kod orqali tasdiqlangach saqlanadi' : 'Xodim hali imzolamagan — QR kod orqali imzolangach saqlanadi');
     if (row.status !== 'SIGNED') throw new BadRequestException(row.status === 'SAVING' ? 'Saqlanmoqda — biroz kuting' : 'Tasdiqlash bekor qilingan — qaytadan «Tasdiqlash» bosing');
+    if (tdata) return this.commitTemplate(row, tdata, userId);
     const data = this.draftOf(row);
     if (!data) throw new NotFoundException('Qoralama topilmadi');
 
@@ -326,7 +442,7 @@ export class WarehouseSigns {
     const file = await this.acts.build(d.id);
     const archiveName = file.filename.replace(/\.docx$/, ' (imzolangan).docx');
     await this.prisma.stockDocSign.update({ where: { id }, data: { archive: new Uint8Array(file.buffer), archiveName } });
-    await this.deliver(id, d, row.signerPinfl, row.signerName, file.buffer, archiveName, row.signedAt ?? new Date(), row.method).catch((e) => this.log.warn((e as Error).message));
+    await this.deliver(id, `${d.kindLabel} № ${d.number}`, row.signerPinfl, row.signerName, file.buffer, archiveName, row.signedAt ?? new Date(), row.method).catch((e) => this.log.warn((e as Error).message));
     return this.dto((await this.prisma.stockDocSign.findUnique({ where: { id } }))!);
   }
 
@@ -376,14 +492,20 @@ export class WarehouseSigns {
     const tpl = await this.templates.forActs();
     const signerName = personName({ ...tpl, shortNames: false }, row.signerName);
     const base = { signerName, signedAt: row.signedAt?.toISOString() ?? null, method: row.method ?? null, locked: !!row.lockedUntil && row.lockedUntil > new Date() };
+    const tdata = this.templateOf(row);
+    if (tdata) {
+      const status = this.expired(row) || row.status === 'CANCELLED' ? 'CANCELLED' : row.status === 'PENDING' ? 'PENDING' : 'SIGNED';
+      const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+      return { ...base, status, number: 'shablon', kindLabel: 'Dalolatnoma shabloni', date: today, draft: !tdata.savedAt, subject: 'TEMPLATE', act: await this.acts.sampleModel('ISSUE', tdata.template, await this.infoOf(row)) };
+    }
     if (row.docId) {
       const d = await this.warehouse.doc(row.docId);
-      return { ...base, status: (d.cancelled ? 'CANCELLED' : row.status === 'SAVING' ? 'SIGNED' : row.status) as PublicAct['status'], number: d.number, kindLabel: d.kindLabel, date: d.date, draft: false, act: this.acts.model(d, tpl, await this.infoOf(row)) };
+      return { ...base, subject: 'DOC', status: (d.cancelled ? 'CANCELLED' : row.status === 'SAVING' ? 'SIGNED' : row.status) as PublicAct['status'], number: d.number, kindLabel: d.kindLabel, date: d.date, draft: false, act: this.acts.model(d, tpl, await this.infoOf(row)) };
     }
     const data = this.draftOf(row);
     if (!data) throw new NotFoundException('Havola noto‘g‘ri yoki eskirgan');
     const status = this.expired(row) || row.status === 'CANCELLED' ? 'CANCELLED' : row.status === 'PENDING' ? 'PENDING' : 'SIGNED';
-    return { ...base, status, number: data.view.number, kindLabel: data.view.kindLabel, date: data.view.date, draft: true, act: this.acts.model(data.view, tpl, await this.infoOf(row)) };
+    return { ...base, status, number: data.view.number, kindLabel: data.view.kindLabel, date: data.view.date, draft: true, subject: 'DOC', act: this.acts.model(data.view, tpl, await this.infoOf(row)) };
   }
 
   async sign(
@@ -434,11 +556,11 @@ export class WarehouseSigns {
   }
 
   /** Telegram: 1-nusxa — xodimning o'ziga, 2-nusxa — dalolatnomalar arxivi guruhiga */
-  async deliver(signId: string, d: DocView, pinfl: string, name: string, buffer: Buffer, filename: string, signedAt: Date, method?: string | null): Promise<SignStatus['telegram']> {
+  async deliver(signId: string, title: string, pinfl: string, name: string, buffer: Buffer, filename: string, signedAt: Date, method?: string | null, note = 'Nusxa — elektron tasdiqlangan dalolatnoma.'): Promise<SignStatus['telegram']> {
     const result: NonNullable<SignStatus['telegram']> = { at: new Date().toISOString() };
     const when = new Date(signedAt.getTime() + 5 * 3600_000).toISOString().replace('T', ' ').slice(0, 16);
     const how = method === 'PHOTO' ? 'yuz surati bilan' : 'imzo chizib';
-    const caption = `📄 <b>${esc(d.kindLabel)} № ${esc(d.number)}</b>\n✍️ Tasdiqladi: ${esc(name)} (${how})\n🕒 ${when}\nNusxa — elektron tasdiqlangan dalolatnoma.`;
+    const caption = `📄 <b>${esc(title)}</b>\n✍️ Tasdiqladi: ${esc(name)} (${how})\n🕒 ${when}\n${esc(note)}`;
     if (!this.telegram.configured) {
       result.employee = 'bot ulanmagan';
       result.archive = 'bot ulanmagan';
@@ -467,7 +589,7 @@ export class WarehouseSigns {
     const row = await this.prisma.stockDocSign.findUnique({ where: { docId } });
     if (!row || row.status !== 'SIGNED' || !row.archive) throw new BadRequestException('Imzolangan nusxa yo‘q');
     const d = await this.warehouse.doc(docId);
-    await this.deliver(row.id, d, row.signerPinfl, row.signerName, Buffer.from(row.archive), row.archiveName ?? `${d.number}.docx`, row.signedAt ?? new Date(), row.method);
+    await this.deliver(row.id, `${d.kindLabel} № ${d.number}`, row.signerPinfl, row.signerName, Buffer.from(row.archive), row.archiveName ?? `${d.number}.docx`, row.signedAt ?? new Date(), row.method);
     return this.dto((await this.prisma.stockDocSign.findUnique({ where: { docId } }))!);
   }
 
@@ -477,19 +599,21 @@ export class WarehouseSigns {
     return { buffer: Buffer.from(row.archive), filename: row.archiveName ?? 'dalolatnoma (imzolangan).docx' };
   }
 
-  /** Arxiv: imzolangan va kutilayotgan (saqlangan) dalolatnomalar */
-  async list(status?: string): Promise<{ docId: string; number: string; kind: string; kindLabel: string; date: string; signerName: string; status: string; method: string | null; createdAt: string; signedAt: string | null; telegram: SignStatus['telegram'] }[]> {
-    const where = { docId: { not: null }, ...(status === 'PENDING' || status === 'SIGNED' ? { status } : { status: { in: ['PENDING', 'SIGNED'] } }) };
-    const rows = await this.prisma.stockDocSign.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500, select: { docId: true, status: true, method: true, signerName: true, createdAt: true, signedAt: true, telegram: true } });
+  /** Arxiv: imzolangan va kutilayotgan (saqlangan) dalolatnomalar hamda tasdiqlangan shablonlar */
+  async list(status?: string): Promise<SignListItem[]> {
+    const st = status === 'PENDING' || status === 'SIGNED' ? { status } : { status: { in: ['PENDING', 'SIGNED'] } };
+    const select = { id: true, docId: true, kind: true, draft: true, status: true, method: true, signerName: true, createdAt: true, signedAt: true, updatedAt: true, telegram: true } as const;
+    const rows = await this.prisma.stockDocSign.findMany({ where: { docId: { not: null }, ...st }, orderBy: { createdAt: 'desc' }, take: 500, select });
     const ids = rows.map((r) => r.docId).filter((x): x is string => !!x);
     const docs = ids.length ? await this.prisma.stockDoc.findMany({ where: { id: { in: ids } }, select: { id: true, number: true, kind: true, date: true, deletedAt: true } }) : [];
     const by = new Map(docs.map((d) => [d.id, d]));
     const LABEL: Record<string, string> = { ISSUE: 'Chiqim (berish)', TRANSFER: "Ko'chirish", RETURN: 'Qaytarish' };
-    return rows
+    const out: SignListItem[] = rows
       .filter((r) => r.docId && by.has(r.docId) && !by.get(r.docId)!.deletedAt)
       .map((r) => {
         const d = by.get(r.docId!)!;
         return {
+          id: r.id,
           docId: d.id,
           number: d.number,
           kind: d.kind,
@@ -503,6 +627,30 @@ export class WarehouseSigns {
           telegram: (r.telegram as SignStatus['telegram']) ?? null,
         };
       });
+    // Tasdiqlangan (saqlangan) shablonlar
+    if (status !== 'PENDING') {
+      const tpls = await this.prisma.stockDocSign.findMany({ where: { kind: TEMPLATE, status: 'SIGNED' }, orderBy: { updatedAt: 'desc' }, take: 100, select });
+      for (const r of tpls) {
+        const savedAt = (r.draft as { savedAt?: string } | null)?.savedAt;
+        if (!savedAt) continue;
+        out.push({
+          id: r.id,
+          docId: null,
+          number: 'Shablon',
+          kind: TEMPLATE,
+          kindLabel: 'Dalolatnoma shabloni',
+          date: new Date(new Date(savedAt).getTime() + 5 * 3600_000).toISOString().slice(0, 10),
+          signerName: r.signerName,
+          status: r.status,
+          method: r.method ?? null,
+          createdAt: r.createdAt.toISOString(),
+          signedAt: r.signedAt?.toISOString() ?? null,
+          telegram: (r.telegram as SignStatus['telegram']) ?? null,
+        });
+      }
+      out.sort((a, b) => (b.signedAt ?? b.createdAt).localeCompare(a.signedAt ?? a.createdAt));
+    }
+    return out;
   }
 
   /** Xodimda imzo kutayotgan (saqlangan) hujjatlar va ulardagi vositalar */

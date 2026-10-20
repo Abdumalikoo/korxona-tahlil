@@ -199,6 +199,15 @@ export interface SignDraft extends SignStatus {
   act: ActModel;
 }
 
+/** Shablonning oxirgi tasdig'i */
+export interface TemplateApproval {
+  id: string;
+  signerName: string;
+  signedAt: string | null;
+  method: string | null;
+  savedAt: string;
+}
+
 /** Imzolovchi xodim yo'q — oddiy saqlash (dalolatnoma qog'ozda imzolanadi) */
 export interface NoSignNeeded {
   needsSign: false;
@@ -206,9 +215,13 @@ export interface NoSignNeeded {
 }
 
 export interface SignListItem {
-  docId: string;
+  /** Tasdiq raqami (imzoli nusxani yuklash) */
+  id: string;
+  /** Hujjat; shablon tasdig'ida — null */
+  docId: string | null;
   number: string;
-  kind: DocKind;
+  /** Hujjat turi yoki 'TEMPLATE' (dalolatnoma shabloni) */
+  kind: DocKind | 'TEMPLATE';
   kindLabel: string;
   date: string;
   signerName: string;
@@ -448,6 +461,8 @@ export interface ActModel {
     photo?: string | null;
     method?: string | null;
     signerLine: number;
+    /** Shablon tasdig'ida — imzo «ТАСДИҚЛАЙМАН» blokidagi qatorga */
+    approveLine?: number;
     stamp: string;
   } | null;
 }
@@ -518,7 +533,11 @@ export const warehouseApi = {
   signDraft: (id: string) => api.get<ApiResponse<SignDraft>>(`/warehouse/sign-drafts/${id}`),
   cancelSignDraft: (id: string) => api.post<ApiResponse<SignDraft>>(`/warehouse/sign-drafts/${id}/cancel`),
   /** Imzolangandan keyin «Saqlash»: hujjat bazaga, imzoli nusxa arxivga va Telegram'ga */
-  commitSignDraft: (id: string) => api.post<ApiResponse<{ doc: WarehouseDoc; sign: SignStatus }>>(`/warehouse/sign-drafts/${id}/commit`),
+  /** Shablonni rahbar tasdiqlashi: QR (shablon hali saqlanmaydi); signerPinfl — boshqa tasdiqlovchi */
+  createTemplateApproval: (template: ActTemplate, signerPinfl?: string | null) =>
+    api.post<ApiResponse<SignDraft>>('/warehouse/act-template/approval', { template, signerPinfl: signerPinfl ?? null, origin: typeof window !== 'undefined' ? window.location.origin : null }),
+  templateApproval: () => api.get<ApiResponse<TemplateApproval | null>>('/warehouse/act-template/approval'),
+  commitSignDraft: (id: string) => api.post<ApiResponse<{ doc: WarehouseDoc; template?: ActTemplate; sign: SignStatus }>>(`/warehouse/sign-drafts/${id}/commit`),
   cancelDoc: (id: string) => api.post<ApiResponse<WarehouseDoc>>(`/warehouse/docs/${id}/cancel`),
 
   assets: (params: { status?: AssetStatus; search?: string; departmentId?: string; regionCode?: string; holder?: string; itemId?: string } = {}) =>
@@ -624,4 +643,9 @@ export function qtyText(q: number): string {
 /** Imzolangan nusxa (Word) */
 export function downloadSignedAct(doc: { id: string; number: string }): Promise<void> {
   return downloadWord(`/warehouse/docs/${doc.id}/sign/archive`, `${doc.number} - dalolatnoma (imzolangan).docx`);
+}
+
+/** Imzoli nusxa — tasdiq raqami bo'yicha (shablon tasdig'i ham) */
+export function downloadSignArchive(id: string, name: string): Promise<void> {
+  return downloadWord(`/warehouse/sign-drafts/${id}/archive`, name);
 }

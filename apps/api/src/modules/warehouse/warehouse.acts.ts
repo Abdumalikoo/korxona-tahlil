@@ -292,8 +292,20 @@ export class WarehouseActs {
   }
 
   /** Shablon namunasi: sozlamadagi (yoki saqlanmagan) shablon bilan sinov hujjati */
-  async buildSample(kind: StockDocKind, regionCode: number | null, draft?: unknown): Promise<{ buffer: Buffer; filename: string }> {
+  async buildSample(kind: StockDocKind, regionCode: number | null, draft?: unknown, sign: ActSignInfo | null = null): Promise<{ buffer: Buffer; filename: string }> {
     const tpl = await this.templates.withPeople(draft ? sanitizeTemplate(draft) : await this.templates.get());
+    const buffer = await this.packAct(this.sampleDoc(kind, regionCode), tpl, sign);
+    return { buffer, filename: `namuna - ${ACT_TITLES[kind]}${regionCode ? ` - hudud ${regionCode}` : ''}.docx` };
+  }
+
+  /** Shablon namunasi ekranda (tasdiqlash uchun) */
+  async sampleModel(kind: StockDocKind, draft: unknown, sign: ActSignInfo | null = null): Promise<ActModel> {
+    const tpl = await this.templates.withPeople(sanitizeTemplate(draft));
+    return this.model(this.sampleDoc(kind, null), tpl, sign);
+  }
+
+  /** Namuna hujjat: misol oluvchi va bitta asosiy vosita */
+  sampleDoc(kind: StockDocKind, regionCode: number | null): DocView {
     const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
     const place = (holder: string | null, text: string): DocView['to'] => ({
       departmentId: null,
@@ -334,8 +346,7 @@ export class WarehouseActs {
     if (kind === 'RECEIPT') {
       d.lines = [{ id: 'l', itemId: 'i', itemCode: 'AV-0001', itemName: 'Моноблок-38 (HP pavilion)', kind: 'ASSET', unit: 'дона', qty: 1, priceTiyin: '2352256000', amountTiyin: '2352256000', note: null } as unknown as DocView['lines'][number]];
     }
-    const buffer = await this.packAct(d, tpl);
-    return { buffer, filename: `namuna - ${ACT_TITLES[kind]}${regionCode ? ` - hudud ${regionCode}` : ''}.docx` };
+    return d;
   }
 
   private async packAct(d: DocView, tpl: ActTemplate, sign: ActSignInfo | null = null): Promise<Buffer> {
@@ -458,11 +469,14 @@ export class WarehouseActs {
             signature: sign.signature,
             photo: sign.photo,
             method: sign.method,
-            signerLine: signatures.findIndex((s) => s.name !== null && s.name === personName(tpl, sign.signerName)),
+            signerLine: sign.subject === 'TEMPLATE' ? -1 : signatures.findIndex((s) => s.name !== null && s.name === personName(tpl, sign.signerName)),
+            approveLine: sign.subject === 'TEMPLATE' ? approve.findIndex((l) => /^_{3,}/.test(l)) : -1,
             stamp:
               sign.status === 'SIGNED' && sign.signedAt
-                ? `Электрон тасдиқланди${sign.method === 'PHOTO' ? ' (юз сурати билан)' : ''}: ${personName(tpl, sign.signerName)}, ${stampTime(sign.signedAt)} · ЖШШИР ****${sign.signerPinfl.slice(-4)}`
-                : 'Тасдиқлаш учун QR кодни телефонда сканер қилинг',
+                ? `${sign.subject === 'TEMPLATE' ? 'Шаблон тасдиқланди' : 'Электрон тасдиқланди'}${sign.method === 'PHOTO' ? ' (юз сурати билан)' : ''}: ${personName(tpl, sign.signerName)}, ${stampTime(sign.signedAt)} · ЖШШИР ****${sign.signerPinfl.slice(-4)}`
+                : sign.subject === 'TEMPLATE'
+                  ? 'Шаблонни тасдиқлаш учун QR кодни телефонда сканер қилинг'
+                  : 'Тасдиқлаш учун QR кодни телефонда сканер қилинг',
           }
         : null,
     };
@@ -491,7 +505,12 @@ export class WarehouseActs {
 
     // Tasdiqlash bloki (o'ng tomonda): 1-qator qalin (sarlavha bo'lsa)
     const IND = 5600;
-    m.approve.forEach((line, i) => out.push(para([run(line, i === 0 && m.approveBold)], { indent: IND, after: i === m.approve.length - 1 ? 240 : 0 })));
+    m.approve.forEach((line, i) => {
+      const after = i === m.approve.length - 1 ? 240 : 0;
+      const mine = m.sign?.status === 'SIGNED' && m.sign.approveLine === i;
+      const proof = mine && m.sign!.signature ? new ImageRun({ type: 'png', data: png(m.sign!.signature), transformation: { width: 96, height: 34 } }) : mine && m.sign!.photo ? new ImageRun({ type: 'jpg', data: png(m.sign!.photo), transformation: { width: 40, height: 40 } }) : null;
+      out.push(para(proof ? [proof, run(line.replace(/^_+/, ' '))] : [run(line, i === 0 && m.approveBold)], { indent: IND, after }));
+    });
 
     if (m.title) out.push(para([run(m.title, true)], { align: AlignmentType.CENTER }));
     if (m.title2) out.push(para([run(m.title2, true)], { align: AlignmentType.CENTER, after: m.cancelled ? 0 : 120 }));

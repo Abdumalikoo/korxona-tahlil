@@ -373,6 +373,8 @@ export interface ActModel {
     method: string | null;
     /** Imzo qaysi imzo qatoriga qo'yiladi (signatures indeksi, -1 — topilmadi) */
     signerLine: number;
+    /** Shablonni rahbar tasdiqlaganda — imzo «ТАСДИҚЛАЙМАН» blokidagi shu qatorga (approve indeksi, -1 — yo'q) */
+    approveLine: number;
     stamp: string;
   } | null;
 }
@@ -389,4 +391,6 @@ export interface ActSignInfo {
   signature: string | null;
   photo: string | null;
   method: string | null;
+  /** DOC — hujjat dalolatnomasi (xodim imzosi), TEMPLATE — shablonni rahbar tasdiqlashi */
+  subject?: 'DOC' | 'TEMPLATE';
 }

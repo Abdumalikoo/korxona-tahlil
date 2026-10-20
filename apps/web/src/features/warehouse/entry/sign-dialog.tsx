@@ -255,8 +255,8 @@ export function SignDialog({
   );
 }
 
-function Steps({ signed }: { signed: boolean }) {
-  const steps = ['Tasdiqlash', 'Xodim imzosi', 'Saqlash'];
+export function Steps({ signed, labels = ['Tasdiqlash', 'Xodim imzosi', 'Saqlash'] }: { signed: boolean; labels?: string[] }) {
+  const steps = labels;
   const at = signed ? 2 : 1;
   return (
     <ol className="flex items-center gap-2 text-xs font-semibold">
