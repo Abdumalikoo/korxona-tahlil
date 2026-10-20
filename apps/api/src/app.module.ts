@@ -22,6 +22,7 @@ import { ResultsModule } from './modules/results/results.module';
 import { SalaryCompositionModule } from './modules/salary-composition/salary-composition.module';
 import { EmployeeTransfersModule } from './modules/employee-transfers/employee-transfers.module';
 import { LeasesModule } from './modules/leases/leases.module';
+import { InternetModule } from './modules/internet/internet.module';
 import { SectionsModule } from './modules/sections/sections.module';
 import { ModelingModule } from './modules/modeling/modeling.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
@@ -85,6 +86,7 @@ import { AccessGuard } from './common/guards/access.guard';
     SalaryCompositionModule,
     EmployeeTransfersModule,
     LeasesModule,
+    InternetModule,
     SectionsModule,
     ModelingModule,
     VehiclesModule,
