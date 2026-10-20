@@ -23,6 +23,8 @@ import {
   type VehicleRecordItem,
   type VehicleRecordKind,
 } from '@/features/vehicles/api';
+import { FuelImportDialog } from '@/features/vehicles/fuel-import';
+import { Car3DViewer } from '@/features/vehicles/car3d/viewer';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { currentPeriod, formatDate, formatTiyin, todayInput } from '@/lib/format';
@@ -105,6 +107,7 @@ export default function VehicleEntryPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [removing, setRemoving] = useState<VehicleRecordItem | null>(null);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   const load = useCallback(() => {
@@ -135,6 +138,14 @@ export default function VehicleEntryPage() {
       .then((r) => setPlaces(r.data))
       .catch(() => setPlaces([]));
   }, [kind]);
+
+  // 3D avtoparkdan «Xarajat yozish»: ?v=<mashina>
+  useEffect(() => {
+    if (!vehicles || vehicleId) return;
+    const v = new URLSearchParams(window.location.search).get('v');
+    if (v && vehicles.some((x) => x.id === v)) setVehicleId(v);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicles]);
 
   const selected = vehicles?.find((v) => v.id === vehicleId) ?? null;
   const groups = useMemo(() => {
@@ -230,7 +241,32 @@ export default function VehicleEntryPage() {
 
   return (
     <>
-      <PageHeader title="Mashina xarajati" description="Benzin, moyka, ta'mir, texnik xizmat — mashinani tanlang va yozing" />
+      <PageHeader
+        title="Mashina xarajati"
+        description="Benzin, moyka, ta'mir, texnik xizmat — mashinani tanlang va yozing"
+        actions={
+          <div className="flex items-center gap-2">
+            <Link href="/mashinalar/avtopark" className="inline-flex h-9 items-center rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3.5 text-sm hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700">
+              3D avtopark
+            </Link>
+            {editable && (
+              <Button size="sm" onClick={() => setImporting(true)} title="AZS yoqilg'i kartasi hisoboti (.xls / .xlsx)">
+                Benzin hisobotini yuklash
+              </Button>
+            )}
+          </div>
+        }
+      />
+      {importing && (
+        <FuelImportDialog
+          onClose={() => setImporting(false)}
+          onDone={(msg) => {
+            setImporting(false);
+            setToast(msg);
+            load();
+          }}
+        />
+      )}
 
       <div className="mx-auto max-w-7xl p-4 md:p-6">
         {vehicles.length === 0 ? (
@@ -305,6 +341,7 @@ export default function VehicleEntryPage() {
                   <p className="py-10 text-center text-sm text-(--color-text-muted)">← Mashinani tanlang</p>
                 ) : (
                   <form ref={formRef} onSubmit={(e) => void submit(e)} className="space-y-4">
+                    <Car3DViewer vehicle={selected} highlight={kind} className="-mx-5 -mt-5 h-48 rounded-t-(--radius-card)" />
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-mono text-xl font-bold tracking-wider text-heading">{selected.plateNumber}</p>

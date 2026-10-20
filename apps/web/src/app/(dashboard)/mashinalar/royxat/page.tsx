@@ -9,7 +9,9 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
 import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
 import { Toast } from '@/components/ui/toast';
 import { FUEL_LABELS, fuelUnit, KIND_LABELS, KINDS, vehiclesApi, type VehicleItem } from '@/features/vehicles/api';
+import { FuelImportDialog } from '@/features/vehicles/fuel-import';
 import { VehicleForm } from '@/features/vehicles/vehicle-form';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { formatPeriod, formatTiyin } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
@@ -35,6 +37,7 @@ export default function VehicleListPage() {
   const [creating, setCreating] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const items = list.data?.data.items ?? [];
   const sumById = useMemo(() => new Map((summary.data?.data.vehicles ?? []).map((v) => [v.vehicleId, v])), [summary.data]);
@@ -121,12 +124,22 @@ export default function VehicleListPage() {
         title="Mashinalar"
         description={`${active.length} ta faol mashina · ${formatPeriod(month)}`}
         actions={
-          editable ? (
-            <Button onClick={() => setCreating('')}>
-              <IconPlus className="size-4" />
-              Mashina qo&apos;shish
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            <Link href="/mashinalar/avtopark" className="inline-flex h-10 items-center rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3.5 text-sm hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700">
+              3D avtopark
+            </Link>
+            {editable && (
+              <Button variant="secondary" onClick={() => setImporting(true)} title="AZS yoqilg'i kartasi hisoboti (.xls / .xlsx)">
+                Benzin hisobotini yuklash
+              </Button>
+            )}
+            {editable && (
+              <Button onClick={() => setCreating('')}>
+                <IconPlus className="size-4" />
+                Mashina qo&apos;shish
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -153,6 +166,18 @@ export default function VehicleListPage() {
                   </Card>
                 ))}
               </div>
+            )}
+
+            {items.length === 0 && (
+              <Card className="flex flex-wrap items-center gap-4 border-2 border-dashed border-brand-300 bg-brand-50/60 p-5">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-heading">Hali mashina yo&apos;q</p>
+                  <p className="text-sm text-(--color-text-muted)">
+                    Eng tezi — AZS benzin hisobotini yuklang: fayldagi har karta (davlat raqami bilan) mashina bo&apos;lib yaratiladi va quyishlari yoziladi. Keyin rusumi va guruhini tahrirlaysiz.
+                  </p>
+                </div>
+                {editable && <Button onClick={() => setImporting(true)}>Benzin hisobotini yuklash</Button>}
+              </Card>
             )}
 
             {groups.map((g) => (
@@ -224,6 +249,16 @@ export default function VehicleListPage() {
             setEditing(null);
             setCreating(null);
             setToast(message);
+            reload();
+          }}
+        />
+      )}
+      {importing && (
+        <FuelImportDialog
+          onClose={() => setImporting(false)}
+          onDone={(msg) => {
+            setImporting(false);
+            setToast(msg);
             reload();
           }}
         />

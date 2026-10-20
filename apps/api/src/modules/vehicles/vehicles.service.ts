@@ -7,6 +7,7 @@ import {
 import type { Prisma, Vehicle, VehicleRecord } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  VEHICLE_BODY_TYPES,
   VEHICLE_GROUPS,
   CENTRAL_REGION,
   FUEL_TYPE_LABELS,
@@ -337,6 +338,11 @@ export class VehiclesService {
     const groupRaw = pick('fleetGroup', base?.fleetGroup);
     const fleetGroup = groupRaw === null || groupRaw === undefined || groupRaw === '' ? null : String(groupRaw);
     if (fleetGroup && !VEHICLE_GROUPS.some((g) => g.value === fleetGroup)) throw new BadRequestException("Guruh noto'g'ri");
+    const cardRaw = pick('fuelCardNo', base?.fuelCardNo);
+    const fuelCardNo = cardRaw === null || cardRaw === undefined || String(cardRaw).trim() === '' ? null : String(cardRaw).trim().replace(/\s+/g, '').slice(0, 40);
+    const bodyRaw = pick('bodyType', base?.bodyType);
+    const bodyType = bodyRaw === null || bodyRaw === undefined || bodyRaw === '' ? null : String(bodyRaw).toUpperCase();
+    if (bodyType && !(VEHICLE_BODY_TYPES as readonly string[]).includes(bodyType)) throw new BadRequestException("Kuzov turi noto'g'ri");
 
     if (regionCode !== CENTRAL_REGION) {
       const region = await this.prisma.region.findUnique({ where: { code: regionCode } });
@@ -371,6 +377,8 @@ export class VehiclesService {
       isActive,
       note,
       fleetGroup,
+      fuelCardNo,
+      bodyType,
     };
   }
 
@@ -445,6 +453,8 @@ export class VehiclesService {
         note: vehicle.note,
         fleetGroup: vehicle.fleetGroup,
         fleetGroupLabel: VEHICLE_GROUPS.find((g) => g.value === vehicle.fleetGroup)?.label ?? null,
+        fuelCardNo: vehicle.fuelCardNo,
+        bodyType: vehicle.bodyType,
         lastOdometerKm: lastKm ?? vehicle.initialOdometerKm,
         month: {
           totalTiyin: total.toString(),
@@ -712,6 +722,23 @@ export class VehiclesService {
     return this.mapRecord(created);
   }
 
+  /** Fayldan (yoqilg'i hisoboti) kelgan yozuv: importKey bilan — qayta yuklanganda takrorlanmaydi */
+  async createImportedFuel(input: RecordInput, importKey: string, userId: string): Promise<RecordItem> {
+    const record = await this.buildRecord(input ?? {});
+    await this.ensureCategories();
+    const created = await this.prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.create({
+        data: { ...this.expenseData(record), createdById: userId },
+        select: { id: true },
+      });
+      return tx.vehicleRecord.create({
+        data: { ...this.recordData(record), expenseId: expense.id, importKey, createdById: userId },
+        include: { vehicle: { select: { plateNumber: true, model: true } } },
+      });
+    });
+    return this.mapRecord(created);
+  }
+
   async updateRecord(id: string, input: RecordInput, userId: string): Promise<RecordItem> {
     const existing = await this.prisma.vehicleRecord.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new NotFoundException('Xarajat yozuvi topilmadi');
@@ -751,7 +778,7 @@ export class VehiclesService {
 
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      await tx.vehicleRecord.update({ where: { id }, data: { deletedAt: now } });
+      await tx.vehicleRecord.update({ where: { id }, data: { deletedAt: now, importKey: null } });
       if (existing.expenseId) {
         await tx.expense.updateMany({
           where: { id: existing.expenseId, deletedAt: null },

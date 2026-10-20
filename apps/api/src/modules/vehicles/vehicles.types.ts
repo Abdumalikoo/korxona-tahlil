@@ -53,6 +53,10 @@ export const VEHICLE_GROUPS = [
 ] as const;
 export type VehicleGroupValue = (typeof VEHICLE_GROUPS)[number]['value'];
 
+/** Kuzov turlari — 3D ko'rinish shakli */
+export const VEHICLE_BODY_TYPES = ['SEDAN', 'HATCH', 'SUV', 'MINIVAN', 'PICKUP', 'VAN', 'BUS'] as const;
+export type VehicleBodyType = (typeof VEHICLE_BODY_TYPES)[number];
+
 /** Markaz hudud kodi */
 export const CENTRAL_REGION = 0;
 
@@ -76,6 +80,10 @@ export interface VehicleInput {
   note?: string | null;
   /** Guruh: TOSHKENT | MARKSHEYDER | RAHBARIYAT | QOSHIMCHA (bo'sh — guruhsiz) */
   fleetGroup?: string | null;
+  /** Yoqilg'i kartasi raqami (AZS hisobotidan import uchun) */
+  fuelCardNo?: string | null;
+  /** Kuzov turi (3D): SEDAN | HATCH | SUV | MINIVAN | PICKUP | VAN | BUS */
+  bodyType?: string | null;
 }
 
 export interface RecordInput {
@@ -130,6 +138,8 @@ export interface VehicleListItem {
   note: string | null;
   fleetGroup: string | null;
   fleetGroupLabel: string | null;
+  fuelCardNo: string | null;
+  bodyType: string | null;
   /** Oxirgi spidometr ko'rsatkichi */
   lastOdometerKm: number | null;
   /** Tanlangan oy: tur bo'yicha summalar */

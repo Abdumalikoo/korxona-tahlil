@@ -2,6 +2,9 @@
 
 import {
   vehiclesApi,
+  BODY_LABELS,
+  bodyTypeOf,
+  type VehicleBodyType,
   parseNumber,
   type VehicleFuelType,
   type VehicleInput,
@@ -41,6 +44,8 @@ interface FormState {
   isActive: boolean;
   note: string;
   fleetGroup: string;
+  fuelCardNo: string;
+  bodyType: string;
 }
 
 type Errors = Partial<Record<keyof FormState, string>>;
@@ -61,6 +66,8 @@ function initialState(vehicle: VehicleItem | null, defaultGroup?: string): FormS
     isActive: vehicle?.isActive ?? true,
     note: vehicle?.note ?? '',
     fleetGroup: vehicle ? (vehicle.fleetGroup ?? '') : (defaultGroup ?? ''),
+    fuelCardNo: vehicle?.fuelCardNo ?? '',
+    bodyType: vehicle?.bodyType ?? '',
   };
 }
 
@@ -141,6 +148,8 @@ export function VehicleForm({ vehicle, lookups, onClose, onSaved, defaultGroup }
       isActive: form.isActive,
       note: form.note.trim() || null,
       fleetGroup: form.fleetGroup || null,
+      fuelCardNo: form.fuelCardNo.trim() || null,
+      bodyType: (form.bodyType || null) as VehicleBodyType | null,
     };
 
     setSaving(true);
@@ -248,6 +257,21 @@ export function VehicleForm({ vehicle, lookups, onClose, onSaved, defaultGroup }
             error={errors.initialOdometerKm}
             hint="Ixtiyoriy — hisobga olingan kundagi spidometr"
           />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Yoqilg'i kartasi №"
+              value={form.fuelCardNo}
+              onChange={(event) => set('fuelCardNo', event.target.value.replace(/\s+/g, ''))}
+              placeholder="003668"
+              hint="AZS hisobotini yuklaganda mashina shu raqam bo'yicha topiladi"
+            />
+            <Select
+              label="Kuzov turi (3D)"
+              options={[{ value: '', label: `Rusumidan: ${BODY_LABELS[bodyTypeOf({ model: form.model || '' })].split(' (')[0]}` }, ...(Object.keys(BODY_LABELS) as VehicleBodyType[]).map((b) => ({ value: b, label: BODY_LABELS[b] }))]}
+              value={form.bodyType}
+              onChange={(event) => set('bodyType', event.target.value)}
+            />
+          </div>
         </Section>
 
         <Section title="Kimga biriktirilgan">

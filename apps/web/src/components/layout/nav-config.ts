@@ -151,6 +151,7 @@ export const MENU: NavItem[] = [
       { label: 'Xarajat kiritish', href: '/mashinalar', description: "Mashinani tanlab benzin, moyka, ta'mir yozish" },
       { label: "Ro'yxat va hisobot", href: '/mashinalar/royxat', description: "Mashinalar guruhlar bo'yicha, oylik sarf va me'yor" },
       { label: 'Yozuvlar va tahlil', href: '/mashinalar/tahlil', description: "Oy yozuvlari (tahrirlash, o'chirish) va 12 oylik tahlil" },
+      { label: '3D avtopark', href: '/mashinalar/avtopark', description: "Hamma mashinalar 3D'da: raqami, oy xarajati, tafsilot" },
     ],
   },
   // ── Umumiy hudud: rollar (har biri administrator qo'ygan nom bilan) va ularning dashbordlari ──
@@ -395,6 +396,7 @@ export const WORKER_MENUS: Record<string, WorkerNavGroup[]> = {
       items: [
         { label: 'Mashinalar hisoboti', href: '/mashinalar/royxat', hint: 'Guruhlar, haydovchilar, oylik sarf', icon: NavBars },
         { label: 'Mashina yozuvlari', href: '/mashinalar/tahlil', hint: "Tuzatish, o'chirish, 12 oy", icon: NavCar },
+        { label: '3D avtopark', href: '/mashinalar/avtopark', hint: "Hamma mashinalar 3D'da", icon: NavCar },
       ],
     },
   ],

@@ -9,10 +9,14 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { VehiclesDemo } from './vehicles.demo';
+import { VehicleFuelImportService, type FuelCommitInput } from './vehicles.fuel-import';
 import { VehiclesService } from './vehicles.service';
 import type { RecordInput, VehicleInput } from './vehicles.types';
 
@@ -25,7 +29,27 @@ export class VehiclesController {
   constructor(
     private readonly vehicles: VehiclesService,
     private readonly demo: VehiclesDemo,
+    private readonly fuelImport: VehicleFuelImportService,
   ) {}
+
+  // ═══════════ Yoqilg'i hisoboti (AZS «ОТЧЕТ ПО ПРОДАЖАМ») ═══════════
+
+  /** Faylni tahlil qilish — hech narsa yozilmaydi */
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('fuel-import/analyze')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  async fuelAnalyze(@UploadedFile() file: Express.Multer.File) {
+    return { data: await this.fuelImport.analyze(file) };
+  }
+
+  /** Tanlangan kartalar bo'yicha quyishlarni yozish */
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('fuel-import/commit')
+  @HttpCode(HttpStatus.OK)
+  async fuelCommit(@Body() body: FuelCommitInput, @CurrentUser('id') userId: string) {
+    return { data: await this.fuelImport.commit(body, userId) };
+  }
 
   // ═══════════ Ma'lumotnomalar va tahlil ═══════════
 

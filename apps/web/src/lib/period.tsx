@@ -173,6 +173,7 @@ const PERIOD_PATHS: { path: string; mode: PeriodMode; exact?: boolean; except?: 
   { path: '/ombor/pochta', mode: 'range' },
   // Mashinalar: ro'yxat — oy bo'yicha hisobot; kiritish sahifasi — davrsiz
   { path: '/mashinalar/royxat', mode: 'month' },
+  { path: '/mashinalar/avtopark', mode: 'month' },
   { path: '/mashinalar/tahlil', mode: 'month' },
   // Umumiy hudud: rollar dashbordi
   { path: '/rollar', mode: 'range' },

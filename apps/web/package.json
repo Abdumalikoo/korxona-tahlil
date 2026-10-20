@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "three": "0.185.1",
     "@korxona/shared": "workspace:*",
     "clsx": "^2.1.1",
     "decimal.js": "^10.4.3",
@@ -21,6 +22,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/three": "0.185.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.10.7",
     "@types/react": "^19.2.18",

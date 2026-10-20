@@ -970,6 +970,10 @@ model Vehicle {
   note              String?
   /// Guruh: TOSHKENT | MARKSHEYDER | RAHBARIYAT | QOSHIMCHA
   fleetGroup        String?
+  /// Yoqilg'i kartasi raqami (AZS hisobotidan import)
+  fuelCardNo        String?
+  /// Kuzov turi (3D): SEDAN | HATCH | SUV | MINIVAN | PICKUP | VAN | BUS
+  bodyType          String?
   createdById       String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -1000,6 +1004,8 @@ model VehicleRecord {
   paymentMethod PaymentMethod     @default(CASH)
   /// Yaratilgan xarajat yozuvi (expenses.id)
   expenseId     String?           @unique
+  /// Fayldan kelgan yozuv kaliti - qayta yuklanganda takrorlanmaydi
+  importKey     String?           @unique
   createdById   String?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
