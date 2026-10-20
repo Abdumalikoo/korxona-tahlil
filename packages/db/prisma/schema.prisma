@@ -2083,3 +2083,40 @@ model FixedAsset {
   @@index([expenseId])
   @@map("fixed_assets")
 }
+
+/// Dalolatnomaning elektron tasdig'i: QR -> xodim telefonda imzolaydi
+model StockDocSign {
+  id          String    @id @default(cuid())
+  docId       String    @unique
+  /// QR havoladagi maxfiy kalit
+  token       String    @unique
+  /// PENDING — imzo kutilmoqda, SIGNED — imzolangan, CANCELLED — bekor qilingan
+  status      String    @default("PENDING")
+  /// Kim imzolaydi (qabul qiluvchi / topshiruvchi xodim)
+  signerPinfl String
+  signerName  String
+  /// Telefon ochadigan manzil (http://192.168.1.10:3000)
+  baseUrl     String
+  /// DRAWN — barmoq bilan chizilgan imzo
+  method      String?
+  /// Imzo rasmi (PNG, data URL)
+  signature   String?
+  signedAt    DateTime?
+  signedIp    String?
+  signedAgent String?
+  /// Noto'g'ri JShShIR urinishlari
+  attempts    Int       @default(0)
+  lockedUntil DateTime?
+  /// Imzoli dalolatnoma (Word)
+  archive     Bytes?
+  archiveName String?
+  /// Telegram'ga yuborilganlar: { employee, archive } — holat va vaqt
+  telegram    Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([signerPinfl, status])
+  @@map("stock_doc_signs")
+}

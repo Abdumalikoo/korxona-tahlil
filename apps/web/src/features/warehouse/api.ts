@@ -165,7 +165,43 @@ export interface Holdings {
   assets: WarehouseAsset[];
   tmz: { itemId: string; itemCode: string; itemName: string; unit: string; qty: number; avgPriceTiyin: string }[];
   lastIssue: WarehouseDoc | null;
+  /** Imzo kutayotgan dalolatnomalar (xodim telefonda tasdiqlamagan) va ulardagi vositalar */
+  pendingSigns?: { docId: string; number: string; date: string; assetIds: string[] }[];
 }
+
+/** Dalolatnomaning elektron tasdig'i: QR → telefonda imzo */
+export interface SignStatus {
+  docId: string;
+  status: 'PENDING' | 'SIGNED' | 'CANCELLED';
+  url: string;
+  qr: string;
+  signerPinfl: string;
+  signerName: string;
+  createdAt: string;
+  signedAt: string | null;
+  signature: string | null;
+  signedIp: string | null;
+  hasArchive: boolean;
+  archiveName: string | null;
+  telegram: { employee?: string; archive?: string; at?: string } | null;
+  localOnly: boolean;
+}
+
+export interface SignListItem {
+  docId: string;
+  number: string;
+  kind: DocKind;
+  kindLabel: string;
+  date: string;
+  signerName: string;
+  status: 'PENDING' | 'SIGNED';
+  createdAt: string;
+  signedAt: string | null;
+  telegram: SignStatus['telegram'];
+}
+
+/** Elektron tasdiq faqat shu hujjatlarda (xodim imzolaydi) */
+export const SIGNABLE_KINDS: DocKind[] = ['ISSUE', 'TRANSFER', 'RETURN'];
 
 /** Kimda nima bor so'rovi: odam (PINFL yoki ism), bo'lim yoki hudud */
 export interface HolderQuery {
@@ -384,6 +420,15 @@ export interface ActModel {
   agreedHeading: string;
   agreed: { title: string; name: string }[];
   footer: string | null;
+  sign: {
+    status: 'PENDING' | 'SIGNED';
+    url: string;
+    qr: string;
+    signedAt: string | null;
+    signature: string | null;
+    signerLine: number;
+    stamp: string;
+  } | null;
 }
 
 /** Holat uchun tayyor variantlar (dalolatnoma «Ҳолати» ustuni) */
@@ -439,6 +484,12 @@ export const warehouseApi = {
   doc: (id: string) => api.get<ApiResponse<WarehouseDoc>>(`/warehouse/docs/${id}`),
   /** Dalolatnoma — ekranda ko'rish uchun (Word bilan bir xil mazmun) */
   actView: (id: string) => api.get<ApiResponse<ActModel>>(`/warehouse/docs/${id}/act-view`),
+  signStatus: (id: string) => api.get<ApiResponse<SignStatus | null>>(`/warehouse/docs/${id}/sign`),
+  /** «Rasmiylashtirish»: QR havola (origin — telefon ochadigan manzil uchun) */
+  startSign: (id: string) => api.post<ApiResponse<SignStatus>>(`/warehouse/docs/${id}/sign`, { origin: typeof window !== 'undefined' ? window.location.origin : null }),
+  cancelSign: (id: string) => api.post<ApiResponse<SignStatus | null>>(`/warehouse/docs/${id}/sign/cancel`),
+  resendSign: (id: string) => api.post<ApiResponse<SignStatus>>(`/warehouse/docs/${id}/sign/resend`),
+  signs: (status?: 'PENDING' | 'SIGNED') => api.get<ApiResponse<SignListItem[]>>('/warehouse/signs', { params: { status } }),
   createDoc: (payload: DocPayload) => api.post<ApiResponse<WarehouseDoc>>('/warehouse/docs', payload),
   cancelDoc: (id: string) => api.post<ApiResponse<WarehouseDoc>>(`/warehouse/docs/${id}/cancel`),
 
@@ -540,4 +591,9 @@ export function targetSearch(t: { holderPinfl: string; holderName: string; depar
 /** Miqdor: 12 yoki 2,5 */
 export function qtyText(q: number): string {
   return Number.isInteger(q) ? q.toLocaleString('ru-RU').replace(/,/g, ' ') : q.toFixed(3).replace(/\.?0+$/, '').replace('.', ',');
+}
+
+/** Imzolangan nusxa (Word) */
+export function downloadSignedAct(doc: { id: string; number: string }): Promise<void> {
+  return downloadWord(`/warehouse/docs/${doc.id}/sign/archive`, `${doc.number} - dalolatnoma (imzolangan).docx`);
 }

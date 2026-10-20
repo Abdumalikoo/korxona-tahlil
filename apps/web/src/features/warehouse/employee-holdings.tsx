@@ -35,6 +35,10 @@ export function EmployeeHoldings({ pinfl }: { pinfl: string }) {
 
   if (error) return null;
   const total = data ? data.assets.reduce((s, a) => s + Number(a.priceTiyin), 0) : 0;
+  /** Xodim telefonda hali tasdiqlamagan dalolatnomalar — ulardagi vositalar «imzo kutilmoqda» */
+  const pending = data?.pendingSigns ?? [];
+  const waiting = new Map<string, string>();
+  for (const p of pending) for (const id of p.assetIds) waiting.set(id, p.docId);
   return (
     <div className="mt-6 border-t border-(--color-line) pt-4">
       <div className="mb-2 flex items-center gap-2">
@@ -65,6 +69,19 @@ export function EmployeeHoldings({ pinfl }: { pinfl: string }) {
           </button>
         )}
       </div>
+      {pending.length > 0 && (
+        <div className="mb-2 rounded-(--radius-control) border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <p className="font-semibold">Imzo kutilmoqda — {pending.length} ta dalolatnoma</p>
+          <p className="mt-0.5">Xodim QR kodni skaner qilib tasdiqlamaguncha mulk unda «tasdiqlanmagan» bo&apos;lib turadi.</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {pending.map((p) => (
+              <button key={p.docId} type="button" onClick={() => w.openDoc(p.docId, 'act')} className="rounded-full bg-white px-2 py-0.5 font-semibold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-100">
+                № {p.number} · {formatDate(p.date)} ›
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {!data ? (
         <p className="text-xs text-(--color-text-muted)">Yuklanmoqda…</p>
       ) : data.assets.length === 0 && data.tmz.length === 0 ? (
@@ -81,6 +98,7 @@ export function EmployeeHoldings({ pinfl }: { pinfl: string }) {
             >
               <span className="w-24 shrink-0 font-mono text-[11px] font-semibold text-brand-700">{a.inventoryNo}</span>
               <span className="min-w-0 flex-1 truncate">{a.name}</span>
+              {waiting.has(a.id) && <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">imzo kutilmoqda</span>}
               <span className="shrink-0 text-[11px] text-(--color-text-muted)">{formatDate(a.acquiredAt)}</span>
               <span className="money w-24 shrink-0 text-right text-xs">{formatTiyin(a.priceTiyin)}</span>
               <span className="shrink-0 text-xs text-(--color-text-faint)">›</span>

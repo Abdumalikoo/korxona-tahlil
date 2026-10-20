@@ -62,6 +62,8 @@ export function WarehouseOverview({ dashboard = false }: { dashboard?: boolean }
     [dashboard, range.from, range.to],
   );
   const counts = useAsync(() => (dashboard ? warehouseApi.counts() : Promise.resolve(null)), [dashboard]);
+  /** Elektron imzolar (QR): imzolangan va kutilayotganlar */
+  const signs = useAsync(() => warehouseApi.signs(), []);
   const reload = () => {
     overview.reload();
     recent.reload();
@@ -89,6 +91,8 @@ export function WarehouseOverview({ dashboard = false }: { dashboard?: boolean }
         ) : (
           <SourceActions add={{ label: w.keeper ? 'Qabul qilish' : 'Kirim', onClick: () => w.newDoc('RECEIPT'), hint: DOC_KIND_HINTS.RECEIPT }} extra={<DocButtons onNew={(k) => w.newDoc(k)} />} />
         )}
+
+        <SignsStrip items={signs.data?.data ?? null} href={dashboard ? '/dashbord/ombor/imzolar' : '/ombor/imzolar'} />
 
         {overview.error ? (
           <ErrorState message={overview.error} onRetry={overview.reload} />
@@ -311,5 +315,29 @@ export function WarehouseOverview({ dashboard = false }: { dashboard?: boolean }
 
       {w.element}
     </>
+  );
+}
+
+/** Elektron imzolar qisqacha: nechta imzolangan, nechtasi xodim imzosini kutmoqda */
+function SignsStrip({ items, href }: { items: { status: string; telegram: { employee?: string; archive?: string } | null }[] | null; href: string }) {
+  if (!items) return null;
+  const signed = items.filter((i) => i.status === 'SIGNED').length;
+  const pending = items.length - signed;
+  const tg = items.filter((i) => i.status === 'SIGNED' && i.telegram?.archive === 'yuborildi').length;
+  return (
+    <Link
+      href={href}
+      className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-(--color-line) bg-white px-4 py-2.5 text-sm shadow-card transition-colors hover:border-brand-200 hover:bg-brand-50/40"
+    >
+      <span className="font-semibold text-heading">Elektron imzolar (QR)</span>
+      <span className="text-emerald-700">
+        <b className="money">{signed}</b> ta imzolangan
+      </span>
+      <span className={cn(pending ? 'text-amber-700' : 'text-(--color-text-muted)')}>
+        <b className="money">{pending}</b> ta imzo kutilmoqda
+      </span>
+      <span className="text-(--color-text-muted)">Telegram arxivida: {tg}</span>
+      <span className="ml-auto text-xs font-semibold text-brand-700">Imzolangan dalolatnomalar →</span>
+    </Link>
   );
 }

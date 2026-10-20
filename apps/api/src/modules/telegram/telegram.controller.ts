@@ -48,4 +48,22 @@ export class TelegramController {
   async test(@Param('pinfl') pinfl: string) {
     return { data: await this.telegram.test(pinfl) };
   }
+
+  /** Imzolangan dalolatnomalar arxivi (Telegram guruh) */
+  @Get('archive')
+  async archive() {
+    return { data: await this.telegram.archive() };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('archive/code')
+  async archiveCode() {
+    return { data: await this.telegram.archiveCode() };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete('archive')
+  async clearArchive(@CurrentUser('id') userId: string) {
+    return { data: await this.telegram.clearArchive(userId) };
+  }
 }

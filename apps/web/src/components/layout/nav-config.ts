@@ -134,6 +134,7 @@ export const MENU: NavItem[] = [
       { label: 'Inventarizatsiya', href: '/ombor/inventarizatsiya', description: 'Sanab chiqish, kamomad va ortiqcha, dalolatnoma' },
       { label: 'Pochta', href: '/ombor/pochta', description: "Pochta korxonalariga to'lovlar" },
       { label: 'Dalolatnoma shabloni', href: '/ombor/shablon', description: "Berish, qaytarish, o'tkazish dalolatnomalari: tasdiqlovchi, matnlar, hududlar" },
+      { label: 'Imzolangan dalolatnomalar', href: '/ombor/imzolar', description: 'QR orqali xodim imzolagan va imzo kutayotgan dalolatnomalar, imzoli nusxalar' },
       // Kiritish sahifalari (omborchi menyusida; administratorga — tugmalar va qidiruv orqali)
       { label: 'Ish stoli', href: '/ombor/ish-stoli', description: 'Omborchi: bugungi ishlar, qoralamalar, kam qolganlar', hidden: true },
       { label: 'Kirim', href: '/ombor/kirim', description: "Omborga keldi — xarajatga yoziladi (asosiy vosita — balansga, oylik sarfi bilan)", hidden: true },
@@ -306,6 +307,7 @@ export const WORKER_MENUS: Record<string, WorkerNavGroup[]> = {
       order: 3,
       items: [
         { label: 'Inventarizatsiya', href: '/ombor/inventarizatsiya', hint: 'Sanab chiqish va solishtirish', icon: NavClipboard },
+        { label: 'Imzolar', href: '/ombor/imzolar', hint: 'Imzolangan va kutayotgan dalolatnomalar', icon: NavClipboard },
         { label: 'Dalolatnoma shabloni', href: '/ombor/shablon', hint: 'Tasdiqlovchi, matnlar, hududlar', icon: NavList },
       ],
     },

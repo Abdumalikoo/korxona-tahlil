@@ -12,6 +12,10 @@ import { PrismaService } from '../prisma/prisma.service';
 // ═══════════════════════════════════════════════════════════
 
 const KEY = 'telegram.bot';
+/** Imzolangan dalolatnomalar arxivi — Telegram guruh / kanal (bot shu yerga a'zo) */
+const ARCHIVE_KEY = 'telegram.actsArchive';
+/** Guruhni arxiv qilib belgilash uchun bir martalik kod: guruhda «/arxiv KOD» yoziladi */
+const ARCHIVE_CODE_KEY = 'telegram.actsArchiveCode';
 const LINK_DAYS = 7;
 const API = 'https://api.telegram.org';
 
@@ -24,7 +28,7 @@ export interface TelegramStatus {
 }
 
 interface TgMessage {
-  chat: { id: number; type?: string };
+  chat: { id: number; type?: string; title?: string };
   from?: { username?: string; first_name?: string };
   text?: string;
 }
@@ -97,6 +101,55 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const json = (await res.json().catch(() => null)) as { ok?: boolean; result?: T; description?: string } | null;
     if (!json?.ok) throw new Error(json?.description ?? `Telegram xatosi (${res.status})`);
     return json.result as T;
+  }
+
+  /** Fayl yuborish (Word dalolatnoma va h.k.) — multipart */
+  async sendDocument(chatId: string, buffer: Buffer, filename: string, caption?: string): Promise<void> {
+    if (!this.token) throw new BadRequestException('Telegram bot ulanmagan (Sozlamalar › Telegram)');
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    if (caption) {
+      form.append('caption', caption.slice(0, 1000));
+      form.append('parse_mode', 'HTML');
+    }
+    form.append('document', new Blob([new Uint8Array(buffer)]), filename);
+    let res: Response;
+    try {
+      res = await fetch(`${API}/bot${this.token}/sendDocument`, { method: 'POST', body: form, signal: AbortSignal.timeout(60_000) });
+    } catch (error) {
+      throw new Error(`Telegram'ga ulanib bo'lmadi: serverdan api.telegram.org ga internet chiqishini tekshiring (${(error as Error).message})`);
+    }
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+    if (!json?.ok) throw new Error(json?.description ?? `Telegram xatosi (${res.status})`);
+  }
+
+  /** Xodim Telegram'i (bog'langan bo'lsa) */
+  async chatOf(pinfl: string): Promise<string | null> {
+    const link = await this.prisma.telegramLink.findUnique({ where: { pinfl } });
+    return link?.chatId ?? null;
+  }
+
+  // ═══════════ Dalolatnomalar arxivi (guruh) ═══════════
+
+  async archive(): Promise<{ chatId: string; title: string | null; setAt: string } | null> {
+    const row = await this.prisma.setting.findUnique({ where: { key: ARCHIVE_KEY } });
+    const v = (row?.value ?? null) as { chatId?: string; title?: string | null; setAt?: string } | null;
+    return v?.chatId ? { chatId: v.chatId, title: v.title ?? null, setAt: v.setAt ?? '' } : null;
+  }
+
+  /** Bir martalik kod (30 daqiqa): guruhda «/arxiv KOD» — guruh arxiv bo'ladi */
+  async archiveCode(): Promise<{ code: string; command: string; expiresAt: string; botUsername: string | null }> {
+    if (!this.token) throw new BadRequestException('Avval botni ulang (Sozlamalar › Telegram)');
+    const code = String(100000 + (randomBytes(4).readUInt32BE(0) % 900000));
+    const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+    await this.prisma.setting.upsert({ where: { key: ARCHIVE_CODE_KEY }, create: { key: ARCHIVE_CODE_KEY, value: { code, expiresAt } }, update: { value: { code, expiresAt } } });
+    return { code, command: `/arxiv ${code}`, expiresAt, botUsername: this.username };
+  }
+
+  async clearArchive(userId: string): Promise<{ ok: true }> {
+    await this.prisma.setting.deleteMany({ where: { key: ARCHIVE_KEY } });
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'telegram', entityId: ARCHIVE_KEY, summary: "Telegram dalolatnomalar arxivi uzildi" });
+    return { ok: true };
   }
 
   /** Xabar yuborish (HTML) */
@@ -226,6 +279,24 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   async handle(msg: TgMessage): Promise<void> {
     const chatId = String(msg.chat.id);
     const text = (msg.text ?? '').trim();
+    // Guruh: faqat «/arxiv KOD» — dalolatnomalar arxivi qilib belgilash
+    const arx = /^\/arxiv(?:@\w+)?\s+(\d{6})$/i.exec(text);
+    if (arx) {
+      const row = await this.prisma.setting.findUnique({ where: { key: ARCHIVE_CODE_KEY } });
+      const v = (row?.value ?? null) as { code?: string; expiresAt?: string } | null;
+      if (!v?.code || v.code !== arx[1] || !v.expiresAt || new Date(v.expiresAt) < new Date()) {
+        await this.send(chatId, "Kod noto'g'ri yoki eskirgan. Dasturda Sozlamalar › Telegram › «Dalolatnomalar arxivi» dan yangi kod oling.");
+        return;
+      }
+      await this.prisma.setting.upsert({
+        where: { key: ARCHIVE_KEY },
+        create: { key: ARCHIVE_KEY, value: { chatId, title: msg.chat.title ?? null, setAt: new Date().toISOString() } },
+        update: { value: { chatId, title: msg.chat.title ?? null, setAt: new Date().toISOString() } },
+      });
+      await this.prisma.setting.deleteMany({ where: { key: ARCHIVE_CODE_KEY } });
+      await this.send(chatId, "✅ Bu chat <b>imzolangan dalolatnomalar arxivi</b> qilib belgilandi. Har bir tasdiqlangan dalolatnomaning nusxasi shu yerga keladi.");
+      return;
+    }
     if (msg.chat.type && msg.chat.type !== 'private') return;
 
     const start = /^\/start(?:\s+(\S+))?$/.exec(text);

@@ -13,6 +13,7 @@ import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { useAsync } from '@/lib/use-async';
 import { fmtWhen, tasksApi, telegramApi, type TaskEmployee } from './api';
+import { ActsArchiveCard } from './acts-archive-card';
 import { InviteDialog } from './invite-dialog';
 import { TgDot } from './task-form';
 
@@ -175,6 +176,9 @@ export function TelegramSettings() {
             {!st?.configured && <p className="mt-2 text-xs text-(--color-text-muted)">Avval botni ulang.</p>}
           </CardBody>
         </Card>
+
+        {/* Dalolatnomalar arxivi (Ombor › imzolangan nusxalar) */}
+        <ActsArchiveCard configured={Boolean(st?.configured)} />
 
         {/* Ulanganlar */}
         <Card className="overflow-hidden">

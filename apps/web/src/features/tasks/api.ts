@@ -95,7 +95,24 @@ export const telegramApi = {
   invite: (pinfl: string) => api.post<ApiResponse<TelegramInvite>>(`/telegram/links/${pinfl}`),
   unlink: (pinfl: string) => api.delete<ApiResponse<{ pinfl: string }>>(`/telegram/links/${pinfl}`),
   test: (pinfl: string) => api.post<ApiResponse<{ ok: true }>>(`/telegram/test/${pinfl}`),
+  /** Dalolatnomalar arxivi guruhi: imzolangan har bir dalolatnomaning 2-nusxasi shu yerga */
+  archive: () => api.get<ApiResponse<TelegramArchive | null>>('/telegram/archive'),
+  archiveCode: () => api.post<ApiResponse<TelegramArchiveCode>>('/telegram/archive/code'),
+  clearArchive: () => api.delete<ApiResponse<{ ok: true }>>('/telegram/archive'),
 };
+
+export interface TelegramArchive {
+  chatId: string;
+  title: string | null;
+  setAt: string;
+}
+
+export interface TelegramArchiveCode {
+  code: string;
+  command: string;
+  expiresAt: string;
+  botUsername: string | null;
+}
 
 // ── Vaqt (Toshkent, UTC+5) ──
 
