@@ -33,7 +33,7 @@ export function ActPaper({ m, className }: { m: ActModel; className?: string }) 
         {m.lead && <p className="pt-1">{m.lead}</p>}
       </div>
       <div className="mt-2 overflow-x-auto">
-        <table className="w-full border-collapse text-[10px] leading-tight sm:text-[11.5px] sm:leading-snug">
+        <table className="w-full border-collapse text-[11.5px]">
           <thead>
             <tr>
               {m.columns.map((c, i) => (
@@ -73,17 +73,9 @@ export function ActPaper({ m, className }: { m: ActModel; className?: string }) 
       <div className="mt-4 space-y-3">
         {m.signatures.map((s, i) =>
           s.name !== null ? (
-            <p key={i} className="flex items-end justify-between gap-4">
+            <p key={i} className="flex justify-between gap-4">
               <b>{s.label}</b>
-              <span className="flex items-end gap-1 whitespace-nowrap">
-                {m.sign?.status === 'SIGNED' && m.sign.signature && m.sign.signerLine === i ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.sign.signature} alt="imzo" className="-mb-1 h-11 w-auto max-w-[9rem] object-contain" />
-                ) : (
-                  '__________'
-                )}{' '}
-                {s.name}
-              </span>
+              <span className="whitespace-nowrap">__________ {s.name}</span>
             </p>
           ) : (
             <p key={i}>{s.label}</p>
@@ -99,16 +91,6 @@ export function ActPaper({ m, className }: { m: ActModel; className?: string }) 
               <span className="whitespace-nowrap">__________ {a.name}</span>
             </p>
           ))}
-        </div>
-      )}
-      {m.sign && (
-        <div className="mt-5 flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={m.sign.qr} alt="QR" className="size-20 shrink-0" />
-          <div className="min-w-0 font-sans">
-            <p className={cn('text-[11px] font-semibold', m.sign.status === 'SIGNED' ? 'text-emerald-700' : 'text-gray-700')}>{m.sign.stamp}</p>
-            <p className="break-all text-[9px] text-gray-400">{m.sign.url}</p>
-          </div>
         </div>
       )}
       {m.footer && <p className="mt-5 text-[9px] text-gray-400">{m.footer}</p>}

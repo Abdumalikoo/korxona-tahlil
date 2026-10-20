@@ -14,11 +14,10 @@ import {
   TableCell,
   TableRow,
   TextRun,
-  ImageRun,
   WidthType,
 } from 'docx';
 import type { StockDocKind } from '@prisma/client';
-import { ACT_TITLES, type ActModel, type ActSignInfo, type CountView, type DocView, type HoldingsView } from './warehouse.types';
+import { ACT_TITLES, type ActModel, type CountView, type DocView, type HoldingsView } from './warehouse.types';
 import { cyrDate, fill, latinToCyrillic, personName, resolveTemplate, sanitizeTemplate, WarehouseTemplates, type ActTemplate } from './warehouse.template';
 import { WarehouseCounts } from './warehouse.counts';
 import { WarehouseService } from './warehouse.service';
@@ -39,12 +38,6 @@ const TABLE_SIZE = 24;
 function som(tiyin: string | number | bigint): string {
   const v = Math.round(Number(tiyin) / 100);
   return `${v < 0 ? '−' : ''}${Math.abs(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}`;
-}
-
-/** «20.10.2026 15:43» — Toshkent vaqti */
-function stampTime(iso: string): string {
-  const t = new Date(new Date(iso).getTime() + 5 * 3600_000).toISOString();
-  return `${t.slice(8, 10)}.${t.slice(5, 7)}.${t.slice(0, 4)} ${t.slice(11, 16)}`;
 }
 
 function qtyText(q: number): string {
@@ -103,9 +96,6 @@ function signature(role: string, name: string | null | undefined): Paragraph[] {
 
 @Injectable()
 export class WarehouseActs {
-  /** Elektron tasdiq ma'lumoti (QR, imzo) — WarehouseSigns o'rnatadi (aylanma bog'liqliksiz) */
-  signInfo: ((docId: string) => Promise<ActSignInfo | null>) | null = null;
-
   constructor(
     private readonly warehouse: WarehouseService,
     private readonly counts: WarehouseCounts,
@@ -287,7 +277,7 @@ export class WarehouseActs {
   async build(docId: string): Promise<{ buffer: Buffer; filename: string }> {
     const d = await this.warehouse.doc(docId);
     const tpl = await this.templates.forActs();
-    const buffer = await this.packAct(d, tpl, (await this.signInfo?.(docId)) ?? null);
+    const buffer = await this.packAct(d, tpl);
     return { buffer, filename: `${d.number} - dalolatnoma.docx` };
   }
 
@@ -338,7 +328,7 @@ export class WarehouseActs {
     return { buffer, filename: `namuna - ${ACT_TITLES[kind]}${regionCode ? ` - hudud ${regionCode}` : ''}.docx` };
   }
 
-  private async packAct(d: DocView, tpl: ActTemplate, sign: ActSignInfo | null = null): Promise<Buffer> {
+  private async packAct(d: DocView, tpl: ActTemplate): Promise<Buffer> {
     const document = new Document({
       creator: 'Korxona tahlil',
       title: `${ACT_TITLES[d.kind]} № ${d.number}`,
@@ -346,7 +336,7 @@ export class WarehouseActs {
       sections: [
         {
           properties: { page: { margin: { top: 568, bottom: 1134, left: 1418, right: 707 } } },
-          children: this.body(d, tpl, sign),
+          children: this.body(d, tpl),
         },
       ],
     });
@@ -390,7 +380,7 @@ export class WarehouseActs {
    * Dalolatnoma mazmuni — bitta joyda: Word ham, ekrandagi ko'rinish ham shundan chiziladi.
    * Matnlar shablondan, o'rinbosarlar to'ldirilgan; ismlar — shablon qoidasi bo'yicha (qisqa / kirill).
    */
-  model(d: DocView, base: ActTemplate, sign: ActSignInfo | null = null): ActModel {
+  model(d: DocView, base: ActTemplate): ActModel {
     const regionCode = d.to.regionCode ?? d.from?.regionCode ?? null;
     const tpl = resolveTemplate(base, regionCode);
     const k = tpl.kinds[d.kind];
@@ -449,36 +439,21 @@ export class WarehouseActs {
       agreedHeading: tpl.agreed.length ? tpl.agreedHeading : '',
       agreed: tpl.agreed.map((a) => ({ title: a.title, name: personName(tpl, a.name) })),
       footer: tpl.footer ? `№ ${d.number} · «Korxona tahlil»` : null,
-      sign: sign
-        ? {
-            status: sign.status,
-            url: sign.url,
-            qr: sign.qr,
-            signedAt: sign.signedAt,
-            signature: sign.signature,
-            signerLine: signatures.findIndex((s) => s.name !== null && s.name === personName(tpl, sign.signerName)),
-            stamp:
-              sign.status === 'SIGNED' && sign.signedAt
-                ? `Электрон тасдиқланди: ${personName(tpl, sign.signerName)}, ${stampTime(sign.signedAt)} · ЖШШИР ****${sign.signerPinfl.slice(-4)}`
-                : 'Тасдиқлаш учун QR кодни телефонда сканер қилинг',
-          }
-        : null,
     };
   }
 
   /** Ekranda ko'rish uchun: hujjat dalolatnomasi (Word bilan bir xil) */
   async view(docId: string): Promise<ActModel> {
     const d = await this.warehouse.doc(docId);
-    return this.model(d, await this.templates.forActs(), (await this.signInfo?.(docId)) ?? null);
+    return this.model(d, await this.templates.forActs());
   }
 
-  private body(d: DocView, tpl: ActTemplate, sign: ActSignInfo | null = null): (Paragraph | Table)[] {
-    const m = this.model(d, tpl, sign);
-    const png = (dataUrl: string) => Buffer.from(dataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
+  private body(d: DocView, tpl: ActTemplate): (Paragraph | Table)[] {
+    const m = this.model(d, tpl);
     const out: (Paragraph | Table)[] = [];
     const run = (text: string, bold = false) => new TextRun({ text, bold, font: FONT, size: ACT_SIZE });
     const tab = () => new TextRun({ children: [new Tab()], font: FONT, size: ACT_SIZE });
-    const para = (children: (TextRun | ImageRun)[], o: { align?: (typeof AlignmentType)[keyof typeof AlignmentType]; after?: number; before?: number; indent?: number; firstLine?: number; tabs?: boolean } = {}) =>
+    const para = (children: TextRun[], o: { align?: (typeof AlignmentType)[keyof typeof AlignmentType]; after?: number; before?: number; indent?: number; firstLine?: number; tabs?: boolean } = {}) =>
       new Paragraph({
         alignment: o.align,
         spacing: { after: o.after ?? 0, before: o.before ?? 0 },
@@ -520,43 +495,14 @@ export class WarehouseActs {
     if (m.note) out.push(para([run(m.note)], { firstLine: 709, before: 120 }));
 
     out.push(para([], { after: 120 }));
-    m.signatures.forEach((s, i) => {
-      const signed = m.sign?.status === 'SIGNED' && m.sign.signature && m.sign.signerLine === i;
-      const mark = signed ? new ImageRun({ type: 'png', data: png(m.sign!.signature!), transformation: { width: 110, height: 40 } }) : run('__________');
-      out.push(s.name !== null ? para([run(s.label, true), tab(), mark, run(` ${s.name}`)], { tabs: true, before: 200 }) : para([run(s.label)], { before: 200 }));
-    });
+    for (const s of m.signatures) {
+      out.push(s.name !== null ? para([run(s.label, true), tab(), run(`__________ ${s.name}`)], { tabs: true, before: 200 }) : para([run(s.label)], { before: 200 }));
+    }
     if (m.agreed.length) {
       out.push(para([run(m.agreedHeading, true)], { before: 280 }));
       for (const a of m.agreed) out.push(para([run(`${a.title}:`), tab(), run(`__________ ${a.name}`)], { tabs: true, before: 160 }));
     }
-    if (m.sign) {
-      // QR kod va elektron tasdiq belgisi
-      const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
-      const nb = { top: none, bottom: none, left: none, right: none };
-      out.push(para([], { before: 120 }));
-      out.push(
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({ borders: nb, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new ImageRun({ type: 'png', data: png(m.sign.qr), transformation: { width: 96, height: 96 } })] })] }),
-                new TableCell({
-                  borders: nb,
-                  verticalAlign: VerticalAlign.CENTER,
-                  children: [
-                    new Paragraph({ children: [new TextRun({ text: m.sign.stamp, bold: m.sign.status === 'SIGNED', font: FONT, size: 20, color: m.sign.status === 'SIGNED' ? '1F6B3A' : '000000' })] }),
-                    new Paragraph({ children: [new TextRun({ text: m.sign.url, font: FONT, size: 16, color: '808080' })] }),
-                    ...(m.footer ? [new Paragraph({ children: [new TextRun({ text: m.footer, font: FONT, size: 14, color: '808080' })] })] : []),
-                  ],
-                }),
-              ],
-            }),
-          ],
-        }),
-      );
-    }
-    if (m.footer && !m.sign) out.push(para([new TextRun({ text: m.footer, font: FONT, size: 14, color: '808080' })], { before: 360 }));
+    if (m.footer) out.push(para([new TextRun({ text: m.footer, font: FONT, size: 14, color: '808080' })], { before: 360 }));
     return out;
   }
 

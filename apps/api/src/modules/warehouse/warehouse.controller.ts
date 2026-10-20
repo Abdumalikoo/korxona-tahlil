@@ -8,7 +8,6 @@ import { WarehouseDemo } from './warehouse.demo';
 import { WarehousePostal, type PostalInput } from './warehouse.postal';
 import { WarehouseService } from './warehouse.service';
 import { WarehouseTemplates } from './warehouse.template';
-import { WarehouseSigns } from './warehouse.sign';
 import type { CountInput, CountSaveInput, DocInput, ItemInput } from './warehouse.types';
 
 /**
@@ -25,7 +24,6 @@ export class WarehouseController {
     private readonly postal: WarehousePostal,
     private readonly demo: WarehouseDemo,
     private readonly templates: WarehouseTemplates,
-    private readonly signs: WarehouseSigns,
   ) {}
 
   private sendDocx(response: Response, file: { buffer: Buffer; filename: string }) {
@@ -68,8 +66,7 @@ export class WarehouseController {
     @Query('departmentId') departmentId?: string,
     @Query('regionCode') regionCode?: string,
   ) {
-    const view = await this.warehouse.holdings({ holderPinfl, holderName, departmentId, regionCode });
-    return { data: { ...view, pendingSigns: await this.signs.pendingFor(holderPinfl) } };
+    return { data: await this.warehouse.holdings({ holderPinfl, holderName, departmentId, regionCode }) };
   }
 
   /** Kimda nima bor — Word kartochka (o'sha parametrlar) */
