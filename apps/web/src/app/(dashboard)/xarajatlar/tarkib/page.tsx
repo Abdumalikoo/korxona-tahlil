@@ -50,6 +50,7 @@ export default function SalaryCompositionPage() {
   /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
   const { month: period } = usePeriod();
   const [analysis, setAnalysis] = useState<CompositionAnalysis | null>(null);
+  const [lastFile, setLastFile] = useState<File | null>(null);
 
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -101,7 +102,7 @@ export default function SalaryCompositionPage() {
     }
   }
 
-  async function handleFile(file: File) {
+  async function handleFile(file: File, sheet?: string) {
     if (!/\.xlsx$/i.test(file.name)) {
       setToast({ message: 'Faqat .xlsx formatidagi Excel fayl yuklang', tone: 'error' });
       return;
@@ -109,9 +110,10 @@ export default function SalaryCompositionPage() {
 
     setUploading(true);
     setAnalysis(null);
+    setLastFile(file);
 
     try {
-      setAnalysis(await analyzeCompositionFile(period, file));
+      setAnalysis(await analyzeCompositionFile(period, file, sheet));
     } catch (err) {
       setToast({ message: errorMessage(err, 'Faylni o‘qib bo‘lmadi'), tone: 'error' });
     } finally {
@@ -205,8 +207,9 @@ export default function SalaryCompositionPage() {
             loading={downloading}
           >
             <IconDownload className="size-4" />
-            Shablon
+            Shablon (vedomost shakli)
           </Button>
+          <span className="text-xs text-(--color-text-muted)">Buxgalteriyaning «OYLIK» vedomostini o&rsquo;zini ham yuklash mumkin — kerakli oy varag&rsquo;i o&rsquo;zi tanlanadi</span>
 
           {hasSaved && !analysis && (
             <Button
@@ -258,7 +261,7 @@ export default function SalaryCompositionPage() {
                       {hasSaved ? 'Yangi tarkib faylini yuklash' : 'Tarkib faylini shu yerga tashlang'}
                     </p>
                     <p className="text-xs text-(--color-text-muted)">
-                      yoki bosib tanlang &middot; tizimdan olingan shablon, .xlsx
+                      yoki bosib tanlang &middot; shablon yoki buxgalteriya vedomosti («OYLIK MARKAZ …»), .xlsx
                       {hasSaved && ' · saqlansa, joriy tarkib almashtiriladi'}
                     </p>
                   </>
@@ -284,6 +287,7 @@ export default function SalaryCompositionPage() {
           <AnalysisView
             analysis={analysis}
             saving={saving}
+            onSheet={lastFile ? (sheet) => void handleFile(lastFile, sheet) : undefined}
             onSave={() => void handleSave()}
             onCancel={reset}
           />

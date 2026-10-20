@@ -20,6 +20,8 @@ export function cellValue(value: ExcelJS.CellValue): unknown {
     const record = value as unknown as Record<string, unknown>;
 
     if ('result' in record) return record.result;
+    // Formula, natijasi saqlanmagan (Excel 0 natijani yozmaydi) — bo'sh
+    if ('formula' in record || 'sharedFormula' in record) return null;
     if ('text' in record) return record.text;
     if ('richText' in record && Array.isArray(record.richText)) {
       return (record.richText as { text: string }[]).map((part) => part.text).join('');

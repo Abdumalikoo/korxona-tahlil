@@ -108,6 +108,15 @@ export interface CheckSummary {
 export interface AnalysisResult {
   period: string;
   fileName: string;
+  /** O'qilgan varaq va fayldagi barcha varaqlar */
+  sheetName?: string;
+  sheets?: string[];
+  /** Vedomostdagi o'qilmagan summa ustunlari (sababi bilan) */
+  skippedColumns?: { column: string; label: string; reason: string }[];
+  /** Fayldagi ФОТ ustunlar yig'indisidan farq qilgan xodimlar — farq «Vedomost farqi» komponentiga yozildi */
+  fotAdjustments?: { rowIndex: number; pinfl: string; fileName: string; fileTiyin: string; computedTiyin: string; diffTiyin: string }[];
+  /** Bir xodimning ikkinchi qatori — birinchisiga qo'shildi */
+  mergedRows?: { rowIndex: number; pinfl: string; intoRow: number }[];
   totalRows: number;
   validRows: number;
   columns: ComponentDto[];

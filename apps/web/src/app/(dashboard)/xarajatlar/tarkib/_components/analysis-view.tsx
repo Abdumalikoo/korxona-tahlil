@@ -14,11 +14,14 @@ export function AnalysisView({
   saving,
   onSave,
   onCancel,
+  onSheet,
 }: {
   analysis: CompositionAnalysis;
   saving: boolean;
   onSave: () => void;
   onCancel: () => void;
+  /** Boshqa varaqni o'qish (fayl qayta yuklanmaydi) */
+  onSheet?: (sheet: string) => void;
 }) {
   const { check } = analysis;
   const skipped = analysis.invalidRows.length + analysis.duplicates.length;
@@ -35,6 +38,26 @@ export function AnalysisView({
           {analysis.columns.length} ta komponent ustuni topildi
         </p>
       </div>
+
+      {/* Varaq: buxgalteriya vedomostida har oy alohida varaq */}
+      {analysis.sheets && analysis.sheets.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-(--radius-card) bg-(--color-surface-muted) px-4 py-2.5 text-sm">
+          <span className="text-(--color-text-muted)">O&rsquo;qilgan varaq:</span>
+          <select
+            value={analysis.sheetName}
+            disabled={!onSheet}
+            onChange={(e) => onSheet?.(e.target.value)}
+            className="h-9 max-w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm font-medium"
+          >
+            {analysis.sheets.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-(--color-text-muted)">oy nomi bo&rsquo;yicha o&rsquo;zi tanlandi — boshqa oy bo&rsquo;lsa, almashtiring</span>
+        </div>
+      )}
 
       <StatusBanner check={check} />
       <CheckSummaryBoxes check={check} />
@@ -74,6 +97,45 @@ export function AnalysisView({
             key: `${row.rowIndex}-${row.pinfl}`,
             label: `${row.rowIndex}-qator`,
             text: row.pinfl,
+          }))}
+        />
+      )}
+
+      {/* Vedomost: ФОТ ga qo'lda qo'shilgan / ayirilgan summa */}
+      {analysis.fotAdjustments && analysis.fotAdjustments.length > 0 && (
+        <IssueCard
+          title={`ФОТ ustunlar yig'indisidan farq qiladi — ${analysis.fotAdjustments.length} ta xodim (jami ${formatTiyin(analysis.fotAdjustments.reduce((s, x) => s + Number(x.diffTiyin), 0))})`}
+          description="Vedomostda «Бир ойлик иш ҳақи фонди (ФОТ)» formulasiga ustunsiz summa qo'shilgan yoki ayirilgan. Tarkib ФОТ ga teng bo'lsin deb farq «Vedomost farqi» komponentiga yozildi — buxgalteriyada tekshirib ko'ring"
+          items={analysis.fotAdjustments.map((row) => ({
+            key: `${row.rowIndex}-${row.pinfl}`,
+            label: `${row.rowIndex}-qator`,
+            text: `${row.fileName || row.pinfl}: ФОТ ${formatTiyin(row.fileTiyin)}, ustunlar ${formatTiyin(row.computedTiyin)} → farq ${Number(row.diffTiyin) > 0 ? '+' : ''}${formatTiyin(row.diffTiyin)}`,
+          }))}
+        />
+      )}
+
+      {/* Bir xodim ikki qatorda */}
+      {analysis.mergedRows && analysis.mergedRows.length > 0 && (
+        <IssueCard
+          title={`Bir xodim ikki qatorda — ${analysis.mergedRows.length} ta`}
+          description="Summalari qo'shildi (masalan ikkinchi lavozim)"
+          items={analysis.mergedRows.map((row) => ({
+            key: `${row.rowIndex}-${row.pinfl}`,
+            label: `${row.rowIndex}-qator`,
+            text: `${row.pinfl} → ${row.intoRow}-qatorga qo'shildi`,
+          }))}
+        />
+      )}
+
+      {/* O'qilmagan summa ustunlari */}
+      {analysis.skippedColumns && analysis.skippedColumns.length > 0 && (
+        <IssueCard
+          title={`O'qilmagan ustunlar — ${analysis.skippedColumns.length} ta`}
+          description="Summa bor, lekin ФОТ ga kirmaydi yoki boshqa ustun ichida — tarkibga qo'shilmadi"
+          items={analysis.skippedColumns.map((c) => ({
+            key: c.column,
+            label: `${c.column} ustun`,
+            text: `${c.label.split(' › ').slice(-2).join(' › ')} — ${c.reason}`,
           }))}
         />
       )}

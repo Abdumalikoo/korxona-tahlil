@@ -151,6 +151,15 @@ export interface CheckSummary {
 export interface CompositionAnalysis {
   period: string;
   fileName: string;
+  /** O'qilgan varaq va fayldagi barcha varaqlar (buxgalteriya vedomosti — har oy alohida varaq) */
+  sheetName?: string;
+  sheets?: string[];
+  /** O'qilmagan summa ustunlari (sababi bilan) */
+  skippedColumns?: { column: string; label: string; reason: string }[];
+  /** Vedomostdagi ФОТ ustunlar yig'indisidan farq qilgan xodimlar — farq «Vedomost farqi»ga yozildi */
+  fotAdjustments?: { rowIndex: number; pinfl: string; fileName: string; fileTiyin: string; computedTiyin: string; diffTiyin: string }[];
+  /** Bir xodimning ikkinchi qatori birinchisiga qo'shildi */
+  mergedRows?: { rowIndex: number; pinfl: string; intoRow: number }[];
   totalRows: number;
   validRows: number;
   columns: SalaryComponent[];
@@ -321,11 +330,13 @@ export async function downloadCompositionExcel(period: string): Promise<void> {
 export async function analyzeCompositionFile(
   period: string,
   file: File,
+  sheet?: string,
 ): Promise<CompositionAnalysis> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${BASE}/salary-composition/analyze?period=${period}`, {
+  const qs = new URLSearchParams({ period, ...(sheet ? { sheet } : {}) });
+  const response = await fetch(`${BASE}/salary-composition/analyze?${qs.toString()}`, {
     method: 'POST',
     headers: authHeaders(),
     body: formData,

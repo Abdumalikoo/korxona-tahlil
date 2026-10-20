@@ -28,12 +28,12 @@ import {
 } from './salary-composition.constants';
 import {
     buildExportWorkbook,
-    buildTemplateWorkbook,
     cellText,
     detectColumns,
     parseNumber,
     toTiyin,
 } from './salary-composition.excel';
+import { buildVedomostWorkbook, detectVedomost, rankSheets, VEDOMOST_COMPONENTS } from './salary-composition.vedomost';
 import type {
     AnalysisResult,
     BatchDto,
@@ -74,19 +74,19 @@ export class SalaryCompositionService implements OnModuleInit {
     try {
       const count = await this.prisma.salaryComponent.count();
       if (count > 0) {
-        const chorak = DEFAULT_COMPONENTS.find((c) => c.code === 'CHORAK');
-        if (chorak && !(await this.prisma.salaryComponent.findUnique({ where: { code: 'CHORAK' } }))) {
-          await this.prisma.salaryComponent.create({ data: { ...chorak } }).catch(() => null);
-          this.logger.log("Ish haqi komponenti qo'shildi: Choraklik mukofot");
-        }
+        // Keyin qo'shilgan komponentlar (choraklik mukofot, buxgalteriya vedomosti ustunlari) — mavjud bazaga ham
+        const have = new Set((await this.prisma.salaryComponent.findMany({ select: { code: true } })).map((c) => c.code));
+        const missing = [...DEFAULT_COMPONENTS, ...VEDOMOST_COMPONENTS].filter((c) => !have.has(c.code));
+        for (const c of missing) await this.prisma.salaryComponent.create({ data: { ...c } }).catch(() => null);
+        if (missing.length) this.logger.log(`Ish haqi komponentlari qo'shildi: ${missing.map((c) => c.name).join(', ')}`);
         return;
       }
 
       await this.prisma.salaryComponent.createMany({
-        data: DEFAULT_COMPONENTS.map((item) => ({ ...item })),
+        data: [...DEFAULT_COMPONENTS, ...VEDOMOST_COMPONENTS].map((item) => ({ ...item })),
         skipDuplicates: true,
       });
-      this.logger.log(`Ish haqi komponentlari yaratildi: ${DEFAULT_COMPONENTS.length} ta`);
+      this.logger.log(`Ish haqi komponentlari yaratildi: ${DEFAULT_COMPONENTS.length + VEDOMOST_COMPONENTS.length} ta`);
     } catch (error) {
       this.logger.error('Ish haqi komponentlarini yaratib bo\'lmadi', error as Error);
     }
@@ -578,22 +578,28 @@ export class SalaryCompositionService implements OnModuleInit {
 
     const payroll = await this.payroll(period);
 
-    // Xodimlar varag'i: faol xodimlar + shu oy ish haqi olganlar
+    // Xodimlar: shu oy soliq hisobotidagilar; hisobot yo'q bo'lsa — faol xodimlar (avval Markaz, bo'limlar bo'yicha)
     const employees = await this.prisma.employee.findMany({
-      where: {
-        OR: [{ isActive: true }, { pinfl: { in: [...payroll.map.keys()] } }],
-      },
+      where: payroll.map.size ? { pinfl: { in: [...payroll.map.keys()] } } : { isActive: true },
       select: {
         pinfl: true,
         fullName: true,
+        position: true,
         regionCode: true,
         region: { select: { name: true } },
         department: { select: { name: true } },
       },
-      orderBy: { fullName: 'asc' },
+    });
+    employees.sort((a, b) => {
+      const ca = a.regionCode === CENTRAL_REGION ? 0 : 1;
+      const cb = b.regionCode === CENTRAL_REGION ? 0 : 1;
+      if (ca !== cb) return ca - cb;
+      const ua = a.department?.name ?? a.region?.name ?? '';
+      const ub = b.department?.name ?? b.region?.name ?? '';
+      return ua === ub ? a.fullName.localeCompare(b.fullName) : ua.localeCompare(ub);
     });
 
-    const workbook = buildTemplateWorkbook({ period, components, employees, payroll });
+    const workbook = buildVedomostWorkbook({ period, components, employees, payroll });
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
     return { buffer, filename: `ish-haqi-tarkibi-${period}.xlsx` };
@@ -603,7 +609,7 @@ export class SalaryCompositionService implements OnModuleInit {
   // Faylni o'qish
   // ═══════════════════════════════════════════════════════════
 
-  async analyze(period: string, file: Express.Multer.File | undefined): Promise<AnalysisResult> {
+  async analyze(period: string, file: Express.Multer.File | undefined, sheetName?: string): Promise<AnalysisResult> {
     this.assertPeriod(period);
     if (!file) throw new BadRequestException('Fayl yuklanmadi');
 
@@ -614,27 +620,56 @@ export class SalaryCompositionService implements OnModuleInit {
       throw new BadRequestException('Faylni o\'qib bo\'lmadi — .xlsx formatida saqlang');
     }
 
-    const sheet = workbook.getWorksheet('Tarkib') ?? workbook.worksheets[0];
-    if (!sheet) throw new BadRequestException('Faylda varaq yo\'q');
+    if (!workbook.worksheets.length) throw new BadRequestException('Faylda varaq yo\'q');
 
     const components = await this.allComponents();
     const signs = new Map(components.map((c) => [c.code, c.sign]));
     const byCode = new Map(components.map((c) => [c.code, c]));
 
-    const { headerRow, fixed, comps } = detectColumns(sheet, components);
+    // Varaq: tanlangan; bo'lmasa — oy nomi mos, buxgalteriya vedomosti shaklidagi birinchisi; eski shablon («Tarkib») ham o'qiladi
+    const names = workbook.worksheets.map((w) => w.name);
+    const order = sheetName ? [sheetName] : rankSheets(names, period);
+    let sheet: ExcelJS.Worksheet | undefined;
+    let det: { headerRow: number; dataStart: number; fixed: Partial<Record<'pinfl' | 'fullName' | 'days' | 'rate' | 'total', number>>; comps: Map<string, number>; skipped: { column: string; label: string; reason: string }[]; vedomost: boolean } | null = null;
+    for (const name of order) {
+      const ws = workbook.getWorksheet(name);
+      if (!ws) continue;
+      const v = detectVedomost(ws, components);
+      if (v) {
+        sheet = ws;
+        det = v;
+        break;
+      }
+      try {
+        const old = detectColumns(ws, components);
+        sheet = ws;
+        det = { ...old, dataStart: old.headerRow + 1, skipped: [], vedomost: false };
+        break;
+      } catch {
+        if (sheetName) throw new BadRequestException(`«${sheetName}» varag'ida ish haqi ustunlari topilmadi`);
+      }
+    }
+    if (!sheet || !det) throw new BadRequestException("Ish haqi varag'i topilmadi: PINFL, F.I.O. va summa ustunlari (Оклад, Надбавка, Премия …) bo'lgan varaq kerak");
+    const { fixed, comps } = det;
 
     const invalidRows: AnalysisResult['invalidRows'] = [];
     const duplicates: AnalysisResult['duplicates'] = [];
     const totalMismatches: AnalysisResult['totalMismatches'] = [];
     const parsed: ParsedRow[] = [];
+    const mergedRows: { rowIndex: number; pinfl: string; intoRow: number }[] = [];
     const seen = new Set<string>();
     let totalRows = 0;
 
     const pinflCol = fixed.pinfl as number;
 
-    for (let r = headerRow + 1; r <= sheet.rowCount; r++) {
+    for (let r = det.dataStart; r <= sheet.rowCount; r++) {
       const row = sheet.getRow(r);
       const pinflRaw = cellText(row.getCell(pinflCol).value);
+      // Vedomost: PINFL siz qatorlar (bo'lim jami, bo'sh, «JAMI») — jimgina o'tkaziladi
+      if (det.vedomost && !pinflRaw.replace(/\D/g, '')) {
+        const name = fixed.fullName ? cellText(row.getCell(fixed.fullName).value) : '';
+        if (!name || /^jami/i.test(name) || /^\d+$/.test(name)) continue;
+      }
 
       // Kodlar qatori (nomlar bo'yicha topilgan bo'lsa) yoki JAMI qatori — o'tkazamiz
       const upper = pinflRaw.toUpperCase();
@@ -660,6 +695,8 @@ export class SalaryCompositionService implements OnModuleInit {
         let amount = value;
         if (amount < 0) {
           if (component.sign < 0) amount = -amount;
+          // Vedomostda manfiy tuzatish (masalan front farqi) — ФОТ bo'yicha «Vedomost farqi»ga o'tadi
+          else if (det.vedomost && fixed.total) continue;
           else {
             errors.push(`${component.name}: manfiy summa`);
             continue;
@@ -693,6 +730,17 @@ export class SalaryCompositionService implements OnModuleInit {
         continue;
       }
       if (seen.has(pinfl)) {
+        // Vedomostda bir xodim ikki qatorda (masalan ikkinchi lavozim) — summalar qo'shiladi
+        const first = det.vedomost ? parsed.find((p) => p.pinfl === pinfl) : undefined;
+        if (first) {
+          for (const [code, amount] of items) first.items.set(code, (first.items.get(code) ?? 0n) + amount);
+          if (fixed.total) {
+            const t = parseNumber(row.getCell(fixed.total).value);
+            if (t !== null && !Number.isNaN(t)) first.fileTotalTiyin = (first.fileTotalTiyin ?? 0n) + toTiyin(t);
+          }
+          mergedRows.push({ rowIndex: r, pinfl, intoRow: first.rowIndex });
+          continue;
+        }
         duplicates.push({ rowIndex: r, pinfl });
         continue;
       }
@@ -708,7 +756,9 @@ export class SalaryCompositionService implements OnModuleInit {
       }
 
       const computed = this.rowTotal(items, signs);
-      if (fileTotalTiyin !== null && this.abs(fileTotalTiyin - computed) > DIFF_TOLERANCE_TIYIN) {
+      if (det.vedomost) {
+        // ФОТ — taqqoslash qatorlar birlashtirilgandan keyin (pastda)
+      } else if (fileTotalTiyin !== null && this.abs(fileTotalTiyin - computed) > DIFF_TOLERANCE_TIYIN) {
         totalMismatches.push({
           rowIndex: r,
           pinfl,
@@ -730,6 +780,27 @@ export class SalaryCompositionService implements OnModuleInit {
 
     if (parsed.length === 0 && invalidRows.length === 0) {
       throw new BadRequestException('Faylda xodim qatorlari topilmadi');
+    }
+
+    // Vedomost: fayldagi ФОТ = tarkib bo'lsin. Buxgalter formulaga qo'lda qo'shgan / ayirgan summa (ustunsiz)
+    // «Vedomost farqi (+ / −)» komponentiga yoziladi va ro'yxatda ko'rsatiladi.
+    const fotAdjustments: { rowIndex: number; pinfl: string; fileName: string; fileTiyin: string; computedTiyin: string; diffTiyin: string }[] = [];
+    if (det.vedomost && fixed.total) {
+      for (const p of parsed) {
+        if (p.fileTotalTiyin === null) continue;
+        p.items.delete('VED_FARQ');
+        p.items.delete('VED_FARQ_M');
+        const computed = this.rowTotal(p.items, signs);
+        const diff = p.fileTotalTiyin - computed;
+        if (this.abs(diff) <= DIFF_TOLERANCE_TIYIN) continue;
+        const code = diff > 0n ? 'VED_FARQ' : 'VED_FARQ_M';
+        if (!byCode.has(code)) {
+          totalMismatches.push({ rowIndex: p.rowIndex, pinfl: p.pinfl, fileTiyin: p.fileTotalTiyin.toString(), computedTiyin: computed.toString() });
+          continue;
+        }
+        p.items.set(code, this.abs(diff));
+        fotAdjustments.push({ rowIndex: p.rowIndex, pinfl: p.pinfl, fileName: p.fileName, fileTiyin: p.fileTotalTiyin.toString(), computedTiyin: computed.toString(), diffTiyin: diff.toString() });
+      }
     }
 
     const [registry, payroll, previous] = await Promise.all([
@@ -779,6 +850,11 @@ export class SalaryCompositionService implements OnModuleInit {
     return {
       period,
       fileName: file.originalname,
+      sheetName: sheet.name,
+      sheets: names,
+      skippedColumns: det.skipped,
+      fotAdjustments,
+      mergedRows,
       totalRows,
       validRows: rows.length,
       columns: found.map((c) => this.toComponentDto(c)),

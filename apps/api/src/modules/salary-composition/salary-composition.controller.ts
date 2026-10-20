@@ -102,8 +102,8 @@ export class SalaryCompositionController {
   @Roles(UserRole.ADMIN)
   @Post('analyze')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@Query('period') period: string, @UploadedFile() file: Express.Multer.File) {
-    const data = await this.composition.analyze(period, file);
+  async analyze(@Query('period') period: string, @UploadedFile() file: Express.Multer.File, @Query('sheet') sheet?: string) {
+    const data = await this.composition.analyze(period, file, sheet || undefined);
     return { data };
   }
 
