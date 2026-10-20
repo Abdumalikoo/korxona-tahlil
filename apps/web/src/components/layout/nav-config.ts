@@ -185,6 +185,7 @@ export const MENU: NavItem[] = [
     icon: NavCompare,
     description: 'Hududlar va Markaz yonma-yon',
     pages: [
+      { label: 'Umumiy manba', href: '/solishtirma/umumiy', description: "Markaz va barcha hududlar bitta jadvalda: korxona daromadi, xarajat tarkibi, natija va Markazni qoplash" },
       { label: 'Hududlar', href: '/solishtirma', description: 'Viloyatlar → tumanlar → xodimlar: daromad, xarajat, natija' },
       { label: 'Markaz', href: '/solishtirma/markaz', description: "Markaz → bo'limlar → xodimlar: daromad manbalari, o'z xarajati, hududlar uchun to'langan" },
       { label: "O'zgarishlar", href: '/solishtirma/ozgarishlar', description: "Oy bo'yicha xodimlar: oylik hisoblanganlar, ishga olingan, bo'shagan, ishlamagan, ko'chgan" },

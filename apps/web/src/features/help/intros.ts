@@ -42,6 +42,11 @@ export const INTROS: Record<string, PageIntro> = {
     from: `${BOTH_SRC}, Xodimlar bo'limi`,
     how: "Viloyatni bosing — tumanlar, tumanni bosing — xizmatlar va xodimlar ochiladi. Markaz — yuqoridagi «Markaz» yorlig'ida.",
   },
+  '/solishtirma/umumiy': {
+    what: "Butun korxona bitta ekranda: Markaz va barcha hududlar bir jadvalda — daromad, xarajat tarkibi, natija, rentabellik va Markazni qoplash.",
+    from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
+    how: "Yuqorida korxona jami (Hududlar | Markaz bo'yicha), so'ng natija ko'prigi va jadval. Qatorni bosing — o'sha hudud yoki Markaz sahifasi ochiladi.",
+  },
   '/solishtirma/ozgarishlar': {
     what: "Xodimlar o'zgarishi: bu oy nechta xodimga oylik hisoblandi (hududlar va Markaz), o'tgan oyga nisbatan kim ishga olindi, bo'shadi, ishlamadi yoki ko'chdi.",
     from: "Ish haqi vedomostlari, Xodimlar reestri (ishga kirgan va bo'shagan sana), natijalar faylidagi hudud tarixi",
