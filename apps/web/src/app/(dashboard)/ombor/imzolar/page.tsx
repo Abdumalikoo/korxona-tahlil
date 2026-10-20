@@ -97,7 +97,7 @@ export default function WarehouseSignsPage() {
           ) : rows.length === 0 ? (
             <EmptyState
               title={tab === 'SIGNED' ? "Hali imzolangan dalolatnoma yo'q" : "Imzo kutayotgan dalolatnoma yo'q"}
-              description="Berish, ko'chirish yoki qaytarish hujjatini oching → «Rasmiylashtirish (QR kod)»."
+              description="Berish, ko'chirish yoki qaytarishda «Tasdiqlash (QR kod)» bosiladi — xodim imzolagach hujjat saqlanadi va shu yerga tushadi."
             />
           ) : (
             <Table>
@@ -120,7 +120,10 @@ export default function WarehouseSignsPage() {
                     <Td>
                       <DocKindBadge kind={r.kind} />
                     </Td>
-                    <Td className="font-medium text-heading">{r.signerName}</Td>
+                    <Td className="font-medium text-heading">
+                      {r.signerName}
+                      {r.status === 'SIGNED' && <span className="ml-2 text-[11px] font-normal text-(--color-text-muted)">{r.method === 'PHOTO' ? '· yuz surati' : '· imzo'}</span>}
+                    </Td>
                     <Td className="text-(--color-text-muted)">{formatDateTime(tab === 'SIGNED' ? (r.signedAt ?? r.createdAt) : r.createdAt)}</Td>
                     {tab === 'SIGNED' && (
                       <Td>

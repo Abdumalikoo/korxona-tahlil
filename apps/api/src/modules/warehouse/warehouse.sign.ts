@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import QRCode from 'qrcode';
@@ -7,27 +8,34 @@ import { esc, TelegramService } from '../telegram/telegram.service';
 import { WarehouseActs } from './warehouse.acts';
 import { WarehouseService } from './warehouse.service';
 import { personName, WarehouseTemplates } from './warehouse.template';
-import type { ActModel, ActSignInfo, DocView } from './warehouse.types';
+import type { ActModel, ActSignInfo, DocInput, DocView } from './warehouse.types';
 
 // ═══════════════════════════════════════════════════════════
-// Dalolatnomani elektron tasdiqlash.
-//   1) Omborchi hujjatda «Rasmiylashtirish» bosadi → maxfiy havola va QR kod (dalolatnomada ham, Word'da ham).
+// Dalolatnomani elektron tasdiqlash — SAQLASHDAN OLDIN:
+//   1) Omborchi hujjatni to'ldirib «Tasdiqlash» bosadi → hujjat hali saqlanmaydi: dalolatnoma tayyorlanadi
+//      (oldindan ko'rish) va maxfiy havola + QR kod chiqadi.
 //   2) Qabul qiluvchi xodim telefonida QR'ni skaner qiladi → dalolatnomani ko'radi, JShShIRining oxirgi 4 raqamini
-//      yozadi va barmog'i bilan imzo chizadi.
-//   3) Imzolangach: imzoli nusxa (Word: imzo rasmi, QR, «elektron tasdiqlangan» belgisi) bazada saqlanadi va
-//      Telegram'ga 2 nusxa yuboriladi — xodimning o'ziga (bot bilan bog'langan bo'lsa) va dalolatnomalar arxiviga.
-//   Imzolanguncha mulk xodimda «imzo kutilmoqda» bo'lib ko'rinadi.
+//      yozadi va barmog'i bilan imzo chizadi yoki yuz suratini oladi.
+//   3) Imzolangach omborchida «Saqlash» ochiladi → hujjat bazaga yoziladi (qoldiq, asosiy vositalar joyi),
+//      imzoli nusxa (Word: imzo, QR, «elektron tasdiqlangan» belgisi) saqlanadi va Telegram'ga 2 nusxa ketadi —
+//      xodimning o'ziga va dalolatnomalar arxivi guruhiga.
+//   Avval saqlangan (imzosiz) hujjatlarni ham keyin shu usulda imzolatish mumkin (hujjat oynasida).
 // Kim imzolaydi: berish va ko'chirishda — qabul qiluvchi; qaytarishda — topshiruvchi xodim.
 // ═══════════════════════════════════════════════════════════
 
 const SIGNABLE = new Set(['ISSUE', 'TRANSFER', 'RETURN']);
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
-/** Imzo rasmi (PNG data URL) chegarasi */
+/** Imzo rasmi (PNG) va yuz surati (JPEG) chegarasi — data URL uzunligi */
 const MAX_SIGNATURE = 400_000;
+const MAX_PHOTO = 700_000;
+/** Saqlanmagan (imzo kutayotgan) qoralama havolasi amal qilish muddati */
+const DRAFT_HOURS = 24;
+
+type Row = NonNullable<Awaited<ReturnType<PrismaService['stockDocSign']['findUnique']>>>;
 
 export interface SignStatus {
-  docId: string;
+  docId: string | null;
   status: 'PENDING' | 'SIGNED' | 'CANCELLED';
   url: string;
   qr: string;
@@ -35,13 +43,32 @@ export interface SignStatus {
   signerName: string;
   createdAt: string;
   signedAt: string | null;
+  method: string | null;
   signature: string | null;
+  photo: string | null;
   signedIp: string | null;
   hasArchive: boolean;
   archiveName: string | null;
   telegram: { employee?: string; archive?: string; at?: string } | null;
   /** Telefon ochishi mumkin bo'lmagan manzil (localhost) — ogohlantirish */
   localOnly: boolean;
+}
+
+/** Saqlashdan oldingi imzo (qoralama) holati */
+export interface SignDraft extends SignStatus {
+  id: string;
+  /** Hujjat saqlandimi (imzodan keyin «Saqlash» bosilgan) */
+  saved: boolean;
+  /** Muddati tugadimi (imzo kutilayotgan bo'lsa) */
+  expired: boolean;
+  /** Xodimga ko'rsatilgan dalolatnoma */
+  act: ActModel;
+}
+
+/** Imzolovchi xodim yo'q (bo'limga berilmoqda va h.k.) — oddiy saqlash */
+export interface NoSignNeeded {
+  needsSign: false;
+  reason: string;
 }
 
 export interface PublicAct {
@@ -51,8 +78,16 @@ export interface PublicAct {
   date: string;
   signerName: string;
   signedAt: string | null;
+  method: string | null;
   locked: boolean;
+  /** Hujjat hali saqlanmagan (imzodan keyin omborchi saqlaydi) */
+  draft: boolean;
   act: ActModel;
+}
+
+interface DraftData {
+  input: DocInput;
+  view: DocView;
 }
 
 function isLocal(host: string): boolean {
@@ -85,6 +120,17 @@ export function publicBase(origin: string | null | undefined): string {
   return `${proto}//${lan ?? url?.hostname ?? 'localhost'}${port ? `:${port}` : ''}`;
 }
 
+/** Imzolangan mazmun o'zgarmaganini tekshirish uchun: kim, qayerdan-qayerga, nima, qancha */
+export function fingerprint(d: DocView): string {
+  return JSON.stringify({
+    kind: d.kind,
+    to: [d.to.holderPinfl, d.to.holderName, d.to.text],
+    from: d.from ? [d.from.holderPinfl, d.from.holderName, d.from.text] : null,
+    lines: d.lines.map((l) => [l.itemId, l.qty]).sort(),
+    assets: d.assets.map((a) => a.id).sort(),
+  });
+}
+
 @Injectable()
 export class WarehouseSigns {
   private readonly log = new Logger('Dalolatnoma imzosi');
@@ -112,23 +158,42 @@ export class WarehouseSigns {
     return `${row.baseUrl}/imzo/${row.token}`;
   }
 
-  /** Dalolatnoma uchun: QR va imzo ma'lumoti (Word va ekran) */
-  async info(docId: string): Promise<ActSignInfo | null> {
-    const row = await this.prisma.stockDocSign.findUnique({ where: { docId } });
-    if (!row || row.status === 'CANCELLED') return null;
+  private qr(url: string, width = 240): Promise<string> {
+    return QRCode.toDataURL(url, { margin: 1, width, errorCorrectionLevel: 'M' });
+  }
+
+  private draftOf(row: Row): DraftData | null {
+    const v = row.draft as unknown as DraftData | null;
+    return v && typeof v === 'object' && v.view && v.input ? v : null;
+  }
+
+  private expired(row: Row): boolean {
+    return !row.docId && row.status === 'PENDING' && row.createdAt.getTime() < Date.now() - DRAFT_HOURS * 3600_000;
+  }
+
+  private async infoOf(row: Row): Promise<ActSignInfo | null> {
+    if (row.status === 'CANCELLED') return null;
     const url = this.urlOf(row);
     return {
-      status: row.status as 'PENDING' | 'SIGNED',
+      status: row.status === 'SIGNED' ? 'SIGNED' : 'PENDING',
       url,
-      qr: await QRCode.toDataURL(url, { margin: 1, width: 240, errorCorrectionLevel: 'M' }),
+      qr: await this.qr(url),
       signerName: row.signerName,
       signerPinfl: row.signerPinfl,
       signedAt: row.signedAt?.toISOString() ?? null,
       signature: row.signature ?? null,
+      photo: row.photo ?? null,
+      method: row.method ?? null,
     };
   }
 
-  private async dto(row: NonNullable<Awaited<ReturnType<PrismaService['stockDocSign']['findUnique']>>>): Promise<SignStatus> {
+  /** Dalolatnoma uchun: QR va imzo ma'lumoti (Word va ekran) */
+  async info(docId: string): Promise<ActSignInfo | null> {
+    const row = await this.prisma.stockDocSign.findUnique({ where: { docId } });
+    return row ? this.infoOf(row) : null;
+  }
+
+  private async dto(row: Row): Promise<SignStatus> {
     const url = this.urlOf(row);
     let host = '';
     try {
@@ -138,14 +203,16 @@ export class WarehouseSigns {
     }
     return {
       docId: row.docId,
-      status: row.status as SignStatus['status'],
+      status: (row.status === 'SAVING' ? 'SIGNED' : row.status) as SignStatus['status'],
       url,
-      qr: await QRCode.toDataURL(url, { margin: 1, width: 320, errorCorrectionLevel: 'M' }),
+      qr: await this.qr(url, 320),
       signerPinfl: row.signerPinfl,
       signerName: row.signerName,
       createdAt: row.createdAt.toISOString(),
       signedAt: row.signedAt?.toISOString() ?? null,
+      method: row.method ?? null,
       signature: row.signature ?? null,
+      photo: row.photo ?? null,
       signedIp: row.signedIp ?? null,
       hasArchive: !!row.archive,
       archiveName: row.archiveName ?? null,
@@ -158,6 +225,112 @@ export class WarehouseSigns {
     const row = await this.prisma.stockDocSign.findUnique({ where: { docId } });
     return row ? this.dto(row) : null;
   }
+
+  // ═════════════ Saqlashdan oldin: «Tasdiqlash» → QR → imzo → «Saqlash» ═════════════
+
+  private async draftDto(row: Row): Promise<SignDraft> {
+    const data = this.draftOf(row);
+    const tpl = await this.templates.forActs();
+    let act: ActModel;
+    if (row.docId) act = await this.acts.view(row.docId);
+    else if (data) act = this.acts.model(data.view, tpl, await this.infoOf(row));
+    else throw new NotFoundException('Qoralama topilmadi');
+    return { ...(await this.dto(row)), id: row.id, saved: !!row.docId, expired: this.expired(row), act };
+  }
+
+  /**
+   * «Tasdiqlash»: hujjat tekshiriladi va dalolatnoma tayyorlanadi (bazaga yozilmaydi),
+   * qabul qiluvchi uchun QR havola beriladi. Imzolovchi xodim bo'lmasa — needsSign: false (oddiy saqlash).
+   */
+  async createDraft(input: DocInput, origin: string | null | undefined, userId: string): Promise<SignDraft | NoSignNeeded> {
+    const body = input ?? {};
+    if (!SIGNABLE.has(String(body.kind))) return { needsSign: false, reason: 'Bu hujjat turi imzolanmaydi' };
+    const view = await this.warehouse.createDoc(body, userId, { preview: true });
+    const signer = WarehouseSigns.signerOf(view);
+    if (!signer) {
+      return {
+        needsSign: false,
+        reason: view.kind === 'RETURN' ? "Topshiruvchi xodim aniqlanmadi (vositalar turli joylardan yoki bo'limdan) — dalolatnoma qog'ozda imzolanadi" : "Oluvchi xodim tanlanmagan (bo'lim yoki hududga) — dalolatnoma qog'ozda imzolanadi",
+      };
+    }
+    // Shu omborchining avvalgi saqlanmagan qoralamalari — bekor (bitta oynada bitta QR)
+    await this.prisma.stockDocSign.updateMany({ where: { docId: null, createdById: userId, status: 'PENDING' }, data: { status: 'CANCELLED' } });
+    const row = await this.prisma.stockDocSign.create({
+      data: {
+        docId: null,
+        token: randomBytes(18).toString('base64url'),
+        status: 'PENDING',
+        kind: view.kind,
+        draft: { input: body, view } as unknown as Prisma.InputJsonValue,
+        signerPinfl: signer.pinfl,
+        signerName: signer.name,
+        baseUrl: publicBase(origin),
+        createdById: userId,
+      },
+    });
+    return this.draftDto(row);
+  }
+
+  private async draftRow(id: string): Promise<Row> {
+    const row = await this.prisma.stockDocSign.findUnique({ where: { id } });
+    if (!row || (!row.draft && !row.docId)) throw new NotFoundException('Tasdiqlash topilmadi');
+    return row;
+  }
+
+  async draftStatus(id: string): Promise<SignDraft> {
+    return this.draftDto(await this.draftRow(id));
+  }
+
+  async cancelDraft(id: string): Promise<SignDraft> {
+    const row = await this.draftRow(id);
+    if (row.docId) throw new BadRequestException('Hujjat allaqachon saqlangan');
+    return this.draftDto(await this.prisma.stockDocSign.update({ where: { id }, data: { status: 'CANCELLED' } }));
+  }
+
+  /**
+   * «Saqlash» (faqat imzolangandan keyin): hujjat bazaga yoziladi, imzoli nusxa saqlanadi va Telegram'ga yuboriladi.
+   * Imzolangandan keyin ombordagi holat o'zgarib, dalolatnoma mazmuni boshqacha chiqsa — saqlanmaydi (qayta imzolatiladi).
+   */
+  async commitDraft(id: string, userId: string): Promise<{ doc: DocView; sign: SignStatus }> {
+    const row = await this.draftRow(id);
+    if (row.docId) return { doc: await this.warehouse.doc(row.docId), sign: await this.dto(row) };
+    if (row.status === 'PENDING') throw new BadRequestException('Xodim hali imzolamagan — QR kod orqali imzolangach saqlanadi');
+    if (row.status !== 'SIGNED') throw new BadRequestException(row.status === 'SAVING' ? 'Saqlanmoqda — biroz kuting' : 'Tasdiqlash bekor qilingan — qaytadan «Tasdiqlash» bosing');
+    const data = this.draftOf(row);
+    if (!data) throw new NotFoundException('Qoralama topilmadi');
+
+    // Ikki marta bosilsa ham bitta hujjat: SIGNED → SAVING (faqat bittasi o'tadi)
+    const lock = await this.prisma.stockDocSign.updateMany({ where: { id, status: 'SIGNED', docId: null }, data: { status: 'SAVING' } });
+    if (lock.count !== 1) throw new ConflictException('Saqlanmoqda — biroz kuting');
+    let doc: DocView;
+    try {
+      const again = await this.warehouse.createDoc(data.input, userId, { preview: true });
+      if (fingerprint(again) !== fingerprint(data.view)) {
+        await this.prisma.stockDocSign.update({ where: { id }, data: { status: 'CANCELLED' } });
+        throw new BadRequestException("Imzolangandan keyin ombordagi holat o'zgardi (vositalar yoki oluvchi) — hujjatni qayta tekshirib, yana «Tasdiqlash» bosing");
+      }
+      doc = await this.warehouse.createDoc(data.input, userId);
+    } catch (e) {
+      // Saqlab bo'lmadi (masalan, qoldiq yetmay qoldi) — imzo saqlanib qoladi, qayta urinish mumkin
+      await this.prisma.stockDocSign.updateMany({ where: { id, status: 'SAVING' }, data: { status: 'SIGNED' } });
+      throw e;
+    }
+    await this.prisma.stockDocSign.update({ where: { id }, data: { docId: doc.id, status: 'SIGNED' } });
+    const sign = await this.finalize(id, doc);
+    return { doc, sign };
+  }
+
+  /** Imzoli nusxa (Word) — bazada; Telegram'ga 2 nusxa */
+  private async finalize(id: string, d: DocView): Promise<SignStatus> {
+    const row = (await this.prisma.stockDocSign.findUnique({ where: { id } }))!;
+    const file = await this.acts.build(d.id);
+    const archiveName = file.filename.replace(/\.docx$/, ' (imzolangan).docx');
+    await this.prisma.stockDocSign.update({ where: { id }, data: { archive: new Uint8Array(file.buffer), archiveName } });
+    await this.deliver(id, d, row.signerPinfl, row.signerName, file.buffer, archiveName, row.signedAt ?? new Date(), row.method).catch((e) => this.log.warn((e as Error).message));
+    return this.dto((await this.prisma.stockDocSign.findUnique({ where: { id } }))!);
+  }
+
+  // ═════════════ Saqlangan hujjatni keyin imzolatish (hujjat oynasidan) ═════════════
 
   /** «Rasmiylashtirish»: QR havola yaratiladi (bor bo'lsa — o'sha qaytadi) */
   async start(docId: string, origin: string | null | undefined, userId: string): Promise<SignStatus> {
@@ -177,7 +350,7 @@ export class WarehouseSigns {
       return this.dto(row);
     }
     const row = await this.prisma.stockDocSign.create({
-      data: { docId, token: randomBytes(18).toString('base64url'), status: 'PENDING', signerPinfl: signer.pinfl, signerName: signer.name, baseUrl, createdById: userId },
+      data: { docId, kind: d.kind, token: randomBytes(18).toString('base64url'), status: 'PENDING', signerPinfl: signer.pinfl, signerName: signer.name, baseUrl, createdById: userId },
     });
     return this.dto(row);
   }
@@ -191,7 +364,7 @@ export class WarehouseSigns {
 
   // ─────────── Telefon (ochiq sahifa) ───────────
 
-  private async byToken(token: string) {
+  private async byToken(token: string): Promise<Row> {
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) throw new NotFoundException('Havola noto‘g‘ri');
     const row = await this.prisma.stockDocSign.findUnique({ where: { token } });
     if (!row) throw new NotFoundException('Havola noto‘g‘ri yoki eskirgan');
@@ -200,27 +373,29 @@ export class WarehouseSigns {
 
   async publicView(token: string): Promise<PublicAct> {
     const row = await this.byToken(token);
-    const d = await this.warehouse.doc(row.docId);
     const tpl = await this.templates.forActs();
-    const act = this.acts.model(d, tpl, await this.info(row.docId));
-    return {
-      status: (d.cancelled ? 'CANCELLED' : row.status) as PublicAct['status'],
-      number: d.number,
-      kindLabel: d.kindLabel,
-      date: d.date,
-      signerName: personName({ ...tpl, shortNames: false }, row.signerName),
-      signedAt: row.signedAt?.toISOString() ?? null,
-      locked: !!row.lockedUntil && row.lockedUntil > new Date(),
-      act,
-    };
+    const signerName = personName({ ...tpl, shortNames: false }, row.signerName);
+    const base = { signerName, signedAt: row.signedAt?.toISOString() ?? null, method: row.method ?? null, locked: !!row.lockedUntil && row.lockedUntil > new Date() };
+    if (row.docId) {
+      const d = await this.warehouse.doc(row.docId);
+      return { ...base, status: (d.cancelled ? 'CANCELLED' : row.status === 'SAVING' ? 'SIGNED' : row.status) as PublicAct['status'], number: d.number, kindLabel: d.kindLabel, date: d.date, draft: false, act: this.acts.model(d, tpl, await this.infoOf(row)) };
+    }
+    const data = this.draftOf(row);
+    if (!data) throw new NotFoundException('Havola noto‘g‘ri yoki eskirgan');
+    const status = this.expired(row) || row.status === 'CANCELLED' ? 'CANCELLED' : row.status === 'PENDING' ? 'PENDING' : 'SIGNED';
+    return { ...base, status, number: data.view.number, kindLabel: data.view.kindLabel, date: data.view.date, draft: true, act: this.acts.model(data.view, tpl, await this.infoOf(row)) };
   }
 
-  async sign(token: string, body: { pinfl4?: unknown; signature?: unknown; agree?: unknown }, meta: { ip?: string; agent?: string }): Promise<{ ok: true; signedAt: string }> {
+  async sign(
+    token: string,
+    body: { pinfl4?: unknown; signature?: unknown; photo?: unknown; method?: unknown; agree?: unknown },
+    meta: { ip?: string; agent?: string },
+  ): Promise<{ ok: true; signedAt: string; draft: boolean }> {
     const row = await this.byToken(token);
-    if (row.status === 'SIGNED') throw new BadRequestException('Bu dalolatnoma allaqachon imzolangan');
-    if (row.status !== 'PENDING') throw new BadRequestException('Bu havola bekor qilingan — omborchidan yangisini so‘rang');
-    const d = await this.warehouse.doc(row.docId);
-    if (d.cancelled) throw new BadRequestException('Hujjat bekor qilingan');
+    if (row.status === 'SIGNED' || row.status === 'SAVING') throw new BadRequestException('Bu dalolatnoma allaqachon imzolangan');
+    if (row.status !== 'PENDING' || this.expired(row)) throw new BadRequestException('Bu havola bekor qilingan yoki eskirgan — omborchidan yangisini so‘rang');
+    const d = row.docId ? await this.warehouse.doc(row.docId) : null;
+    if (d?.cancelled) throw new BadRequestException('Hujjat bekor qilingan');
     if (row.lockedUntil && row.lockedUntil > new Date()) throw new ForbiddenException(`Ko'p marta noto'g'ri kiritildi — ${LOCK_MINUTES} daqiqadan keyin urinib ko'ring`);
     if (body.agree !== true) throw new BadRequestException('Dalolatnoma bilan tanishganingizni belgilang');
     const p4 = typeof body.pinfl4 === 'string' ? body.pinfl4.replace(/\D/g, '') : '';
@@ -233,29 +408,37 @@ export class WarehouseSigns {
       });
       throw new BadRequestException(attempts >= MAX_ATTEMPTS ? `Noto'g'ri. ${LOCK_MINUTES} daqiqaga yopildi` : `JShShIR mos kelmadi (${MAX_ATTEMPTS - attempts} ta urinish qoldi)`);
     }
-    const sig = typeof body.signature === 'string' ? body.signature : '';
-    if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(sig) || sig.length > MAX_SIGNATURE) throw new BadRequestException('Imzo chizilmagan');
-    if (sig.length < 1500) throw new BadRequestException('Imzo juda qisqa — to‘liq imzo chizing');
+    const method = body.method === 'PHOTO' ? 'PHOTO' : 'DRAWN';
+    let signature: string | null = null;
+    let photo: string | null = null;
+    if (method === 'DRAWN') {
+      const sig = typeof body.signature === 'string' ? body.signature : '';
+      if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(sig) || sig.length > MAX_SIGNATURE) throw new BadRequestException('Imzo chizilmagan');
+      if (sig.length < 1500) throw new BadRequestException('Imzo juda qisqa — to‘liq imzo chizing');
+      signature = sig;
+    } else {
+      const ph = typeof body.photo === 'string' ? body.photo : '';
+      if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(ph) || ph.length > MAX_PHOTO) throw new BadRequestException('Yuz surati olinmagan');
+      if (ph.length < 5000) throw new BadRequestException('Surat juda kichik — qaytadan oling');
+      photo = ph;
+    }
 
     const signedAt = new Date();
     await this.prisma.stockDocSign.update({
       where: { id: row.id },
-      data: { status: 'SIGNED', method: 'DRAWN', signature: sig, signedAt, signedIp: meta.ip?.slice(0, 64) ?? null, signedAgent: meta.agent?.slice(0, 300) ?? null, attempts: 0, lockedUntil: null },
+      data: { status: 'SIGNED', method, signature, photo, signedAt, signedIp: meta.ip?.slice(0, 64) ?? null, signedAgent: meta.agent?.slice(0, 300) ?? null, attempts: 0, lockedUntil: null },
     });
-    // Imzoli nusxa (Word) — saqlanadi
-    const file = await this.acts.build(row.docId);
-    const archiveName = file.filename.replace(/\.docx$/, ' (imzolangan).docx');
-    await this.prisma.stockDocSign.update({ where: { id: row.id }, data: { archive: new Uint8Array(file.buffer), archiveName } });
-    // Telegram: 2 nusxa (xodimga va arxivga) — xato bo'lsa ham imzo saqlanadi
-    await this.deliver(row.id, d, row.signerPinfl, row.signerName, file.buffer, archiveName, signedAt).catch((e) => this.log.warn((e as Error).message));
-    return { ok: true, signedAt: signedAt.toISOString() };
+    // Saqlangan hujjat — imzoli nusxa va Telegram darhol; saqlanmagan — omborchi «Saqlash» bosganda
+    if (d) await this.finalize(row.id, d).catch((e) => this.log.warn((e as Error).message));
+    return { ok: true, signedAt: signedAt.toISOString(), draft: !d };
   }
 
   /** Telegram: 1-nusxa — xodimning o'ziga, 2-nusxa — dalolatnomalar arxivi guruhiga */
-  async deliver(signId: string, d: DocView, pinfl: string, name: string, buffer: Buffer, filename: string, signedAt: Date): Promise<SignStatus['telegram']> {
+  async deliver(signId: string, d: DocView, pinfl: string, name: string, buffer: Buffer, filename: string, signedAt: Date, method?: string | null): Promise<SignStatus['telegram']> {
     const result: NonNullable<SignStatus['telegram']> = { at: new Date().toISOString() };
     const when = new Date(signedAt.getTime() + 5 * 3600_000).toISOString().replace('T', ' ').slice(0, 16);
-    const caption = `📄 <b>${esc(d.kindLabel)} № ${esc(d.number)}</b>\n✍️ Imzoladi: ${esc(name)}\n🕒 ${when}\nNusxa — elektron tasdiqlangan dalolatnoma.`;
+    const how = method === 'PHOTO' ? 'yuz surati bilan' : 'imzo chizib';
+    const caption = `📄 <b>${esc(d.kindLabel)} № ${esc(d.number)}</b>\n✍️ Tasdiqladi: ${esc(name)} (${how})\n🕒 ${when}\nNusxa — elektron tasdiqlangan dalolatnoma.`;
     if (!this.telegram.configured) {
       result.employee = 'bot ulanmagan';
       result.archive = 'bot ulanmagan';
@@ -284,7 +467,7 @@ export class WarehouseSigns {
     const row = await this.prisma.stockDocSign.findUnique({ where: { docId } });
     if (!row || row.status !== 'SIGNED' || !row.archive) throw new BadRequestException('Imzolangan nusxa yo‘q');
     const d = await this.warehouse.doc(docId);
-    await this.deliver(row.id, d, row.signerPinfl, row.signerName, Buffer.from(row.archive), row.archiveName ?? `${d.number}.docx`, row.signedAt ?? new Date());
+    await this.deliver(row.id, d, row.signerPinfl, row.signerName, Buffer.from(row.archive), row.archiveName ?? `${d.number}.docx`, row.signedAt ?? new Date(), row.method);
     return this.dto((await this.prisma.stockDocSign.findUnique({ where: { docId } }))!);
   }
 
@@ -294,25 +477,27 @@ export class WarehouseSigns {
     return { buffer: Buffer.from(row.archive), filename: row.archiveName ?? 'dalolatnoma (imzolangan).docx' };
   }
 
-  /** Arxiv: imzolangan va kutilayotgan dalolatnomalar */
-  async list(status?: string): Promise<{ docId: string; number: string; kind: string; kindLabel: string; date: string; signerName: string; status: string; createdAt: string; signedAt: string | null; telegram: SignStatus['telegram'] }[]> {
-    const where = status === 'PENDING' || status === 'SIGNED' ? { status } : { status: { in: ['PENDING', 'SIGNED'] } };
-    const rows = await this.prisma.stockDocSign.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500, select: { docId: true, status: true, signerName: true, createdAt: true, signedAt: true, telegram: true } });
-    const docs = rows.length ? await this.prisma.stockDoc.findMany({ where: { id: { in: rows.map((r) => r.docId) } }, select: { id: true, number: true, kind: true, date: true, deletedAt: true } }) : [];
+  /** Arxiv: imzolangan va kutilayotgan (saqlangan) dalolatnomalar */
+  async list(status?: string): Promise<{ docId: string; number: string; kind: string; kindLabel: string; date: string; signerName: string; status: string; method: string | null; createdAt: string; signedAt: string | null; telegram: SignStatus['telegram'] }[]> {
+    const where = { docId: { not: null }, ...(status === 'PENDING' || status === 'SIGNED' ? { status } : { status: { in: ['PENDING', 'SIGNED'] } }) };
+    const rows = await this.prisma.stockDocSign.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500, select: { docId: true, status: true, method: true, signerName: true, createdAt: true, signedAt: true, telegram: true } });
+    const ids = rows.map((r) => r.docId).filter((x): x is string => !!x);
+    const docs = ids.length ? await this.prisma.stockDoc.findMany({ where: { id: { in: ids } }, select: { id: true, number: true, kind: true, date: true, deletedAt: true } }) : [];
     const by = new Map(docs.map((d) => [d.id, d]));
     const LABEL: Record<string, string> = { ISSUE: 'Chiqim (berish)', TRANSFER: "Ko'chirish", RETURN: 'Qaytarish' };
     return rows
-      .filter((r) => by.has(r.docId) && !by.get(r.docId)!.deletedAt)
+      .filter((r) => r.docId && by.has(r.docId) && !by.get(r.docId)!.deletedAt)
       .map((r) => {
-        const d = by.get(r.docId)!;
+        const d = by.get(r.docId!)!;
         return {
-          docId: r.docId,
+          docId: d.id,
           number: d.number,
           kind: d.kind,
           kindLabel: LABEL[d.kind] ?? d.kind,
           date: new Date(d.date.getTime() + 5 * 3600_000).toISOString().slice(0, 10),
           signerName: r.signerName,
           status: r.status,
+          method: r.method ?? null,
           createdAt: r.createdAt.toISOString(),
           signedAt: r.signedAt?.toISOString() ?? null,
           telegram: (r.telegram as SignStatus['telegram']) ?? null,
@@ -320,12 +505,13 @@ export class WarehouseSigns {
       });
   }
 
-  /** Xodimda imzo kutayotgan hujjatlar va ulardagi vositalar */
+  /** Xodimda imzo kutayotgan (saqlangan) hujjatlar va ulardagi vositalar */
   async pendingFor(pinfl: string | null | undefined): Promise<{ docId: string; number: string; date: string; assetIds: string[] }[]> {
     if (!pinfl) return [];
-    const rows = await this.prisma.stockDocSign.findMany({ where: { signerPinfl: pinfl, status: 'PENDING' }, select: { docId: true } });
+    const rows = await this.prisma.stockDocSign.findMany({ where: { signerPinfl: pinfl, status: 'PENDING', docId: { not: null } }, select: { docId: true } });
     const out: { docId: string; number: string; date: string; assetIds: string[] }[] = [];
     for (const r of rows) {
+      if (!r.docId) continue;
       const d = await this.warehouse.doc(r.docId).catch(() => null);
       if (!d || d.cancelled) continue;
       out.push({ docId: d.id, number: d.number, date: d.date, assetIds: d.assets.map((a) => a.id) });

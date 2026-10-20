@@ -18,11 +18,15 @@ import {
   DOC_KIND_HINTS,
   DOC_KIND_LABELS,
   DOC_KIND_PATHS,
+  SIGNABLE_KINDS,
   downloadAct,
+  downloadSignedAct,
   qtyText,
   warehouseApi,
   type DocKind,
+  type DocPayload,
   type Holdings,
+  type SignStatus,
   type Supplier,
   type WarehouseAsset,
   type WarehouseDoc,
@@ -36,6 +40,8 @@ import { AssetPicker } from './asset-picker';
 import { ItemCombobox } from './item-combobox';
 import { drafts, prefs, recentTargets, type FormDraft, type LineDraft } from './memory';
 import { PasteDialog, type PastedRow } from './paste-dialog';
+import { SignDialog } from './sign-dialog';
+import { TgChip } from '../sign-panel';
 
 // ═══════════════════════════════════════════════════════════
 // Ombor hujjatini kiritish — har tur alohida sahifada (Kirim, Chiqim, Ko'chirish, Qaytarish,
@@ -154,6 +160,9 @@ export function DocEntry({ kind }: { kind: DocKind }) {
   const [error, setError] = useState<string | null>(null);
   const [lineErrors, setLineErrors] = useState<Record<number, string>>({});
   const [saved, setSaved] = useState<WarehouseDoc | null>(null);
+  /** Saqlashdan oldingi tasdiq oynasi (QR → xodim imzosi → saqlash) */
+  const [signPayload, setSignPayload] = useState<DocPayload | null>(null);
+  const [savedSign, setSavedSign] = useState<SignStatus | null>(null);
   const [openDoc, setOpenDoc] = useState<string | null>(null);
   const [newItem, setNewItem] = useState<{ lineKey: number; name: string } | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -166,6 +175,8 @@ export function DocEntry({ kind }: { kind: DocKind }) {
   const usesAssets = kind !== 'RECEIPT';
   const tmzOnly = kind !== 'RECEIPT';
   const needTarget = kind === 'ISSUE' || kind === 'TRANSFER';
+  /** Xodim telefonda tasdiqlaydigan hujjatlar */
+  const needsSign = SIGNABLE_KINDS.includes(kind);
 
   const set = useCallback((patch: Partial<FormDraft>) => setForm((f) => ({ ...f, ...patch })), []);
   const setLine = (key: number, patch: Partial<LineDraft>) => setForm((f) => ({ ...f, lines: f.lines.map((l) => (l.key === key ? { ...l, ...patch } : l)) }));
@@ -365,46 +376,64 @@ export function DocEntry({ kind }: { kind: DocKind }) {
     return !headError && Object.keys(errs).length === 0;
   };
 
+  /** Formadagi hujjat — API ga yuboriladigan ko'rinishda */
+  const buildPayload = (): DocPayload => {
+    const f = formRef.current;
+    const note = kind === 'WRITE_OFF' && f.commission.trim() ? [`Komissiya a'zolari: ${f.commission.trim()}`, f.note.trim()].filter(Boolean).join('. ') : f.note;
+    return {
+      kind,
+      date: f.date,
+      counterparty: f.counterparty.trim() || null,
+      documentNo: f.documentNo.trim() || null,
+      issuedBy: f.issuedBy.trim() || null,
+      responsible: f.responsible.trim() || null,
+      reason: f.reason.trim() || null,
+      note: note.trim() || null,
+      paymentMethod: f.paymentMethod,
+      ...targetPayload(f.target),
+      lines: f.lines
+        .filter((l) => l.itemId)
+        .map((l) => ({
+          itemId: l.itemId,
+          qty: num(l.qty),
+          ...(kind === 'RECEIPT' ? { priceTiyin: String(Math.round((l.price ?? 0) * 100)) } : {}),
+          serials: l.serials
+            .split(/[\n,;]+/)
+            .map((s) => s.trim())
+            .filter(Boolean),
+        })),
+      assetIds: f.assetIds,
+      conditions: Object.fromEntries(Object.entries(f.conditions ?? {}).filter(([id, v]) => f.assetIds.includes(id) && v.trim())),
+    };
+  };
+
+  /** Saqlangandan keyin: qoralama tozalanadi, odatlar eslab qolinadi, natija ko'rsatiladi */
+  const afterSaved = (doc: WarehouseDoc, sign: SignStatus | null) => {
+    const f = formRef.current;
+    drafts.clear(kind);
+    prefs.set({ responsible: f.responsible.trim() || undefined, ...(kind === 'RECEIPT' ? { paymentMethod: f.paymentMethod } : {}), ...(kind === 'WRITE_OFF' ? { commission: f.commission.trim() } : {}) });
+    if (!targetEmpty(f.target) && doc.to.text !== 'Ombor') recentTargets.push(doc.to.text, f.target);
+    setSignPayload(null);
+    setSavedSign(sign);
+    setSaved(doc);
+    setError(null);
+    void reloadItems();
+    void reloadAssets();
+    window.scrollTo({ top: 0 });
+  };
+
   const submit = async () => {
     if (saving || saved || !editable) return;
     if (!validate()) return;
+    // Berish, ko'chirish, qaytarish — avval xodim tasdiqlaydi (QR), keyin saqlanadi
+    if (needsSign) {
+      setSignPayload(buildPayload());
+      return;
+    }
     setSaving(true);
     try {
-      const f = formRef.current;
-      const note = kind === 'WRITE_OFF' && f.commission.trim() ? [`Komissiya a'zolari: ${f.commission.trim()}`, f.note.trim()].filter(Boolean).join('. ') : f.note;
-      const r = await warehouseApi.createDoc({
-        kind,
-        date: f.date,
-        counterparty: f.counterparty.trim() || null,
-        documentNo: f.documentNo.trim() || null,
-        issuedBy: f.issuedBy.trim() || null,
-        responsible: f.responsible.trim() || null,
-        reason: f.reason.trim() || null,
-        note: note.trim() || null,
-        paymentMethod: f.paymentMethod,
-        ...targetPayload(f.target),
-        lines: f.lines
-          .filter((l) => l.itemId)
-          .map((l) => ({
-            itemId: l.itemId,
-            qty: num(l.qty),
-            ...(kind === 'RECEIPT' ? { priceTiyin: String(Math.round((l.price ?? 0) * 100)) } : {}),
-            serials: l.serials
-              .split(/[\n,;]+/)
-              .map((s) => s.trim())
-              .filter(Boolean),
-          })),
-        assetIds: f.assetIds,
-        conditions: Object.fromEntries(Object.entries(f.conditions ?? {}).filter(([id, v]) => f.assetIds.includes(id) && v.trim())),
-      });
-      drafts.clear(kind);
-      prefs.set({ responsible: f.responsible.trim() || undefined, ...(kind === 'RECEIPT' ? { paymentMethod: f.paymentMethod } : {}), ...(kind === 'WRITE_OFF' ? { commission: f.commission.trim() } : {}) });
-      if (!targetEmpty(f.target) && r.data.to.text !== 'Ombor') recentTargets.push(r.data.to.text, f.target);
-      setSaved(r.data);
-      setError(null);
-      void reloadItems();
-      void reloadAssets();
-      window.scrollTo({ top: 0 });
+      const r = await warehouseApi.createDoc(buildPayload());
+      afterSaved(r.data, null);
     } catch (err) {
       setError(errorMessage(err, "Saqlab bo'lmadi"));
     } finally {
@@ -431,6 +460,7 @@ export function DocEntry({ kind }: { kind: DocKind }) {
     const base = emptyForm(kind, myName);
     setForm(keepTarget ? { ...base, target: formRef.current.target } : base);
     setSaved(null);
+    setSavedSign(null);
     setRestoredAt(null);
     setLineErrors({});
     setError(null);
@@ -448,7 +478,8 @@ export function DocEntry({ kind }: { kind: DocKind }) {
     if (!saved) return;
     setDownloading(true);
     try {
-      await downloadAct(saved);
+      if (savedSign?.hasArchive) await downloadSignedAct(saved);
+      else await downloadAct(saved);
     } catch (err) {
       setError(errorMessage(err, "Dalolatnomani yuklab bo'lmadi"));
     } finally {
@@ -482,6 +513,18 @@ export function DocEntry({ kind }: { kind: DocKind }) {
                 {formatDate(saved.date)} · {saved.kind === 'RECEIPT' ? saved.counterparty || 'Yetkazib beruvchi ko‘rsatilmagan' : saved.kind === 'WRITE_OFF' ? saved.reason : saved.to.text} · {saved.lines.length + (saved.kind === 'RECEIPT' ? 0 : saved.assets.length)} qator ·{' '}
                 <b className="money text-heading">{formatTiyin(saved.totalTiyin)} so&apos;m</b>
               </p>
+              {savedSign && (
+                <div className="mt-3 inline-flex flex-col items-center gap-1.5 rounded-xl bg-white/70 px-4 py-2 ring-1 ring-emerald-200">
+                  <p className="text-sm font-semibold text-emerald-800">
+                    ✓ {savedSign.method === 'PHOTO' ? 'Yuz surati bilan' : 'Imzo bilan'} tasdiqladi: {savedSign.signerName}
+                  </p>
+                  <p className="flex flex-wrap justify-center gap-1.5 text-[11px]">
+                    <span className="rounded-full bg-white px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-200">Bazada: imzoli nusxa saqlandi</span>
+                    <TgChip label="Xodimga" v={savedSign.telegram?.employee} />
+                    <TgChip label="Arxivga" v={savedSign.telegram?.archive} />
+                  </p>
+                </div>
+              )}
               {saved.kind === 'RECEIPT' && <p className="mt-1 text-xs text-(--color-text-muted)">Summa Xarajatlarga yozildi (manba: Ombor).</p>}
               {saved.kind === 'RECEIPT' && saved.assets.length > 0 && (
                 <p className="mt-1 text-xs text-(--color-text-muted)">
@@ -492,7 +535,7 @@ export function DocEntry({ kind }: { kind: DocKind }) {
             <div className="grid gap-3 p-6 sm:grid-cols-2">
               <Button size="lg" onClick={() => void act()} loading={downloading}>
                 <IconDownload className="size-4" />
-                Dalolatnoma (Word)
+                {savedSign?.hasArchive ? 'Imzolangan dalolatnoma (Word)' : 'Dalolatnoma (Word)'}
               </Button>
               <Button size="lg" variant="secondary" onClick={() => setOpenDoc(saved.id)}>
                 Hujjatni ko&apos;rish
@@ -879,18 +922,20 @@ export function DocEntry({ kind }: { kind: DocKind }) {
               <p className="truncate text-xs font-semibold text-(--color-expense)">{error}</p>
             ) : (
               <p className="text-[11px] text-(--color-text-faint)">
-                {draftAt ? `Qoralama saqlandi ${new Date(draftAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : 'Qoralama avtomatik saqlanadi'} · Ctrl+S — saqlash
+                {draftAt ? `Qoralama saqlandi ${new Date(draftAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : 'Qoralama avtomatik saqlanadi'} · Ctrl+S — {needsSign ? 'tasdiqlash' : 'saqlash'}
               </p>
             )}
           </div>
           <Button variant="ghost" onClick={clearForm} disabled={saving}>
             Tozalash
           </Button>
-          <Button size="lg" onClick={() => void submit()} loading={saving}>
-            Saqlash
+          <Button size="lg" onClick={() => void submit()} loading={saving} title={needsSign ? "Xodim QR kod orqali tasdiqlagach saqlanadi" : undefined}>
+            {needsSign ? 'Tasdiqlash (QR kod)' : 'Saqlash'}
           </Button>
         </div>
       </div>
+
+      <SignDialog payload={signPayload} title={label} onClose={() => setSignPayload(null)} onSaved={afterSaved} />
 
       <ItemForm
         open={Boolean(newItem)}

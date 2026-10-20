@@ -150,6 +150,14 @@ interface Target {
   holderName: string | null;
 }
 
+
+/** Oldindan ko'rish natijasi — tranzaksiyani bekor qilish uchun «xato» sifatida otiladi */
+class PreviewOnly extends Error {
+  constructor(readonly view: DocView) {
+    super('preview');
+  }
+}
+
 @Injectable()
 export class WarehouseService {
   private categoriesReady: Promise<void> | null = null;
@@ -503,7 +511,7 @@ export class WarehouseService {
    * Hujjat yaratish. opts — faqat ichki chaqiruvlar uchun (kontroller bermaydi):
    * noExpense — inventarizatsiya ortiqchasi kabi kirim xarajatga yozilmaydi.
    */
-  async createDoc(input: DocInput, userId: string, opts: { noExpense?: boolean } = {}): Promise<DocView> {
+  async createDoc(input: DocInput, userId: string, opts: { noExpense?: boolean; preview?: boolean } = {}): Promise<DocView> {
     const body = input ?? {};
     const kind = body.kind as StockDocKind;
     if (!DOC_KINDS.includes(kind)) throw new BadRequestException("Hujjat turi noto'g'ri");
@@ -652,6 +660,11 @@ export class WarehouseService {
               });
             }
           }
+          // Oldindan ko'rish (imzo uchun): hujjat to'liq tuziladi, ko'rinishi olinadi va tranzaksiya bekor qilinadi
+          if (opts.preview) {
+            const full = await tx.stockDoc.findUnique({ where: { id: doc.id }, include: { lines: { include: { item: true } }, moves: { include: { asset: true } } } });
+            throw new PreviewOnly(this.mapDoc(full!, await this.lookup()));
+          }
           return doc.id;
         },
         { timeout: 60_000, maxWait: 10_000 },
@@ -661,9 +674,16 @@ export class WarehouseService {
     try {
       id = await run();
     } catch (error) {
+      if (error instanceof PreviewOnly) return error.view;
       // Bir vaqtda ikki hujjat bir xil raqam olsa — bir marta qayta urinamiz
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') id = await run();
-      else throw error;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        try {
+          id = await run();
+        } catch (again) {
+          if (again instanceof PreviewOnly) return again.view;
+          throw again;
+        }
+      } else throw error;
     }
     return this.doc(id);
   }

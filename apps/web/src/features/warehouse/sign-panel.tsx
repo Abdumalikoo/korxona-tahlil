@@ -151,16 +151,11 @@ export function SignPanel({ doc, canWrite, onChanged }: { doc: WarehouseDoc; can
         </div>
       ) : (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-          <div className="shrink-0 rounded-lg bg-white p-2 ring-1 ring-emerald-200">
-            {live.signature ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={live.signature} alt="Xodim imzosi" className="h-20 w-40 object-contain" />
-            ) : (
-              <div className="grid h-20 w-40 place-items-center text-xs text-(--color-text-muted)">imzo</div>
-            )}
-          </div>
+          <SignatureProof s={live} />
           <div className="min-w-0 flex-1 space-y-1.5">
-            <p className="text-sm font-semibold text-emerald-800">✓ Imzolangan — {live.signerName}</p>
+            <p className="text-sm font-semibold text-emerald-800">
+              ✓ {live.method === 'PHOTO' ? 'Yuz surati bilan tasdiqlangan' : 'Imzolangan'} — {live.signerName}
+            </p>
             <p className="text-xs text-(--color-text-muted)">
               {live.signedAt ? formatDateTime(live.signedAt) : ''}
               {live.signedIp ? ` · IP ${live.signedIp}` : ''}
@@ -190,11 +185,28 @@ export function SignPanel({ doc, canWrite, onChanged }: { doc: WarehouseDoc; can
   );
 }
 
+/** Imzo rasmi yoki yuz surati — tasdiq isboti */
+export function SignatureProof({ s, large }: { s: Pick<SignStatus, 'signature' | 'photo' | 'method'>; large?: boolean }) {
+  return (
+    <div className="shrink-0 rounded-lg bg-white p-2 ring-1 ring-emerald-200">
+      {s.method === 'PHOTO' && s.photo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={s.photo} alt="Xodimning yuz surati" className={cn('rounded-md object-cover', large ? 'size-36' : 'size-20')} />
+      ) : s.signature ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={s.signature} alt="Xodim imzosi" className={cn('object-contain', large ? 'h-28 w-56' : 'h-20 w-40')} />
+      ) : (
+        <div className="grid h-20 w-40 place-items-center text-xs text-(--color-text-muted)">imzo</div>
+      )}
+    </div>
+  );
+}
+
 function signerHint(doc: WarehouseDoc): string {
   return doc.kind === 'RETURN' ? 'Topshiruvchi xodim' : 'Qabul qiluvchi xodim';
 }
 
-function TgChip({ label, v }: { label: string; v?: string }) {
+export function TgChip({ label, v }: { label: string; v?: string }) {
   const ok = v === 'yuborildi';
   return (
     <span className={cn('rounded-full px-2 py-0.5 font-medium ring-1', ok ? 'bg-white text-emerald-700 ring-emerald-200' : 'bg-white text-amber-700 ring-amber-200')} title={v}>

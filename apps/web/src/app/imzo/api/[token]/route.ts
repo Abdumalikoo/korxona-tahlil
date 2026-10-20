@@ -42,7 +42,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const url = target((await ctx.params).token);
   if (!url) return fail(404, 'Havola noto‘g‘ri');
   const body = await req.text();
-  if (body.length > 600_000) return fail(413, 'Imzo rasmi juda katta');
+  if (body.length > 1_200_000) return fail(413, 'Imzo rasmi juda katta');
   try {
     return await relay(await fetch(`${url}/sign`, { method: 'POST', headers: { ...forward(req), 'content-type': 'application/json' }, body, cache: 'no-store' }));
   } catch {

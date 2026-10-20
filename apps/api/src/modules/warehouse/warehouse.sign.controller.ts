@@ -5,6 +5,7 @@ import { CurrentUser, Roles } from '../../common/decorators';
 import { Public } from '../../common/decorators/public.decorator';
 import { RateLimit } from '../../common/security/rate-limit';
 import { WarehouseSigns } from './warehouse.sign';
+import type { DocInput } from './warehouse.types';
 
 /** Dalolatnomani rasmiylashtirish (QR) va imzolanganlar arxivi — dastur ichida */
 @Controller('warehouse')
@@ -16,6 +17,38 @@ export class WarehouseSignController {
   async list(@Query('status') status?: string) {
     return { data: await this.signs.list(status) };
   }
+
+  // ── Saqlashdan oldin: «Tasdiqlash» → QR → xodim imzolaydi → «Saqlash» ──
+
+  /** Hujjat tekshiriladi va dalolatnoma tayyorlanadi (bazaga yozilmaydi), QR havola beriladi */
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('sign-drafts')
+  @HttpCode(HttpStatus.OK)
+  async createDraft(@Body() body: { input?: DocInput; origin?: string }, @CurrentUser('id') userId: string) {
+    return { data: await this.signs.createDraft(body?.input ?? {}, body?.origin, userId) };
+  }
+
+  @Get('sign-drafts/:id')
+  async draft(@Param('id') id: string) {
+    return { data: await this.signs.draftStatus(id) };
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('sign-drafts/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancelDraft(@Param('id') id: string) {
+    return { data: await this.signs.cancelDraft(id) };
+  }
+
+  /** Imzolangandan keyin «Saqlash»: hujjat bazaga, imzoli nusxa arxivga va Telegram'ga */
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('sign-drafts/:id/commit')
+  @HttpCode(HttpStatus.OK)
+  async commitDraft(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.signs.commitDraft(id, userId) };
+  }
+
+  // ── Saqlangan hujjatni keyin imzolatish ──
 
   @Get('docs/:id/sign')
   async status(@Param('id') id: string) {
@@ -75,7 +108,7 @@ export class PublicActsController {
   @HttpCode(HttpStatus.OK)
   async sign(
     @Param('token') token: string,
-    @Body() body: { pinfl4?: unknown; signature?: unknown; agree?: unknown },
+    @Body() body: { pinfl4?: unknown; signature?: unknown; photo?: unknown; method?: unknown; agree?: unknown },
     @Ip() ip: string,
     @Headers('user-agent') agent?: string,
     @Headers('x-forwarded-for') forwarded?: string,

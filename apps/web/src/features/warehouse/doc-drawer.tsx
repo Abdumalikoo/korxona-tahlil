@@ -9,10 +9,11 @@ import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatDateTime, formatTiyin } from '@/lib/format';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { DOC_KIND_HINTS, downloadAct, qtyText, warehouseApi, type ActModel, type WarehouseDoc } from './api';
+import { useCallback, useEffect, useState } from 'react';
+import { DOC_KIND_HINTS, SIGNABLE_KINDS, downloadAct, qtyText, warehouseApi, type ActModel, type WarehouseDoc } from './api';
 import { ActPaper } from './act-paper';
 import { DocKindBadge, Field } from './bits';
+import { SignPanel } from './sign-panel';
 
 // ═══════════════════════════════════════════════════════════
 // Hujjat oynasi: kim, qayerga, qatorlar, jami; Word dalolatnoma va bekor qilish.
@@ -105,6 +106,9 @@ export function DocDrawer({
   };
 
   const expenses = doc ? doc.lines.filter((l) => l.expenseId).length : 0;
+  /** Imzo holati o'zgarsa — dalolatnomani qayta chizamiz (QR / imzo rasmi) */
+  const signChanged = useCallback(() => setAct(null), []);
+  const signPanel = doc && !doc.cancelled && SIGNABLE_KINDS.includes(doc.kind) ? <SignPanel doc={doc} canWrite={isAdmin} onChanged={signChanged} /> : null;
 
   return (
     <>
@@ -140,6 +144,7 @@ export function DocDrawer({
         ) : doc && tab === 'act' ? (
           <div className="space-y-3">
             <DocTabs tab={tab} onTab={setTab} />
+            {signPanel}
             {actError ? (
               <ErrorState message={actError} onRetry={() => setActError(null)} />
             ) : !act ? (
@@ -154,6 +159,7 @@ export function DocDrawer({
         ) : doc ? (
           <div className="space-y-5">
             <DocTabs tab={tab} onTab={setTab} />
+            {signPanel}
             {doc.cancelled && (
               <p className="rounded-(--radius-control) border border-(--color-expense) bg-(--color-expense-soft) px-3 py-2 text-sm font-semibold text-(--color-expense)">
                 Bu hujjat bekor qilingan — qoldiq va xarajatlarda hisobga olinmaydi.

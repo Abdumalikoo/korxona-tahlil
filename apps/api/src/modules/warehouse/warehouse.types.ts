@@ -360,4 +360,33 @@ export interface ActModel {
   agreedHeading: string;
   agreed: { title: string; name: string }[];
   footer: string | null;
+  /** Elektron tasdiq: QR kod (rasmiylashtirilgan bo'lsa) va imzo (imzolangan bo'lsa) */
+  sign: {
+    status: 'PENDING' | 'SIGNED';
+    url: string;
+    qr: string;
+    signedAt: string | null;
+    signature: string | null;
+    /** Yuz surati bilan tasdiqlangan bo'lsa — JPEG data URL (imzo o'rnida) */
+    photo: string | null;
+    /** DRAWN — chizilgan imzo, PHOTO — yuz surati */
+    method: string | null;
+    /** Imzo qaysi imzo qatoriga qo'yiladi (signatures indeksi, -1 — topilmadi) */
+    signerLine: number;
+    stamp: string;
+  } | null;
+}
+
+/** Dalolatnoma uchun imzo ma'lumoti (warehouse.sign.ts) */
+export interface ActSignInfo {
+  status: 'PENDING' | 'SIGNED';
+  url: string;
+  /** QR kod — PNG data URL */
+  qr: string;
+  signerName: string;
+  signerPinfl: string;
+  signedAt: string | null;
+  signature: string | null;
+  photo: string | null;
+  method: string | null;
 }

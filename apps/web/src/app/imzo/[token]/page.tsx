@@ -19,8 +19,36 @@ interface PublicAct {
   date: string;
   signerName: string;
   signedAt: string | null;
+  method: string | null;
   locked: boolean;
+  /** Hujjat hali saqlanmagan — omborchi tasdiqdan keyin saqlaydi */
+  draft: boolean;
   act: ActModel;
+}
+
+/** Telefon kamerasidan olingan suratni kichraytirish (JPEG, ~640px) */
+function shrinkPhoto(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const max = 640;
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      const ctx = c.getContext('2d');
+      if (!ctx) return reject(new Error('Suratni o‘qib bo‘lmadi'));
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Suratni o‘qib bo‘lmadi — qaytadan oling'));
+    };
+    img.src = url;
+  });
 }
 
 async function call<T>(token: string, init?: RequestInit): Promise<T> {
@@ -46,6 +74,9 @@ export default function SignPage() {
   const [pin, setPin] = useState('');
   const [agree, setAgree] = useState(false);
   const [hasInk, setHasInk] = useState(false);
+  /** Tasdiqlash usuli: imzo chizish yoki yuz surati */
+  const [method, setMethod] = useState<'DRAWN' | 'PHOTO'>('DRAWN');
+  const [photo, setPhoto] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -66,15 +97,16 @@ export default function SignPage() {
   const submit = async () => {
     setError(null);
     if (pin.replace(/\D/g, '').length !== 4) return setError('JShShIRning oxirgi 4 raqamini kiriting');
-    const signature = pad.current?.png();
-    if (!signature || !hasInk) return setError('Pastdagi maydonga imzo chizing');
+    const signature = method === 'DRAWN' ? pad.current?.png() : null;
+    if (method === 'DRAWN' && (!signature || !hasInk)) return setError('Pastdagi maydonga imzo chizing');
+    if (method === 'PHOTO' && !photo) return setError('Yuz suratingizni oling');
     if (!agree) return setError('Dalolatnoma bilan tanishganingizni belgilang');
     setSending(true);
     try {
       const r = await call<{ ok: true; signedAt: string }>(token, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ pinfl4: pin, signature, agree }),
+        body: JSON.stringify({ pinfl4: pin, method, signature, photo: method === 'PHOTO' ? photo : null, agree }),
       });
       setDone(r.signedAt);
       load();
@@ -109,12 +141,16 @@ export default function SignPage() {
           <>
             {data.status === 'SIGNED' ? (
               <Card className="border-emerald-200 bg-emerald-50">
-                <p className="text-lg font-semibold text-emerald-800">✓ {done ? 'Imzolandi' : 'Allaqachon imzolangan'}</p>
+                <p className="text-lg font-semibold text-emerald-800">✓ {done ? 'Tasdiqlandi' : 'Allaqachon tasdiqlangan'}</p>
                 <p className="mt-1 text-sm text-emerald-900/80">
                   {data.signerName}
                   {data.signedAt ? ` · ${when(data.signedAt)}` : ''}
                 </p>
-                <p className="mt-2 text-xs text-emerald-900/70">Imzoli nusxa saqlandi. Telegram botga ulangan bo&apos;lsangiz — nusxa sizga ham yuborildi.</p>
+                <p className="mt-2 text-xs text-emerald-900/70">
+                  {data.draft
+                    ? "Omborchi hujjatni saqlagach, imzoli nusxa bazaga yoziladi va Telegram botga ulangan bo'lsangiz — sizga ham yuboriladi."
+                    : "Imzoli nusxa saqlandi. Telegram botga ulangan bo'lsangiz — nusxa sizga ham yuborildi."}
+                </p>
               </Card>
             ) : data.status === 'CANCELLED' ? (
               <Card className="border-red-200 bg-red-50">
@@ -155,23 +191,81 @@ export default function SignPage() {
                       />
                     </label>
 
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">Imzongiz</span>
+                    <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#f3f5f8] p-1 text-sm font-semibold">
+                      {(
+                        [
+                          ['DRAWN', '✍️ Imzo chizish'],
+                          ['PHOTO', '🙂 Yuz surati'],
+                        ] as const
+                      ).map(([v, label]) => (
                         <button
+                          key={v}
                           type="button"
                           onClick={() => {
-                            pad.current?.clear();
-                            setHasInk(false);
+                            setMethod(v);
+                            setError(null);
                           }}
-                          className="text-sm font-semibold text-[#2563eb]"
+                          className={cn('h-11 rounded-lg', method === v ? 'bg-white text-[#1b2430] shadow-sm' : 'text-[#5b6b7f]')}
                         >
-                          Tozalash
+                          {label}
                         </button>
-                      </div>
-                      <SignaturePadInner handle={pad} onInk={() => setHasInk(true)} />
-                      <p className="mt-1 text-xs text-[#5b6b7f]">Barmog&apos;ingiz bilan chizing</p>
+                      ))}
                     </div>
+
+                    {method === 'DRAWN' ? (
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">Imzongiz</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              pad.current?.clear();
+                              setHasInk(false);
+                            }}
+                            className="text-sm font-semibold text-[#2563eb]"
+                          >
+                            Tozalash
+                          </button>
+                        </div>
+                        <SignaturePadInner handle={pad} onInk={() => setHasInk(true)} />
+                        <p className="mt-1 text-xs text-[#5b6b7f]">Barmog&apos;ingiz bilan chizing</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <span className="text-sm font-medium">Yuz suratingiz</span>
+                        <label className="mt-1.5 flex h-44 cursor-pointer flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border-2 border-dashed border-black/15 bg-white text-sm text-[#5b6b7f]">
+                          {photo ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={photo} alt="Yuz surati" className="h-full w-full object-contain" />
+                          ) : (
+                            <>
+                              <span className="text-3xl" aria-hidden>
+                                📷
+                              </span>
+                              <span className="font-semibold text-[#2563eb]">Old kamerada suratga olish</span>
+                            </>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="user"
+                            className="sr-only"
+                            onChange={async (e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = '';
+                              if (!f) return;
+                              try {
+                                setPhoto(await shrinkPhoto(f));
+                                setError(null);
+                              } catch (err) {
+                                setError((err as Error).message);
+                              }
+                            }}
+                          />
+                        </label>
+                        <p className="mt-1 text-xs text-[#5b6b7f]">{photo ? 'Qayta olish uchun suratga bosing' : 'Yuzingiz aniq ko‘rinsin — surat dalolatnomaga qo‘shiladi'}</p>
+                      </div>
+                    )}
 
                     <label className="flex items-start gap-3 rounded-xl bg-[#f3f5f8] p-3">
                       <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[#2563eb]" />
@@ -186,7 +280,7 @@ export default function SignPage() {
                       onClick={() => void submit()}
                       className="h-14 w-full rounded-xl bg-[#2563eb] text-base font-semibold text-white shadow-sm active:scale-[0.99] disabled:opacity-60"
                     >
-                      {sending ? 'Yuborilmoqda…' : 'Imzolash va tasdiqlash'}
+                      {sending ? 'Yuborilmoqda…' : method === 'PHOTO' ? 'Surat bilan tasdiqlash' : 'Imzolash va tasdiqlash'}
                     </button>
                   </div>
                 )}

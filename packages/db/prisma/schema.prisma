@@ -2087,20 +2087,27 @@ model FixedAsset {
 /// Dalolatnomaning elektron tasdig'i: QR -> xodim telefonda imzolaydi
 model StockDocSign {
   id          String    @id @default(cuid())
-  docId       String    @unique
+  /// Saqlangan hujjat; saqlashdan oldingi imzoda (qoralama) — imzolab «Saqlash» bosilgach to'ladi
+  docId       String?   @unique
+  /// Hujjat turi: ISSUE | TRANSFER | RETURN
+  kind        String?
+  /// Saqlashdan oldingi imzo: { input — kiritilgan hujjat, view — xodimga ko'rsatilgan dalolatnoma }
+  draft       Json?
   /// QR havoladagi maxfiy kalit
   token       String    @unique
-  /// PENDING — imzo kutilmoqda, SIGNED — imzolangan, CANCELLED — bekor qilingan
+  /// PENDING — imzo kutilmoqda, SIGNED — imzolangan, SAVING — saqlanmoqda, CANCELLED — bekor qilingan
   status      String    @default("PENDING")
   /// Kim imzolaydi (qabul qiluvchi / topshiruvchi xodim)
   signerPinfl String
   signerName  String
   /// Telefon ochadigan manzil (http://192.168.1.10:3000)
   baseUrl     String
-  /// DRAWN — barmoq bilan chizilgan imzo
+  /// DRAWN — barmoq bilan chizilgan imzo, PHOTO — yuz surati
   method      String?
   /// Imzo rasmi (PNG, data URL)
   signature   String?
+  /// Yuz surati (JPEG, data URL)
+  photo       String?
   signedAt    DateTime?
   signedIp    String?
   signedAgent String?
@@ -2118,5 +2125,6 @@ model StockDocSign {
 
   @@index([status])
   @@index([signerPinfl, status])
+  @@index([createdById, status])
   @@map("stock_doc_signs")
 }
