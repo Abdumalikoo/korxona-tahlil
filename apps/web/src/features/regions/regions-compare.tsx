@@ -32,6 +32,7 @@ import { DistrictDrill, DrillBreadcrumb, EmployeeDrill, RegionDrill, type Crumb 
 import { CenterDepartmentDrill, CenterDrill } from './center-drill';
 import { UNASSIGNED_KEY } from './drill-api';
 import { CenterCoverView } from './center-cover-view';
+import { UnassignedDrawer } from './unassigned-drawer';
 import { RegionCard } from './region-card';
 import { Bridge, EXPENSE_BAR, ExpenseMix, MIX_COLORS, MIX_LABELS, PairedBars, ProfitBars, ProfitHeatmap, RegionScatter } from './regions-charts';
 
@@ -145,7 +146,7 @@ function UnitRow({
           </span>
         </span>
         {u.kind !== 'region' && (
-          <span className="text-xs text-(--color-text-faint)">{u.kind === 'center' ? "Markaz bo'limlari va xodimlari" : 'hudud belgilanmagan yozuvlar'}</span>
+          <span className="text-xs text-(--color-text-faint)">{u.kind === 'center' ? "Markaz bo'limlari va xodimlari" : "hudud belgilanmagan yozuvlar · ichini ko'rish ›"}</span>
         )}
       </td>
       <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
@@ -399,6 +400,7 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'profit', dir: 'desc' });
   const [query, setQuery] = useState('');
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [unOpen, setUnOpen] = useState(false);
 
   /** Viloyat bosilsa — ichiga (tumanlar); Markaz va biriktirilmagan — karta */
   const open = (key: string) => {
@@ -406,6 +408,8 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
     if (unit?.kind === 'region' && unit.code !== null) onDrill(unit.code);
     // Markaz — hududlar kabi ichiga (bo'limlar → xodimlar)
     else if (unit?.kind === 'center') onDrill(0);
+    // Biriktirilmagan — ichidagi yozuvlar paneli
+    else if (unit?.kind === 'unassigned') setUnOpen(true);
     else setOpenKey(key);
   };
 
@@ -878,6 +882,7 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
       )}
 
       <RegionCard data={data} stats={openStats} regions={activeRegions} onClose={() => setOpenKey(null)} />
+      <UnassignedDrawer open={unOpen} onClose={() => setUnOpen(false)} range={data.range} section={data.section} />
     </div>
   );
 }

@@ -15,7 +15,8 @@ interface DrawerProps {
   width?: 'md' | 'lg';
 }
 
-const FIELD = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]):not([readonly])';
+/** data-skip-focus — ochilganda kursor qo'yilmaydi (masalan, ro'yxat ichidagi qidiruv: panel yuqoridan ko'rinsin) */
+const FIELD = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([disabled]):not([readonly]):not([data-skip-focus]), select:not([disabled]):not([data-skip-focus]), textarea:not([disabled]):not([readonly]):not([data-skip-focus])';
 
 /** Pastki paneldagi asosiy tugma: data-save → type=submit → oxirgi asosiy (ko'k) tugma */
 function primaryButton(footer: HTMLElement | null, next: boolean): HTMLButtonElement | null {

@@ -7,12 +7,13 @@ import { RegionsController } from './regions.controller';
 import { RegionsService } from './regions.service';
 import { StructureController } from './structure.controller';
 import { StructureService } from './structure.service';
+import { UnassignedService } from './unassigned.service';
 
 @Module({
   // RegionsController va DistrictsController birinchi: "structure/regions" va "structure/drill"
   // yo'llari ":kind/tree" dan oldin tekshiriladi
   controllers: [RegionsController, DistrictsController, StructureController],
-  providers: [StructureService, RegionsService, DistrictsService, CenterService, ChangesService],
+  providers: [StructureService, RegionsService, DistrictsService, CenterService, ChangesService, UnassignedService],
   // Hisobotlar bo'limidagi raqamlar tekshiruvi uchun
   exports: [StructureService, RegionsService, DistrictsService, CenterService],
 })

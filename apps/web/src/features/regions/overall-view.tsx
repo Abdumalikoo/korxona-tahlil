@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState, type ReactNode } from 'react';
 import { regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
 import { centerCover } from './center-cover';
+import { UnassignedDrawer } from './unassigned-drawer';
 import { Bridge, EXPENSE_BAR } from './regions-charts';
 
 // ═══════════════════════════════════════════════════════════
@@ -193,9 +194,12 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
     expenseShare: total.expense > 0 ? (s.expense / total.expense) * 100 : null,
   }));
 
+  /** Biriktirilmagan yozuvlar paneli */
+  const [unOpen, setUnOpen] = useState(false);
   const open = (s: UnitStats) => {
     if (s.unit.kind === 'center') router.push('/solishtirma/markaz');
     else if (s.unit.kind === 'region' && s.unit.code !== null) router.push(`/solishtirma?r=${s.unit.code}`);
+    else if (s.unit.kind === 'unassigned') setUnOpen(true);
   };
 
   const cover = centerCover(
@@ -215,6 +219,7 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
         profit={profit}
         previousProfit={previousProfit}
         regionsCount={activeRegions.length}
+        onUnassigned={() => setUnOpen(true)}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -324,6 +329,8 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
           </ul>
         </Card>
       )}
+
+      <UnassignedDrawer open={unOpen} onClose={() => setUnOpen(false)} range={data.range} section={data.section} />
     </>
   );
 }
@@ -340,6 +347,7 @@ function Hero({
   profit,
   previousProfit,
   regionsCount,
+  onUnassigned,
 }: {
   total: { income: number; expense: number; previousIncome: number; previousExpense: number; headcount: number };
   reg: { income: number; expense: number };
@@ -348,13 +356,14 @@ function Hero({
   profit: number;
   previousProfit: number;
   regionsCount: number;
+  onUnassigned: () => void;
 }) {
   const margin = total.income > 0 ? (profit / total.income) * 100 : null;
   const prevMargin = total.previousIncome > 0 ? (previousProfit / total.previousIncome) * 100 : null;
   const parts = (pick: (s: UnitStats) => number, regValue: number) => [
     { label: `Hududlar (${regionsCount})`, value: regValue, color: REGIONS_COLOR },
     ...(center ? [{ label: 'Markaz', value: pick(center), color: CENTER_COLOR }] : []),
-    ...(unassigned ? [{ label: 'Biriktirilmagan', value: pick(unassigned), color: UNASSIGNED_COLOR }] : []),
+    ...(unassigned ? [{ label: 'Biriktirilmagan', value: pick(unassigned), color: UNASSIGNED_COLOR, onClick: onUnassigned }] : []),
   ];
   const incomeParts = parts((s) => s.income, reg.income);
   const expenseParts = parts((s) => s.expense, reg.expense);
@@ -420,7 +429,7 @@ function Hero({
           parts={[
             { label: 'Hududlar', value: reg.income - reg.expense, color: REGIONS_COLOR },
             ...(center ? [{ label: 'Markaz', value: center.profit, color: CENTER_COLOR }] : []),
-            ...(unassigned ? [{ label: 'Biriktirilmagan', value: unassigned.profit, color: UNASSIGNED_COLOR }] : []),
+            ...(unassigned ? [{ label: 'Biriktirilmagan', value: unassigned.profit, color: UNASSIGNED_COLOR, onClick: onUnassigned }] : []),
           ]}
           calc={calcResult(total.income, total.expense, { title: 'Korxona natijasi' })}
           signedParts
@@ -453,7 +462,7 @@ function HeroCell({
   value: number;
   previous: number;
   good: 'up' | 'down';
-  parts: { label: string; value: number; color: string }[];
+  parts: { label: string; value: number; color: string; onClick?: () => void }[];
   calc: Calc;
   signedParts?: boolean;
 }) {
@@ -485,7 +494,13 @@ function HeroCell({
           <li key={p.label} className="flex items-center justify-between gap-2 text-xs">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: p.color }} />
-              <span className="truncate text-(--color-text-muted)">{p.label}</span>
+              {p.onClick ? (
+                <button type="button" onClick={p.onClick} className="truncate text-brand-700 underline decoration-dotted underline-offset-2 hover:decoration-solid" title="Ichida nima borligini ko'rish">
+                  {p.label} ›
+                </button>
+              ) : (
+                <span className="truncate text-(--color-text-muted)">{p.label}</span>
+              )}
             </span>
             <span className="flex items-baseline gap-2 tabular-nums">
               <b className={cn('font-semibold', p.value < 0 && 'text-(--color-expense)')}>{signedParts ? signed(p.value) : compact(p.value)}</b>
@@ -752,7 +767,7 @@ function Matrix({
               const s = r.s;
               const isCenter = s.unit.kind === 'center';
               const isUn = s.unit.kind === 'unassigned';
-              const clickable = !isUn;
+              const clickable = true;
               return (
                 <tr
                   key={s.unit.key}
@@ -772,7 +787,7 @@ function Matrix({
                           {s.unit.name}
                         </span>
                         <span className="block text-[10.5px] text-(--color-text-faint)">
-                          {isCenter ? "Markaz · bo'limlar" : isUn ? 'hududi ko’rsatilmagan' : 'Hudud'}
+                          {isCenter ? "Markaz · bo'limlar" : isUn ? <span className="font-medium text-brand-700 group-hover:underline">hududi ko&apos;rsatilmagan · ichini ko&apos;rish ›</span> : 'Hudud'}
                         </span>
                       </span>
                     </span>

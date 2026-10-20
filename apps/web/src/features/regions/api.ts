@@ -59,10 +59,69 @@ export interface RegionsResult {
   notes: string[];
 }
 
+// ─────────── Hududga biriktirilmagan yozuvlar ───────────
+
+export interface UnassignedItem {
+  id: string;
+  date: string;
+  period: string;
+  amountTiyin: string;
+  categoryCode: string;
+  categoryLabel: string;
+  section: string;
+  source: string;
+  /** Xarajatda — kontragent, daromadda — mijoz */
+  counterparty: string | null;
+  description: string | null;
+  documentNo: string | null;
+  fileName: string | null;
+}
+
+export interface UnassignedGroup {
+  key: string;
+  label: string;
+  totalTiyin: string;
+  count: number;
+}
+
+export interface UnassignedSide {
+  totalTiyin: string;
+  count: number;
+  byCategory: UnassignedGroup[];
+  bySource: UnassignedGroup[];
+  byFile: UnassignedGroup[];
+  items: UnassignedItem[];
+  truncated: boolean;
+}
+
+export interface UnassignedResult {
+  range: DateRange;
+  section: SectionFilter;
+  months: { period: string; incomeTiyin: string; expenseTiyin: string }[];
+  income: UnassignedSide;
+  expense: UnassignedSide;
+  policyExcludedTiyin: string;
+}
+
+export const SOURCE_LABELS: Record<string, string> = {
+  MANUAL: "Qo'lda",
+  IMPORT: 'Fayldan',
+  PAYROLL: 'Ish haqi',
+  LEASE: 'Ijara',
+  VEHICLE: 'Mashinalar',
+  WAREHOUSE: 'Ombor',
+  ASSET: 'Asosiy vositalar',
+  TAX: 'Soliqlar',
+};
+
 export const regionsApi = {
   compare: (range: DateRange, section: SectionFilter, compare: CompareMode) =>
     api.get<ApiResponse<RegionsResult>>('/structure/regions', {
       params: { from: range.from, to: range.to, section, compare },
+    }),
+  unassigned: (range: DateRange, section: SectionFilter) =>
+    api.get<ApiResponse<UnassignedResult>>('/structure/regions/unassigned', {
+      params: { from: range.from, to: range.to, section },
     }),
 };
 

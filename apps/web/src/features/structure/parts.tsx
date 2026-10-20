@@ -116,10 +116,11 @@ export function SmallButton({ className, ...props }: React.ButtonHTMLAttributes<
 }
 
 /** Qidiruv maydoni */
-export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
+export function SearchBox({ value, onChange, placeholder, skipFocus = false }: { value: string; onChange: (value: string) => void; placeholder?: string; /** Panel ochilganda kursor bu yerga qo'yilmasin */ skipFocus?: boolean }) {
   return (
     <input
       type="search"
+      data-skip-focus={skipFocus ? '' : undefined}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder ?? 'Qidirish…'}
