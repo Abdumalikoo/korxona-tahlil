@@ -145,6 +145,15 @@ export interface CheckSummary {
   mismatches: CheckPerson[];
   missingInComposition: CheckPerson[];
   notInPayroll: CheckPerson[];
+  /** Solishtirish doirasi: faqat Markaz xodimlari (va tarkib faylidagilar) — tarkib faqat Markaz uchun tuziladi */
+  scope?: 'CENTER';
+  /** Doiradan tashqari: hudud xodimlari (soliq hisobotida bor, tarkibda yo'q) — farq emas */
+  outOfScope?: {
+    employees: number;
+    payrollTiyin: string;
+    byRegion: { name: string; employees: number; payrollTiyin: string }[];
+    people: (CheckPerson & { unitName: string })[];
+  };
 }
 
 /** Fayl tahlili — bazaga hali hech narsa yozilmagan */

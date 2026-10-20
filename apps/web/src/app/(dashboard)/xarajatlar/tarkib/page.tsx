@@ -310,7 +310,7 @@ export default function SalaryCompositionPage() {
                 <div className="grid gap-4 xl:grid-cols-2">
                   <StructureCard byCategory={data.byCategory} byComponent={data.byComponent} />
                   <div className="space-y-4">
-                    {data.check.mismatchCount > 0 ? (
+                    {data.check.mismatchCount > 0 || (data.check.outOfScope?.employees ?? 0) > 0 ? (
                       <CheckLists check={data.check} />
                     ) : (
                       <Card>

@@ -195,7 +195,7 @@ export class SalaryCompositionService implements OnModuleInit {
     });
 
     const map = new Map<string, bigint>();
-    if (batchCount === 0) return { uploaded: false, map };
+    if (batchCount === 0) return { uploaded: false, map, central: new Set(), regionOf: new Map() };
 
     // To'liq (soliq hisobotidagi) summa: baseTiyin. totalTiyin — hududda qolgan qism (bayram, choraklik Markazga o'tgan)
     const grouped = await this.prisma.payrollEntry.groupBy({
@@ -207,7 +207,27 @@ export class SalaryCompositionService implements OnModuleInit {
     for (const item of grouped) {
       map.set(item.employeePinfl, item._sum.baseTiyin ?? 0n);
     }
-    return { uploaded: true, map };
+
+    // Kim Markaz xodimi (shu oy): oy bo'yicha joylashuv bo'lsa — u, aks holda reestrdagi hudud
+    const pinfls = [...map.keys()];
+    const [employees, locations, regions] = pinfls.length
+      ? await Promise.all([
+          this.prisma.employee.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, regionCode: true } }),
+          this.prisma.employeeLocation.findMany({ where: { employeePinfl: { in: pinfls }, period }, select: { employeePinfl: true, regionCode: true } }),
+          this.prisma.region.findMany({ select: { code: true, name: true } }),
+        ])
+      : [[], [], []];
+    const regionName = new Map(regions.map((r) => [r.code, r.name]));
+    const located = new Map(locations.map((l) => [l.employeePinfl, l.regionCode]));
+    const registryRegion = new Map(employees.map((e) => [e.pinfl, e.regionCode]));
+    const central = new Set<string>();
+    const regionOf = new Map<string, string>();
+    for (const pinfl of pinfls) {
+      const code = located.get(pinfl) ?? registryRegion.get(pinfl) ?? null;
+      if (code === CENTRAL_REGION) central.add(pinfl);
+      else regionOf.set(pinfl, code === null ? "Reestrda yo'q" : (regionName.get(code) ?? `Hudud ${code}`));
+    }
+    return { uploaded: true, map, central, regionOf };
   }
 
   private rowState(pinfl: string, total: bigint, payroll: PayrollInfo): {
@@ -244,8 +264,11 @@ export class SalaryCompositionService implements OnModuleInit {
     const list = rows ?? [];
 
     let compositionTotal = 0n;
+    // Doira: Markaz xodimlari + tarkib faylidagilar (hudud xodimi faylda bo'lsa — u ham solishtiriladi)
+    const inFile = new Set(list.map((r) => r.pinfl));
+    const inScope = (pinfl: string) => payroll.central.has(pinfl) || inFile.has(pinfl);
     let payrollTotal = 0n;
-    for (const value of payroll.map.values()) payrollTotal += value;
+    for (const [pinfl, value] of payroll.map) if (inScope(pinfl)) payrollTotal += value;
 
     const mismatches: CheckPerson[] = [];
     const notInPayroll: CheckPerson[] = [];
@@ -286,7 +309,7 @@ export class SalaryCompositionService implements OnModuleInit {
     const missingInComposition: CheckPerson[] = [];
     if (payroll.uploaded && compositionUploaded) {
       const absent = [...payroll.map.entries()].filter(
-        ([pinfl, amount]) => amount !== 0n && !inComposition.has(pinfl),
+        ([pinfl, amount]) => amount !== 0n && !inComposition.has(pinfl) && inScope(pinfl),
       );
       const names = await this.registry(absent.map(([pinfl]) => pinfl));
 
@@ -300,6 +323,22 @@ export class SalaryCompositionService implements OnModuleInit {
         });
       }
     }
+
+    // Doiradan tashqari: hudud xodimlari — tarkib ular uchun tuzilmaydi, farq hisoblanmaydi
+    const outside = payroll.uploaded ? [...payroll.map.entries()].filter(([pinfl, amount]) => amount !== 0n && !inScope(pinfl)) : [];
+    const outsideNames = outside.length ? await this.registry(outside.map(([pinfl]) => pinfl)) : new Map<string, RegistryInfo>();
+    const regionAcc = new Map<string, { employees: number; total: bigint }>();
+    let outsideTotal = 0n;
+    const outsidePeople = outside.map(([pinfl, amount]) => {
+      const unitName = payroll.regionOf.get(pinfl) ?? '—';
+      const g = regionAcc.get(unitName) ?? { employees: 0, total: 0n };
+      g.employees += 1;
+      g.total += amount;
+      regionAcc.set(unitName, g);
+      outsideTotal += amount;
+      return { pinfl, fullName: outsideNames.get(pinfl)?.fullName ?? '—', unitName, compositionTiyin: '0', payrollTiyin: amount.toString(), diffTiyin: (-amount).toString() };
+    });
+    outsidePeople.sort((x, y) => x.unitName.localeCompare(y.unitName) || x.fullName.localeCompare(y.fullName));
 
     const byDiff = (a: CheckPerson, b: CheckPerson) =>
       this.abs(BigInt(b.diffTiyin)) > this.abs(BigInt(a.diffTiyin)) ? 1 : -1;
@@ -327,6 +366,15 @@ export class SalaryCompositionService implements OnModuleInit {
       mismatches,
       missingInComposition,
       notInPayroll,
+      scope: 'CENTER',
+      outOfScope: {
+        employees: outsidePeople.length,
+        payrollTiyin: outsideTotal.toString(),
+        byRegion: [...regionAcc.entries()]
+          .sort((x, y) => (y[1].total > x[1].total ? 1 : y[1].total < x[1].total ? -1 : 0))
+          .map(([name, g]) => ({ name, employees: g.employees, payrollTiyin: g.total.toString() })),
+        people: outsidePeople,
+      },
     };
   }
 
@@ -1244,7 +1292,7 @@ export class SalaryCompositionService implements OnModuleInit {
       },
       components: components.filter((c) => usedCodes.has(c.code)).map((c) => this.toComponentDto(c)),
       periods: withItems.map(({ row, items }) => {
-        const payroll = payrolls.get(row.period) ?? { uploaded: false, map: new Map<string, bigint>() };
+        const payroll = payrolls.get(row.period) ?? { uploaded: false, map: new Map<string, bigint>(), central: new Set<string>(), regionOf: new Map<string, string>() };
         const state = this.rowState(pinfl, row.totalTiyin, payroll);
         return {
           period: row.period,

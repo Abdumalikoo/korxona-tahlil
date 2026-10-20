@@ -103,6 +103,18 @@ export interface CheckSummary {
   missingInComposition: CheckPerson[];
   /** Tarkibda bor (summa > 0), soliq hisobotida yo'q */
   notInPayroll: CheckPerson[];
+  /**
+   * Solishtirish doirasi: CENTER — faqat Markaz xodimlari (va tarkib faylidagilar); hudud xodimlari solishtirilmaydi,
+   * chunki ish haqi tarkibi faqat Markaz uchun tuziladi. Raqamlar (soliq hisoboti, farq, holat) shu doira bo'yicha.
+   */
+  scope: 'CENTER';
+  /** Doiradan tashqarida qolgan hudud xodimlari (soliq hisobotida bor, tarkibda yo'q) — farq emas, ma'lumot uchun */
+  outOfScope: {
+    employees: number;
+    payrollTiyin: string;
+    byRegion: { name: string; employees: number; payrollTiyin: string }[];
+    people: (CheckPerson & { unitName: string })[];
+  };
 }
 
 export interface AnalysisResult {
@@ -216,6 +228,10 @@ export interface RegistryInfo {
 export interface PayrollInfo {
   uploaded: boolean;
   map: Map<string, bigint>;
+  /** Shu oyda Markaz xodimi bo'lganlar (hudud 0) — tarkib faqat Markaz uchun tuziladi */
+  central: Set<string>;
+  /** Markazdan tashqaridagilar: pinfl → hudud nomi */
+  regionOf: Map<string, string>;
 }
 
 export interface CheckInput {

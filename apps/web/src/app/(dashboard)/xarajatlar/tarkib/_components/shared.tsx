@@ -60,9 +60,15 @@ export function CheckSummaryBoxes({ check }: { check: CheckSummary }) {
       <SummaryBox label="Xodimlar" value={String(check.employees)} />
       <SummaryBox label="Tarkib jami" value={formatTiyin(check.compositionTiyin)} />
       <SummaryBox
-        label="Soliq hisoboti"
+        label={check.scope === 'CENTER' ? 'Soliq hisoboti · Markaz' : 'Soliq hisoboti'}
         value={check.payrollUploaded ? formatTiyin(check.payrollTiyin) : '—'}
-        hint={check.payrollUploaded ? undefined : 'Bu oy uchun yuklanmagan'}
+        hint={
+          !check.payrollUploaded
+            ? 'Bu oy uchun yuklanmagan'
+            : check.outOfScope && check.outOfScope.employees > 0
+              ? `Hudud xodimlari (${check.outOfScope.employees} ta, ${formatTiyin(check.outOfScope.payrollTiyin)}) solishtirilmaydi`
+              : undefined
+        }
         tone={check.payrollUploaded ? 'neutral' : 'warn'}
       />
       <SummaryBox
@@ -91,13 +97,13 @@ export function StatusBanner({ check }: { check: CheckSummary }) {
       box: 'border-(--color-income) bg-(--color-income-soft)',
       text: 'text-(--color-income)',
       title: 'Tarkib soliq hisobotiga to‘liq mos',
-      description: `${check.employees} xodimning har birida komponentlar yig'indisi soliq hisobotidagi summaga teng`,
+      description: `${check.employees} xodimning har birida komponentlar yig'indisi soliq hisobotidagi summaga teng${check.scope === 'CENTER' ? ' (Markaz xodimlari solishtiriladi)' : ''}`,
       icon: 'check' as const,
     },
     MISMATCH: {
       box: 'border-(--color-expense) bg-(--color-expense-soft)',
       text: 'text-(--color-expense)',
-      title: `Tarkib soliq hisobotiga mos emas — ${check.mismatchCount} ta farq`,
+      title: `Tarkib soliq hisobotiga mos emas — ${check.mismatchCount} ta farq${check.scope === 'CENTER' ? ' (Markaz xodimlarida)' : ''}`,
       description: 'Rasmiy summa soliq hisobotidan olinadi. Farqlar ro‘yxati quyida',
       icon: 'alert' as const,
     },
@@ -130,6 +136,10 @@ export function StatusBanner({ check }: { check: CheckSummary }) {
         <div className="min-w-0">
           <p className={cn('text-sm font-medium', config.text)}>{config.title}</p>
           <p className="mt-0.5 text-xs text-(--color-text-muted)">{config.description}</p>
+          <p className="mt-1 text-xs text-(--color-text-muted)">
+            Tarkib <b className="text-(--color-text)">xarajat bo&apos;lib yozilmaydi</b> — xarajat summasi har doim soliq hisobotidan olinadi. Tarkib faqat
+            ish haqini qismlarga (oklad, ustama, premiya …) ajratish uchun.
+          </p>
         </div>
       </div>
     </div>
@@ -264,6 +274,9 @@ export function StructureCard({
 // ═══════════════════════════════════════════════════════════
 
 export function CheckLists({ check }: { check: CheckSummary }) {
+  /** Faqat Markaz (standart) yoki hudud xodimlari ham ko'rinsin */
+  const [withRegions, setWithRegions] = useState(false);
+  const outside = check.outOfScope;
   const blocks: { key: string; title: string; description: string; people: CheckPerson[] }[] = [
     {
       key: 'mismatches',
@@ -285,10 +298,44 @@ export function CheckLists({ check }: { check: CheckSummary }) {
     },
   ].filter((block) => block.people.length > 0);
 
-  if (blocks.length === 0) return null;
+  const hasOutside = !!outside && outside.employees > 0;
+  if (blocks.length === 0 && !hasOutside) return null;
 
   return (
     <div className="space-y-4">
+      {hasOutside && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-card) border border-(--color-line) bg-white px-4 py-3">
+          <div className="min-w-0 text-xs text-(--color-text-muted)">
+            <p className="text-sm font-medium text-(--color-text)">Solishtirish: faqat Markaz xodimlari</p>
+            <p className="mt-0.5">
+              Ish haqi tarkibi faqat Markaz uchun tuziladi. Soliq hisobotidagi hudud xodimlari ({outside!.employees} ta,{' '}
+              <Money tiyin={outside!.payrollTiyin} />) farq hisoblanmaydi.
+            </p>
+          </div>
+          <div className="inline-flex shrink-0 gap-0.5 rounded-(--radius-control) bg-(--color-surface-sunken) p-0.5 text-xs font-medium">
+            {[
+              { v: false, label: 'Faqat Markaz' },
+              { v: true, label: `Hududlar ham (${outside!.employees})` },
+            ].map((o) => (
+              <button
+                key={String(o.v)}
+                type="button"
+                onClick={() => setWithRegions(o.v)}
+                className={cn('rounded-[calc(var(--radius-control)-2px)] px-3 py-1.5 transition-colors', withRegions === o.v ? 'bg-white text-(--color-text) shadow-sm' : 'text-(--color-text-muted) hover:text-(--color-text)')}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {blocks.length === 0 && hasOutside && !withRegions && (
+        <p className="rounded-(--radius-card) border border-(--color-income) bg-(--color-income-soft) px-4 py-3 text-sm text-(--color-income)">
+          Markaz xodimlarida farq yo&apos;q — har birining tarkibi soliq hisobotiga teng.
+        </p>
+      )}
+
       {blocks.map((block) => (
         <PeopleBlock
           key={block.key}
@@ -297,6 +344,55 @@ export function CheckLists({ check }: { check: CheckSummary }) {
           people={block.people}
         />
       ))}
+
+      {hasOutside && withRegions && (
+        <Card className="overflow-hidden">
+          <CardHeader
+            title={`Hudud xodimlari — ${outside!.employees} ta (solishtirilmaydi)`}
+            description="Soliq hisobotida bor, tarkib ular uchun tuzilmaydi. Xarajati soliq hisobotidagi summa bilan o‘z hududida turadi"
+          />
+          <div className="flex flex-wrap gap-1.5 border-b border-(--color-line) px-4 py-3">
+            {outside!.byRegion.map((r) => (
+              <span key={r.name} className="inline-flex items-center gap-1.5 rounded-full border border-(--color-line) px-2.5 py-1 text-xs">
+                {r.name}
+                <b>{r.employees} ta</b>
+                <span className="text-(--color-text-muted)">
+                  <Money tiyin={r.payrollTiyin} />
+                </span>
+              </span>
+            ))}
+          </div>
+          <RegionPeople people={outside!.people} />
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function RegionPeople({ people }: { people: (CheckPerson & { unitName: string })[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? people : people.slice(0, 10);
+  return (
+    <div className="divide-y divide-(--color-line)">
+      {visible.map((person) => (
+        <div key={person.pinfl} className="flex items-center gap-3 px-4 py-2 text-sm">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{person.fullName}</span>
+            <span className="money text-xs text-(--color-text-muted)">{person.pinfl}</span>
+          </span>
+          <span className="w-44 shrink-0 truncate text-xs text-(--color-text-muted)">{person.unitName}</span>
+          <span className="w-36 shrink-0 text-right">
+            <Money tiyin={person.payrollTiyin} />
+          </span>
+        </div>
+      ))}
+      {people.length > 10 && (
+        <div className="px-4 py-2 text-center">
+          <button type="button" onClick={() => setShowAll((v) => !v)} className="text-xs font-medium text-brand-700 hover:underline">
+            {showAll ? 'Qisqartirish' : `Hammasini ko‘rsatish (${people.length})`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
