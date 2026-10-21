@@ -10,6 +10,7 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { QuarterlyReport } from '@/features/bplan/quarterly-report';
 import { ReconcilePanel } from './reconcile-panel';
 import { ReportView } from './report-view';
 import {
@@ -35,6 +36,9 @@ import {
 const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)';
 const FIELD = 'h-9 w-full rounded-(--radius-control) border border-(--color-line) bg-white px-2.5 text-sm outline-none focus:border-brand-400';
 const LABEL = 'mb-1 block text-xs font-medium text-(--color-text-muted)';
+
+/** Biznes-reja ijrosi — alohida (o'z reja fayli, belgilash va formulali Excel) */
+const PLAN_TAB = { id: 'chorak', title: 'Choraklik ijro (biznes-reja)' } as const;
 
 const EXTRA_TABS = [
   { id: 'reconcile', title: 'Raqamlar tekshiruvi' },
@@ -82,7 +86,7 @@ export function ReportsCenter() {
 
   const items = catalog.data ?? [];
   const requested = params.get('r');
-  const tab = requested && (items.some((c) => c.id === requested) || EXTRA_TABS.some((t) => t.id === requested)) ? requested : (items[0]?.id ?? null);
+  const tab = requested && (requested === PLAN_TAB.id || items.some((c) => c.id === requested) || EXTRA_TABS.some((t) => t.id === requested)) ? requested : (items[0]?.id ?? null);
   const current = items.find((c) => c.id === tab) ?? null;
 
   // Davr — yuqori paneldagi umumiy «Davr» (hamma bo'lim va hisobotlar uchun bitta)
@@ -102,9 +106,9 @@ export function ReportsCenter() {
           </div>
         ) : (
           <nav className="flex flex-wrap items-center gap-2" aria-label="Hisobotlar">
-            {[...items.map((c) => ({ id: c.id, title: c.title })), ...EXTRA_TABS].map((t, i) => {
+            {[...items.map((c) => ({ id: c.id, title: c.title })), PLAN_TAB, ...EXTRA_TABS].map((t, i) => {
               const on = t.id === tab;
-              const extra = i >= items.length;
+              const extra = i > items.length;
               return (
                 <button
                   key={t.id}
@@ -128,7 +132,9 @@ export function ReportsCenter() {
         )}
       </Card>
 
-      {tab === 'reconcile' ? (
+      {tab === PLAN_TAB.id ? (
+        <QuarterlyReport />
+      ) : tab === 'reconcile' ? (
         <ReconcileTab range={range} onRange={setRange} />
       ) : tab === 'history' ? (
         <HistoryTab />
