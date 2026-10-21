@@ -77,12 +77,8 @@ export function SectionLanding({ kind }: { kind: SectionKind }) {
       <div className="space-y-5 p-4 md:p-6">
         {/* Amallar — hamma Manba sahifasida bir xil joyda */}
         <SourceActions
-          add={nav.newHref ? { label: `Yangi ${word}`, href: `${nav.newHref}?section=DOIMIY` } : undefined}
-          extra={
-            <span className="text-xs text-(--color-text-muted)">
-              Yozuvlarni ko&apos;rish va tahrirlash — «Doimiy» yoki «Boshqa» yorlig&apos;ida.
-            </span>
-          }
+          add={nav.newHref ? { label: `Yangi ${word}`, href: `${nav.newHref}${nav.newHref.includes('?') ? '&' : '?'}section=DOIMIY` } : undefined}
+          note="Yozuvlarni ko'rish va tahrirlash — «Doimiy» yoki «Boshqa» yorlig'ida."
           deleteData={{
             target: isExpense ? 'EXPENSE' : 'INCOME',
             month: period,

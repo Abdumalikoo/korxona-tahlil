@@ -125,7 +125,7 @@ export const SECTION_NAV: Record<SectionKind, KindNav> = {
   income: {
     title: 'Daromadlar',
     root: '/daromadlar',
-    newHref: null,
+    newHref: '/daromadlar/doimiy?new=1',
     sections: {
       DOIMIY: {
         href: '/daromadlar/doimiy',

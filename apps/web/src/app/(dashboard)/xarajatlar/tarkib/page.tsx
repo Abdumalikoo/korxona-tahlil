@@ -17,12 +17,12 @@ import { cn } from '@/lib/utils';
 import { useCallback, useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { DeleteDataButton } from '@/components/shared/delete-data';
+import { SourceActions } from '@/components/shared/source-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { IconDownload, IconSpinner, IconUpload } from '@/components/ui/icons';
+import { IconSpinner, IconUpload } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
@@ -181,48 +181,33 @@ export default function SalaryCompositionPage() {
       <PageHeader
         title="Xarajatlar"
         description={`Ish haqi tarkibi · ${formatPeriod(period)}`}
-        actions={
-          <DeleteDataButton
-            target="COMPOSITION"
-            size="sm"
-            month={period}
-            place="Xarajatlar › Ish haqi tarkibi"
-            onDone={({ count }) => {
-              setToast({ message: `${count} ta tarkib yuklamasi bekor qilindi (bayram, choraklik ajratmasi ham qaytdi)`, tone: 'success' });
-              reloadAll();
-            }}
-          />
-        }
       />
 
       <SectionTabs kind="expense" section="DOIMIY" />
 
       <div className="space-y-4 p-6">
-        {/* Shablon va eksport (oy — yuqori panelda) */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void handleTemplate()}
-            loading={downloading}
-          >
-            <IconDownload className="size-4" />
-            Shablon (vedomost shakli)
-          </Button>
-          <span className="text-xs text-(--color-text-muted)">Buxgalteriyaning «OYLIK» vedomostini o&rsquo;zini ham yuklash mumkin — kerakli oy varag&rsquo;i o&rsquo;zi tanlanadi</span>
-
-          {hasSaved && !analysis && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void handleExport()}
-              loading={exporting}
-            >
-              <IconDownload className="size-4" />
-              Excel hisobot
-            </Button>
-          )}
-        </div>
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        <SourceActions
+          upload={{
+            label: 'Tarkib faylini yuklash',
+            onClick: () => inputRef.current?.click(),
+            loading: uploading,
+            disabled: Boolean(analysis),
+            hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : 'Ish haqi tarkibi (vedomost shakli yoki buxgalteriyaning «OYLIK» fayli)',
+          }}
+          template={{ label: 'Shablon (vedomost shakli)', onClick: () => void handleTemplate(), loading: downloading }}
+          download={hasSaved && !analysis ? { label: "Excel'ga yuklab olish", onClick: () => void handleExport(), loading: exporting } : undefined}
+          deleteData={{
+            target: 'COMPOSITION',
+            month: period,
+            place: 'Xarajatlar › Ish haqi tarkibi',
+            onDone: ({ count }) => {
+              setToast({ message: `${count} ta tarkib yuklamasi bekor qilindi (bayram, choraklik ajratmasi ham qaytdi)`, tone: 'success' });
+              reloadAll();
+            },
+          }}
+          note={<>Oy: <b className="text-heading">{formatPeriod(period)}</b>. Buxgalteriyaning «OYLIK» vedomostini o&rsquo;zini ham yuklash mumkin — kerakli oy varag&rsquo;i o&rsquo;zi tanlanadi.</>}
+        />
 
         {/* Yuklash zonasi */}
         {isAdmin && !analysis && (

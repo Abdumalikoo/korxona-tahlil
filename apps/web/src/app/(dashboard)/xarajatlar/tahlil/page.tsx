@@ -8,7 +8,7 @@ import { useAsync } from '@/lib/use-async';
 import { useState } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { DeleteDataButton } from '@/components/shared/delete-data';
+import { SourceActions } from '@/components/shared/source-actions';
 import { BarChart } from '@/components/shared/bar-chart';
 import { ShareBar } from '@/components/shared/share-bar';
 import { BehaviorBadge } from '@/components/ui/badge';
@@ -80,12 +80,14 @@ export default function ExpenseAnalysisPage() {
       <PageHeader
         title="Xarajatlar"
         description={formatPeriod(period)}
-        actions={<DeleteDataButton target="EXPENSE" size="sm" month={period} place="Xarajatlar › Tahlil" onDone={() => window.location.reload()} />}
       />
 
       <SectionTabs kind="expense" section="DOIMIY" />
 
       <div className="space-y-4 p-6">
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        <SourceActions add={{ label: 'Yangi xarajat', href: '/xarajatlar/yangi?section=DOIMIY' }} deleteData={{ target: 'EXPENSE', month: period, place: 'Xarajatlar › Tahlil', onDone: () => window.location.reload() }} />
+
         {/* ─────────── Filtrlar ─────────── */}
         <div className="flex flex-wrap items-center gap-3">
           <Select

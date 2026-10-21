@@ -1,7 +1,7 @@
 'use client';
 
 import { useMonthChange, usePeriod } from '@/lib/period';
-import { DeleteDataButton } from '@/components/shared/delete-data';
+import { SourceActions } from '@/components/shared/source-actions';
 import {
   analyzeFile,
   downloadMissing,
@@ -151,24 +151,26 @@ export default function PayrollPage() {
       <PageHeader
         title="Xarajatlar"
         description={`Ish haqi \u00B7 ${formatPeriod(period)}`}
-        actions={<DeleteDataButton target="PAYROLL" month={period} place="Xarajatlar › Ish haqi" onDone={() => batches.reload()} />}
       />
 
       <SectionTabs kind="expense" section="DOIMIY" />
 
       <div className="space-y-4 p-6">
-        {/* Shablon (oy — yuqori panelda) */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void handleTemplate()}
-            loading={downloading}
-          >
-            <IconDownload className="size-4" />
-            Shablon
-          </Button>
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        <SourceActions
+          upload={{
+            label: 'Vedomostni yuklash',
+            onClick: () => inputRef.current?.click(),
+            loading: uploading,
+            disabled: Boolean(analysis),
+            hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : 'Ish haqi vedomosti (Excel)',
+          }}
+          template={{ label: 'Shablon', onClick: () => void handleTemplate(), loading: downloading }}
+          deleteData={{ target: 'PAYROLL', month: period, place: 'Xarajatlar › Ish haqi', onDone: () => batches.reload() }}
+          note={<>Oy: <b className="text-heading">{formatPeriod(period)}</b> (yuqori paneldagi «Davr»). Faylni pastdagi maydonga tashlash ham mumkin.</>}
+        />
 
+        <div className="flex flex-wrap items-center gap-3">
           <CompositionStatus
             check={composition.data?.data ?? null}
             loading={composition.loading}

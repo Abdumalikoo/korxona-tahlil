@@ -11,8 +11,9 @@ import { usePathname } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 
 // ═══════════════════════════════════════════════════════════
-// Manba bo'limidagi hamma sahifa uchun BITTA amallar paneli — har doim bir xil joyda:
-//   chapda  — «+ Qo'shish» (asosiy), «Excel'dan yuklash», «Shablon», «Excel'ga yuklab olish»
+// Manba bo'limidagi hamma sahifa uchun BITTA amallar paneli — har doim bir xil joyda (sarlavha ostida):
+//   chapda  — asosiy amal (ko'k): «+ Yangi …» yoki — qo'shish bo'lmagan sahifada — «Faylni yuklash»;
+//             so'ng ikkinchi darajali (oq): «Excel'dan yuklash», «Shablon», «Excel'ga yuklab olish», qo'shimchalar
 //   o'ngda  — «O'chirish» (qatorlar belgilanganda faol, nechta ekani yoziladi)
 //   ostida  — «Bu ma'lumot qayerda ko'rinadi» (features/help/flow.ts): havolalar bilan
 // Qo'shish, yuklash va o'chirish — administrator (va o'z bo'limida — ishchi rol, masalan Omborchi).
@@ -78,6 +79,7 @@ export function SourceActions({
   extra,
   remove,
   deleteData,
+  note,
   className,
 }: {
   add?: SourceAction;
@@ -89,6 +91,8 @@ export function SourceActions({
   remove?: SourceRemove;
   /** Yagona o'chirish tugmasi (belgilanganlar · kun · oy · oraliq) — «remove» o'rniga */
   deleteData?: DeleteDataProps;
+  /** Tugmalar ostidagi qisqa izoh (masalan: qaysi fayl, qaysi oy) */
+  note?: ReactNode;
   className?: string;
 }) {
   const { canWrite, canView } = useAuth();
@@ -111,7 +115,7 @@ export function SourceActions({
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             {showAdd && <ActionButton action={add} variant="primary" icon={<IconPlus className="size-4" />} />}
-            {showUpload && <ActionButton action={upload} variant="secondary" icon={<IconUpload className="size-4" />} />}
+            {showUpload && <ActionButton action={upload} variant={showAdd ? 'secondary' : 'primary'} icon={<IconUpload className="size-4" />} />}
             {template && <ActionButton action={template} variant="secondary" icon={<IconInbox className="size-4" />} />}
             {download && <ActionButton action={download} variant="secondary" icon={<IconDownload className="size-4" />} />}
             {extra}
@@ -139,6 +143,8 @@ export function SourceActions({
           )}
         </div>
       )}
+
+      {note && <div className={cn('px-4 py-2 text-xs text-(--color-text-muted)', hasButtons && 'border-t border-(--color-line)')}>{note}</div>}
 
       {!isAdmin && (add || upload || remove) && (
         <p className={cn('px-4 py-2 text-xs text-(--color-text-muted)', hasButtons && 'border-t border-(--color-line)')}>

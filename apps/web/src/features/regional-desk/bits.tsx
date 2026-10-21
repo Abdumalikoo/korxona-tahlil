@@ -40,6 +40,7 @@ export function Dropzone({ onFile, busy, title, hint, tone = 'brand' }: { onFile
     <div
       role="button"
       tabIndex={0}
+      data-dropzone
       onClick={() => !busy && ref.current?.click()}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && !busy && ref.current?.click()}
       onDragOver={(e) => {
@@ -65,6 +66,14 @@ export function Dropzone({ onFile, busy, title, hint, tone = 'brand' }: { onFile
       <p className="max-w-xl text-sm text-(--color-text-muted)">{hint}</p>
     </div>
   );
+}
+
+/** Sahifadagi (birinchi) Dropzone fayl tanlash oynasini ochadi — «Faylni yuklash» tugmasi uchun */
+export function openDropzone(): boolean {
+  const input = document.querySelector<HTMLInputElement>('[data-dropzone] input[type=file]');
+  if (!input) return false;
+  input.click();
+  return true;
 }
 
 export function Stat({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: 'brand' | 'ok' | 'warn' | 'bad' | 'plain' }) {

@@ -1,13 +1,13 @@
 'use client';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { DeleteDataButton } from '@/components/shared/delete-data';
 import { BarChart } from '@/components/shared/bar-chart';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
-import { Dropzone, Notice, Stat, som } from '@/features/regional-desk/bits';
+import { Dropzone, Notice, openDropzone, Stat, som } from '@/features/regional-desk/bits';
+import { SourceActions } from '@/components/shared/source-actions';
 import { errorMessage } from '@/lib/error-message';
 import { formatCompact } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -251,32 +251,27 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
       <PageHeader
         title={manage ? 'Markaz daromadlari' : 'Markaz tushumi tahlili'}
         description="Kunlik ma'lumotnomadan oylik daromad"
-        actions={
-          <>
-            {manage && (
-              <Button variant="secondary" onClick={() => void centerIncomeApi.template().catch((e) => setToast({ message: errorMessage(e), tone: 'error' }))}>
-                Bo&apos;sh shablon
-              </Button>
-            )}
-            {manage && (
-              <Button variant="ghost" onClick={() => void resync()} loading={busy && !file} title="Hamma oylarning Markaz daromadi ma'lumotnomadan Daromadlarga qayta yoziladi">
-                Qayta yozish
-              </Button>
-            )}
-            {manage && (
-              <DeleteDataButton
-                target="CASHBOOK"
-                place="Daromadlar › Markaz tushumi"
-                onDone={({ count }) => {
-                  setToast({ message: `${count} kunlik ma'lumotnoma o'chirildi — Markaz daromadi qayta hisoblandi` });
-                  void load(year);
-                }}
-              />
-            )}
-          </>
-        }
       />
       <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
+        {manage && (
+          <SourceActions
+            upload={{ label: 'Ma’lumotnomani yuklash', onClick: () => void openDropzone(), loading: busy && Boolean(file), disabled: Boolean(file) || Boolean(preview), hint: 'Kunlik tushum va qoldiq fayli (Excel)' }}
+            template={{ label: "Bo'sh shablon", onClick: () => void centerIncomeApi.template().catch((e) => setToast({ message: errorMessage(e), tone: 'error' })) }}
+            extra={
+              <Button variant="secondary" size="sm" onClick={() => void resync()} loading={busy && !file} title="Hamma oylarning Markaz daromadi ma'lumotnomadan Daromadlarga qayta yoziladi">
+                Daromadlarga qayta yozish
+              </Button>
+            }
+            deleteData={{
+              target: 'CASHBOOK',
+              place: 'Daromadlar › Markaz tushumi',
+              onDone: ({ count }) => {
+                setToast({ message: `${count} kunlik ma'lumotnoma o'chirildi — Markaz daromadi qayta hisoblandi` });
+                void load(year);
+              },
+            }}
+          />
+        )}
         <BriefNote shows="Markaz daromadi yil bo'yicha va oylar" hidden="oylik grafik, hisobraqamlar bo'yicha jadval, doimiy/boshqa bo'linishi" />
         {!brief && (
         <Notice tone="info">

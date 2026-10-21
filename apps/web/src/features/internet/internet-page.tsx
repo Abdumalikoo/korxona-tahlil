@@ -1,5 +1,7 @@
 'use client';
 
+import { SourceActions } from '@/components/shared/source-actions';
+
 import { PageHeader } from '@/components/layout/page-header';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -78,25 +80,14 @@ export function InternetPage({ initialAnalysis = null }: { initialAnalysis?: Ana
       <PageHeader
         title="Internet"
         description="Shartnomalar: kimga to'lanadi, qayerga biriktiriladi — oylik to'lovlar xarajat sifatida"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => template(false)} disabled={!!busy}>
-              <IconDownload className="size-4" />
-              Shablon
-            </Button>
-            {isAdmin && (
-              <>
-                <input ref={input} type="file" accept=".xlsx" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
-                <Button size="sm" onClick={() => input.current?.click()} loading={busy === 'Fayl o‘qilmoqda'}>
-                  <IconUpload className="size-4" />
-                  To&apos;lovlar faylini yuklash
-                </Button>
-              </>
-            )}
-          </div>
-        }
       />
       <div className="space-y-4 p-4 md:p-6">
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        {isAdmin && <input ref={input} type="file" accept=".xlsx" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />}
+        <SourceActions
+          upload={{ label: "To'lovlar faylini yuklash", onClick: () => input.current?.click(), loading: busy === 'Fayl o‘qilmoqda', disabled: !!busy && busy !== 'Fayl o‘qilmoqda' }}
+          template={{ label: 'Shablon', onClick: () => template(false), disabled: !!busy }}
+        />
         {overview.error ? (
           <Card>
             <ErrorState message={overview.error} onRetry={overview.reload} />

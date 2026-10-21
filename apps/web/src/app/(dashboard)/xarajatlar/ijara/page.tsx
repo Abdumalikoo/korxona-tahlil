@@ -1,5 +1,7 @@
 'use client';
 
+import { SourceActions } from '@/components/shared/source-actions';
+
 import { usePeriod } from '@/lib/period';
 import {
     KIND_LABELS,
@@ -18,7 +20,6 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { DeleteDataButton } from '@/components/shared/delete-data';
 import { SearchInput } from '@/components/shared/search-input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -169,37 +170,28 @@ export default function LeasesPage() {
       <PageHeader
         title="Xarajatlar"
         description={`Ijara · ${formatPeriod(period)}`}
-        actions={
-          isAdmin ? (
-            <>
-              <DeleteDataButton
-                target="LEASE"
-                size="sm"
-                selectedIds={[...checked]}
-                month={period}
-                place="Xarajatlar › Ijara"
-                label={checked.size ? "Belgilanganlarni o'chirish" : "O'chirish"}
-                onDone={({ count }) => {
-                  setChecked(new Set());
-                  notify(`${count} ta o'chirildi (shartnoma yoki oy hisobi)`);
-                }}
-              />
-              <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-                <IconUpload className="size-4" />
-                Excel&rsquo;dan import
-              </Button>
-              <Button size="sm" onClick={() => setFormTarget('new')}>
-                <IconPlus className="size-4" />
-                Yangi shartnoma
-              </Button>
-            </>
-          ) : null
-        }
       />
 
       <Tabs items={tabs} className="bg-white px-6" />
 
       <div className="space-y-4 p-6">
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        <SourceActions
+          add={{ label: 'Yangi shartnoma', onClick: () => setFormTarget('new') }}
+          upload={{ label: "Excel'dan yuklash", onClick: () => setImportOpen(true) }}
+          deleteData={{
+            target: 'LEASE',
+            selectedIds: [...checked],
+            month: period,
+            place: 'Xarajatlar › Ijara',
+            label: checked.size ? "Belgilanganlarni o'chirish" : "O'chirish",
+            onDone: ({ count }) => {
+              setChecked(new Set());
+              notify(`${count} ta o'chirildi (shartnoma yoki oy hisobi)`);
+            },
+          }}
+        />
+
         {/* ── Filtrlar ── */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="w-44">

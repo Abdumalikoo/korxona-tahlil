@@ -1,7 +1,8 @@
 'use client';
 
+import { SourceActions } from '@/components/shared/source-actions';
+
 import { PageHeader } from '@/components/layout/page-header';
-import { DeleteDataButton } from '@/components/shared/delete-data';
 import { MoneyInput } from '@/components/shared/money-input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -567,26 +568,26 @@ export function FixedAssetsPage() {
     <>
       <PageHeader title="Asosiy vositalar" description="Balansda turadi: xarajatsiz yoki har oy eskirish bilan; kerak bo'lsa xarajatga o'tkaziladi (Markaz)" />
       <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        <SourceActions
+          add={{ label: 'Yangi asosiy vosita', onClick: () => setCreating(true) }}
+          upload={{ label: "Excel'dan yuklash", onClick: () => setImporting(true) }}
+          extra={
+            isAdmin ? (
+              <Button variant="secondary" size="sm" onClick={() => void syncNow()} loading={busy} title="Hamma vositalarning oylik sarfi (eskirish) qayta hisoblanadi">
+                Sarfni hozir hisoblash
+              </Button>
+            ) : undefined
+          }
+          deleteData={{ target: 'ASSET', month, place: 'Xarajatlar › Asosiy vositalar', onDone: ({ count }) => reloadAll(`${count} ta asosiy vosita o'chirildi — sarf qayta hisoblandi`) }}
+        />
+
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-base font-bold text-heading">Balans va sarf</h2>
           <span className="text-xs text-(--color-text-muted)">
             {formatDate(from)} — {formatDate(to)}
           </span>
-          {isAdmin && (
-            <div className="ml-auto flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => void syncNow()} loading={busy}>
-                Hozir hisoblash
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setImporting(true)}>
-                Excel&apos;dan yuklash
-              </Button>
-              <Button size="sm" onClick={() => setCreating(true)}>
-                + Qo&apos;lda qo&apos;shish
-              </Button>
-              <DeleteDataButton target="ASSET" size="sm" month={month} place="Xarajatlar › Asosiy vositalar" onDone={({ count }) => reloadAll(`${count} ta asosiy vosita o'chirildi — sarf qayta hisoblandi`)} />
-            </div>
-          )}
-          <div className={cn('flex gap-1 rounded-lg bg-white p-1 shadow-card', !isAdmin && 'ml-auto')}>
+          <div className="ml-auto flex gap-1 rounded-lg bg-white p-1 shadow-card">
             {(
               [
                 ['month', 'Tanlangan oy'],

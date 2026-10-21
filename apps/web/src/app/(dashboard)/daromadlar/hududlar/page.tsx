@@ -1,7 +1,7 @@
 'use client';
 
 import { useMonthChange, usePeriod } from '@/lib/period';
-import { DeleteDataButton } from '@/components/shared/delete-data';
+import { SourceActions } from '@/components/shared/source-actions';
 import { useState, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
@@ -27,7 +27,6 @@ import { EmptyState, LoadingState } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  IconDownload,
   IconUpload,
   IconAlert,
   IconSpinner,
@@ -155,36 +154,34 @@ export default function RegionalIncomePage() {
     <>
       <PageHeader
         title="Daromadlar"
-        description={`Hududlar \u00B7 ${formatPeriod(period)}`}
-        actions={
-          <DeleteDataButton
-            target="INCOME"
-            scope={{ regional: true, ...(selectedRegion ? { regionCode: Number(selectedRegion) } : {}) }}
-            month={period}
-            place="Daromadlar › Hududlar tushumi"
-            onDone={() => {
-              byRegion.reload();
-              byService.reload();
-            }}
-          />
-        }
+        description={`Hududlar tushumi \u00B7 ${formatPeriod(period)}`}
       />
 
       <SectionTabs kind="income" section="DOIMIY" />
 
       <div className="space-y-4 p-6">
-        {/* Shablon (oy — yuqori panelda) */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void handleTemplate()}
-            loading={downloading}
-          >
-            <IconDownload className="size-4" />
-            Shablon (tumanlar kesimida)
-          </Button>
-        </div>
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        <SourceActions
+          upload={{
+            label: 'Faylni yuklash',
+            onClick: () => inputRef.current?.click(),
+            loading: uploading,
+            disabled: Boolean(analysis),
+            hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : 'To‘ldirilgan Excel fayl (bitta varaq, hududlar ustunlarda)',
+          }}
+          template={{ label: 'Shablon (tumanlar kesimida)', onClick: () => void handleTemplate(), loading: downloading }}
+          deleteData={{
+            target: 'INCOME',
+            scope: { regional: true, ...(selectedRegion ? { regionCode: Number(selectedRegion) } : {}) },
+            month: period,
+            place: 'Daromadlar › Hududlar tushumi',
+            onDone: () => {
+              byRegion.reload();
+              byService.reload();
+            },
+          }}
+          note={<>Oy — yuqori paneldagi «Davr» dan: <b className="text-heading">{formatPeriod(period)}</b>. Faylni pastdagi maydonga tashlash ham mumkin.</>}
+        />
 
         {/* Yuklash zonasi */}
         {isAdmin && !analysis && (

@@ -1,7 +1,8 @@
 'use client';
 
+import { SourceActions } from '@/components/shared/source-actions';
+
 import { PageHeader } from '@/components/layout/page-header';
-import { DeleteDataButton } from '@/components/shared/delete-data';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -274,6 +275,21 @@ export function TaxesPage() {
     <>
       <PageHeader title="Soliqlar" description={`Hamma soliqlar bir joyda · ${formatPeriod(period)}`} />
       <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        {isAdmin && <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />}
+        <SourceActions
+          upload={{ label: "Excel'dan yuklash", onClick: () => fileRef.current?.click(), loading: busy, hint: `${formatPeriod(period)} soliqlari (shablon shaklida)` }}
+          template={{ label: 'Excel shablon', onClick: () => void taxesApi.template(period).catch((e) => setToast({ message: errorMessage(e), tone: 'error' })) }}
+          extra={
+            isAdmin ? (
+              <Button variant="secondary" size="sm" onClick={() => setAskCopy(true)}>
+                O&apos;tgan oydan ko&apos;chirish
+              </Button>
+            ) : undefined
+          }
+          deleteData={{ target: 'TAX', month: period, place: 'Xarajatlar › Soliqlar', onDone: ({ count }) => { setToast({ message: `${count} ta soliq yozuvi savatga tushdi` }); res.reload(); } }}
+          note={<>Oy: <b className="text-heading">{formatPeriod(period)}</b>. Kataklarga pastdagi jadvalda ham to&apos;g&apos;ridan-to&apos;g&apos;ri yozish mumkin.</>}
+        />
         {res.loading && !m ? (
           <LoadingState label="Soliqlar yuklanmoqda" />
         ) : res.error ? (
@@ -346,21 +362,6 @@ export function TaxesPage() {
                 <label className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
                   <input type="checkbox" className="size-3.5" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> nofaol turlar
                 </label>
-                <Button variant="secondary" size="sm" onClick={() => void taxesApi.template(period).catch((e) => setToast({ message: errorMessage(e), tone: 'error' }))}>
-                  Excel shablon
-                </Button>
-                {isAdmin && (
-                  <>
-                    <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()} loading={busy}>
-                      Excel&apos;dan yuklash
-                    </Button>
-                    <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
-                    <Button variant="secondary" size="sm" onClick={() => setAskCopy(true)}>
-                      O&apos;tgan oydan ko&apos;chirish
-                    </Button>
-                    <DeleteDataButton target="TAX" size="sm" month={period} place="Xarajatlar › Soliqlar" onDone={({ count }) => { setToast({ message: `${count} ta soliq yozuvi savatga tushdi` }); res.reload(); }} />
-                  </>
-                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" style={{ minWidth: 260 + types.length * 150 }}>

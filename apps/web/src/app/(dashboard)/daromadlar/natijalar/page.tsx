@@ -1,7 +1,7 @@
 'use client';
 
 import { useMonthChange, usePeriod } from '@/lib/period';
-import { DeleteDataButton } from '@/components/shared/delete-data';
+import { SourceActions } from '@/components/shared/source-actions';
 import {
     analyzeResultsFile,
     downloadResultsExcel,
@@ -30,7 +30,6 @@ import {
     IconAlert,
     IconCheck,
     IconChevronDown,
-    IconDownload,
     IconSpinner,
     IconUpload,
 } from '@/components/ui/icons';
@@ -222,17 +221,6 @@ export default function EmployeeResultsPage() {
       <PageHeader
         title="Daromadlar"
         description={`Xodim natijalari \u00B7 ${formatPeriod(period)}`}
-        actions={
-          <DeleteDataButton
-            target="RESULTS"
-            month={period}
-            place="Daromadlar › Natijalar"
-            onDone={() => {
-              list.reload();
-              batches.reload();
-            }}
-          />
-        }
       />
 
       <SectionTabs kind="income" section="DOIMIY" />
@@ -243,30 +231,28 @@ export default function EmployeeResultsPage() {
           xodimlar kesimi. Shu oy ish haqisi bilan PINFL bo&rsquo;yicha solishtiriladi.
         </p>
 
-        {/* Shablon va eksport (oy — yuqori panelda) */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void handleTemplate()}
-            loading={downloading}
-          >
-            <IconDownload className="size-4" />
-            Shablon
-          </Button>
-
-          {data && data.rows.length > 0 && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void handleExport()}
-              loading={exporting}
-            >
-              <IconDownload className="size-4" />
-              Excel{regionCode !== undefined ? ' (hudud)' : ''}
-            </Button>
-          )}
-        </div>
+        {/* Amallar — hamma Manba sahifasida bir xil joyda */}
+        <SourceActions
+          upload={{
+            label: 'Faylni yuklash',
+            onClick: () => inputRef.current?.click(),
+            loading: uploading,
+            disabled: Boolean(analysis),
+            hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : "To'ldirilgan natijalar fayli (Excel)",
+          }}
+          template={{ label: 'Shablon', onClick: () => void handleTemplate(), loading: downloading }}
+          download={data && data.rows.length > 0 ? { label: `Excel'ga yuklab olish${regionCode !== undefined ? ' (hudud)' : ''}`, onClick: () => void handleExport(), loading: exporting } : undefined}
+          deleteData={{
+            target: 'RESULTS',
+            month: period,
+            place: 'Daromadlar › Natijalar',
+            onDone: () => {
+              list.reload();
+              batches.reload();
+            },
+          }}
+          note={<>Oy: <b className="text-heading">{formatPeriod(period)}</b> (yuqori paneldagi «Davr»). Faylni pastdagi maydonga tashlash ham mumkin.</>}
+        />
 
         {/* Yuklash zonasi */}
         {isAdmin && !analysis && (

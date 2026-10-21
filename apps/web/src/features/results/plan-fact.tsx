@@ -1,11 +1,11 @@
 'use client';
 
 import { PageHeader } from '@/components/layout/page-header';
-import { DeleteDataButton } from '@/components/shared/delete-data';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Toast } from '@/components/ui/toast';
-import { Dropzone, Notice, Stat, som } from '@/features/regional-desk/bits';
+import { Dropzone, Notice, openDropzone, Stat, som } from '@/features/regional-desk/bits';
+import { SourceActions } from '@/components/shared/source-actions';
 import { errorMessage } from '@/lib/error-message';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
@@ -355,22 +355,19 @@ export function PlanFactUpload({ role }: { role: 'admin' | 'hududchi' }) {
       <PageHeader
         title="Xodimlar reja va tushumi"
         description={role === 'hududchi' ? "Daromadni xodimlarga bo'lib berish: har oy reja va haqiqatda bajarilgani" : "Yuklangan daromadni xodimlarga bo'lib berish — Solishtirma va ustama uchun"}
-        actions={
-          <>
-            <Button variant="secondary" onClick={() => void downloadPlanFactTemplate(year, sel.length === 1 ? sel : []).catch((e) => setToast({ message: errorMessage(e), tone: 'error' }))}>
-              Bo&apos;sh shablon
-            </Button>
-            <DeleteDataButton
-              target="RESULTS"
-              scope={role === 'hududchi' ? { regional: true } : undefined}
-              month={sel.length === 1 ? `${year}-${String(sel[0]).padStart(2, '0')}` : undefined}
-              place="Xodimlar reja va tushumi"
-              onDone={({ count }) => setToast({ message: `${count} ta natija o'chirildi` })}
-            />
-          </>
-        }
       />
       <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-6">
+        <SourceActions
+          upload={{ label: 'Reja / tushum faylini yuklash', onClick: () => void openDropzone(), loading: busy, disabled: Boolean(file), hint: 'Avval pastda yil va oyni tanlang' }}
+          template={{ label: "Bo'sh shablon", onClick: () => void downloadPlanFactTemplate(year, sel.length === 1 ? sel : []).catch((e) => setToast({ message: errorMessage(e), tone: 'error' })) }}
+          deleteData={{
+            target: 'RESULTS',
+            scope: role === 'hududchi' ? { regional: true } : undefined,
+            month: sel.length === 1 ? `${year}-${String(sel[0]).padStart(2, '0')}` : undefined,
+            place: 'Xodimlar reja va tushumi',
+            onDone: ({ count }) => setToast({ message: `${count} ta natija o'chirildi` }),
+          }}
+        />
         <Notice tone="info">
           Bu fayl <b>yangi daromad yaratmaydi</b> — ish haqi vedomosti kabi ishlaydi. Daromad Daromadlar bo&apos;limida (xizmatlar hisoboti) allaqachon bor; bu fayl uni
           xodimlarga bo&apos;lib beradi. Xodim <b>PINFL</b> bo&apos;yicha aniq topiladi (PINFL bo&apos;sh bo&apos;lsa — F.I.Sh bo&apos;yicha) va natijasi fayldagi viloyat/tumanga
