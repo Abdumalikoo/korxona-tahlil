@@ -22,7 +22,7 @@ export default function SolishtirmaUmumiyPage() {
         <BriefNote
           className="mt-4"
           shows="korxona jami (Hududlar | Markaz bo'yicha), natija ko'prigi, Markazni qoplash va umumiy jadval"
-          hidden="ulush lentalari va 12 oylik dinamika"
+          hidden="taqqoslash va oylar jadvallari, ulush lentalari va 12 oylik dinamika"
         />
       </div>
     </>
