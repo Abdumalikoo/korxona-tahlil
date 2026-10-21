@@ -24,6 +24,7 @@ import { EmployeeTransfersModule } from './modules/employee-transfers/employee-t
 import { LeasesModule } from './modules/leases/leases.module';
 import { InternetModule } from './modules/internet/internet.module';
 import { BplanModule } from './modules/bplan/bplan.module';
+import { ExploreModule } from './modules/explore/explore.module';
 import { SectionsModule } from './modules/sections/sections.module';
 import { ModelingModule } from './modules/modeling/modeling.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
@@ -89,6 +90,7 @@ import { AccessGuard } from './common/guards/access.guard';
     LeasesModule,
     InternetModule,
     BplanModule,
+    ExploreModule,
     SectionsModule,
     ModelingModule,
     VehiclesModule,
