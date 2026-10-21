@@ -12,8 +12,9 @@ import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { policyApi, type CenterPart, type PolicyCategory } from './api';
+import { useEffect, useState } from 'react';
+import { policyApi, type CenterPart } from './api';
+import { CategoryBoard } from './category-board';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Xarajatlar siyosati.
@@ -85,28 +86,6 @@ function TrendBars({ months, own, reg, av }: { months: string[]; own: string[]; 
   );
 }
 
-function CategoryRow({ c, depth, on, inherited, disabled, onToggle }: { c: PolicyCategory; depth: number; on: boolean; inherited: boolean; disabled: boolean; onToggle: () => void }) {
-  return (
-    <label
-      className={cn('flex cursor-pointer items-center gap-3 px-5 py-2 text-sm hover:bg-brand-50/50', disabled && 'cursor-default opacity-80', !c.isActive && 'opacity-50')}
-      style={{ paddingLeft: 20 + depth * 22 }}
-    >
-      <input type="checkbox" className="size-4 accent-brand-600" checked={on || inherited || !!c.locked} disabled={disabled || inherited || !!c.locked} onChange={onToggle} />
-      <span className={cn('flex-1', !c.isLeaf ? 'font-semibold text-heading' : 'text-heading')}>{c.label}</span>
-      <span className="font-mono text-[11px] text-(--color-text-faint)">{c.code}</span>
-      {c.locked ? (
-        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800" title="Ish haqi qo'shimchalari va asosiy vositalar sarfi — har doim Markaz hisobidan">
-          Har doim Markaz hisobidan
-        </span>
-      ) : (
-        (on || inherited) && (
-          <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700">{inherited ? 'Markaz hisobidan (ota modda orqali)' : 'Markaz hisobidan'}</span>
-        )
-      )}
-    </label>
-  );
-}
-
 export function ExpensePolicyPage() {
   const { isAdmin } = useAuth();
   const { month } = usePeriod();
@@ -115,7 +94,7 @@ export function ExpensePolicyPage() {
   const to = monthEndIso(month);
   const policy = useAsync(() => policyApi.get().then((r) => r.data), []);
   const summary = useAsync(() => policyApi.summary(from, to).then((r) => r.data), [from, to]);
-  const [sel, setSel] = useState<Set<string> | null>(null);
+  const amounts = useAsync(() => policyApi.amounts(from, to).then((r) => r.data), [from, to]);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'error' } | null>(null);
 
@@ -123,40 +102,14 @@ export function ExpensePolicyPage() {
 
   useEffect(() => {
     if (policy.data) {
-      setSel(new Set(policy.data.centerCategories));
       setComps(new Set((policy.data.payrollComponents ?? []).filter((c) => c.selected).map((c) => c.code)));
     }
   }, [policy.data]);
 
-  const cats = policy.data?.categories ?? [];
-  const children = useMemo(() => {
-    const m = new Map<string | null, PolicyCategory[]>();
-    const known = new Set(cats.map((c) => c.code));
-    for (const c of cats) {
-      const k = c.parentCode && known.has(c.parentCode) ? c.parentCode : null;
-      const list = m.get(k) ?? [];
-      list.push(c);
-      m.set(k, list);
-    }
-    return m;
-  }, [cats]);
-  const parentOf = useMemo(() => new Map(cats.map((c) => [c.code, c.parentCode])), [cats]);
-  const inheritedOf = (code: string): boolean => {
-    let p = parentOf.get(code) ?? null;
-    let guard = 0;
-    while (p && guard++ < 20) {
-      if (sel?.has(p)) return true;
-      p = parentOf.get(p) ?? null;
-    }
-    return false;
-  };
-  const dirty = !!policy.data && !!sel && (sel.size !== policy.data.centerCategories.length || policy.data.centerCategories.some((c) => !sel.has(c)));
-
-  const save = async () => {
-    if (!sel) return;
+  const save = async (include: string[], exclude: string[]) => {
     setSaving(true);
     try {
-      await policyApi.save([...sel]);
+      await policyApi.save(include, exclude);
       setToast({ message: "Siyosat saqlandi — Solishtirma va hisob-kitoblar yangilandi" });
       policy.reload();
       summary.reload();
@@ -208,26 +161,6 @@ export function ExpensePolicyPage() {
     }
   };
 
-  const tree = (parent: string | null, depth: number): ReactNode[] =>
-    (children.get(parent) ?? []).flatMap((c) => [
-      <CategoryRow
-        key={c.code}
-        c={c}
-        depth={depth}
-        on={!!sel?.has(c.code)}
-        inherited={inheritedOf(c.code)}
-        disabled={!isAdmin}
-        onToggle={() => {
-          if (!sel) return;
-          const next = new Set(sel);
-          if (next.has(c.code)) next.delete(c.code);
-          else next.add(c.code);
-          setSel(next);
-        }}
-      />,
-      ...tree(c.code, depth + 1),
-    ]);
-
   const s = summary.data;
   const total = s ? Number(s.totalTiyin) : 0;
   const own = s ? Number(s.ownTiyin) : 0;
@@ -239,48 +172,10 @@ export function ExpensePolicyPage() {
     <>
       <PageHeader title="Xarajatlar siyosati" description="Qaysi xarajatlar Markaz hisobidan — hudud xodimlari uchun bo'lsa ham" />
       <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-6">
-        <Card className="space-y-3 p-5 text-sm leading-relaxed text-(--color-text-muted)">
-          <p>
-            Hudud xodimlariga <b className="text-heading">bayram puli, choraklik mukofot, xizmat safari (komandirovka), internet to&apos;lovlari</b> kabi xarajatlar —
-            qaysi hududda yozilgan bo&apos;lsa ham — <b className="text-heading">Markaz xarajatiga</b> o&apos;tadi. Hudud xodimining ish haqidan hududga faqat{' '}
-            <b className="text-heading">sof oylik</b> (bayram va choraklik pullarsiz) yoziladi. Markaz xarajati ikki guruhga bo&apos;linadi:
-          </p>
-          <div className="grid gap-2 lg:grid-cols-2">
-            <div className="rounded-lg border border-(--color-line) bg-white px-3 py-2.5">
-              <b className="text-heading">1. Joriy xarajatlar</b> — hamma xarajatlar shu guruhda yuritiladi:
-              <ul className="mt-1.5 space-y-1 text-xs">
-                <li>
-                  <span className="mr-1.5 inline-block size-2.5 rounded-sm" style={{ background: OWN_COLOR }} />
-                  <b className="text-heading">O&apos;ziniki</b> — Markaz xodimlari ish haqi, ijara, ofis va Markazda yozilgan boshqa xarajatlar;
-                </li>
-                <li>
-                  <span className="mr-1.5 inline-block size-2.5 rounded-sm" style={{ background: REG_COLOR }} />
-                  <b className="text-heading">Hududlar uchun</b> — bayram, choraklik pullar (ish haqi tarkibidan avtomatik) va quyida belgilangan moddalar; qaysi hudud uchun ekani saqlanadi.
-                </li>
-              </ul>
-            </div>
-            <div className="rounded-lg border border-(--color-line) bg-white px-3 py-2.5">
-              <span className="mr-1.5 inline-block size-2.5 rounded-sm" style={{ background: AV_COLOR }} />
-              <b className="text-heading">2. Asosiy vositalar</b> — kompyuter, mebel, mashina, bino kabi xaridlar xarajatga birdaniga yozilmaydi: <b className="text-heading">balansda turadi</b>,
-              xarajatga har oy faqat <b className="text-heading">sarfi (eskirishi)</b> o&apos;tadi.{' '}
-              <Link href="/xarajatlar/asosiy-vositalar" className="font-semibold text-brand-700 underline">
-                Asosiy vositalar
-              </Link>
-            </div>
-          </div>
-          <p className="text-xs">
-            Siyosat hamma joyda bir xil qo&apos;llanadi: Solishtirma (viloyat va tuman xarajatiga kirmaydi), Markazni qoplash, Katta modellar.{' '}
-            <Link href="/solishtirma" className="font-semibold text-brand-700 underline">
-              Solishtirmaga o&apos;tish
-            </Link>
-          </p>
-        </Card>
 
-        {/* ── Markaz xarajati: ikki guruh ── */}
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-bold text-heading">Markaz xarajati</h2>
-          <span className="text-xs text-(--color-text-muted)">
-            {formatDate(from)} — {formatDate(to)}
+          <span className="text-sm text-(--color-text-muted)">
+            Summalar davri: <b className="text-heading">{formatDate(from)} — {formatDate(to)}</b>
           </span>
           <div className="ml-auto flex gap-1 rounded-lg bg-white p-1 shadow-card">
             {(
@@ -294,6 +189,30 @@ export function ExpensePolicyPage() {
               </button>
             ))}
           </div>
+        </div>
+        {/* ── Moddalar: Markaz yoki Hudud ── */}
+        {policy.data && policy.data.recommended.missing > 0 && isAdmin && (
+          <div className="flex flex-wrap items-center gap-3 rounded-(--radius-card) border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs text-sky-900">
+            <span className="min-w-0 flex-1">
+              Tavsiya: «{policy.data.recommended.parent.label}» guruhi — {policy.data.recommended.items.map((i) => i.label).join(', ')}. Qo&apos;shilsa, bu guruh Markaz hisobida bo&apos;ladi.
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => void seed()} loading={saving}>
+              Qo&apos;shish ({policy.data.recommended.missing})
+            </Button>
+          </div>
+        )}
+        {!policy.data ? (
+          <Card className="p-6 text-center text-sm text-(--color-text-muted)">{policy.error ? `Yuklab bo'lmadi: ${policy.error}` : 'Yuklanmoqda…'}</Card>
+        ) : (
+          <CategoryBoard data={policy.data} amounts={amounts.data?.rows ?? null} range={{ from, to }} isAdmin={isAdmin} saving={saving} onSave={(inc, exc) => void save(inc, exc)} />
+        )}
+
+        {/* ── Markaz xarajati: ikki guruh ── */}
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-base font-bold text-heading">Markaz xarajati</h2>
+          <span className="text-xs text-(--color-text-muted)">
+            {formatDate(from)} — {formatDate(to)}
+          </span>
         </div>
         {!s ? (
           <Card className="p-6 text-center text-sm text-(--color-text-muted)">{summary.error ? `Yuklab bo'lmadi: ${summary.error}` : 'Yuklanmoqda…'}</Card>
@@ -440,38 +359,42 @@ export function ExpensePolicyPage() {
           )}
         </Card>
 
-        {/* ── Siyosat: moddalar ── */}
-        <Card className="overflow-hidden">
-          <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) px-5 py-3">
-            <div>
-              <p className="text-sm font-semibold text-heading">Markaz hisobidagi moddalar</p>
-              <p className="text-xs text-(--color-text-muted)">Belgilangan modda (va uning ichidagilari) — hudud xodimlari uchun bo&apos;lsa ham Markaz xarajati.</p>
+        <Card className="space-y-3 p-5 text-sm leading-relaxed text-(--color-text-muted)">
+          <p className="text-sm font-semibold text-heading">Qanday ishlaydi</p>
+          <p>
+            Hudud xodimlariga <b className="text-heading">bayram puli, choraklik mukofot, xizmat safari (komandirovka), internet to&apos;lovlari</b> kabi xarajatlar —
+            qaysi hududda yozilgan bo&apos;lsa ham — <b className="text-heading">Markaz xarajatiga</b> o&apos;tadi. Hudud xodimining ish haqidan hududga faqat{' '}
+            <b className="text-heading">sof oylik</b> (bayram va choraklik pullarsiz) yoziladi. Markaz xarajati ikki guruhga bo&apos;linadi:
+          </p>
+          <div className="grid gap-2 lg:grid-cols-2">
+            <div className="rounded-lg border border-(--color-line) bg-white px-3 py-2.5">
+              <b className="text-heading">1. Joriy xarajatlar</b> — hamma xarajatlar shu guruhda yuritiladi:
+              <ul className="mt-1.5 space-y-1 text-xs">
+                <li>
+                  <span className="mr-1.5 inline-block size-2.5 rounded-sm" style={{ background: OWN_COLOR }} />
+                  <b className="text-heading">O&apos;ziniki</b> — Markaz xodimlari ish haqi, ijara, ofis va Markazda yozilgan boshqa xarajatlar;
+                </li>
+                <li>
+                  <span className="mr-1.5 inline-block size-2.5 rounded-sm" style={{ background: REG_COLOR }} />
+                  <b className="text-heading">Hududlar uchun</b> — bayram, choraklik pullar (ish haqi tarkibidan avtomatik) va quyida belgilangan moddalar; qaysi hudud uchun ekani saqlanadi.
+                </li>
+              </ul>
             </div>
-            {isAdmin && policy.data && policy.data.recommended.missing > 0 && (
-              <Button variant="secondary" size="sm" className="ml-auto" onClick={() => void seed()} loading={saving}>
-                Tavsiya etilgan moddalarni qo&apos;shish ({policy.data.recommended.missing})
-              </Button>
-            )}
+            <div className="rounded-lg border border-(--color-line) bg-white px-3 py-2.5">
+              <span className="mr-1.5 inline-block size-2.5 rounded-sm" style={{ background: AV_COLOR }} />
+              <b className="text-heading">2. Asosiy vositalar</b> — kompyuter, mebel, mashina, bino kabi xaridlar xarajatga birdaniga yozilmaydi: <b className="text-heading">balansda turadi</b>,
+              xarajatga har oy faqat <b className="text-heading">sarfi (eskirishi)</b> o&apos;tadi.{' '}
+              <Link href="/xarajatlar/asosiy-vositalar" className="font-semibold text-brand-700 underline">
+                Asosiy vositalar
+              </Link>
+            </div>
           </div>
-          {policy.data && policy.data.recommended.missing > 0 && (
-            <p className="border-b border-(--color-line) bg-sky-50 px-5 py-2.5 text-xs text-sky-900">
-              Tavsiya: «{policy.data.recommended.parent.label}» guruhi — {policy.data.recommended.items.map((i) => i.label).join(', ')}. Qo&apos;shilsa, bu guruh avtomatik Markaz
-              hisobiga o&apos;tadi va hududlar xarajatini kiritishda shu moddalarni tanlaysiz.
-            </p>
-          )}
-          {!policy.data ? (
-            <p className="px-5 py-6 text-center text-sm text-(--color-text-muted)">{policy.error ? `Yuklab bo'lmadi: ${policy.error}` : 'Yuklanmoqda…'}</p>
-          ) : (
-            <div className="max-h-[520px] divide-y divide-(--color-line) overflow-y-auto">{tree(null, 0)}</div>
-          )}
-          {isAdmin && (
-            <div className="flex items-center gap-3 border-t border-(--color-line) bg-(--color-surface-muted) px-5 py-3">
-              <span className="text-xs text-(--color-text-muted)">{sel ? `${sel.size} ta modda belgilangan` : ''}</span>
-              <Button className="ml-auto" onClick={() => void save()} loading={saving} disabled={!dirty}>
-                Siyosatni saqlash
-              </Button>
-            </div>
-          )}
+          <p className="text-xs">
+            Siyosat hamma joyda bir xil qo&apos;llanadi: Solishtirma (viloyat va tuman xarajatiga kirmaydi), Markazni qoplash, Katta modellar.{' '}
+            <Link href="/solishtirma" className="font-semibold text-brand-700 underline">
+              Solishtirmaga o&apos;tish
+            </Link>
+          </p>
         </Card>
       </div>
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} duration={toast.tone === 'error' ? 6000 : 4000} />}

@@ -8,7 +8,8 @@ import type { PrismaService } from '../prisma/prisma.service';
 //   1) Joriy xarajatlar — Markazning o'z xarajatlari va hududlar uchun to'laganlari (siyosatdagi moddalar);
 //   2) Asosiy vositalar — xarid xarajatga birdaniga yozilmaydi (balansda turadi), har oy sarfi (eskirish) yoziladi.
 // Siyosat «settings» jadvalida saqlanadi (kalit: expense.policy) — bazaga migratsiya kerak emas.
-// Ota modda belgilansa — uning hamma ichki moddalari ham kiradi.
+// Ota modda belgilansa — uning hamma ichki moddalari ham kiradi; ichki moddani alohida «Hududga» qaytarish mumkin
+// (istisno: ro'yxatda «!KOD»). Qoida: moddaga eng yaqin belgilangan (o'zi yoki ota-onasi) qaror qiladi.
 //
 // Ish haqi: hudud xodimining oyligi (sof — bayram va choraklik pullarsiz) hududga yoziladi; ish haqi tarkibidagi
 // bayram, choraklik va siyosatda belgilangan boshqa komponentlar alohida xarajat bo'lib Markaz hisobiga o'tadi.
@@ -50,10 +51,12 @@ export const ALWAYS_CENTER: string[] = [
 const TAX_CENTER_DEFAULT = ['SOLIQ_QQS', 'SOLIQ_FOYDA'];
 
 export interface PolicyValue {
-  /** Markaz hisobidagi moddalar (ota modda bo'lsa — ichkilari ham); har doimgilar qo'shilgan */
+  /** Markaz hisobidagi moddalar (ota modda bo'lsa — ichkilari ham); har doimgilar qo'shilgan; «!KOD» — istisno (hududda qoladi) */
   centerCategories: string[];
   /** Foydalanuvchi belgilagan (har doimgilarsiz) */
   chosenCategories: string[];
+  /** Markazga o'tgan ota moddaning hududda qoladigan ichki moddalari */
+  excludedCategories: string[];
   /** Ish haqi tarkibidan Markazga o'tadigan komponentlar kodi */
   payrollComponents: string[];
 }
@@ -61,8 +64,9 @@ export interface PolicyValue {
 /** Bazadan siyosat (yo'q bo'lsa — standart) */
 export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
-  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; payrollComponents: unknown }>;
+  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown }>;
   const chosen = Array.isArray(v.centerCategories) ? v.centerCategories.filter((c): c is string => typeof c === 'string') : [];
+  const excluded = Array.isArray(v.excludeCategories) ? v.excludeCategories.filter((c): c is string => typeof c === 'string' && !ALWAYS_CENTER.includes(c)) : [];
   const payrollComponents = Array.isArray(v.payrollComponents)
     ? v.payrollComponents.filter((c): c is string => typeof c === 'string')
     : [...DEFAULT_PAYROLL_COMPONENTS];
@@ -71,14 +75,25 @@ export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
   const taxCenter = Array.isArray(taxRow?.value)
     ? (taxRow!.value as { code?: unknown; center?: unknown }[]).filter((t) => t && t.center === true && typeof t.code === 'string').map((t) => `SOLIQ_${String(t.code)}`)
     : TAX_CENTER_DEFAULT;
-  return { centerCategories: [...new Set([...chosen, ...ALWAYS_CENTER, ...taxCenter])], chosenCategories: chosen, payrollComponents };
+  const taxSet = new Set(taxCenter);
+  return {
+    centerCategories: [...new Set([...chosen, ...ALWAYS_CENTER, ...taxCenter, ...excluded.filter((c) => !taxSet.has(c)).map((c) => `!${c}`)])],
+    chosenCategories: chosen,
+    excludedCategories: excluded,
+    payrollComponents,
+  };
 }
 
 /** Siyosatni yozadi (boshqa maydonlar saqlanadi) */
-export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; payrollComponents?: string[] }): Promise<void> {
+export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[] }): Promise<void> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
   const prev = (row?.value ?? {}) as Record<string, unknown>;
-  const value = { ...prev, ...(patch.centerCategories ? { centerCategories: patch.centerCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}), ...(patch.payrollComponents ? { payrollComponents: patch.payrollComponents } : {}) };
+  const value = {
+    ...prev,
+    ...(patch.centerCategories ? { centerCategories: patch.centerCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
+    ...(patch.excludeCategories ? { excludeCategories: patch.excludeCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
+    ...(patch.payrollComponents ? { payrollComponents: patch.payrollComponents } : {}),
+  };
   await prisma.setting.upsert({ where: { key: POLICY_KEY }, create: { key: POLICY_KEY, value }, update: { value } });
 }
 
@@ -105,22 +120,35 @@ export async function ensureCenterCategories(prisma: PrismaService): Promise<voi
   }
 }
 
-/** Belgilangan moddalar + ularning barcha ichki moddalari */
+/**
+ * Belgilangan moddalar + ularning barcha ichki moddalari.
+ * «!KOD» — istisno: o'sha modda (va ichkilari) kirmaydi. Har bir modda uchun eng yaqin belgilangan
+ * (o'zi, so'ng ota-onasi) qaror qiladi — ichki moddadagi belgi ota moddadagidan ustun.
+ */
 export function expandCategories(codes: string[], categories: { code: string; parentCode: string | null }[]): Set<string> {
-  const children = new Map<string, string[]>();
-  for (const c of categories) {
-    if (!c.parentCode) continue;
-    const list = children.get(c.parentCode) ?? [];
-    list.push(c.code);
-    children.set(c.parentCode, list);
+  const include = new Set<string>();
+  const exclude = new Set<string>();
+  for (const c of codes) {
+    if (c.startsWith('!')) exclude.add(c.slice(1));
+    else include.add(c);
   }
+  const parent = new Map<string, string | null>();
+  for (const c of categories) parent.set(c.code, c.parentCode);
   const out = new Set<string>();
-  const walk = (code: string, depth: number) => {
-    if (out.has(code) || depth > 20) return;
-    out.add(code);
-    for (const k of children.get(code) ?? []) walk(k, depth + 1);
-  };
-  for (const c of codes) walk(c, 0);
+  for (const c of categories) {
+    let cur: string | null = c.code;
+    let depth = 0;
+    while (cur && depth++ <= 20) {
+      if (exclude.has(cur)) break;
+      if (include.has(cur)) {
+        out.add(c.code);
+        break;
+      }
+      cur = parent.get(cur) ?? null;
+    }
+  }
+  // Ro'yxatda bor, lekin moddalar ro'yxatida yo'q kodlar (masalan, hali yaratilmagan) — o'zi kiradi
+  for (const c of include) if (!parent.has(c)) out.add(c);
   return out;
 }
 

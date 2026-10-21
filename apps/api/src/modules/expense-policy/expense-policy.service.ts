@@ -30,8 +30,22 @@ export interface PolicyCategory {
   selected: boolean;
   /** Ota moddasi orqali Markaz hisobida */
   inherited: boolean;
-  /** Har doim Markaz hisobida (ish haqi qo'shimchalari, asosiy vositalar sarfi) — olib tashlab bo'lmaydi */
+  /** Har doim Markaz hisobida (ish haqi qo'shimchalari, asosiy vositalar sarfi, Markaz hisobidagi soliqlar) — bu yerda o'zgartirib bo'lmaydi */
   locked: boolean;
+  /** Nima uchun o'zgartirib bo'lmaydi */
+  lockedReason?: string;
+}
+
+/** Modda bo'yicha davrdagi xarajat: qayerda yozilgani */
+export interface CategoryAmount {
+  code: string;
+  /** Hududlarda yozilgan (hudud kodi > 0) */
+  regionTiyin: string;
+  /** Markazda yozilgan (hudud 0 yoki Markaz bo'limi) */
+  centerTiyin: string;
+  /** Hudud ham, bo'lim ham ko'rsatilmagan */
+  noneTiyin: string;
+  count: number;
 }
 
 /** Ish haqi komponenti (tarkib) — Markazga o'tadimi */
@@ -100,7 +114,7 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     }, 8_000);
   }
 
-  async get(): Promise<{ categories: PolicyCategory[]; centerCategories: string[]; recommended: { parent: typeof RECOMMENDED_PARENT; items: typeof RECOMMENDED; missing: number }; payrollComponents: PayrollComponentOption[] }> {
+  async get(): Promise<{ categories: PolicyCategory[]; centerCategories: string[]; excludeCategories: string[]; recommended: { parent: typeof RECOMMENDED_PARENT; items: typeof RECOMMENDED; missing: number }; payrollComponents: PayrollComponentOption[] }> {
     await ensureCenterCategories(this.prisma).catch(() => null);
     const [policy, cats, components] = await Promise.all([
       readPolicy(this.prisma),
@@ -110,13 +124,28 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     const known = new Set(cats.map((c) => c.code));
     // Tanlanganlar — foydalanuvchi belgilagani; har doimgilar (ish haqi qo'shimchalari, AV sarfi) — «locked»
     const selected = new Set(policy.chosenCategories.filter((c) => known.has(c)));
-    const all = expandCategories([...selected, ...ALWAYS_CENTER], cats);
+    const excluded = policy.excludedCategories.filter((c) => known.has(c));
+    const all = expandCategories([...selected, ...ALWAYS_CENTER, ...excluded.map((c) => `!${c}`)], cats);
     const missing = [RECOMMENDED_PARENT, ...RECOMMENDED].filter((r) => !known.has(r.code)).length;
     const catLabel = new Map(cats.map((c) => [c.code, c.label]));
     const CATEGORY_LABEL: Record<string, string> = { ASOSIY: 'Asosiy ish haqi', TATIL: "Ta'til va kasallik", PREMIYA: 'Premiyalar', KOMPENSATSIYA: 'Kompensatsiyalar', USTAMA: 'Ustamalar', BOSHQA: 'Boshqa' };
+    // Soliqlar sahifasida «Markaz hisobidan» belgilangan soliq turlari — shu yerda ham qulflangan
+    const taxLocked = new Set(policy.centerCategories.filter((c) => c.startsWith('SOLIQ_') && !ALWAYS_CENTER.includes(c) && !policy.chosenCategories.includes(c)));
+    const lockedReason = (code: string): string | undefined =>
+      ALWAYS_CENTER.includes(code)
+        ? ASSET_GROUP_CODES.includes(code)
+          ? 'Asosiy vositalar — har doim Markaz hisobidan'
+          : "Ish haqi qo'shimchasi — pastdagi «Ish haqi» bo'limida boshqariladi"
+        : taxLocked.has(code)
+          ? 'Soliqlar sahifasida «Markaz hisobidan» belgilangan'
+          : undefined;
     return {
-      categories: cats.map((c) => ({ code: c.code, label: c.label, parentCode: c.parentCode, isLeaf: c.isLeaf, isActive: c.isActive, selected: selected.has(c.code), inherited: !selected.has(c.code) && all.has(c.code), locked: ALWAYS_CENTER.includes(c.code) })),
+      categories: cats.map((c) => {
+        const reason = lockedReason(c.code);
+        return { code: c.code, label: c.label, parentCode: c.parentCode, isLeaf: c.isLeaf, isActive: c.isActive, selected: selected.has(c.code), inherited: !selected.has(c.code) && (all.has(c.code) || taxLocked.has(c.code)), locked: Boolean(reason), ...(reason ? { lockedReason: reason } : {}) };
+      }),
       centerCategories: [...selected],
+      excludeCategories: excluded,
       recommended: { parent: RECOMMENDED_PARENT, items: RECOMMENDED, missing },
       payrollComponents: components.map((c) => {
         const target = PAYROLL_CENTER_CATEGORY[c.code]?.code ?? PAYROLL_CENTER_OTHER.code;
@@ -151,20 +180,23 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     return report;
   }
 
-  async save(codesInput: unknown, userId: string) {
+  async save(codesInput: unknown, userId: string, excludeInput?: unknown) {
     if (!Array.isArray(codesInput)) throw new BadRequestException("Moddalar ro'yxati kerak");
-    const codes = [...new Set(codesInput.filter((c): c is string => typeof c === 'string' && c.length > 0 && c.length <= 64))];
-    const known = new Set((await this.prisma.category.findMany({ where: { code: { in: codes } }, select: { code: true } })).map((c) => c.code));
-    const unknown = codes.filter((c) => !known.has(c));
+    if (excludeInput !== undefined && !Array.isArray(excludeInput)) throw new BadRequestException("Istisnolar ro'yxati noto'g'ri");
+    const clean = (list: unknown[]) => [...new Set(list.filter((c): c is string => typeof c === 'string' && c.length > 0 && c.length <= 64))];
+    const codes = clean(codesInput);
+    const excludes = clean((excludeInput as unknown[] | undefined) ?? []).filter((c) => !codes.includes(c));
+    const known = new Set((await this.prisma.category.findMany({ where: { code: { in: [...codes, ...excludes] } }, select: { code: true } })).map((c) => c.code));
+    const unknown = [...codes, ...excludes].filter((c) => !known.has(c));
     if (unknown.length) throw new BadRequestException(`Modda topilmadi: ${unknown.slice(0, 5).join(', ')}`);
     const before = await readPolicy(this.prisma);
-    await writePolicy(this.prisma, { centerCategories: codes });
+    await writePolicy(this.prisma, { centerCategories: codes, excludeCategories: excludes });
     await this.audit.log({
       userId,
       action: 'UPDATE',
       entity: 'expense_policy',
       entityId: POLICY_KEY,
-      summary: `Xarajatlar siyosati: Markaz hisobidagi moddalar ${before.chosenCategories.length} → ${codes.filter((c) => !ALWAYS_CENTER.includes(c)).length}`,
+      summary: `Xarajatlar siyosati: Markaz hisobidagi moddalar ${before.chosenCategories.length} → ${codes.filter((c) => !ALWAYS_CENTER.includes(c)).length}${excludes.length ? `, hududda qoldirilgan ichki moddalar: ${excludes.length}` : ''}`,
     });
     return this.get();
   }
@@ -188,6 +220,41 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     }
     await this.audit.log({ userId, action: 'CREATE', entity: 'expense_policy', entityId: RECOMMENDED_PARENT.code, summary: `Xarajatlar siyosati: tavsiya etilgan moddalar qo'shildi (${created} ta yangi)` });
     return { created, policy: await this.get() };
+  }
+
+  /**
+   * Har bir modda bo'yicha davrdagi xarajat — qayerda yozilgani (hududlarda / Markazda / ko'rsatilmagan).
+   * Siyosat sahifasida: modda Markazga o'tkazilsa, hududlarda yozilgan qismi Markaz xarajatiga o'tadi.
+   */
+  async amounts(from?: string, to?: string): Promise<{ range: { from: string; to: string }; rows: CategoryAmount[] }> {
+    const today = new Date(Date.now() + TASHKENT_MS).toISOString().slice(0, 10);
+    const range = { from: from || `${today.slice(0, 4)}-01-01`, to: to || today };
+    const a = parseDay(range.from);
+    const b = parseDay(range.to);
+    if (a === null || b === null) throw new BadRequestException("Sana noto'g'ri (YYYY-MM-DD)");
+    if (a > b) throw new BadRequestException('Boshlanish sanasi tugash sanasidan keyin');
+    if ((b - a) / 86_400_000 > MAX_DAYS) throw new BadRequestException('Davr 3 yildan oshmasin');
+    const { start, end } = bounds(range);
+    const groups = await this.prisma.expense.groupBy({
+      by: ['categoryCode', 'regionCode', 'departmentId'],
+      where: { deletedAt: null, date: { gte: start, lt: end } },
+      _sum: { amountTiyin: true },
+      _count: { _all: true },
+    });
+    const map = new Map<string, { region: bigint; center: bigint; none: bigint; count: number }>();
+    for (const g of groups) {
+      const r = map.get(g.categoryCode) ?? { region: 0n, center: 0n, none: 0n, count: 0 };
+      const v = g._sum.amountTiyin ?? 0n;
+      if (g.regionCode !== null && g.regionCode !== 0) r.region += v;
+      else if (g.regionCode === 0 || g.departmentId) r.center += v;
+      else r.none += v;
+      r.count += g._count._all;
+      map.set(g.categoryCode, r);
+    }
+    return {
+      range,
+      rows: [...map.entries()].map(([code, r]) => ({ code, regionTiyin: r.region.toString(), centerTiyin: r.center.toString(), noneTiyin: r.none.toString(), count: r.count })),
+    };
   }
 
   /** Markaz xarajati: o'ziniki va hududlar uchun (siyosat bo'yicha) */

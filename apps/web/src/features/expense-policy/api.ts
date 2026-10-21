@@ -14,6 +14,17 @@ export interface PolicyCategory {
   inherited: boolean;
   /** Har doim Markaz hisobida (ish haqi qo'shimchalari, asosiy vositalar sarfi) */
   locked?: boolean;
+  /** Nima uchun bu yerda o'zgartirib bo'lmaydi */
+  lockedReason?: string;
+}
+
+/** Modda bo'yicha davrdagi xarajat — qayerda yozilgani */
+export interface CategoryAmount {
+  code: string;
+  regionTiyin: string;
+  centerTiyin: string;
+  noneTiyin: string;
+  count: number;
 }
 
 /** Ish haqi tarkibi komponenti — Markazga o'tadimi */
@@ -35,6 +46,8 @@ export interface RecomputeReport {
 export interface PolicyData {
   categories: PolicyCategory[];
   centerCategories: string[];
+  /** Markazga o'tgan ota moddaning hududda qoladigan ichki moddalari */
+  excludeCategories?: string[];
   recommended: { parent: { code: string; label: string }; items: { code: string; label: string }[]; missing: number };
   payrollComponents?: PayrollComponentOption[];
 }
@@ -64,7 +77,8 @@ export interface CenterSummary {
 
 export const policyApi = {
   get: () => api.get<ApiResponse<PolicyData>>('/expense-policy'),
-  save: (centerCategories: string[]) => api.patch<ApiResponse<PolicyData>>('/expense-policy', { centerCategories }),
+  save: (centerCategories: string[], excludeCategories: string[] = []) => api.patch<ApiResponse<PolicyData>>('/expense-policy', { centerCategories, excludeCategories }),
+  amounts: (from: string, to: string) => api.get<ApiResponse<{ range: { from: string; to: string }; rows: CategoryAmount[] }>>('/expense-policy/amounts', { params: { from, to } }),
   seed: () => api.post<ApiResponse<{ created: number; policy: PolicyData }>>('/expense-policy/seed', {}),
   summary: (from: string, to: string) => api.get<ApiResponse<CenterSummary>>('/expense-policy/summary', { params: { from, to } }),
   savePayroll: (components: string[]) => api.patch<ApiResponse<{ policy: PolicyData; report: RecomputeReport }>>('/expense-policy/payroll', { components }),

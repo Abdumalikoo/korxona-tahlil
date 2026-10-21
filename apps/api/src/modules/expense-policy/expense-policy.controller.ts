@@ -19,10 +19,16 @@ export class ExpensePolicyController {
     return { data: await this.policy.summary(from, to) };
   }
 
+  /** Moddalar bo'yicha davrdagi xarajat: hududlarda / Markazda yozilgani (?from&to) */
+  @Get('amounts')
+  async amounts(@Query('from') from?: string, @Query('to') to?: string) {
+    return { data: await this.policy.amounts(from, to) };
+  }
+
   @Patch()
   @Roles(UserRole.ADMIN)
-  async save(@Body() body: { centerCategories?: unknown }, @CurrentUser('id') userId: string) {
-    return { data: await this.policy.save(body?.centerCategories, userId) };
+  async save(@Body() body: { centerCategories?: unknown; excludeCategories?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.policy.save(body?.centerCategories, userId, body?.excludeCategories) };
   }
 
   /** Ish haqi tarkibidan Markazga o'tadigan komponentlar (bayram, choraklik …) — saqlanadi va hamma oylar qayta hisoblanadi */
