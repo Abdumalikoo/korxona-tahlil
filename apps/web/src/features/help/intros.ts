@@ -90,7 +90,7 @@ export const INTROS: Record<string, PageIntro> = {
   '/xarajatlar/siyosat': {
     what: "Xarajatlar siyosati: qaysi moddalar hudud o'rniga Markaz hisobidan to'lanadi.",
     from: "Xarajatlar bo'limidagi moddalar",
-    how: "Har bir modda yonida «Markaz | Hudud» tugmasi; bir nechtasini belgilab, tepadagi ikki tugma bilan birdan o'tkazish mumkin. Saqlangach Solishtirma, Markaz paneli, Munosabat va hisobotlarda qo'llanadi.",
+    how: "Moddani belgilang — Solishtirma, Markaz paneli, Munosabat va hisobotlarda u Markaz xarajati bo'ladi.",
   },
   '/daromadlar': {
     what: 'Daromadlar bo‘limi: tanlangan oyda Doimiy va Boshqa daromadlar jami va dinamikasi.',
