@@ -18,31 +18,31 @@ const BOTH_SRC = "Daromadlar va Xarajatlar bo'limlaridagi yozuvlar";
 
 export const INTROS: Record<string, PageIntro> = {
   '/': {
-    what: 'Tanlangan davrdagi daromad, xarajat va foyda bir qarashda, muhokama talab qiladigan holatlar bilan.',
+    what: 'Tanlangan davrdagi daromad, xarajat va natija bir qarashda.',
     from: BOTH_SRC,
-    how: "Kartochkani bosing — batafsil tahlil ochiladi. Davrni yuqoridagi «Davr» tugmasidan o'zgartiring.",
+    how: "Daromad, Xarajat yoki Tahlil kartochkasini bosing — ichiga kirib boriladigan jadvallar ochiladi. Davrni yuqoridagi «Davr» tugmasidan o'zgartiring.",
   },
   '/tahlil/daromad': {
-    what: 'Daromad qayerdan va qancha keldi: turlar, hududlar, oylar va o‘tgan davrga nisbatan o‘zgarish.',
+    what: 'Daromad qayerdan va qancha keldi: Markaz va hududlar, moddalar, bo‘limlar, mijozlar, oylar; o‘tgan davr va o‘tgan yilga nisbatan.',
     from: INCOME_SRC,
-    how: 'Qatorni bosing — ichidagi qismlar va aniq yozuvlar ochiladi.',
+    how: '▸ belgisi — qator ichini ochadi; istalgan summa bosilsa — uni tashkil qilgan aniq yozuvlar ochiladi. Grafiklar sahifa oxirida.',
   },
   '/tahlil/xarajat': {
-    what: 'Pul nimaga sarflandi: yo‘nalishlar, turlar, hududlar, oylar va o‘tgan davrga nisbatan o‘zgarish.',
+    what: 'Pul nimaga sarflandi: guruhlar va moddalar, Markaz va hududlar, bo‘limlar, kontragentlar, oylar; o‘tgan davr va o‘tgan yilga nisbatan.',
     from: EXPENSE_SRC,
-    how: 'Qatorni bosing — ichidagi qismlar va aniq yozuvlar ochiladi.',
+    how: '▸ belgisi — qator ichini ochadi; istalgan summa bosilsa — uni tashkil qilgan aniq yozuvlar ochiladi. Grafiklar sahifa oxirida.',
   },
   '/tahlil/umumiy': {
     what: 'Korxona foydada ishlayaptimi: foyda, rentabellik, foyda nima uchun o‘zgargani va xavfli holatlar.',
     from: BOTH_SRC,
-    how: 'Yuqoridagi yorliqlar orqali dinamika, samaradorlik va tarkibga o‘ting.',
+    how: '«Natija jadvali» — oylar bo‘yicha foyda va zarar hamda Markaz va hududlar natijasi (summalar bosiladi); boshqa yorliqlar — dinamika, samaradorlik va tarkib.',
   },
   '/solishtirma': {
     what: 'Hududlar va Markaz yonma-yon: kim qancha daromad keltirdi, qancha xarajat qildi va natijasi.',
     from: `${BOTH_SRC}, Xodimlar bo'limi`,
     how: "Viloyatni bosing — tumanlar, tumanni bosing — xizmatlar va xodimlar ochiladi. Markaz — yuqoridagi «Markaz» yorlig'ida.",
   },
-  '/tahlil/korxona': {
+  '/solishtirma/umumiy': {
     what: "Butun korxona bitta ekranda: Markaz va barcha hududlar bir jadvalda — daromad, xarajat tarkibi, natija, rentabellik va Markazni qoplash.",
     from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
     how: "Yuqorida korxona jami (Hududlar | Markaz bo'yicha), so'ng natija ko'prigi va jadval. Qatorni bosing — o'sha hudud yoki Markaz sahifasi ochiladi.",

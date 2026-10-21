@@ -1,16 +1,12 @@
 'use client';
 
 import { expensesApi } from '@/features/expenses/api';
-import { SetupChecklist } from '@/features/entries/setup-checklist';
 import type { MarkItem } from '@/features/reactions/api';
 import { Mark } from '@/features/reactions/mark';
-import { controlsApi, reactionsApi } from '@/features/reactions/api';
 import { incomesApi } from '@/features/incomes/api';
 import { useAuth } from '@/lib/auth-context';
-import { PeriodDataHint } from '@/components/shared/period-data-hint';
-import { useAsOf, usePeriod } from '@/lib/period';
+import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
-import { BriefNote, useBrief } from '@/lib/view-mode';
 import { CalcButton } from '@/components/ui/calc';
 import { calcRecords, calcResult, type Calc } from '@/lib/calc';
 import { formatDate } from '@/lib/format';
@@ -18,12 +14,10 @@ import Link from 'next/link';
 
 import { IconDashboard, IconTrendUp, IconWallet } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
-import { AlertsPreview } from '@/features/alerts/alerts-view';
+import { PeriodDataHint } from '@/components/shared/period-data-hint';
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  /** Qisqa (rahbar) rejimi: uchta kartochka va eng jiddiy 3 ta ogohlantirish */
-  const brief = useBrief();
   /** Davr — yuqori paneldagi «Davr» tugmasidan (hamma bo'lim uchun bitta) */
   const { range } = usePeriod();
 
@@ -44,31 +38,16 @@ export default function DashboardPage() {
   const expenseCalc = calcRecords('Xarajat', expenseTotal, expenses.data?.meta.total, periodText, "Xarajatlar ro'yxati");
   const profitCalc = calcResult(incomeTotal, expenseTotal, { title: 'Foyda', note: periodText });
 
-  // Munosabat: ochiq va muddati tugaganlar
-  const reactions = useAsync(() => reactionsApi.list('OPEN').then((r) => r.data), []);
-  const openCount = reactions.data?.length ?? 0;
-  const overdueCount = reactions.data?.filter((r) => r.overdue).length ?? 0;
-  const worseCount = reactions.data?.reduce((s, r) => s + r.worse, 0) ?? 0;
-
-  // Nazorat: faol qoidalar holati
-  const asOf = useAsOf();
-  const controls = useAsync(() => controlsApi.list(asOf).then((r) => r.data.filter((c) => c.isActive)), [asOf]);
-  const controlCount = controls.data?.length ?? 0;
-  const breachCount = controls.data?.filter((c) => c.status === 'breach').length ?? 0;
-  const riskCount = controls.data?.filter((c) => c.status === 'risk').length ?? 0;
-
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] flex-col justify-center p-6">
+    <div className="flex min-h-[calc(100vh-14rem)] flex-col justify-center p-6">
       <div className="mx-auto w-full max-w-5xl">
-        {/* Yangi dastur: nimani qaysi tartibda to'ldirish (faqat administrator, hammasi bajarilguncha) */}
-        <SetupChecklist className="mb-6" />
         <div className="mb-8 flex flex-col items-center gap-3">
           <p className="text-sm text-(--color-text-muted)">{user?.fullName}</p>
           <p className="money text-xs text-(--color-text-faint)">{periodText}</p>
         </div>
 
+        {/* Tanlangan davrda yozuv yo'q, lekin bazada bor bo'lsa — bir bosishda o'sha davrga o'tish */}
         <PeriodDataHint className="mb-5" />
-        <BriefNote className="mb-5" shows="Daromad, xarajat, foyda va eng jiddiy 3 ta ogohlantirish" hidden="Munosabat va Nazorat holati, hamma ogohlantirishlar" />
         <div className="grid gap-5 sm:grid-cols-3">
           <SectionCard
             href={`/tahlil/daromad${query}`}
@@ -113,54 +92,6 @@ export default function DashboardPage() {
           />
         </div>
 
-        {!brief && (
-        <div className="mt-5 grid gap-5 sm:grid-cols-2">
-          <Link
-            href="/munosabat"
-            className="group flex items-center gap-5 rounded-(--radius-card) border border-(--color-line) bg-white px-6 py-5 transition-all hover:border-amber-500 hover:shadow-md"
-          >
-            <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-amber-50 text-2xl font-semibold text-amber-700 transition-transform group-hover:scale-110">
-              +
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-lg font-semibold text-(--color-text)">Munosabat</span>
-              <span className="block text-sm text-(--color-text-muted)">
-                {reactions.loading
-                  ? 'Yuklanmoqda…'
-                  : openCount === 0
-                    ? "Ochiq munosabat yo'q — tepadagi «+ Munosabat» bilan boshlang"
-                    : `${openCount} ta ochiq${overdueCount ? ` · ${overdueCount} tasining muddati tugagan` : ''}${worseCount ? ` · ${worseCount} ta modda yomonlashgan` : ''}`}
-              </span>
-            </span>
-          </Link>
-
-          <Link
-            href="/nazorat"
-            className="group flex items-center gap-5 rounded-(--radius-card) border border-(--color-line) bg-white px-6 py-5 transition-all hover:border-slate-700 hover:shadow-md"
-          >
-            <span
-              className={`flex size-12 shrink-0 items-center justify-center rounded-full text-lg font-semibold transition-transform group-hover:scale-110 ${
-                breachCount ? 'bg-(--color-expense-soft) text-(--color-expense)' : 'bg-slate-100 text-slate-700'
-              }`}
-            >
-              {breachCount || '✓'}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-lg font-semibold text-(--color-text)">Nazorat</span>
-              <span className="block text-sm text-(--color-text-muted)">
-                {controls.loading
-                  ? 'Yuklanmoqda…'
-                  : controlCount === 0
-                    ? "Nazoratda modda yo'q"
-                    : `${controlCount} ta modda · ${breachCount ? `${breachCount} tasida chegara buzilgan` : 'hammasi chegara ichida'}${riskCount ? ` · ${riskCount} tasi xavf ostida` : ''}`}
-              </span>
-            </span>
-          </Link>
-        </div>
-        )}
-
-        {/* Tizim o'zi topgan, muhokama talab qiladigan holatlar */}
-        <AlertsPreview limit={brief ? 3 : 5} className="mt-5" />
       </div>
     </div>
   );

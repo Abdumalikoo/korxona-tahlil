@@ -72,8 +72,6 @@ export const MENU: NavItem[] = [
       { label: 'Daromad', href: '/tahlil/daromad', description: 'Daromad tahlili: xizmatlar, mijozlar, hududlar' },
       { label: 'Xarajat', href: '/tahlil/xarajat', description: 'Xarajat tahlili: moddalar, kontragentlar, hududlar' },
       { label: 'Tahlil', href: '/tahlil/umumiy', description: 'Umumiy tahlil: foyda, dinamika, tarkib' },
-      { label: 'Umumiy', href: '/tahlil/korxona', description: "Markaz va barcha hududlar birga: korxona daromadi, xarajat tarkibi, natija va Markazni qoplash" },
-      { label: 'Markaz tushumi', href: '/tahlil/markaz', description: "Markaz hisobraqamlari bo'yicha oylik daromad (kunlik ma'lumotnomadan)" },
     ],
   },
   {
@@ -188,6 +186,7 @@ export const MENU: NavItem[] = [
     icon: NavCompare,
     description: 'Hududlar va Markaz yonma-yon',
     pages: [
+      { label: 'Umumiy', href: '/solishtirma/umumiy', description: "Markaz va barcha hududlar birga: korxona daromadi, xarajat tarkibi, natija va Markazni qoplash" },
       { label: 'Hududlar', href: '/solishtirma', description: 'Viloyatlar → tumanlar → xodimlar: daromad, xarajat, natija' },
       { label: 'Markaz', href: '/solishtirma/markaz', description: "Markaz → bo'limlar → xodimlar: daromad manbalari, o'z xarajati, hududlar uchun to'langan" },
       { label: "O'zgarishlar", href: '/solishtirma/ozgarishlar', description: "Oy bo'yicha xodimlar: oylik hisoblanganlar, ishga olingan, bo'shagan, ishlamagan, ko'chgan" },
@@ -495,7 +494,6 @@ export const SIDEBAR: SideEntry[] = [
       { label: 'Daromad', href: '/tahlil/daromad' },
       { label: 'Xarajat', href: '/tahlil/xarajat' },
       { label: 'Tahlil', href: '/tahlil/umumiy' },
-      { label: 'Umumiy', href: '/tahlil/korxona', match: ['/tahlil/korxona'] },
     ],
   },
   { kind: 'item', item: byHref('/kiritish') },

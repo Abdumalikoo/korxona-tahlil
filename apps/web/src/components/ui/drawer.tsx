@@ -12,7 +12,7 @@ interface DrawerProps {
   children: ReactNode;
   /** Pastdagi amal tugmalari */
   footer?: ReactNode;
-  width?: 'md' | 'lg';
+  width?: 'md' | 'lg' | 'xl';
 }
 
 /** data-skip-focus — ochilganda kursor qo'yilmaydi (masalan, ro'yxat ichidagi qidiruv: panel yuqoridan ko'rinsin) */
@@ -147,7 +147,7 @@ export function Drawer({
         }}
         className={cn(
           'absolute right-0 top-0 flex h-full flex-col bg-white shadow-xl',
-          width === 'lg' ? 'w-full max-w-2xl' : 'w-full max-w-lg',
+          width === 'xl' ? 'w-full max-w-5xl' : width === 'lg' ? 'w-full max-w-2xl' : 'w-full max-w-lg',
         )}
       >
         <div className="flex items-start justify-between gap-4 border-b border-(--color-line) px-5 py-4">

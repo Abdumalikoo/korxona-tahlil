@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/icons';
 
 export type AnalysisTab =
+  | 'result'
   | 'overview'
   | 'dynamics'
   | 'efficiency'
@@ -28,6 +29,14 @@ interface TabItem {
 }
 
 export const ANALYSIS_TABS: TabItem[] = [
+  {
+    key: 'result',
+    label: 'Natija jadvali',
+    question: 'Har oyda va har bir birlikda qancha topdik, qancha sarfladik, natija qanday?',
+    icon: IconWallet,
+    accent: 'text-brand-700',
+    hover: 'hover:border-brand-600',
+  },
   {
     key: 'overview',
     label: 'Umumiy holat',

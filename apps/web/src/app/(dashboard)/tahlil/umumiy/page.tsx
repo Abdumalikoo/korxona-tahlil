@@ -15,6 +15,7 @@ import { InsightsTab } from './_components/insights-tab';
 import { OverviewTab } from './_components/overview-tab';
 import { RevenueTab } from './_components/revenue-tab';
 import { StructureExplorer } from '@/features/structure/structure-explorer';
+import { ResultExplorer } from '@/features/explore/result-explorer';
 import { StructureOverview } from '@/features/structure/structure-overview';
 
 const VALID_TABS = ANALYSIS_TABS.map((item) => item.key);
@@ -39,7 +40,7 @@ export default function GeneralAnalysisPage() {
 
   const [tab, setTab] = useState<AnalysisTab>(() => {
     const value = searchParams.get('tab') as AnalysisTab | null;
-    return value && VALID_TABS.includes(value) ? value : 'overview';
+    return value && VALID_TABS.includes(value) ? value : 'result';
   });
 
   /** Holatni manzilga yozamiz — sahifa yangilansa ham saqlanadi */
@@ -47,7 +48,7 @@ export default function GeneralAnalysisPage() {
   function openTab(next: AnalysisTab) {
     setTab(next);
     const params = new URLSearchParams({ dateFrom: range.from, dateTo: range.to });
-    if (next !== 'overview') params.set('tab', next);
+    if (next !== 'result') params.set('tab', next);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
@@ -76,6 +77,7 @@ export default function GeneralAnalysisPage() {
       </p>
 
       {brief && <BriefOverview range={range} />}
+      {!brief && tab === 'result' && <ResultExplorer range={range} />}
       {!brief && tab === 'overview' && <OverviewTab range={range} />}
       {!brief && tab === 'dynamics' && <DynamicsTab range={range} />}
       {!brief && tab === 'efficiency' && <EfficiencyTab range={range} />}
