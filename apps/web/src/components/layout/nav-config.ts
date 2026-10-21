@@ -112,7 +112,7 @@ export const MENU: NavItem[] = [
       { label: 'Tahlil', href: '/xarajatlar/tahlil', description: 'Xarajat dinamikasi va tarkibi' },
       { label: 'Soliqlar', href: '/xarajatlar/soliqlar', description: "Hamma soliqlar: hudud va Markaz bo'yicha, ish haqidan foizlilar avtomatik" },
       { label: 'Asosiy vositalar', href: '/xarajatlar/asosiy-vositalar', description: "Balansdagi vositalar va oylik sarfi (eskirish)" },
-      { label: 'Xarajatlar siyosati', href: '/xarajatlar/siyosat', description: "Markaz xarajati: joriy (o'ziniki, hududlar uchun) va asosiy vositalar" },
+      { label: 'Xarajatlar siyosati', href: '/xarajatlar/siyosat', description: "Har bir xarajat moddasi kim hisobidan: Markaz yoki Hudud; Markaz xarajati tarkibi" },
       { label: 'Yangi xarajat', href: '/xarajatlar/yangi', description: "Xarajat qo'shish", hidden: true },
     ],
   },
@@ -477,8 +477,7 @@ const byHref = (href: string): NavItem => MENU.find((m) => m.href === href)!;
 /**
  * Chap menyu (umumiy hudud — administrator va kuzatuvchi):
  *   Bosh sahifa (▾ Daromad, Xarajat, Tahlil, Umumiy)
- *   Tez kiritish
- *   Umumiy manba (▾ Daromadlar, Xarajatlar, Modellar, Rollar → har rol o'z nomi bilan, Xodimlar)
+ *   Umumiy manba (▾ Tez kiritish, Daromadlar, Xarajatlar, Modellar, Rollar → har rol o'z nomi bilan, Xodimlar)
  *   Solishtirma · Hisobotlar
  *   Boshqaruv (▾ Topshiriqlar, Munosabat, Nazorat, Sozlamalar)
  */
@@ -496,16 +495,16 @@ export const SIDEBAR: SideEntry[] = [
       { label: 'Tahlil', href: '/tahlil/umumiy' },
     ],
   },
-  { kind: 'item', item: byHref('/kiritish') },
   {
     kind: 'group',
     key: 'source',
     label: 'Umumiy manba',
     href: null,
     icon: NavDatabase,
-    description: "Daromadlar, xarajatlar, modellar, rollar va xodimlar — umumiy hudud ma'lumoti",
+    description: "Tez kiritish, daromadlar, xarajatlar, modellar, rollar va xodimlar — umumiy hudud ma'lumoti",
     source: true,
     children: [
+      { label: 'Tez kiritish', href: '/kiritish', match: ['/kiritish'] },
       { label: 'Daromadlar', href: '/daromadlar', match: ['/daromadlar'] },
       { label: 'Xarajatlar', href: '/xarajatlar', match: ['/xarajatlar'] },
       { label: 'Modellar', href: '/modellar', match: ['/modellar', '/katta-modellar'] },
