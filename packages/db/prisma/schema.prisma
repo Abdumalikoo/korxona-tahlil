@@ -2128,3 +2128,160 @@ model StockDocSign {
   @@index([createdById, status])
   @@map("stock_doc_signs")
 }
+
+// ═══ Hudud uchun reja: tarixiy statistika, importlar, hisoblar va tasdiqlangan versiyalar ═══
+model HpStat {
+  id           String   @id @default(cuid())
+  /// "2026-09"
+  period       String
+  regionCode   Int
+  /// Xizmat kodi (SRV_01 ... SRV_39)
+  serviceCode  String
+  quantity     Float
+  /// Shu oyda qo'llangan tarif (tiyin)
+  tariffTiyin  BigInt?
+  revenueTiyin BigInt
+  planTiyin    BigInt?
+  sourceRef    String?
+  note         String?
+  importId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([period, regionCode, serviceCode])
+  @@index([regionCode, period])
+  @@map("hp_stats")
+}
+
+model HpEmpMonth {
+  id                String   @id @default(cuid())
+  period            String
+  employeePinfl     String
+  regionCode        Int
+  workedDays        Float?
+  workHours         Float?
+  vacationDays      Float?
+  totalQuantity     Float?
+  totalRevenueTiyin BigInt?
+  planTiyin         BigInt?
+  active            Boolean  @default(true)
+  note              String?
+  importId          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([period, employeePinfl])
+  @@index([regionCode, period])
+  @@map("hp_emp_months")
+}
+
+model HpEmpService {
+  id            String   @id @default(cuid())
+  period        String
+  employeePinfl String
+  regionCode    Int
+  serviceCode   String
+  quantity      Float
+  tariffTiyin   BigInt?
+  revenueTiyin  BigInt
+  importId      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([period, regionCode, employeePinfl, serviceCode])
+  @@index([regionCode, period])
+  @@index([employeePinfl, period])
+  @@map("hp_emp_services")
+}
+
+model HpRegionFactor {
+  id                  String   @id @default(cuid())
+  period              String
+  regionCode          Int
+  activeEntrepreneurs Int?
+  employees           Int?
+  workDays            Float?
+  activeEmployees     Int?
+  note                String?
+  importId            String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([period, regionCode])
+  @@map("hp_region_factors")
+}
+
+model HpImport {
+  id           String    @id @default(cuid())
+  /// STATS | EMP_MONTHS | EMP_SERVICES | FACTORS | SERVICES
+  kind         String
+  fileName     String
+  fileHash     String
+  fileSize     Int
+  /// CHECKED — tekshirildi, IMPORTED — saqlandi, CANCELLED — bekor qilindi
+  status       String    @default("CHECKED")
+  /// Hisoblar: qatorlar, xatolar, yangi / yangilanadigan / o'zgarmagan
+  summary      Json      @default("{}")
+  /// Xato va ogohlantirishlar (qator raqami bilan)
+  issues       Json      @default("[]")
+  /// Tekshirilgan qatorlar — tasdiqlanganda shu yoziladi
+  payload      Json      @default("[]")
+  policy       String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  importedAt   DateTime?
+  importedById String?
+  cancelledAt  DateTime?
+
+  @@index([kind, createdAt])
+  @@index([fileHash])
+  @@map("hp_imports")
+}
+
+model HpRun {
+  id           String    @id @default(cuid())
+  /// Prognoz oyi: "2026-10"
+  targetPeriod String
+  params       Json
+  paramsHash   String
+  /// Kirish ma'lumotlari xeshi (ma'lumotlar versiyasi)
+  dataHash     String
+  /// RUNNING | DONE | FAILED
+  status       String    @default("RUNNING")
+  error        String?
+  result       Json?
+  summary      Json?
+  /// Qo'lda tuzatishlar: taqsimlanmagan summani xodimga biriktirish
+  edits        Json      @default("{}")
+  createdById  String
+  createdAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  tookMs       Int?
+
+  @@index([targetPeriod, createdAt])
+  @@index([paramsHash, dataHash])
+  @@map("hp_runs")
+}
+
+model HpPlanVersion {
+  id               String   @id @default(cuid())
+  targetPeriod     String
+  regionCode       Int
+  version          Int
+  runId            String
+  /// APPROVED — amaldagi, SUPERSEDED — keyingisi bilan almashgan
+  status           String   @default("APPROVED")
+  forecastTiyin    BigInt
+  employeesTiyin   BigInt
+  unallocatedTiyin BigInt
+  /// Tasdiqlangan holat nusxasi: xizmatlar va xodimlar rejasi
+  data             Json
+  note             String?
+  restoredFrom     String?
+  approvedById     String
+  approvedAt       DateTime @default(now())
+
+  @@unique([targetPeriod, regionCode, version])
+  @@index([targetPeriod, status])
+  @@map("hp_plan_versions")
+}

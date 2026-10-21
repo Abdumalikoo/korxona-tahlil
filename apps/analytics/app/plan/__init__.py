@@ -1,0 +1,1 @@
+"""Hudud uchun reja — statistik prognoz va xodimlar rejasi (NestJS ma'lumotni yuboradi, bu yerda faqat hisoblanadi)."""
