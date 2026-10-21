@@ -19,6 +19,9 @@ import { regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStat
 import { centerCover } from './center-cover';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { Bridge, EXPENSE_BAR } from './regions-charts';
+import { CompareTable, CoverTable, FmtToggle, money, MonthsTable, UnitDetail, type Fmt } from './overall-tables';
+import { IconChevronRight } from '@/components/ui/icons';
+import { Fragment } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Bosh sahifa › Umumiy (Daromad · Xarajat · Tahlil yonida) — butun korxona bitta ekranda:
@@ -27,7 +30,8 @@ import { Bridge, EXPENSE_BAR } from './regions-charts';
 //   2) Natija qanday shakllanadi: hududlar foydasi → Markaz → korxona natijasi
 //   3) Umumiy jadval: har bir birlik — daromad, xarajat tarkibi (ish haqi, ijara, mashinalar,
 //      asosiy vositalar, hududlar uchun, boshqa), natija, rentabellik, o'zgarish, xodimlar, 12 oy
-//   4) Ulushlar va 12 oylik dinamika
+//   4) Taqqoslash (joriy / o'tgan), oylar bo'yicha va Markazni qoplash jadvallari
+//   5) Grafiklar — sahifa oxirida: natija ko'prigi, qoplash, ulushlar, 12 oylik dinamika
 // Qatorni bosish — o'sha hudud (Solishtirma › Hududlar) yoki Markaz (Solishtirma › Markaz) sahifasiga o'tadi.
 // ═══════════════════════════════════════════════════════════
 
@@ -222,6 +226,19 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
         onUnassigned={() => setUnOpen(true)}
       />
 
+      <Matrix rows={rows} total={total} reg={reg} months={data.months} onOpen={open} />
+
+      {!brief && <CompareTable units={units} compareLabel={data.compareLabel} onOpen={open} />}
+      {!brief && <MonthsTable units={units} months={data.months} range={data.range} onOpen={open} />}
+      {center && activeRegions.length > 0 && (
+        <CoverTable cover={cover} onOpenCode={(code) => (code !== null && code !== undefined ? router.push(`/solishtirma?r=${code}`) : undefined)} />
+      )}
+
+      {/* ── Grafiklar: jadvallar bilan bir xil ma'lumot, sahifa oxirida ── */}
+      <div className="flex flex-wrap items-baseline gap-x-3 pt-2">
+        <h2 className="text-base font-semibold text-heading">Grafiklar</h2>
+        <p className="text-xs text-(--color-text-muted)">Yuqoridagi jadvallar bilan bir xil ma&apos;lumot</p>
+      </div>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <Card>
           <div className="px-5 pt-4">
@@ -248,8 +265,6 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
         </Card>
         <CoverCard cover={cover} centerNet={centerNet} regProfit={regProfit} />
       </div>
-
-      <Matrix rows={rows} total={total} reg={reg} months={data.months} onOpen={open} />
 
       {!brief && (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -319,6 +334,7 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
           </Card>
         </div>
       )}
+
 
       {data.notes.length > 0 && !brief && (
         <Card className="px-5 py-3">
@@ -600,6 +616,10 @@ function Matrix({
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'profit', dir: 'desc' });
   const [mode, setMode] = useState<MixMode>('bar');
   const [pinCenter, setPinCenter] = useState(true);
+  const [fmt, setFmt] = useState<Fmt>('short');
+  const [opened, setOpened] = useState<Set<string>>(new Set());
+  const toggleOpen = (key: string) => setOpened((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const sgn = (v: number) => (Math.round(v / 100) === 0 ? '0' : `${v > 0 ? '+' : '−'}${money(Math.abs(v), fmt)}`);
 
   const groups = GROUPS.filter((g) => rows.some((r) => Math.round(r.mix[g.key] / 100) !== 0));
   const colMax = Object.fromEntries(groups.map((g) => [g.key, Math.max(1, ...rows.map((r) => (mode === 'share' ? (r.s.expense > 0 ? r.mix[g.key] / r.s.expense : 0) : Math.abs(r.mix[g.key]))))])) as Record<Group, number>;
@@ -690,7 +710,7 @@ function Matrix({
       <td key={g} className="relative px-2.5 py-2 text-right tabular-nums" title={`${GROUPS.find((x) => x.key === g)!.label}: ${som(v)}${expense > 0 ? ` · xarajatning ${pct(share * 100)}` : ''}`}>
         {heat && intensity > 0 && <span className="absolute inset-0.5 rounded" style={{ background: color, opacity: 0.04 + intensity * 0.18 }} />}
         <span className={cn('relative', Math.round(v / 100) === 0 && 'text-(--color-text-faint)')}>
-          {Math.round(v / 100) === 0 ? '—' : mode === 'share' ? pct(share * 100) : compact(v)}
+          {Math.round(v / 100) === 0 ? '—' : mode === 'share' ? pct(share * 100) : money(v, fmt)}
         </span>
       </td>
     );
@@ -702,10 +722,11 @@ function Matrix({
         <div>
           <h3 className="text-sm font-bold text-heading">Umumiy jadval: Markaz va hududlar</h3>
           <p className="mt-0.5 text-xs text-(--color-text-muted)">
-            Bir xil ustunlar — bir xil hisob. Kataklar rangi — ustundagi eng katta qiymatga nisbatan. Qatorni bosing — ichiga kiradi
+            Bir xil ustunlar — bir xil hisob. ▸ — qator ichida daromad va xarajat tarkibi (joriy / o&apos;tgan / o&apos;zgarish). Qatorni bosing — birlik sahifasi
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <FmtToggle value={fmt} onChange={setFmt} />
           <Segmented
             value={mode}
             options={[
@@ -768,9 +789,10 @@ function Matrix({
               const isCenter = s.unit.kind === 'center';
               const isUn = s.unit.kind === 'unassigned';
               const clickable = true;
+              const isOpen = opened.has(s.unit.key);
               return (
+                <Fragment key={s.unit.key}>
                 <tr
-                  key={s.unit.key}
                   onClick={clickable ? () => onOpen(s) : undefined}
                   className={cn(
                     'group border-b border-(--color-line) transition-colors',
@@ -781,6 +803,18 @@ function Matrix({
                   <td className="px-2 py-2 text-center text-xs text-(--color-text-faint) tabular-nums">{isCenter || isUn ? '' : i + 1 - (pinCenter && sorted[0]?.s.unit.kind === 'center' ? 1 : 0)}</td>
                   <td className={cn('sticky left-0 z-[1] max-w-[13rem] px-2.5 py-2', isCenter ? 'bg-[#f6f4fc]' : 'bg-(--color-surface) group-hover:bg-(--color-surface-muted)')}>
                     <span className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleOpen(s.unit.key);
+                        }}
+                        aria-expanded={isOpen}
+                        title="Tarkibini ochish"
+                        className="flex size-6 shrink-0 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50 hover:text-brand-700"
+                      >
+                        <IconChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
+                      </button>
                       <span className="h-6 w-1 shrink-0 rounded-full" style={{ background: r.color }} />
                       <span className="min-w-0">
                         <span className={cn('block truncate font-medium', isCenter && 'font-semibold')} style={isCenter ? { color: CENTER_COLOR } : undefined}>
@@ -797,14 +831,14 @@ function Matrix({
                       <span className="relative h-2 w-10 shrink-0 overflow-hidden rounded-full bg-(--color-surface-muted)">
                         <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${(Math.max(0, s.income) / maxIncome) * 100}%`, background: TONE.income, opacity: 0.75 }} />
                       </span>
-                      <span className="tabular-nums" title={som(s.income)}>{compact(s.income)}</span>
+                      <span className="tabular-nums" title={som(s.income)}>{money(s.income, fmt)}</span>
                       <span className="text-[10.5px] text-(--color-text-faint) tabular-nums">{pct(r.incomeShare)}</span>
                     </span>
                   </td>
                   {mode === 'bar' && <td className="px-2.5 py-2">{mixBar(r.mix, s.expense)}</td>}
                   {cols.map((g) => mixCell(r.mix, s.expense, g.key, true))}
                   <td className="px-2.5 py-2 text-right font-medium tabular-nums" title={som(s.expense)}>
-                    {compact(s.expense)}
+                    {money(s.expense, fmt)}
                     <span className="block text-[10.5px] font-normal text-(--color-text-faint)">{pct(r.expenseShare)}</span>
                   </td>
                   <td className="px-2.5 py-2 text-right">
@@ -813,7 +847,7 @@ function Matrix({
                       style={{ background: s.profit >= 0 ? TONE.incomeSoft : TONE.expenseSoft, color: s.profit >= 0 ? TONE.income : TONE.expense }}
                       title={som(s.profit)}
                     >
-                      {signed(s.profit)}
+                      {sgn(s.profit)}
                     </span>
                   </td>
                   <td
@@ -823,13 +857,21 @@ function Matrix({
                     {isCenter ? <span className="text-(--color-text-faint)">—</span> : pct(s.margin)}
                   </td>
                   <td className={cn('px-2.5 py-2 text-right text-xs tabular-nums', s.profitDelta > 0 ? 'text-(--color-income)' : s.profitDelta < 0 ? 'text-(--color-expense)' : 'text-(--color-text-muted)')}>
-                    {signed(s.profitDelta)}
+                    {sgn(s.profitDelta)}
                   </td>
                   <td className="px-2.5 py-2 text-right tabular-nums">{s.unit.headcount || '—'}</td>
                   <td className="px-2.5 py-2">
                     <Sparkline values={s.profitTrend.slice(-12).map(String)} color={s.profit >= 0 ? TONE.income : TONE.expense} width={84} height={22} />
                   </td>
                 </tr>
+                {isOpen && (
+                  <tr className="border-b border-(--color-line) bg-(--color-surface-muted)/60">
+                    <td colSpan={9 + (mode === 'bar' ? 1 : cols.length)} className="whitespace-normal px-6 py-3">
+                      <UnitDetail s={s} fmt={fmt} onOpen={() => onOpen(s)} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -849,6 +891,7 @@ function Matrix({
               groups={cols.map((g) => g.key)}
               cell={mixCell}
               bar={mode === 'bar' ? mixBar : null}
+              fmt={fmt}
             />
             <TotalRow
               label="Korxona jami"
@@ -866,6 +909,7 @@ function Matrix({
               groups={cols.map((g) => g.key)}
               cell={mixCell}
               bar={mode === 'bar' ? mixBar : null}
+              fmt={fmt}
             />
           </tfoot>
         </table>
@@ -894,6 +938,7 @@ function TotalRow({
   groups,
   cell,
   bar,
+  fmt,
 }: {
   label: string;
   sub: string;
@@ -910,7 +955,9 @@ function TotalRow({
   groups: Group[];
   cell: (m: Mix, expense: number, g: Group, heat: boolean) => ReactNode;
   bar: ((m: Mix, expense: number) => ReactNode) | null;
+  fmt: Fmt;
 }) {
+  const sgn = (v: number) => (Math.round(v / 100) === 0 ? '0' : `${v > 0 ? '+' : '−'}${money(Math.abs(v), fmt)}`);
   const margin = income > 0 ? (profit / income) * 100 : null;
   const delta = profit - previousProfit;
   const bg = strong ? 'bg-[#eef2f8]' : 'bg-(--color-surface-muted)';
@@ -927,19 +974,19 @@ function TotalRow({
         </span>
       </td>
       <td className="px-2.5 py-2.5 font-semibold tabular-nums" title={som(income)}>
-        {compact(income)} <span className="text-[10.5px] font-normal text-(--color-text-faint)">{pct(incomeShare)}</span>
+        {money(income, fmt)} <span className="text-[10.5px] font-normal text-(--color-text-faint)">{pct(incomeShare)}</span>
       </td>
       {bar && <td className="px-2.5 py-2.5">{bar(mix, expense)}</td>}
       {groups.map((g) => cell(mix, expense, g, false))}
       <td className="px-2.5 py-2.5 text-right font-semibold tabular-nums" title={som(expense)}>
-        {compact(expense)}
+        {money(expense, fmt)}
         <span className="block text-[10.5px] font-normal text-(--color-text-faint)">{pct(expenseShare)}</span>
       </td>
       <td className="px-2.5 py-2.5 text-right font-bold tabular-nums" style={{ color: profit >= 0 ? TONE.income : TONE.expense }} title={som(profit)}>
-        {signed(profit)}
+        {sgn(profit)}
       </td>
       <td className="px-2.5 py-2.5 text-right font-semibold tabular-nums">{pct(margin)}</td>
-      <td className={cn('px-2.5 py-2.5 text-right text-xs font-semibold tabular-nums', delta > 0 ? 'text-(--color-income)' : delta < 0 ? 'text-(--color-expense)' : '')}>{signed(delta)}</td>
+      <td className={cn('px-2.5 py-2.5 text-right text-xs font-semibold tabular-nums', delta > 0 ? 'text-(--color-income)' : delta < 0 ? 'text-(--color-expense)' : '')}>{sgn(delta)}</td>
       <td className="px-2.5 py-2.5 text-right font-semibold tabular-nums">{headcount}</td>
       <td />
     </tr>
