@@ -193,6 +193,20 @@ export const MENU: NavItem[] = [
     ],
   },
   {
+    label: 'Hudud uchun reja',
+    href: '/hudud-reja',
+    icon: NavBars,
+    description: "Kelasi oy statistik prognozi: hududlar, 39 xizmat va xodimlar rejasi",
+    pages: [
+      { label: 'Dashboard', href: '/hudud-reja', description: 'Kelasi oy prognozi, aniqlik, ma’lumot to‘liqligi va sifati' },
+      { label: 'Ma’lumotlarni yuklash', href: '/hudud-reja/yuklash', description: 'Excel shablonlari: tarixiy daromad, xodimlar, xizmatlar va tariflar' },
+      { label: 'Prognozlash', href: '/hudud-reja/prognoz', description: 'Parametrlar, tekshirish, hisoblash, natijalarni solishtirish' },
+      { label: 'Hududlar bo‘yicha reja', href: '/hudud-reja/hududlar', description: 'Har hudud: prognoz, model, aniqlik, tasdiqlash va versiyalar' },
+      { label: 'Xizmatlar bo‘yicha reja', href: '/hudud-reja/xizmatlar', description: 'Xizmatlar soni × tarif, modellar taqqoslanishi' },
+      { label: 'Xodimlar bo‘yicha reja', href: '/hudud-reja/xodimlar', description: 'Hudud prognozining xodimlarga taqsimoti' },
+    ],
+  },
+  {
     label: 'Modellar',
     href: '/modellar',
     match: ['/katta-modellar'],
@@ -513,6 +527,7 @@ export const SIDEBAR: SideEntry[] = [
     ],
   },
   { kind: 'item', item: byHref('/solishtirma') },
+  { kind: 'item', item: byHref('/hudud-reja') },
   { kind: 'item', item: byHref('/hisobotlar') },
   {
     kind: 'group',

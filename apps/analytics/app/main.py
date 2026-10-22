@@ -163,3 +163,9 @@ def panel(start: str, end: str) -> dict:
         "columns": list(df.columns),
         "rows": [{k: clean(v) for k, v in row.items()} for row in df.to_dict(orient="records")],
     }
+
+
+# Hudud uchun reja — prognoz va xodimlar rejasi (/plan/...)
+from .plan.api import build_router as build_plan_router  # noqa: E402
+
+app.include_router(build_plan_router(require_key))

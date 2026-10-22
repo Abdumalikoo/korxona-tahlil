@@ -17,6 +17,36 @@ const EXPENSE_SRC = "Xarajatlar bo'limidagi yozuvlar";
 const BOTH_SRC = "Daromadlar va Xarajatlar bo'limlaridagi yozuvlar";
 
 export const INTROS: Record<string, PageIntro> = {
+  '/hudud-reja': {
+    what: "Kelasi oy uchun statistik prognoz: jami, hududlar, xizmatlar va xodimlar rejasi; prognoz aniqligi (tarixiy test) va ma'lumotlar to'liqligi.",
+    from: "Hududlar tushumi (dasturdagi) va «Ma'lumotlarni yuklash»dagi Excel tarixlari, xizmatlar katalogi va tariflar",
+    how: "Prognoz oyini tanlang. Hisob yo'q bo'lsa — «Prognozlash»da hisoblang. Grafiklar pastda.",
+  },
+  '/hudud-reja/yuklash': {
+    what: "Prognoz uchun tarixiy ma'lumotlarni Excel orqali yuklash: daromad va xizmatlar soni, xodimlar natijalari, xodim × xizmat, hudud omillari, tariflar.",
+    from: 'Siz to‘ldirgan shablonlar',
+    how: "Shablonni yuklab oling → to'ldiring → yuklang. Fayl avval tekshiriladi; natijani ko'rib «Tasdiqlash» bosilgandagina bazaga yoziladi.",
+  },
+  '/hudud-reja/prognoz': {
+    what: "Prognozni hisoblash: har hudud × xizmat uchun 8 tagacha model tarixiy testda solishtiriladi, eng aniq (teng bo'lsa soddarog'i) tanlanadi.",
+    from: "Yuklangan va dasturdagi tarix, tariflar, xodimlar ma'lumoti",
+    how: "Avval «Ma'lumotlarni tekshirish», so'ng «Prognozni hisoblash». Bir nechta hisobni pastda solishtirish mumkin.",
+  },
+  '/hudud-reja/hududlar': {
+    what: "Har hudud: oxirgi oy, prognoz, o'zgarish, asosiy model, aniqlik, ma'lumot sifati va reja holati (Hisoblangan / Tasdiqlangan).",
+    from: 'Tanlangan prognoz hisobi',
+    how: "Hudud nomini bosing — xizmatlar va grafiklar. «Tasdiqlash» yangi versiya yaratadi; eski versiyalarni tiklash mumkin.",
+  },
+  '/hudud-reja/xizmatlar': {
+    what: "39 xizmat: oxirgi va prognoz qilingan soni, tarif, daromad, tanlangan model, tarixiy xato va ishonchlilik.",
+    from: 'Tanlangan prognoz hisobi',
+    how: "Hududni tanlang va qatorni bosing — barcha modellar taqqoslanishi, tanlov sababi va tarix ochiladi.",
+  },
+  '/hudud-reja/xodimlar': {
+    what: "Hudud prognozining xodimlarga taqsimoti: xizmatlar bo'yicha tarixiy ulush va ish kunlari; taqsimlanmagan qism alohida ko'rsatiladi.",
+    from: "Xodimlar_Tarixi va Xodim_Xizmatlari (yuklangan), Xodimlar bo'limi",
+    how: "Taqsimlanmagan summani «Xodimga biriktirish» bilan o'tkazing; hudud yig'indisi o'zgarmaydi.",
+  },
   '/': {
     what: 'Tanlangan davrdagi daromad, xarajat va natija bir qarashda.',
     from: BOTH_SRC,

@@ -50,9 +50,11 @@ import { BulkDeleteModule } from './modules/bulk-delete/bulk-delete.module';
 import { PurchasesModule } from './modules/purchases/purchases.module';
 import { EntriesModule } from './modules/entries/entries.module';
 import { AccessGuard } from './common/guards/access.guard';
+import { HududRejaModule } from './modules/hudud-reja/hp.module';
 
 @Module({
   imports: [
+    HududRejaModule,
     UsersModule,
     TelegramModule,
     RolesModule,
