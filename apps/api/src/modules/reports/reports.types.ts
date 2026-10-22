@@ -68,6 +68,18 @@ export interface TableBlock extends Visibility {
   rowTone?: ('up' | 'down' | null)[];
   /** Har qator uchun Munosabat belgisi (rows bilan bir xil tartibda; null — belgilanmaydi) */
   marks?: (DocMark | null)[];
+  /**
+   * Ichma-ich jadval: har qatorning darajasi (0 — eng yuqori, keyingi qatorlar — uning ichidagilari).
+   * Excel'da qatorlar guruhlanadi ([+]/[−] bilan ochiladi), ekranda — bosib ochiladi.
+   * Bunday jadvalda jami ustun formulalari qo'yilmaydi (ichki qatorlar yig'indiga ikki marta kirmasin).
+   */
+  levels?: number[];
+  /** Ochilganda ko'rinadigan darajalar soni (standart 1 — faqat 0-daraja qatorlari) */
+  openLevels?: number;
+  /** Excel: sarlavha qatori va birinchi ustun qotiriladi (varaqdagi asosiy jadval) */
+  freeze?: boolean;
+  /** Excel: avtofiltr (varaqdagi yagona jadval uchun) */
+  filter?: boolean;
 }
 
 export interface ChartSeries {

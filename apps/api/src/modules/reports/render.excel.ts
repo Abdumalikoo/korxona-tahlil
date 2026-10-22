@@ -195,6 +195,15 @@ export async function renderExcel(doc: ReportDoc): Promise<Buffer> {
 }
 
 function writeTable(ws: ExcelJS.Worksheet, block: TableBlock, start: number): number {
+  // Ichma-ich, qotirilgan yoki filtrli jadval — keng jadval: ustun kengliklari jadvalning o'zidan
+  if (block.levels || block.freeze || block.filter) {
+    block.columns.forEach((c, i) => {
+      const col = ws.getColumn(i + 1);
+      const want = c.width ? Math.round(c.width * 15) : i === 0 ? 40 : 16;
+      col.width = Math.max(col.width ?? 0, want);
+    });
+  }
+  const levels = block.levels && block.levels.length === block.rows.length ? block.levels : null;
   let row = start;
   if (block.title) {
     ws.getCell(row, 1).value = block.title;
@@ -210,9 +219,11 @@ function writeTable(ws: ExcelJS.Worksheet, block: TableBlock, start: number): nu
     cell.alignment = { vertical: 'middle', horizontal: i === 0 ? 'left' : 'center', wrapText: true };
   });
   head.height = 30;
+  const headRow = row;
   row += 1;
-  // Jonli formulalar: qatorlar va jami qatori (qiymatlar hisobot bilan aynan bir xil bo'lsagina)
-  const calc = detectCalc(block);
+  // Jonli formulalar: qatorlar va jami qatori (qiymatlar hisobot bilan aynan bir xil bo'lsagina).
+  // Ichma-ich jadvalda — qo'yilmaydi (ichki qatorlar yig'indiga ikki marta kirib qolmasin)
+  const calc = levels ? { rows: block.columns.map(() => null), total: block.columns.map(() => null) } : detectCalc(block);
   const firstRow = row;
   const lastRow = row + block.rows.length - 1;
   const totalRow = block.total ? lastRow + 1 : null;
@@ -244,10 +255,39 @@ function writeTable(ws: ExcelJS.Worksheet, block: TableBlock, start: number): nu
       cell.alignment = { vertical: 'middle', horizontal: typeof v === 'number' || mode ? 'right' : 'left', wrapText: typeof v === 'string' && v.length > 36 };
       if (bold) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(PALETTE.panel) } };
     });
+    if (levels && index >= 0) {
+      const level = Math.min(7, Math.max(0, levels[index] ?? 0));
+      const open = block.openLevels ?? 1;
+      if (level > 0) r.outlineLevel = level;
+      if (level >= open) r.hidden = true;
+      // Ichida qator bo'lsa va ular yopiq — [+] belgisi shu qatorda (guruh sarlavhasi tepada)
+      const next = levels[index + 1] ?? -1;
+      if (next > level && next >= open) Object.defineProperty(r, 'collapsed', { get: () => true, configurable: true });
+      const first = r.getCell(1);
+      first.alignment = { ...(first.alignment ?? {}), indent: level * 2 };
+      if (level === 0) {
+        values.forEach((_, i) => {
+          const cell = r.getCell(i + 1);
+          cell.font = { ...(cell.font ?? {}), bold: true };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(PALETTE.panel) } };
+        });
+      } else if (next > level) {
+        values.forEach((_, i) => {
+          const cell = r.getCell(i + 1);
+          cell.font = { ...(cell.font ?? {}), bold: true };
+        });
+      }
+    }
     row += 1;
   };
   block.rows.forEach((values, i) => write(values, false, i));
   if (block.total) write(block.total, true, -1);
+  if (levels) {
+    ws.properties.outlineLevelRow = Math.max(ws.properties.outlineLevelRow ?? 0, ...levels.map((l) => Math.min(7, l)));
+    ws.properties.outlineProperties = { summaryBelow: false, summaryRight: false };
+  }
+  if (block.freeze) ws.views = [{ state: 'frozen', xSplit: 1, ySplit: headRow, showGridLines: false }];
+  if (block.filter && block.rows.length) ws.autoFilter = { from: { row: headRow, column: 1 }, to: { row: headRow + block.rows.length, column: block.columns.length } };
   if (block.note) {
     ws.getCell(row, 1).value = block.note;
     ws.getCell(row, 1).font = { size: 9, italic: true, color: { argb: argb(PALETTE.muted) } };

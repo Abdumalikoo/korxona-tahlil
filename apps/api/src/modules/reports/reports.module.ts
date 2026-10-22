@@ -18,6 +18,7 @@ import { FinancialReport } from './report.financial';
 import { PassportReport } from './report.passport';
 import { ReactionsSummaryReport } from './report.reactions';
 import { RegionsReport } from './report.regions';
+import { SolishtirmaReport } from './report.solishtirma';
 import { ReportsController } from './reports.controller';
 import { ReportData } from './reports.data';
 import { ReportsService } from './reports.service';
@@ -26,7 +27,7 @@ import { ReportsService } from './reports.service';
 @Module({
   imports: [EconModule, ReactionsModule, StructureModule, SectionsModule, AlertsModule, BplanModule],
   controllers: [ReportsController],
-  providers: [ReportData, GeneralSources, FinancialReport, ExecutiveReport, RegionsReport, PassportReport, ExpensesReport, IncomesReport, PayrollReport, AssetsReport, ReactionsSummaryReport, ControlsReport, ModelsReport, ReconcileService, ReportsService],
+  providers: [ReportData, GeneralSources, FinancialReport, ExecutiveReport, RegionsReport, PassportReport, ExpensesReport, IncomesReport, PayrollReport, AssetsReport, ReactionsSummaryReport, ControlsReport, ModelsReport, SolishtirmaReport, ReconcileService, ReportsService],
   exports: [ReportData, ReportsService],
 })
 export class ReportsModule {}

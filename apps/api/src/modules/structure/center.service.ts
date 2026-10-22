@@ -389,7 +389,18 @@ export class CenterService {
   }
 
   async center(query: CenterQuery): Promise<CenterDetailResult> {
+    return this.centerOf(await this.collect(query), 12);
+  }
+
+  /** To'liq hisobot: Markaz + barcha bo'limlar tafsiloti, moddalar cheklovsiz (bitta yig'ishdan) */
+  async full(query: CenterQuery): Promise<CenterDetailResult & { details: DepartmentDetailResult[] }> {
     const c = await this.collect(query);
+    const center = this.centerOf(c, Infinity);
+    const details = await Promise.all(center.departments.map((d) => this.departmentOf(c, d.id, Infinity)));
+    return { ...center, details };
+  }
+
+  private centerOf(c: Collected, limit: number): CenterDetailResult {
     const rows = [...c.depts.values()]
       // Faol bo'limlar har doim; «biriktirilmagan» — faqat yozuvi bo'lsa
       .filter((d) => d.id !== NO_DEPARTMENT || d.expense !== 0n || d.previousExpense !== 0n || d.income !== 0n || d.headcount > 0)
@@ -448,9 +459,9 @@ export class CenterService {
         headcount: c.headcount,
         previousHeadcount: c.previousHeadcount,
       },
-      incomeParts: toParts(c.incomeParts),
-      ownParts: toParts(c.ownParts),
-      regionalParts: toParts(c.regionalParts),
+      incomeParts: toParts(c.incomeParts, limit),
+      ownParts: toParts(c.ownParts, limit),
+      regionalParts: toParts(c.regionalParts, limit),
       regionalBy,
       departments: rows,
       trend: { income: c.trend.income.map(String), own: c.trend.own.map(String), regional: c.trend.regional.map(String), assets: c.trend.assets.map(String) },
@@ -459,7 +470,10 @@ export class CenterService {
   }
 
   async department(id: string, query: CenterQuery): Promise<DepartmentDetailResult> {
-    const c = await this.collect(query);
+    return this.departmentOf(await this.collect(query), id, 12);
+  }
+
+  private async departmentOf(c: Collected, id: string, limit: number): Promise<DepartmentDetailResult> {
     const d = c.depts.get(id);
     if (!d) {
       const exists = id !== NO_DEPARTMENT && (await this.prisma.department.findUnique({ where: { id }, select: { id: true } }));
@@ -516,8 +530,8 @@ export class CenterService {
       ...c.base,
       department: { id, name: acc.name, unassigned: id === NO_DEPARTMENT },
       summary: this.row(acc),
-      expenseParts: toParts(acc.parts),
-      incomeParts: toParts(acc.incomeParts),
+      expenseParts: toParts(acc.parts, limit),
+      incomeParts: toParts(acc.incomeParts, limit),
       employees,
       notes,
     };

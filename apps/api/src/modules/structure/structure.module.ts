@@ -15,6 +15,6 @@ import { UnassignedService } from './unassigned.service';
   controllers: [RegionsController, DistrictsController, StructureController],
   providers: [StructureService, RegionsService, DistrictsService, CenterService, ChangesService, UnassignedService],
   // Hisobotlar bo'limidagi raqamlar tekshiruvi uchun
-  exports: [StructureService, RegionsService, DistrictsService, CenterService],
+  exports: [StructureService, RegionsService, DistrictsService, CenterService, ChangesService, UnassignedService],
 })
 export class StructureModule {}

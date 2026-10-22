@@ -15,6 +15,7 @@ import { FinancialReport } from './report.financial';
 import { PassportReport } from './report.passport';
 import { ReactionsSummaryReport } from './report.reactions';
 import { RegionsReport } from './report.regions';
+import { SolishtirmaReport } from './report.solishtirma';
 import { formulasFor } from './reports.formulas';
 import { addWorkings } from './reports.workings';
 import { FORMAT_INFO, forFormat, type CatalogItem, type GenerateInput, type HistoryItem, type ReportDoc, type ReportFormat, type ReportParams } from './reports.types';
@@ -65,6 +66,27 @@ export const CATALOG: CatalogItem[] = [
     period: true,
     formats: FORMATS,
     group: 'Hududlar',
+  },
+  {
+    id: 'solishtirma',
+    title: "Solishtirma — to'liq hisobot",
+    description: "Solishtirma bo'limidagi barcha ma'lumot bitta Excel faylida, ichma-ich: hududlar → tumanlar → xizmatlar, xarajat moddalari va xodimlar; Markaz → bo'limlar; sohalar kesimida nima daromad, nima xarajat.",
+    contents: [
+      "Hududlar → tumanlar → xizmatlar, moddalar, xodimlar (ichma-ich, [+] bilan ochiladi)",
+      "Markaz → bo'limlar → moddalar va xodimlar; hududlar uchun to'langan",
+      'Sohalar: xizmat turlari → hududlar → tumanlar; modda guruhlari → moddalar → hududlar',
+      'Daromad va xarajat matritsalari (soha × hudud)',
+      "Tumanlar, xizmatlar, xarajat tarkibi, xodimlar va xodimlar oylari — filtrli ro'yxatlar",
+      'Oylar dinamikasi, biriktirilmagan yozuvlar, xodimlar harakati, tekshiruv va metodika',
+    ],
+    unit: 'none',
+    period: true,
+    formats: ['xlsx'],
+    group: 'Hududlar',
+    options: [
+      { key: 'compare', label: 'Taqqoslash', default: 'prev', choices: [{ value: 'prev', label: "O'tgan teng davr" }, { value: 'yoy', label: "O'tgan yilning shu davri" }] },
+      { key: 'section', label: 'Yozuvlar', default: 'ALL', choices: [{ value: 'ALL', label: 'Hammasi' }, { value: 'DOIMIY', label: 'Doimiy' }, { value: 'BOSHQA', label: 'Bir martalik' }] },
+    ],
   },
   {
     id: 'passport',
@@ -149,6 +171,38 @@ export const CATALOG: CatalogItem[] = [
   },
 ];
 
+/** Ekranda bitta jadvalda ko'pi bilan shuncha qator (to'liq ro'yxat — Excel faylida) */
+const SCREEN_ROWS = 400;
+
+/** Ekran uchun: juda katta jadvallar qisqartiriladi (fayllarda — to'liq) */
+function trimForScreen(doc: ReportDoc): ReportDoc {
+  return {
+    ...doc,
+    sections: doc.sections.map((s) => ({
+      ...s,
+      blocks: s.blocks.map((b) => {
+        if (b.type !== 'table' || b.rows.length <= SCREEN_ROWS) return b;
+        // Ichma-ich jadvalda yuqori ikki daraja doim qoladi (tuzilma buzilmasin), chuqurroqlari — chegaragacha
+        const levels = b.levels && b.levels.length === b.rows.length ? b.levels : null;
+        const keep: number[] = [];
+        b.rows.forEach((_, i) => {
+          if ((levels && (levels[i] ?? 0) <= 1) || keep.length < SCREEN_ROWS) keep.push(i);
+        });
+        const pick = <T,>(list: T[] | undefined) => (list ? keep.map((i) => list[i] as T) : undefined);
+        const note = `Ekranda ${keep.length} ta qator ko'rsatildi (jami ${b.rows.length} ta) — to'liq ro'yxat Excel faylida.`;
+        return {
+          ...b,
+          rows: pick(b.rows)!,
+          ...(levels ? { levels: pick(levels) } : {}),
+          ...(b.marks ? { marks: pick(b.marks) } : {}),
+          ...(b.rowTone ? { rowTone: pick(b.rowTone) } : {}),
+          note: b.note ? `${b.note} ${note}` : note,
+        };
+      }),
+    })),
+  };
+}
+
 @Injectable()
 export class ReportsService {
   constructor(
@@ -164,6 +218,7 @@ export class ReportsService {
     private readonly reactionsReport: ReactionsSummaryReport,
     private readonly controlsReport: ControlsReport,
     private readonly models: ModelsReport,
+    private readonly solishtirma: SolishtirmaReport,
   ) {}
 
   catalog(): CatalogItem[] {
@@ -178,6 +233,8 @@ export class ReportsService {
         return this.executive.build(params);
       case 'regions':
         return this.regions.build(params);
+      case 'solishtirma':
+        return this.solishtirma.build(params);
       case 'passport':
         return this.passport.build(params);
       case 'expenses':
@@ -250,7 +307,7 @@ export class ReportsService {
 
   /** Ekranda ko'rish uchun: hujjat JSON ko'rinishida (fayl yaratilmaydi, tarixga yozilmaydi) */
   async preview(input: GenerateInput): Promise<ReportDoc> {
-    return (await this.prepare(input, true)).doc;
+    return trimForScreen((await this.prepare(input, true)).doc);
   }
 
   async generate(input: GenerateInput, userId: string | null): Promise<{ buffer: Buffer; filename: string; mime: string; id: string }> {

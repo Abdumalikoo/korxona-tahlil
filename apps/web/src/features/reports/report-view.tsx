@@ -1,6 +1,7 @@
 'use client';
 
 import { Card } from '@/components/ui/card';
+import { IconChevronRight } from '@/components/ui/icons';
 import { SubTabs } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { useBrief } from '@/lib/view-mode';
@@ -90,9 +91,50 @@ function Kpis({ items }: { items: { label: string; value: string; sub?: string; 
 /** Belgining kelib chiqishi: «Hisobotlar › Hisobot nomi» */
 const OriginContext = createContext('Hisobotlar');
 
+/**
+ * Ichma-ich jadval: har qatorning ota qatori va bolalari bormi.
+ * levels bo'lmasa — oddiy jadval (hamma qator ko'rinadi).
+ */
+function useTree(block: DocTable) {
+  const levels = block.levels && block.levels.length === block.rows.length ? block.levels : null;
+  const tree = useMemo(() => {
+    if (!levels) return null;
+    const parent: number[] = [];
+    const stack: number[] = [];
+    levels.forEach((level, i) => {
+      while (stack.length && levels[stack[stack.length - 1]!]! >= level) stack.pop();
+      parent.push(stack.length ? stack[stack.length - 1]! : -1);
+      stack.push(i);
+    });
+    const hasChildren = levels.map((level, i) => (levels[i + 1] ?? -1) > level);
+    return { parent, hasChildren };
+  }, [levels]);
+  const open = block.openLevels ?? 1;
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set(levels ? levels.flatMap((l, i) => (l < open - 1 ? [i] : [])) : []));
+  const visible = (r: number): boolean => {
+    if (!tree) return true;
+    let p = tree.parent[r]!;
+    while (p >= 0) {
+      if (!expanded.has(p)) return false;
+      p = tree.parent[p]!;
+    }
+    return true;
+  };
+  const toggle = (r: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(r)) next.delete(r);
+      else next.add(r);
+      return next;
+    });
+  const expandAll = (on: boolean) => setExpanded(on && tree ? new Set(tree.hasChildren.flatMap((h, i) => (h ? [i] : []))) : new Set());
+  return { levels, tree, expanded, visible, toggle, expandAll };
+}
+
 function Table({ block }: { block: DocTable }) {
   const numeric = (f?: ColumnFormat) => Boolean(f && f !== 'text');
   const origin = useContext(OriginContext);
+  const t = useTree(block);
   // Munosabatga belgilash (sariq «+ Munosabat» yoqilganda birinchi katakda ko'rinadi)
   const markOf = (r: number): MarkItem | null => {
     const m = block.marks?.[r];
@@ -100,7 +142,21 @@ function Table({ block }: { block: DocTable }) {
   };
   return (
     <div>
-      {block.title && <h4 className="mb-2 text-sm font-bold text-heading">{block.title}</h4>}
+      {(block.title || t.tree) && (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          {block.title ? <h4 className="text-sm font-bold text-heading">{block.title}</h4> : <span />}
+          {t.tree && (
+            <span className="flex gap-1.5 text-xs">
+              <button type="button" onClick={() => t.expandAll(true)} className="rounded-md border border-(--color-line) px-2 py-0.5 hover:bg-(--color-surface-sunken)">
+                Hammasini ochish
+              </button>
+              <button type="button" onClick={() => t.expandAll(false)} className="rounded-md border border-(--color-line) px-2 py-0.5 hover:bg-(--color-surface-sunken)">
+                Yopish
+              </button>
+            </span>
+          )}
+        </div>
+      )}
       <div className="overflow-x-auto rounded-(--radius-control) border border-(--color-line)">
         <table className="w-full text-sm">
           <thead className="bg-brand-700 text-white">
@@ -113,18 +169,29 @@ function Table({ block }: { block: DocTable }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-(--color-line)">
-            {block.rows.map((row, r) => (
-              <tr key={r} className="even:bg-(--color-surface-muted)/60">
+            {block.rows.map((row, r) => !t.visible(r) ? null : (
+              <tr key={r} className={cn(t.levels ? (t.levels[r] === 0 ? 'bg-(--color-surface-sunken) font-semibold' : t.tree?.hasChildren[r] ? 'font-medium' : '') : 'even:bg-(--color-surface-muted)/60')}>
                 {block.columns.map((c, i) => (
                   <td
                     key={i}
                     className={cn(
                       'px-3 py-1.5',
-                      numeric(c.format) ? 'whitespace-nowrap text-right tabular-nums' : 'min-w-[8rem]',
+                      numeric(c.format) ? 'whitespace-nowrap text-right tabular-nums' : i === 0 && t.levels ? 'min-w-[16rem] whitespace-nowrap' : 'min-w-[8rem]',
                       TONE_TEXT[cellTone(row[i] ?? null, c, block.rowTone?.[r])],
                     )}
                   >
-                    {i === 0 && block.marks ? (
+                    {i === 0 && t.levels ? (
+                      <span className="inline-flex items-center gap-1" style={{ paddingLeft: `${(t.levels[r] ?? 0) * 1.1}rem` }}>
+                        {t.tree?.hasChildren[r] ? (
+                          <button type="button" onClick={() => t.toggle(r)} aria-expanded={t.expanded.has(r)} aria-label={t.expanded.has(r) ? 'Yopish' : 'Ochish'} className="rounded p-0.5 hover:bg-(--color-surface-sunken)">
+                            <IconChevronRight className={cn('size-3.5 transition-transform', t.expanded.has(r) && 'rotate-90')} />
+                          </button>
+                        ) : (
+                          <span className="inline-block w-[1.125rem]" />
+                        )}
+                        {cellText(row[i] ?? null, c.format)}
+                      </span>
+                    ) : i === 0 && block.marks ? (
                       <span className="inline-flex items-center gap-1.5">
                         <Mark item={markOf(r)} />
                         {cellText(row[i] ?? null, c.format)}

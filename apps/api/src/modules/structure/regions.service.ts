@@ -8,6 +8,39 @@ import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
 
+/** Sohalar kesimi: modda (kod) → birlik → joriy va taqqoslash davri summasi (to'liq hisobot uchun) */
+export interface SohaCell {
+  amount: bigint;
+  previous: bigint;
+  count: number;
+}
+
+export interface SohaSink {
+  /** Daromad: xizmat turi kodi → birlik kaliti ("r:3", "center", "none") → summa */
+  income: Map<string, Map<string, SohaCell>>;
+  /** Xarajat: modda kodi → birlik kaliti → summa (Xarajatlar siyosati moddalari — Markazda, Solishtirmadagidek) */
+  expense: Map<string, Map<string, SohaCell>>;
+  /** Markaz hisobiga o'tkazilgan (siyosat) moddalar kodlari */
+  policyCodes: Set<string>;
+  incomeLabels: Map<string, string>;
+  categories: { code: string; label: string; parentCode: string | null }[];
+}
+
+function addSoha(map: Map<string, Map<string, SohaCell>>, code: string, unitKey: string, amount: bigint, isCurrent: boolean, isPrevious: boolean) {
+  let byUnit = map.get(code);
+  if (!byUnit) {
+    byUnit = new Map();
+    map.set(code, byUnit);
+  }
+  const cell = byUnit.get(unitKey) ?? { amount: 0n, previous: 0n, count: 0 };
+  if (isCurrent) {
+    cell.amount += amount;
+    cell.count += 1;
+  }
+  if (isPrevious) cell.previous += amount;
+  byUnit.set(unitKey, cell);
+}
+
 export interface RegionsQuery {
   from?: string;
   to?: string;
@@ -128,7 +161,14 @@ export class RegionsService {
     return range;
   }
 
-  async compare(query: RegionsQuery): Promise<RegionsResult> {
+  /** To'liq hisobot uchun: Solishtirma natijasi + sohalar (xizmat turlari va moddalar) kesimi — bitta hisobdan */
+  async full(query: RegionsQuery): Promise<{ result: RegionsResult; soha: SohaSink }> {
+    const soha: SohaSink = { income: new Map(), expense: new Map(), policyCodes: new Set(), incomeLabels: new Map(), categories: [] };
+    const result = await this.compare(query, soha);
+    return { result, soha };
+  }
+
+  async compare(query: RegionsQuery, soha?: SohaSink): Promise<RegionsResult> {
     const section = this.parseSection(query.section);
     const compare = this.parseCompare(query.compare);
     const compareLabel = COMPARE_LABELS[compare];
@@ -164,6 +204,11 @@ export class RegionsService {
     ]);
     // Xarajatlar siyosati: shu moddalar qayerda yozilgan bo'lsa ham — Markaz xarajati (hududlar uchun)
     const centerCategories = expandCategories(policy.centerCategories, expenseCategories);
+    if (soha) {
+      soha.policyCodes = new Set(centerCategories);
+      soha.incomeLabels = new Map(incomeCategories.map((c) => [c.code, c.label]));
+      soha.categories = expenseCategories.map((c) => ({ code: c.code, label: c.label, parentCode: c.parentCode }));
+    }
 
     // ─────────── Birliklar ───────────
 
@@ -238,6 +283,7 @@ export class RegionsService {
         acc.incomeCount += 1;
       }
       if (isPrevious) acc.previousIncome += row.amountTiyin;
+      if (soha && (isCurrent || isPrevious)) addSoha(soha.income, row.categoryCode, acc.key, row.amountTiyin, isCurrent, isPrevious);
       if (isCurrent || isPrevious) {
         addPart(acc.incomeParts, row.categoryCode, incomeLabel.get(row.categoryCode) ?? row.categoryCode, row.amountTiyin, isCurrent, isPrevious);
       }
@@ -259,6 +305,7 @@ export class RegionsService {
         acc.expenseCount += 1;
       }
       if (isPrevious) acc.previousExpense += row.amountTiyin;
+      if (soha && (isCurrent || isPrevious)) addSoha(soha.expense, row.categoryCode, acc.key, row.amountTiyin, isCurrent, isPrevious);
       const isAssetCharge = ASSET_GROUP_CODES.includes(row.categoryCode);
       if (isAssetCharge) {
         if (isCurrent) acc.centerAssets += row.amountTiyin;

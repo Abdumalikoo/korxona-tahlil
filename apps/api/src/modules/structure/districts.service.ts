@@ -7,6 +7,7 @@ import {
   type DistrictRow,
   type DrillBase,
   type EmployeeDetailResult,
+  type EmployeeMonth,
   type EmployeeRow,
   type MoneyPart,
   type RegionDistrictsResult,
@@ -588,7 +589,10 @@ export class DistrictsService {
   // ─────────── 1) Viloyat → tumanlar ───────────
 
   async regionDistricts(regionCode: number, query: DrillQuery): Promise<RegionDistrictsResult> {
-    const c = await this.collect(regionCode, query);
+    return this.regionOf(await this.collect(regionCode, query), regionCode);
+  }
+
+  private async regionOf(c: Collected, regionCode: number): Promise<RegionDistrictsResult> {
     const all = [...c.accs.values()];
 
     const districts = all
@@ -695,7 +699,11 @@ export class DistrictsService {
       if (districtId === UNASSIGNED_KEY) throw new NotFoundException("Bu viloyatda tumanga bo'linmagan yozuv yo'q");
       throw new NotFoundException('Tuman topilmadi');
     }
+    return this.detailOf(c, a);
+  }
 
+  /** Bitta tuman tafsiloti — yig'ilgan ma'lumotdan (tuman sahifasi va to'liq hisobot uchun bir xil) */
+  private detailOf(c: Collected, a: Acc): DistrictDetailResult {
     const services: ServiceRow[] = [...a.services.entries()]
       .map(([code, s]) => ({
         code,
@@ -762,6 +770,86 @@ export class DistrictsService {
       employees,
       notes: [...notes, ...c.notes],
     };
+  }
+
+  // ─────────── To'liq hisobot: viloyat + barcha tumanlar tafsiloti (bitta yig'ishdan) ───────────
+
+  async regionFull(regionCode: number, query: DrillQuery): Promise<RegionDistrictsResult & { details: DistrictDetailResult[] }> {
+    const c = await this.collect(regionCode, query);
+    const base = await this.regionOf(c, regionCode);
+    const details = base.districts
+      .map((row) => c.accs.get(row.id))
+      .filter((a): a is Acc => Boolean(a))
+      .map((a) => this.detailOf(c, a));
+    return { ...base, details };
+  }
+
+  /**
+   * Barcha xodimlarning oylari (to'liq hisobot): ish haqi, reja, fakt, bonus va o'sha oy qaysi hudud/tumanda ishlagani.
+   * Xodim sahifasidagi (employee) bilan bir xil manbalar, faqat bitta so'rovda hammasi.
+   */
+  async employeesMonths(query: DrillQuery): Promise<{ range: DateRange; rows: (EmployeeMonth & { pinfl: string; fullName: string; position: string | null; employmentType: string })[] }> {
+    const range = this.parseRange(query.from, query.to);
+    const periods = periodsEndingIn(range);
+    if (!periods.length) return { range, rows: [] };
+    const [entries, results, locations] = await Promise.all([
+      this.prisma.payrollEntry.findMany({
+        where: { period: { in: periods }, deletedAt: null, batch: { status: 'COMMITTED' } },
+        select: { employeePinfl: true, period: true, totalTiyin: true },
+      }),
+      this.prisma.employeeResult.findMany({
+        where: { period: { in: periods }, batch: { cancelledAt: null } },
+        select: { employeePinfl: true, period: true, planTiyin: true, factTiyin: true, bonusTiyin: true },
+      }),
+      this.prisma.employeeLocation.findMany({
+        where: { period: { in: periods } },
+        select: { employeePinfl: true, period: true, region: { select: { name: true } }, district: { select: { id: true, name: true } } },
+      }),
+    ]);
+    const pinfls = [...new Set([...entries.map((e) => e.employeePinfl), ...results.map((r) => r.employeePinfl)])];
+    const people = pinfls.length
+      ? await this.prisma.employee.findMany({
+          where: { pinfl: { in: pinfls } },
+          select: { pinfl: true, fullName: true, position: true, employmentType: true, region: { select: { name: true } }, district: { select: { name: true } } },
+        })
+      : [];
+    const personBy = new Map(people.map((p) => [p.pinfl, p]));
+    const locationBy = new Map(locations.map((l) => [`${l.employeePinfl}:${l.period}`, l]));
+    const acc = new Map<string, { pinfl: string; period: string; salary: bigint; plan: bigint; fact: bigint; bonus: bigint }>();
+    const get = (pinfl: string, period: string) => {
+      const key = `${pinfl}:${period}`;
+      const v = acc.get(key) ?? { pinfl, period, salary: 0n, plan: 0n, fact: 0n, bonus: 0n };
+      acc.set(key, v);
+      return v;
+    };
+    for (const e of entries) get(e.employeePinfl, e.period).salary += e.totalTiyin;
+    for (const r of results) {
+      const v = get(r.employeePinfl, r.period);
+      v.plan += r.planTiyin;
+      v.fact += r.factTiyin;
+      v.bonus += r.bonusTiyin;
+    }
+    const rows = [...acc.values()]
+      .map((v) => {
+        const person = personBy.get(v.pinfl);
+        const loc = locationBy.get(`${v.pinfl}:${v.period}`);
+        return {
+          pinfl: v.pinfl,
+          fullName: person?.fullName ?? v.pinfl,
+          position: person?.position ?? null,
+          employmentType: person?.employmentType ?? 'SHTAT',
+          period: v.period,
+          regionName: loc?.region.name ?? person?.region.name ?? '',
+          districtId: loc ? (loc.district?.id ?? null) : null,
+          districtName: loc ? (loc.district?.name ?? null) : (person?.district?.name ?? null),
+          salaryTiyin: v.salary.toString(),
+          planTiyin: v.plan.toString(),
+          factTiyin: v.fact.toString(),
+          bonusTiyin: v.bonus.toString(),
+        };
+      })
+      .sort((a, b) => a.regionName.localeCompare(b.regionName, 'uz') || a.fullName.localeCompare(b.fullName, 'uz') || a.period.localeCompare(b.period));
+    return { range, rows };
   }
 
   // ─────────── 3) Xodim ───────────

@@ -158,6 +158,10 @@ export interface DocTable extends DocFormats {
   rowTone?: ('up' | 'down' | null)[];
   /** Har qator uchun Munosabat belgisi (rows bilan bir xil tartibda) */
   marks?: (DocMark | null)[];
+  /** Ichma-ich jadval: qator darajasi (0 — eng yuqori); ekranda bosib ochiladi */
+  levels?: number[];
+  /** Boshida ochiq darajalar soni (standart 1) */
+  openLevels?: number;
 }
 
 export interface DocChart extends DocFormats {
