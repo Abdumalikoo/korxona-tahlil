@@ -22,7 +22,10 @@ export interface Row {
   date: Date;
   /** Toshkent bo'yicha oy: YYYY-MM */
   month: string;
+  /** So'mda (ko'rsatish va eski hisobotlar uchun) */
   amount: number;
+  /** Tiyinda — aniq hisob uchun (BigInt) */
+  tiyin: bigint;
   categoryCode: string;
   unit: string;
   source: string;
@@ -161,6 +164,7 @@ export class ReportData {
       date: r.date,
       month: isoOf(r.date).slice(0, 7),
       amount: Number(r.amountTiyin) / 100,
+      tiyin: r.amountTiyin,
       categoryCode: r.categoryCode,
       unit: expense && centerCats.has(r.categoryCode) ? 'center' : unitKeyOf(r.regionCode, r.departmentId),
       source: String(r.source),
@@ -196,6 +200,27 @@ export class ReportData {
       out.set(key, (out.get(key) ?? 0) + 1);
     }
     return out;
+  }
+
+  /**
+   * O'rtacha faol xodimlar soni — birliklar bo'yicha: har oy shu oyda ishlagan xodimlar soni,
+   * so'ng davr oylari bo'yicha o'rtacha (oy ichida kirgan yoki bo'shagan ham o'sha oyda ishlagan hisoblanadi).
+   */
+  async averageHeadcountByUnit(range: Range): Promise<Map<string, number>> {
+    const employees = await this.prisma.employee.findMany({ select: { regionCode: true, hiredAt: true, firedAt: true, isActive: true } });
+    const months = monthsOf(range);
+    const sums = new Map<string, number>();
+    for (const m of months) {
+      const start = dayStart(`${m}-01`);
+      const end = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 1) - TZ);
+      for (const e of employees) {
+        if (!e.isActive && e.firedAt === null) continue;
+        if (!((!e.hiredAt || e.hiredAt < end) && (!e.firedAt || e.firedAt >= start))) continue;
+        const key = e.regionCode === 0 ? 'center' : `r:${e.regionCode}`;
+        sums.set(key, (sums.get(key) ?? 0) + 1);
+      }
+    }
+    return new Map([...sums].map(([k, v]) => [k, v / months.length]));
   }
 
   /** Yozuvlar davr ichidami */

@@ -49,7 +49,22 @@ export async function renderPptx(doc: ReportDoc): Promise<Buffer> {
     for (let i = 0; i < blocks.length; i += 1) {
       const b = blocks[i]!;
       const next = blocks[i + 1];
-      if (b.type === 'kpis') {
+      if (b.type === 'kpis' && b.title) {
+        // Nomli KPI guruhlari (fakt / reja / prognoz) — ketma-ketlari bitta slaydda, har biri o'z qatorida
+        const group: KpiBlock[] = [b];
+        while (blocks[i + 1]?.type === 'kpis' && (blocks[i + 1] as KpiBlock).title && group.length < 3) group.push(blocks[++i] as KpiBlock);
+        plans.push({
+          title: section.title,
+          subtitle: section.intro,
+          draw: (slide) => {
+            group.forEach((g, k) => {
+              const y = 1.5 + k * 1.75;
+              slide.addText(g.title!.toUpperCase(), { x: 0.6, y, w: W - 1.2, h: 0.25, fontFace: FONT, fontSize: 10, bold: true, color: C.navy, charSpacing: 1, margin: 0 });
+              kpis(pptx, slide, g.items.slice(0, 4), y + 0.28);
+            });
+          },
+        });
+      } else if (b.type === 'kpis') {
         if (b === firstKpis && section === doc.sections[0] && (!next || next.type !== 'notes')) continue;
         const notes = next?.type === 'notes' ? next : null;
         if (notes) i += 1;

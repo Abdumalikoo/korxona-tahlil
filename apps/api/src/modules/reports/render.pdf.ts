@@ -141,7 +141,10 @@ export async function renderPdf(doc: ReportDoc): Promise<Buffer> {
       headlineLevel: 1,
     } as Content);
     for (const block of section.blocks) {
-      if (block.type === 'kpis') content.push(kpiGrid(block));
+      if (block.type === 'kpis') {
+        if (block.title) content.push({ text: block.title.toUpperCase(), fontSize: 7.5, bold: true, color: hex(C.navy), characterSpacing: 0.6, margin: [0, 0, 0, 3] });
+        content.push(kpiGrid(block));
+      }
       else if (block.type === 'table') content.push(...table(block));
       else if (block.type === 'chart') {
         const h = block.kind === 'barh' ? Math.min(300, 30 + block.labels.length * 16) : 190;

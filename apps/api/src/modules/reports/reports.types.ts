@@ -54,7 +54,7 @@ export function docMark(kind: DocMark['kind'], label: string, filter: Record<str
   return { kind, label: label.slice(0, 160), filter: unit && unit !== 'all' && !filter.unit ? { ...filter, unit } : filter };
 }
 
-export interface TableBlock {
+export interface TableBlock extends Visibility {
   type: 'table';
   title?: string;
   columns: Column[];
@@ -78,7 +78,7 @@ export interface ChartSeries {
   asLine?: boolean;
 }
 
-export interface ChartBlock {
+export interface ChartBlock extends Visibility {
   type: 'chart';
   title: string;
   kind: 'bar' | 'barh' | 'line';
@@ -89,12 +89,22 @@ export interface ChartBlock {
   stacked?: boolean;
 }
 
-export interface KpiBlock {
+/**
+ * Blok qaysi formatlarda chiqadi (bo'lmasa — hammasida). Ekranda (preview) — doim hammasi.
+ * Masalan, batafsil jadval faqat Excel'da: formats: ['xlsx'].
+ */
+export interface Visibility {
+  formats?: ReportFormat[];
+}
+
+export interface KpiBlock extends Visibility {
   type: 'kpis';
+  /** Kartalar guruhi nomi (fakt / reja / prognoz) */
+  title?: string;
   items: KpiItem[];
 }
 
-export interface NotesBlock {
+export interface NotesBlock extends Visibility {
   type: 'notes';
   title?: string;
   items: string[];
@@ -106,7 +116,7 @@ export interface FormulaItem {
   formula: string;
 }
 
-export interface FormulasBlock {
+export interface FormulasBlock extends Visibility {
   type: 'formulas';
   /** Sarlavha (masalan, "Hisob-kitob: Hududlar") — bo'lmasa bo'lim sarlavhasi */
   title?: string;
@@ -117,9 +127,11 @@ export interface FormulasBlock {
 
 export type Block = KpiBlock | TableBlock | ChartBlock | NotesBlock | FormulasBlock;
 
-export interface ReportSection {
+export interface ReportSection extends Visibility {
   title: string;
   intro?: string;
+  /** Excel varag'i nomi (bo'lmasa — sarlavhadan) */
+  sheet?: string;
   blocks: Block[];
 }
 
@@ -136,6 +148,22 @@ export interface ReportDoc {
   /** Fayl nomi uchun asos */
   fileBase: string;
   generatedAt: string;
+  /** Excel'dagi birinchi (xulosa) varaq nomi; bo'lmasa — «Xulosa» */
+  coverSheet?: string;
+  /** Hisobot o'z metodikasini beradi — umumiy «Hisoblash formulalari» va ilova qo'shilmaydi */
+  ownMethodology?: boolean;
+}
+
+/** Formatga ko'ra hujjat: shu formatda ko'rinmaydigan bo'lim va bloklar olib tashlanadi */
+export function forFormat(doc: ReportDoc, format: ReportFormat): ReportDoc {
+  const show = (v: Visibility) => !v.formats || v.formats.includes(format);
+  return {
+    ...doc,
+    sections: doc.sections
+      .filter(show)
+      .map((s) => ({ ...s, blocks: s.blocks.filter(show) }))
+      .filter((s) => s.blocks.length > 0),
+  };
 }
 
 export interface ReportParams {
@@ -144,6 +172,16 @@ export interface ReportParams {
   unit?: string;
   /** Tanlangan obyekt (masalan, bitta munosabat id si) */
   subject?: string;
+  /** Qo'shimcha sozlamalar (CatalogItem.options bo'yicha), masalan { compare: 'yoy', view: 'short' } */
+  options?: Record<string, string>;
+}
+
+/** Hisobot sozlamasi (tanlov ro'yxati) — UI shu bo'yicha maydon chizadi */
+export interface ReportOption {
+  key: string;
+  label: string;
+  choices: { value: string; label: string }[];
+  default: string;
 }
 
 /** Hisobot ichida bitta obyektni tanlash imkoni */
@@ -169,6 +207,8 @@ export interface CatalogItem {
   group: string;
   /** Ixtiyoriy obyekt tanlovi: tanlansa — shu obyekt bo'yicha batafsil hisobot */
   subject?: SubjectOption;
+  /** Qo'shimcha sozlamalar (taqqoslash turi, ko'rinish …) */
+  options?: ReportOption[];
 }
 
 export interface GenerateInput {
@@ -178,6 +218,7 @@ export interface GenerateInput {
   unit?: string;
   subject?: string;
   format?: string;
+  options?: Record<string, unknown>;
 }
 
 export interface HistoryItem {

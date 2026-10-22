@@ -177,6 +177,9 @@ function ReportTab({ item, range, onRange }: { item: CatalogItem; range: { from:
 
   const [unit, setUnit] = useState('');
   const [subject, setSubject] = useState('');
+  // Hisobot sozlamalari (taqqoslash, ko'rinish …) — standart qiymatlar bilan
+  const [options, setOptions] = useState<Record<string, string>>({});
+  useEffect(() => setOptions(Object.fromEntries((item.options ?? []).map((o) => [o.key, o.default]))), [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState<ReportFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -192,17 +195,19 @@ function ReportTab({ item, range, onRange }: { item: CatalogItem; range: { from:
     to: needsPeriod ? range.to : '',
     unit: item.unit === 'none' ? undefined : unit || undefined,
     subject: chosenSubject || undefined,
+    options: item.options?.length ? options : undefined,
   };
+  const optionsKey = JSON.stringify(request.options ?? {});
 
   const preview = useAsync(
     () => (invalid ? Promise.resolve(null) : previewReport(request).then((r) => r.data)),
-    [item.id, request.from, request.to, request.unit, request.subject, invalid],
+    [item.id, request.from, request.to, request.unit, request.subject, optionsKey, invalid],
   );
 
   useEffect(() => {
     setDone(null);
     setError(null);
-  }, [request.from, request.to, request.unit, request.subject]);
+  }, [request.from, request.to, request.unit, request.subject, optionsKey]);
 
   const download = async (format: ReportFormat) => {
     if (invalid) return;
@@ -270,6 +275,19 @@ function ReportTab({ item, range, onRange }: { item: CatalogItem; range: { from:
               </select>
             </label>
           )}
+
+          {(item.options ?? []).map((o) => (
+            <label key={o.key} className="block w-56">
+              <span className={LABEL}>{o.label}</span>
+              <select value={options[o.key] ?? o.default} onChange={(e) => setOptions((x) => ({ ...x, [o.key]: e.target.value }))} className={FIELD}>
+                {o.choices.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
 
           {item.subject && (
             <label className="block w-80">

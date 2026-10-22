@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
+import { AlertsModule } from '../alerts/alerts.module';
+import { BplanModule } from '../bplan/bplan.module';
 import { EconModule } from '../econ/econ.module';
 import { ReactionsModule } from '../reactions/reactions.module';
 import { SectionsModule } from '../sections/sections.module';
 import { StructureModule } from '../structure/structure.module';
+import { GeneralSources } from './general.sources';
 import { ReconcileService } from './reconcile.service';
 import { AssetsReport } from './report.assets';
 import { ControlsReport } from './report.controls';
@@ -21,9 +24,9 @@ import { ReportsService } from './reports.service';
 
 /** Hisobotlar markazi */
 @Module({
-  imports: [EconModule, ReactionsModule, StructureModule, SectionsModule],
+  imports: [EconModule, ReactionsModule, StructureModule, SectionsModule, AlertsModule, BplanModule],
   controllers: [ReportsController],
-  providers: [ReportData, FinancialReport, ExecutiveReport, RegionsReport, PassportReport, ExpensesReport, IncomesReport, PayrollReport, AssetsReport, ReactionsSummaryReport, ControlsReport, ModelsReport, ReconcileService, ReportsService],
+  providers: [ReportData, GeneralSources, FinancialReport, ExecutiveReport, RegionsReport, PassportReport, ExpensesReport, IncomesReport, PayrollReport, AssetsReport, ReactionsSummaryReport, ControlsReport, ModelsReport, ReconcileService, ReportsService],
   exports: [ReportData, ReportsService],
 })
 export class ReportsModule {}

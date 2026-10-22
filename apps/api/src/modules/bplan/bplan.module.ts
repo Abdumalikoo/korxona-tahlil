@@ -6,5 +6,7 @@ import { BplanService } from './bplan.service';
 @Module({
   controllers: [BplanController],
   providers: [BplanService],
+  // «Umumiy hisobot» reja–fakt uchun (Hisobotlar markazi)
+  exports: [BplanService],
 })
 export class BplanModule {}

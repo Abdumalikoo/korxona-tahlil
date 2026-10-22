@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import { colLetter as colLetterOf, detectCalc, evaluate, excelFormula, inputsReady } from './reports.calc';
 import { excelFormat, PALETTE, cellTone, TONE_COLOR, uzDate } from './reports.format';
-import type { Block, ReportDoc, TableBlock } from './reports.types';
+import type { Block, KpiBlock, ReportDoc, TableBlock } from './reports.types';
 
 // ═══════════════════════════════════════════════════════════
 // Excel: "Xulosa" varag'i + har bir bo'lim alohida varaq.
@@ -34,7 +34,7 @@ export async function renderExcel(doc: ReportDoc): Promise<Buffer> {
   const used = new Set<string>();
 
   // ─────────── Xulosa ───────────
-  const cover = wb.addWorksheet(sheetName('Xulosa', used), { views: [{ showGridLines: false }], pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const cover = wb.addWorksheet(sheetName(doc.coverSheet ?? 'Xulosa', used), { views: [{ showGridLines: false }], pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
   cover.columns = [{ width: 4 }, { width: 44 }, { width: 22 }, { width: 44 }];
   let r = 1;
   cover.mergeCells(r, 1, r, 4);
@@ -52,10 +52,17 @@ export async function renderExcel(doc: ReportDoc): Promise<Buffer> {
     cover.getCell(r, 2).font = { color: { argb: argb(PALETTE.text) } };
     r += 1;
   }
-  const firstKpis = doc.sections.flatMap((s) => s.blocks).find((b) => b.type === 'kpis');
-  if (firstKpis && firstKpis.type === 'kpis') {
+  // Muqovada: o'z nomi bor KPI guruhlari (fakt / reja / prognoz) hammasi, aks holda birinchisi
+  const kpiBlocks = doc.sections.flatMap((s) => s.blocks).filter((b): b is KpiBlock => b.type === 'kpis');
+  const coverKpis = kpiBlocks.some((b) => b.title) ? kpiBlocks.filter((b) => b.title) : kpiBlocks.slice(0, 1);
+  for (const block of coverKpis) {
     r += 1;
-    for (const k of firstKpis.items) {
+    if (block.title) {
+      cover.getCell(r, 2).value = block.title;
+      cover.getCell(r, 2).font = { bold: true, size: 12, color: { argb: argb(PALETTE.navy) } };
+      r += 1;
+    }
+    for (const k of block.items) {
       cover.getCell(r, 2).value = k.label;
       cover.getCell(r, 2).font = { bold: true, color: { argb: argb(PALETTE.text) } };
       cover.getCell(r, 3).value = k.value;
@@ -88,7 +95,7 @@ export async function renderExcel(doc: ReportDoc): Promise<Buffer> {
   // ─────────── Bo'limlar ───────────
   for (const section of doc.sections) {
     const span = widthOf(section.blocks);
-    const ws = wb.addWorksheet(sheetName(section.title, used), { views: [{ showGridLines: false }], pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+    const ws = wb.addWorksheet(sheetName(section.sheet ?? section.title, used), { views: [{ showGridLines: false }], pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
     ws.columns = Array.from({ length: span }, (_, i) => ({ width: i === 0 ? 36 : 17 }));
     let row = 1;
     ws.mergeCells(row, 1, row, span);
@@ -107,6 +114,11 @@ export async function renderExcel(doc: ReportDoc): Promise<Buffer> {
 
     for (const block of section.blocks) {
       if (block.type === 'kpis') {
+        if (block.title) {
+          ws.getCell(row, 1).value = block.title;
+          ws.getCell(row, 1).font = { bold: true, size: 12, color: { argb: argb(PALETTE.navy) } };
+          row += 1;
+        }
         for (const k of block.items) {
           ws.getCell(row, 1).value = k.label;
           ws.getCell(row, 1).font = { bold: true, color: { argb: argb(PALETTE.text) } };

@@ -17,6 +17,8 @@ export interface CatalogItem {
   group: string;
   /** Ixtiyoriy obyekt tanlovi (masalan, bitta munosabat) */
   subject?: { kind: 'reaction'; label: string; emptyLabel: string };
+  /** Qo'shimcha sozlamalar (masalan, taqqoslash turi, qisqa / to'liq ko'rinish) */
+  options?: { key: string; label: string; default: string; choices: { value: string; label: string }[] }[];
 }
 
 export interface HistoryItem {
@@ -26,7 +28,7 @@ export interface HistoryItem {
   format: ReportFormat;
   filename: string;
   size: number;
-  params: { from: string; to: string; unit?: string; subject?: string; subtitle?: string };
+  params: { from: string; to: string; unit?: string; subject?: string; subtitle?: string; options?: Record<string, string> };
   createdAt: string;
   createdBy: string | null;
 }
@@ -104,7 +106,7 @@ function authHeaders(): Record<string, string> {
 }
 
 /** Hisobot yaratish va darhol yuklab olish; fayl nomini qaytaradi */
-export async function generateReport(payload: { type: string; from: string; to: string; unit?: string; subject?: string; format: ReportFormat }): Promise<string> {
+export async function generateReport(payload: { type: string; from: string; to: string; unit?: string; subject?: string; options?: Record<string, string>; format: ReportFormat }): Promise<string> {
   const response = await fetch(`${BASE}/reports/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -136,12 +138,17 @@ export interface DocColumn {
   tones?: Record<string, Tone>;
 }
 
-export interface DocKpis {
+/** Blok qaysi formatlarda (bo'lmasa — hammasida); ekranda Excel'dagidek ko'rsatiladi, grafiklar bilan */
+export type DocFormats = { formats?: ('xlsx' | 'pptx' | 'pdf')[] };
+
+export interface DocKpis extends DocFormats {
   type: 'kpis';
+  /** Kartalar guruhi nomi (fakt / reja / prognoz) */
+  title?: string;
   items: { label: string; value: string; sub?: string; tone?: Tone }[];
 }
 
-export interface DocTable {
+export interface DocTable extends DocFormats {
   type: 'table';
   title?: string;
   columns: DocColumn[];
@@ -153,7 +160,7 @@ export interface DocTable {
   marks?: (DocMark | null)[];
 }
 
-export interface DocChart {
+export interface DocChart extends DocFormats {
   type: 'chart';
   title: string;
   kind: 'bar' | 'barh' | 'line';
@@ -163,13 +170,13 @@ export interface DocChart {
   stacked?: boolean;
 }
 
-export interface DocNotes {
+export interface DocNotes extends DocFormats {
   type: 'notes';
   title?: string;
   items: string[];
 }
 
-export interface DocFormulas {
+export interface DocFormulas extends DocFormats {
   type: 'formulas';
   title?: string;
   headers?: [string, string];
@@ -184,7 +191,7 @@ export interface ReportDoc {
   subtitle: string;
   meta: string[];
   highlights: string[];
-  sections: { title: string; intro?: string; blocks: DocBlock[] }[];
+  sections: { title: string; intro?: string; sheet?: string; formats?: ('xlsx' | 'pptx' | 'pdf')[]; blocks: DocBlock[] }[];
   fileBase: string;
   generatedAt: string;
 }
@@ -195,6 +202,16 @@ export interface ReportRequest {
   to: string;
   unit?: string;
   subject?: string;
+  options?: Record<string, string>;
+}
+
+/**
+ * Ekranda ko'rish: Excel'dagi bloklar (batafsil jadvallar) + grafiklar.
+ * Faqat PDF/PowerPoint uchun qisqartirilgan nusxalar takrorlanmasin.
+ */
+export function forScreen(doc: ReportDoc): ReportDoc {
+  const show = (b: DocFormats & { type?: string }) => !b.formats || b.formats.includes('xlsx') || b.type === 'chart';
+  return { ...doc, sections: doc.sections.map((s) => ({ ...s, blocks: s.blocks.filter(show) })).filter((s) => s.blocks.length > 0) };
 }
 
 /** Hisobotni ekranda ko'rish uchun (fayl yaratilmaydi, tarixga yozilmaydi) */

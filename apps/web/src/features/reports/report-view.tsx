@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils';
 import { useBrief } from '@/lib/view-mode';
 import { Mark } from '@/features/reactions/mark';
 import type { ItemFilter, MarkItem } from '@/features/reactions/api';
-import { createContext, useContext, useEffect, useState } from 'react';
-import type { Cell, ColumnFormat, DocBlock, DocChart, DocColumn, DocFormulas, DocTable, ReportDoc, Tone } from './api';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { forScreen, type Cell, type ColumnFormat, type DocBlock, type DocChart, type DocColumn, type DocFormulas, type DocTable, type ReportDoc, type Tone } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Hisobotni ekranda ko'rsatish — Excel / PowerPoint / PDF bilan aynan bir xil hujjatdan.
@@ -297,7 +297,14 @@ function Block({ block }: { block: DocBlock }) {
   const brief = useBrief();
   switch (block.type) {
     case 'kpis':
-      return <Kpis items={block.items} />;
+      return block.title ? (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-brand-700">{block.title}</p>
+          <Kpis items={block.items} />
+        </div>
+      ) : (
+        <Kpis items={block.items} />
+      );
     case 'table':
       return <Table block={block} />;
     case 'chart':
@@ -321,7 +328,9 @@ function Block({ block }: { block: DocBlock }) {
 
 // ─────────── Hujjat ───────────
 
-export function ReportView({ doc }: { doc: ReportDoc }) {
+export function ReportView({ doc: raw }: { doc: ReportDoc }) {
+  // Ekranda — Excel'dagi to'liq jadvallar va grafiklar (PDF uchun qisqartirilgan nusxalar takrorlanmaydi)
+  const doc = useMemo(() => forScreen(raw), [raw]);
   const tabs = [{ value: 'summary', label: 'Xulosa' }, ...doc.sections.map((s, i) => ({ value: String(i), label: s.title }))];
   const [tab, setTab] = useState('summary');
   // Hisobot almashsa — xulosadan boshlanadi

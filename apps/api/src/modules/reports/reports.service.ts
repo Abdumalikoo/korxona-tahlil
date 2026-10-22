@@ -17,7 +17,7 @@ import { ReactionsSummaryReport } from './report.reactions';
 import { RegionsReport } from './report.regions';
 import { formulasFor } from './reports.formulas';
 import { addWorkings } from './reports.workings';
-import { FORMAT_INFO, type CatalogItem, type GenerateInput, type HistoryItem, type ReportDoc, type ReportFormat, type ReportParams } from './reports.types';
+import { FORMAT_INFO, forFormat, type CatalogItem, type GenerateInput, type HistoryItem, type ReportDoc, type ReportFormat, type ReportParams } from './reports.types';
 
 /** Tarixda saqlanadigan eng ko'p hisobotlar soni (eskilari o'chadi) */
 const KEEP = 300;
@@ -27,13 +27,24 @@ const FORMATS: ReportFormat[] = ['xlsx', 'pptx', 'pdf'];
 export const CATALOG: CatalogItem[] = [
   {
     id: 'executive',
-    title: 'Rahbariyat uchun qisqa hisobot',
-    description: "Bir qarashda: davr natijasi, nima o'zgardi, eng yaxshi va eng past hududlar, xavflar va tavsiyalar — 2–3 sahifa.",
-    contents: ["Asosiy ko'rsatkichlar, yil prognozi, risk, munosabat va nazorat holati", '12 oylik natija dinamikasi', "Natijaga eng katta ta'sir qilgan moddalar", 'Eng yaxshi va eng past hududlar', 'Xavflar va tavsiyalar'],
+    title: 'Umumiy hisobot',
+    description: "Rahbar uchun 2–3 sahifada: davr natijasi, reja bajarilishi, natija nimaga o'zgardi, hududlar va Markaz, xavflar va tavsiyalar, ma'lumot va prognoz ishonchliligi.",
+    contents: [
+      "Rahbariyat xulosasi: fakt, reja va prognoz alohida",
+      "Reja–fakt va davrlar taqqoslash (o'tgan teng davr, o'tgan yil)",
+      "Natija o'zgarishining sabablari (xizmat turlari va xarajat moddalari)",
+      'Hududlar: natija, rentabellik, bir xodimga, reja bajarilishi; Markazni qoplash',
+      "Xavflar va ustuvor tavsiyalar (mas'ul va muddat bilan)",
+      "Ma'lumot to'liqligi, prognoz ishonchliligi va metodika",
+    ],
     unit: 'none',
     period: true,
     formats: FORMATS,
     group: 'Rahbariyat',
+    options: [
+      { key: 'compare', label: 'Taqqoslash', default: 'yoy', choices: [{ value: 'yoy', label: "O'tgan yilning shu davri" }, { value: 'prev', label: "O'tgan teng davr" }] },
+      { key: 'view', label: "Ko'rinish", default: 'short', choices: [{ value: 'short', label: 'Qisqa' }, { value: 'full', label: "To'liq" }] },
+    ],
   },
   {
     id: 'financial',
@@ -202,6 +213,16 @@ export class ReportsService {
       ...(input?.unit ? { unit: String(input.unit) } : {}),
       ...(input?.subject ? { subject: String(input.subject) } : {}),
     };
+    // Sozlamalar: faqat katalogda e'lon qilinganlari va ruxsat etilgan qiymatlar (aks holda — standart)
+    if (item.options?.length) {
+      const raw = (input?.options ?? {}) as Record<string, unknown>;
+      params.options = Object.fromEntries(
+        item.options.map((o) => {
+          const v = String(raw[o.key] ?? '');
+          return [o.key, o.choices.some((c) => c.value === v) ? v : o.default];
+        }),
+      );
+    }
     if (item.unit === 'none') delete params.unit;
     if (!item.subject) delete params.subject;
     if (!item.period) {
@@ -210,6 +231,8 @@ export class ReportsService {
     }
 
     const doc = await this.build(type, params);
+    // O'z metodikasi bor hisobot (Umumiy hisobot) — umumiy ilova va formulalar qo'shilmaydi
+    if (doc.ownMethodology) return { type, params, doc };
     // Har bir jadval ostida — hisob-kitob hisobotning o'z raqamlari bilan
     const appendix = addWorkings(doc);
     if (withAppendix && appendix) doc.sections.push(appendix);
@@ -236,7 +259,9 @@ export class ReportsService {
     const format = String(input?.format ?? 'xlsx') as ReportFormat;
     if (!item.formats.includes(format)) throw new BadRequestException("Format noto'g'ri: xlsx, pptx yoki pdf");
     // Ilova (har bir qator hisob-kitobi) — PDF da; Excel da o'rniga jonli formulalar, slaydlarda — asosiylari
-    const { type, params, doc } = await this.prepare(input, format === 'pdf');
+    const { type, params, doc: full } = await this.prepare(input, format === 'pdf');
+    // Formatga ko'ra: batafsil jadvallar — Excel'da, grafiklar — PDF/PowerPoint'da (raqamlar bitta hujjatdan)
+    const doc = forFormat(full, format);
     const buffer = format === 'xlsx' ? await renderExcel(doc) : format === 'pptx' ? await renderPptx(doc) : await renderPdf(doc);
     const filename = `${doc.fileBase}.${FORMAT_INFO[format].ext}`;
 
