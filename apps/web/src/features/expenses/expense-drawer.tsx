@@ -15,6 +15,7 @@ import {
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { expensesApi, type UpdateExpensePayload } from './api';
+import { PlacePicker, placeError, placeOf, placePayload, type PlaceValue } from './place-picker';
 
 import { CategoryPicker } from '@/components/shared/category-picker';
 import { MoneyInput } from '@/components/shared/money-input';
@@ -61,7 +62,8 @@ interface FormState {
   date: string;
   categoryCode: string;
   amount: number | null;
-  departmentId: string;
+  /** Qayerga tegishli: Markaz (bo'lim) yoki Hudud (tuman) */
+  place: PlaceValue;
   paymentMethod: PaymentMethod;
   counterparty: string;
   documentNo: string;
@@ -84,7 +86,7 @@ function fromExpense(expense: Expense): FormState {
     date: toDateInput(expense.date) || todayInput(),
     categoryCode: expense.categoryCode,
     amount: tiyinToSum(expense.amountTiyin).toNumber(),
-    departmentId: expense.departmentId ?? '',
+    place: placeOf(expense),
     paymentMethod: expense.paymentMethod,
     counterparty: expense.counterparty ?? '',
     documentNo: expense.documentNo ?? '',
@@ -137,6 +139,11 @@ export function ExpenseDrawer({
     if (!state.date) found.date = 'Sanani tanlang';
     if (!state.categoryCode) found.categoryCode = 'Kategoriyani tanlang';
     if (state.amount === null || state.amount <= 0) found.amount = 'Summani kiriting';
+    // Eski (hech qayerga biriktirilmagan) yozuvda tanlov majburiy emas — tanlansa tekshiriladi
+    if (state.place.kind) {
+      const where = placeError(state.place);
+      if (where) found.place = where;
+    }
 
     if (state.vat !== null && state.amount !== null && state.vat > state.amount) {
       found.vat = 'QQS umumiy summadan katta bo\u2018lishi mumkin emas';
@@ -157,11 +164,12 @@ export function ExpenseDrawer({
     setSaving(true);
     setServerError(null);
 
+    const place = placePayload(form.place);
     const payload: UpdateExpensePayload = {
       date: form.date,
       amountTiyin: sumToTiyin(form.amount ?? 0),
       categoryCode: form.categoryCode,
-      departmentId: form.departmentId || undefined,
+      ...(place ? { regionCode: place.regionCode, departmentId: place.departmentId, districtId: place.districtId } : {}),
       description: form.description.trim(),
       paymentMethod: form.paymentMethod,
       documentNo: form.documentNo.trim(),
@@ -200,11 +208,6 @@ export function ExpenseDrawer({
       setDeleting(false);
     }
   }
-
-  const departmentOptions = [
-    { value: '', label: 'Umumkorxona' },
-    ...departments.map((item) => ({ value: item.id, label: item.name })),
-  ];
 
   /** Ombor kirimidan yozilgan — o'zgartirish va o'chirish faqat Ombor › Hujjatlar orqali */
   const fromWarehouse = expense.source === 'WAREHOUSE';
@@ -364,13 +367,18 @@ export function ExpenseDrawer({
             disabled={saving || readOnly}
           />
 
-          <Select
-            label="Bo&apos;lim"
-            options={departmentOptions}
-            value={form.departmentId}
-            onChange={(event) => update('departmentId', event.target.value)}
-            disabled={saving || readOnly}
+          <PlacePicker
+            value={form.place}
+            onChange={(place) => update('place', place)}
+            departments={departments}
+            error={errors.place}
+            disabled={saving || readOnly || fromWarehouse}
           />
+          {!form.place.kind && (
+            <p className="-mt-2 text-xs text-(--color-warn)">
+              Bu yozuv hech qayerga biriktirilmagan — Solishtirmada «Hududga biriktirilmagan»da turibdi. Markaz yoki Hududni tanlab saqlang.
+            </p>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
@@ -396,7 +404,7 @@ export function ExpenseDrawer({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
-              label="Kontragent"
+              label="Kimga to&apos;langan (kontragent)"
               value={form.counterparty}
               onChange={(event) => update('counterparty', event.target.value)}
               disabled={saving || readOnly}

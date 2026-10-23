@@ -450,7 +450,7 @@ export function ExpenseList({ section }: { section: SectionValue }) {
                       Kategoriya
                     </SortableTh>
 
-                    <Th className="w-48">Bo‘lim / Hudud</Th>
+                    <Th className="w-48">Markaz / Hudud</Th>
                     <Th>Tavsif</Th>
                     <Th className="w-28">Holat</Th>
 
@@ -503,7 +503,11 @@ export function ExpenseList({ section }: { section: SectionValue }) {
                         </Td>
 
                         <Td className="text-(--color-text-muted)">
-                          {expense.department?.name ?? expense.region?.name ?? 'Umumkorxona'}
+                          {expense.regionCode === 0 || (expense.regionCode === null && expense.department)
+                            ? `Markaz${expense.department ? ` › ${expense.department.name}` : ''}`
+                            : expense.region
+                              ? `${expense.region.name}${expense.district ? ` › ${expense.district.name}` : ''}`
+                              : <span className="text-(--color-warn)">Biriktirilmagan</span>}
                         </Td>
 
                         <Td className="max-w-xs truncate text-(--color-text-muted)">

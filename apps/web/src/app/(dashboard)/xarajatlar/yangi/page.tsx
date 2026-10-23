@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { expensesApi, type CreateExpensePayload } from '@/features/expenses/api';
+import { EMPTY_PLACE, PlacePicker, placeError, placePayload, type PlaceValue } from '@/features/expenses/place-picker';
 import { referencesApi } from '@/features/shared/references';
-import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
 import { recallForm, rememberForm } from '@/lib/form-memory';
 import { useSaveShortcut } from '@/lib/use-save-shortcut';
@@ -32,23 +32,24 @@ import type { PaymentMethod, PaymentStatus } from '@/lib/types';
 const LARGE_AMOUNT_THRESHOLD = 100_000_000;
 
 const paymentMethods: { value: PaymentMethod; label: string }[] = [
-  { value: 'BANK', label: 'Bank o\u2018tkazmasi' },
+  { value: 'BANK', label: 'Bank o‘tkazmasi' },
   { value: 'CASH', label: 'Naqd pul' },
   { value: 'CARD', label: 'Plastik karta' },
   { value: 'OTHER', label: 'Boshqa' },
 ];
 
 const paymentStatuses: { value: PaymentStatus; label: string }[] = [
-  { value: 'PAID', label: 'To\u2018langan' },
-  { value: 'UNPAID', label: 'To\u2018lanmagan' },
-  { value: 'PARTIAL', label: 'Qisman to\u2018langan' },
+  { value: 'PAID', label: 'To‘langan' },
+  { value: 'UNPAID', label: 'To‘lanmagan' },
+  { value: 'PARTIAL', label: 'Qisman to‘langan' },
 ];
 
 interface FormState {
   date: string;
   categoryCode: string;
   amount: number | null;
-  departmentId: string;
+  /** Qayerga tegishli: Markaz (bo'lim) yoki Hudud (tuman) */
+  place: PlaceValue;
   paymentMethod: PaymentMethod;
   counterparty: string;
   documentNo: string;
@@ -59,12 +60,20 @@ interface FormState {
   description: string;
 }
 
+/** Brauzerda eslab qolinadigan tanlovlar */
+interface Remembered {
+  place: PlaceValue;
+  paymentMethod: PaymentMethod;
+  /** Eski xotira (faqat bo'lim saqlangan) — Markaz bo'limi sifatida o'qiladi */
+  departmentId: string;
+}
+
 function emptyForm(): FormState {
   return {
     date: todayInput(),
     categoryCode: '',
     amount: null,
-    departmentId: '',
+    place: EMPTY_PLACE,
     paymentMethod: 'BANK',
     counterparty: '',
     documentNo: '',
@@ -74,6 +83,17 @@ function emptyForm(): FormState {
     vat: null,
     description: '',
   };
+}
+
+/** Bosqich sarlavhasi: raqam + nom */
+function StepTitle({ n, title, hint }: { n: number; title: string; hint?: string }) {
+  return (
+    <div className="flex items-baseline gap-2.5">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white">{n}</span>
+      <h3 className="text-sm font-bold text-heading">{title}</h3>
+      {hint && <span className="text-xs text-(--color-text-muted)">{hint}</span>}
+    </div>
+  );
 }
 
 export default function NewExpensePage() {
@@ -99,12 +119,18 @@ export default function NewExpensePage() {
   const categories = useAsync(() => referencesApi.expenseLeaves(), []);
   const tree = useAsync(() => referencesApi.expenseTree(), []);
 
-  // Oldingi safardagi bo'lim va to'lov usuli o'zi turadi
+  // Oldingi safardagi joy (Markaz/hudud) va to'lov usuli o'zi turadi
   useEffect(() => {
-    const last = recallForm<Pick<FormState, 'departmentId' | 'paymentMethod'>>('expense');
+    const last = recallForm<Remembered>('expense');
+    const place: PlaceValue | null =
+      last.place && (last.place.kind === 'CENTER' || last.place.kind === 'REGION')
+        ? { ...EMPTY_PLACE, ...last.place }
+        : typeof last.departmentId === 'string' && last.departmentId
+          ? { kind: 'CENTER', departmentId: last.departmentId, regionCode: '', districtId: '' }
+          : null;
     setForm((state) => ({
       ...state,
-      ...(typeof last.departmentId === 'string' ? { departmentId: last.departmentId } : {}),
+      ...(place ? { place } : {}),
       ...(last.paymentMethod ? { paymentMethod: last.paymentMethod } : {}),
     }));
   }, []);
@@ -158,28 +184,35 @@ export default function NewExpensePage() {
   function validate(): boolean {
     const found: Record<string, string> = {};
 
+    const where = placeError(form.place);
+    if (where) found.place = where;
     if (!form.date) found.date = 'Sanani tanlang';
     if (!form.categoryCode) found.categoryCode = 'Kategoriyani tanlang';
     if (form.amount === null || form.amount <= 0) found.amount = 'Summani kiriting';
 
     if (form.vat !== null && form.amount !== null && form.vat > form.amount) {
-      found.vat = 'QQS umumiy summadan katta bo\u2018lishi mumkin emas';
+      found.vat = 'QQS umumiy summadan katta bo‘lishi mumkin emas';
     }
 
     if (form.dueDate && form.dueDate < form.date) {
-      found.dueDate = 'To\u2018lov muddati xarajat sanasidan oldin bo\u2018la olmaydi';
+      found.dueDate = 'To‘lov muddati xarajat sanasidan oldin bo‘la olmaydi';
     }
 
     setErrors(found);
+    // Xato qo'shimcha qismda bo'lsa — uni ochib qo'yamiz
+    if (found.vat || found.dueDate) setExtraOpen(true);
     return Object.keys(found).length === 0;
   }
 
   function buildPayload(): CreateExpensePayload {
+    const place = placePayload(form.place);
     return {
       date: form.date,
       amountTiyin: sumToTiyin(form.amount ?? 0),
       categoryCode: form.categoryCode,
-      ...(form.departmentId ? { departmentId: form.departmentId } : {}),
+      ...(place ? { regionCode: place.regionCode } : {}),
+      ...(place?.departmentId ? { departmentId: place.departmentId } : {}),
+      ...(place?.districtId ? { districtId: place.districtId } : {}),
       ...(form.description.trim() ? { description: form.description.trim() } : {}),
       paymentMethod: form.paymentMethod,
       ...(form.documentNo.trim() ? { documentNo: form.documentNo.trim() } : {}),
@@ -199,7 +232,7 @@ export default function NewExpensePage() {
       form.amount !== null &&
       form.amount >= LARGE_AMOUNT_THRESHOLD &&
       !window.confirm(
-        `Summa ${formatSum(form.amount)} so\u2018m. Bu to\u2018g\u2018rimi?`,
+        `Summa ${formatSum(form.amount)} so‘m. Bu to‘g‘rimi?`,
       )
     ) {
       return;
@@ -209,14 +242,14 @@ export default function NewExpensePage() {
 
     try {
       await expensesApi.create(buildPayload());
-      rememberForm('expense', { departmentId: form.departmentId, paymentMethod: form.paymentMethod });
+      rememberForm<Remembered>('expense', { place: form.place, paymentMethod: form.paymentMethod });
 
       if (keepOpen) {
-        // Sana va bo'lim saqlanadi - ketma-ket kiritishda ular odatda bir xil
+        // Sana va joy saqlanadi - ketma-ket kiritishda ular odatda bir xil
         setForm((state) => ({
           ...emptyForm(),
           date: state.date,
-          departmentId: state.departmentId,
+          place: state.place,
           paymentMethod: state.paymentMethod,
         }));
         setToast({ message: 'Saqlandi', tone: 'success' });
@@ -238,19 +271,22 @@ export default function NewExpensePage() {
     void save(false);
   }
 
-  const departmentOptions = [
-    { value: '', label: 'Umumkorxona' },
-    ...(departments.data?.data ?? []).map((item) => ({
-      value: item.id,
-      label: item.name,
-    })),
-  ];
+  /** Qo'shimcha qismda to'ldirilgan maydonlar — yopiq turganda ham ko'rinsin */
+  const extraFilled = [
+    form.counterparty.trim() && `Kimga: ${form.counterparty.trim()}`,
+    form.documentNo.trim() && `Hujjat: ${form.documentNo.trim()}`,
+    form.paymentStatus !== 'PAID' && paymentStatuses.find((s) => s.value === form.paymentStatus)?.label,
+    form.dueDate && `Muddat: ${form.dueDate}`,
+    form.responsible.trim() && `Javobgar: ${form.responsible.trim()}`,
+    form.vat !== null && 'QQS',
+    form.description.trim() && 'Izoh',
+  ].filter(Boolean) as string[];
 
   return (
     <>
       <PageHeader
         title={section === 'BOSHQA' ? 'Yangi xarajat · Boshqa' : 'Yangi xarajat · Doimiy'}
-        description="Yulduzcha bilan belgilangan maydonlar majburiy"
+        description="Avval Markaz yoki Hududni tanlang, keyin xarajatni kiriting"
         actions={
           <Link href={backHref} className={buttonClass('ghost', 'sm')}>
             Bekor qilish
@@ -258,104 +294,116 @@ export default function NewExpensePage() {
         }
       />
 
-      <div className="p-6">
+      <div className="p-4 md:p-6">
         <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
           <Card>
-            <CardBody className="space-y-5">
-              {/* ─────────── Asosiy ─────────── */}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Input
-                  label="Sana"
-                  type="date"
-                  value={form.date}
-                  onChange={(event) => update('date', event.target.value)}
-                  error={errors.date}
-                  required
+            <CardBody className="space-y-6">
+              {/* ─────────── 1. Qayerga tegishli ─────────── */}
+              <section className="space-y-3">
+                <StepTitle n={1} title="Qayerga tegishli" hint="Markaz yoki Hudud — majburiy" />
+                <PlacePicker
+                  value={form.place}
+                  onChange={(place) => update('place', place)}
+                  departments={departments.data?.data ?? []}
+                  error={errors.place}
                   disabled={saving}
+                  hideLabel
                 />
+              </section>
 
-                <div className="sm:col-span-2">
-                  <CategoryPicker
-                    label="Kategoriya"
-                    categories={categories.data?.data ?? []}
-                    value={form.categoryCode}
-                    onChange={(code) => update('categoryCode', code)}
-                    error={errors.categoryCode}
+              {/* ─────────── 2. Xarajat ─────────── */}
+              <section className="space-y-4 border-t border-(--color-line) pt-5">
+                <StepTitle n={2} title="Xarajat" hint="nima, qachon, qancha" />
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Input
+                    label="Sana"
+                    type="date"
+                    value={form.date}
+                    onChange={(event) => update('date', event.target.value)}
+                    error={errors.date}
                     required
                     disabled={saving}
-                    onCreateNew={(text) => {
-                      setQuickLabel(text);
-                      setQuickOpen(true);
-                    }}
+                  />
+
+                  <div className="sm:col-span-2">
+                    <CategoryPicker
+                      label="Kategoriya (nima uchun)"
+                      categories={categories.data?.data ?? []}
+                      value={form.categoryCode}
+                      onChange={(code) => update('categoryCode', code)}
+                      error={errors.categoryCode}
+                      required
+                      disabled={saving}
+                      onCreateNew={(text) => {
+                        setQuickLabel(text);
+                        setQuickOpen(true);
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MoneyInput
+                    label="Summa"
+                    value={form.amount}
+                    onChange={(value) => update('amount', value)}
+                    error={errors.amount}
+                    required
+                    disabled={saving}
+                  />
+
+                  <Select
+                    label="To&apos;lov usuli"
+                    options={paymentMethods}
+                    value={form.paymentMethod}
+                    onChange={(event) =>
+                      update('paymentMethod', event.target.value as PaymentMethod)
+                    }
+                    disabled={saving}
                   />
                 </div>
-              </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <MoneyInput
-                  label="Summa"
-                  value={form.amount}
-                  onChange={(value) => update('amount', value)}
-                  error={errors.amount}
-                  required
-                  disabled={saving}
-                />
+                <DuplicateWarning items={duplicates} />
+              </section>
 
-                <Select
-                  label="Bo&apos;lim"
-                  options={departmentOptions}
-                  value={form.departmentId}
-                  onChange={(event) => update('departmentId', event.target.value)}
-                  disabled={saving}
-                  hint="Bo&apos;sh qoldirilsa umumkorxona xarajati hisoblanadi"
-                />
-              </div>
-
-              <DuplicateWarning items={duplicates} />
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Select
-                  label="To&apos;lov usuli"
-                  options={paymentMethods}
-                  value={form.paymentMethod}
-                  onChange={(event) =>
-                    update('paymentMethod', event.target.value as PaymentMethod)
-                  }
-                  disabled={saving}
-                />
-
-                <Input
-                  label="Kontragent"
-                  value={form.counterparty}
-                  onChange={(event) => update('counterparty', event.target.value)}
-                  placeholder="Kimga to&apos;landi"
-                  disabled={saving}
-                />
-              </div>
-
-              {/* ─────────── Qo'shimcha ─────────── */}
-              <div className="border-t border-(--color-line) pt-4">
+              {/* ─────────── 3. Qo'shimcha ─────────── */}
+              <section className="border-t border-(--color-line) pt-4">
                 <button
                   type="button"
                   onClick={() => setExtraOpen((state) => !state)}
-                  className="flex items-center gap-1.5 text-sm font-medium text-brand-700 transition-colors hover:text-brand-900"
+                  aria-expanded={extraOpen}
+                  className="flex w-full items-center gap-1.5 text-left text-sm font-medium text-brand-700 transition-colors hover:text-brand-900"
                 >
                   <IconChevronDown
-                    className={`size-4 transition-transform ${extraOpen ? 'rotate-180' : ''}`}
+                    className={`size-4 shrink-0 transition-transform ${extraOpen ? 'rotate-180' : ''}`}
                   />
                   Qo&apos;shimcha ma&apos;lumot
+                  <span className="ml-1 truncate text-xs font-normal text-(--color-text-muted)">
+                    {extraFilled.length ? extraFilled.join(' · ') : "kimga to'langan, hujjat, to'lov holati, QQS, izoh"}
+                  </span>
                 </button>
 
                 {extraOpen && (
                   <div className="mt-4 space-y-4">
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Input
+                        label="Kimga to&apos;langan (kontragent)"
+                        value={form.counterparty}
+                        onChange={(event) => update('counterparty', event.target.value)}
+                        placeholder="Tashkilot yoki shaxs nomi"
+                        disabled={saving}
+                      />
+
                       <Input
                         label="Hujjat raqami"
                         value={form.documentNo}
                         onChange={(event) => update('documentNo', event.target.value)}
+                        placeholder="Shartnoma, hisob-faktura №"
                         disabled={saving}
                       />
+                    </div>
 
+                    <div className="grid gap-4 sm:grid-cols-3">
                       <Select
                         label="To&apos;lov holati"
                         options={paymentStatuses}
@@ -374,16 +422,6 @@ export default function NewExpensePage() {
                         error={errors.dueDate}
                         disabled={saving}
                       />
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Input
-                        label="Javobgar"
-                        value={form.responsible}
-                        onChange={(event) => update('responsible', event.target.value)}
-                        placeholder="F.I.Sh."
-                        disabled={saving}
-                      />
 
                       <MoneyInput
                         label="QQS summasi"
@@ -394,6 +432,14 @@ export default function NewExpensePage() {
                         hint="Umumiy summa ichidagi soliq"
                       />
                     </div>
+
+                    <Input
+                      label="Javobgar"
+                      value={form.responsible}
+                      onChange={(event) => update('responsible', event.target.value)}
+                      placeholder="F.I.Sh."
+                      disabled={saving}
+                    />
 
                     <div>
                       <label className="mb-1.5 block text-sm font-medium text-(--color-text)">
@@ -411,7 +457,7 @@ export default function NewExpensePage() {
                     </div>
                   </div>
                 )}
-              </div>
+              </section>
             </CardBody>
 
             <CardFooter>

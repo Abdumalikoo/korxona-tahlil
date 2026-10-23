@@ -32,6 +32,21 @@ export class CreateExpenseDto {
   @IsString()
   departmentId?: string;
 
+  /**
+   * Qayerga tegishli: 0 — Markaz, boshqa kod — hudud.
+   * Bo'lim faqat Markazda, tuman faqat hududda tanlanadi.
+   */
+  @IsOptional()
+  @IsInt({ message: 'Hudud kodi butun son bolishi kerak' })
+  @Min(0)
+  regionCode?: number;
+
+  /** Hudud ichidagi tuman (ixtiyoriy) */
+  @IsOptional()
+  @IsString()
+  districtId?: string;
+
+
   @IsOptional()
   @IsString()
   @MaxLength(500)

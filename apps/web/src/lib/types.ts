@@ -102,8 +102,10 @@ export interface Expense {
   amountTiyin: string;
   categoryCode: string;
   departmentId: string | null;
-  /** Hudud kodi - ish haqi va hududiy xarajatlarda */
+  /** Hudud kodi: 0 — Markaz, boshqa — hudud (ish haqi va hududiy xarajatlarda ham) */
   regionCode: number | null;
+  /** Hudud ichidagi tuman */
+  districtId?: string | null;
 
   description: string | null;
   paymentMethod: PaymentMethod;
@@ -127,6 +129,7 @@ export interface Expense {
   category: CategoryRef;
   department: DepartmentRef | null;
   region: { code: number; name: string } | null;
+  district?: { id: string; name: string } | null;
   createdBy?: UserRef;
 }
 

@@ -52,7 +52,10 @@ export interface CreateExpensePayload {
   amountTiyin: number;
   categoryCode: string;
   departmentId?: string;
+  /** 0 — Markaz, boshqa kod — hudud */
   regionCode?: number;
+  /** Hudud ichidagi tuman ('' — tumansiz) */
+  districtId?: string;
   description?: string;
   paymentMethod?: PaymentMethod;
   documentNo?: string;
@@ -65,6 +68,7 @@ export interface CreateExpensePayload {
 }
 
 export type UpdateExpensePayload = Partial<CreateExpensePayload>;
+
 
 /**
  * Excel faylni yuklab oladi.

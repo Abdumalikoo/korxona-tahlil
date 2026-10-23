@@ -28,6 +28,17 @@ export class UpdateExpenseDto {
   @IsString()
   departmentId?: string | null;
 
+  /** 0 — Markaz, boshqa kod — hudud; null — biriktirilmagan */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  regionCode?: number | null;
+
+  @IsOptional()
+  @IsString()
+  districtId?: string | null;
+
+
   @IsOptional()
   @IsString()
   @MaxLength(500)
