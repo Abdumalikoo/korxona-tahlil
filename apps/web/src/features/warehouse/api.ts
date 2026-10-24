@@ -539,6 +539,15 @@ export const warehouseApi = {
   templateApproval: () => api.get<ApiResponse<TemplateApproval | null>>('/warehouse/act-template/approval'),
   commitSignDraft: (id: string) => api.post<ApiResponse<{ doc: WarehouseDoc; template?: ActTemplate; sign: SignStatus }>>(`/warehouse/sign-drafts/${id}/commit`),
   cancelDoc: (id: string) => api.post<ApiResponse<WarehouseDoc>>(`/warehouse/docs/${id}/cancel`),
+  /** Belgilangan hujjatlarni bekor qilish — eng yangisidan boshlab; bekor bo'lmaganlari sababi bilan qaytadi */
+  cancelDocs: (ids: string[]) =>
+    api.post<ApiResponse<{ cancelled: { id: string; number: string }[]; failed: { id: string; number: string; reason: string }[] }>>('/warehouse/docs/cancel-many', { ids }),
+  /** Belgilangan buyumlar: hujjatda ishlatilgani — arxivga, qolgani o'chadi */
+  removeItems: (ids: string[]) => api.post<ApiResponse<{ deleted: number; archived: number; failed: { id: string; reason: string }[] }>>('/warehouse/items/remove-many', { ids }),
+  /** Xato kiritilgan asosiy vosita (administrator): kirim summasi va xarajati ham kamayadi */
+  removeAsset: (id: string) => api.delete<ApiResponse<{ id: string; inventoryNo: string; docCancelled: string | null }>>(`/warehouse/assets/${id}`),
+  removeAssets: (ids: string[]) =>
+    api.post<ApiResponse<{ deleted: { id: string; inventoryNo: string }[]; docsCancelled: string[]; failed: { id: string; reason: string }[] }>>('/warehouse/assets/remove-many', { ids }),
 
   assets: (params: { status?: AssetStatus; search?: string; departmentId?: string; regionCode?: string; holder?: string; itemId?: string } = {}) =>
     api.get<ApiResponse<WarehouseAsset[]>>('/warehouse/assets', { params: { ...params, search: params.search || undefined } }),

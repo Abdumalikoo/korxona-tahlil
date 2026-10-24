@@ -4,7 +4,8 @@ import { PageHeader } from '@/components/layout/page-header';
 import { SearchInput } from '@/components/shared/search-input';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { IconDownload } from '@/components/ui/icons';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { IconDownload, IconTrash } from '@/components/ui/icons';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { SubTabs } from '@/components/ui/tabs';
 import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
@@ -31,7 +32,10 @@ export default function WarehouseSignsPage() {
   const [tab, setTab] = useState<Tab>('SIGNED');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
-  const { isAdmin } = useAuth();
+  const { isAdmin, canWrite } = useAuth();
+  const editable = canWrite('/ombor');
+  const [confirm, setConfirm] = useState<SignListItem | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const list = useAsync(() => warehouseApi.signs(), []);
   const w = useWarehouseDialogs(list.reload);
 
@@ -50,6 +54,22 @@ export default function WarehouseSignsPage() {
       w.notify(errorMessage(e, "Imzoli nusxani yuklab bo'lmadi"), 'error');
     } finally {
       setBusy(null);
+    }
+  };
+
+  /** Kutilayotgan imzo so'rovini bekor qilish (QR havola ishlamay qoladi; hujjatning o'zi qoladi) */
+  const cancelRequest = async () => {
+    if (!confirm?.docId) return;
+    setCancelling(true);
+    try {
+      await warehouseApi.cancelSign(confirm.docId);
+      w.notify(`${confirm.number}: imzo so'rovi bekor qilindi`);
+      list.reload();
+    } catch (e) {
+      w.notify(errorMessage(e, "Bekor qilib bo'lmadi"), 'error');
+    } finally {
+      setCancelling(false);
+      setConfirm(null);
     }
   };
 
@@ -148,6 +168,20 @@ export default function WarehouseSignsPage() {
                           <IconDownload className="size-4" />
                         </button>
                       )}
+                      {tab === 'PENDING' && editable && r.docId && (
+                        <button
+                          type="button"
+                          title="Imzo so'rovini bekor qilish"
+                          aria-label={`${r.number} — imzo so'rovini bekor qilish`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirm(r);
+                          }}
+                          className="rounded p-1.5 text-(--color-text-muted) hover:bg-(--color-expense-soft) hover:text-(--color-expense)"
+                        >
+                          <IconTrash className="size-4" />
+                        </button>
+                      )}
                     </Td>
                   </Tr>
                 ))}
@@ -157,6 +191,16 @@ export default function WarehouseSignsPage() {
         </Card>
       </div>
 
+      <ConfirmDialog
+        open={confirm !== null}
+        title="Imzo so'rovini bekor qilish"
+        message={`${confirm?.number ?? ''} (${confirm?.signerName ?? ''}): QR havola ishlamay qoladi. Hujjatning o'zi o'chmaydi — kerak bo'lsa «Hujjatlar» jurnalidan bekor qiling.`}
+        confirmLabel="Bekor qilish"
+        danger
+        loading={cancelling}
+        onConfirm={() => void cancelRequest()}
+        onCancel={() => setConfirm(null)}
+      />
       {w.element}
     </>
   );

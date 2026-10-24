@@ -6,6 +6,8 @@ import { SourceActions } from '@/components/shared/source-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { IconTrash } from '@/components/ui/icons';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { SubTabs } from '@/components/ui/tabs';
 import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
@@ -14,15 +16,17 @@ import { DocButtons } from '@/features/warehouse/doc-buttons';
 import { ItemForm } from '@/features/warehouse/item-form';
 import { useWarehouseDialogs } from '@/features/warehouse/use-dialogs';
 import { useAuth } from '@/lib/auth-context';
+import { errorMessage } from '@/lib/error-message';
 import { formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Ombor › Qoldiq — buyumlar ma'lumotnomasi va bugungi qoldiq.
 // Qoldiq hujjatlardan hisoblanadi: kirim + qaytarish − chiqim − hisobdan chiqarish.
+// O'chirish (savatcha yoki belgilab): hujjatda ishlatilgan buyum — arxivga (tarix saqlanadi), ishlatilmagani — butunlay.
 // ═══════════════════════════════════════════════════════════
 
 type KindTab = 'ALL' | ItemKind;
@@ -37,14 +41,37 @@ export default function WarehouseStockPage() {
   const [lowOnly, setLowOnly] = useState(false);
   const [editing, setEditing] = useState<WarehouseItem | null>(null);
   const [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [confirm, setConfirm] = useState<WarehouseItem[] | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const list = useAsync(() => warehouseApi.items({ kind: kind === 'ALL' ? undefined : kind, search, all: archived }), [kind, search, archived]);
   const w = useWarehouseDialogs(list.reload);
+  useEffect(() => setSelected([]), [kind, search, archived, lowOnly]);
 
   const all = list.data?.data ?? [];
   const items = lowOnly ? all.filter((i) => i.low) : all;
   const lowCount = all.filter((i) => i.low).length;
   const value = items.reduce((s, i) => s + Number(i.stockValueTiyin), 0);
+  const selectable = items.filter((i) => i.isActive);
+  const allChecked = selectable.length > 0 && selectable.every((i) => selected.includes(i.id));
+
+  const remove = async () => {
+    if (!confirm) return;
+    setRemoving(true);
+    try {
+      const r = (await warehouseApi.removeItems(confirm.map((i) => i.id))).data;
+      const parts = [r.deleted ? `${r.deleted} ta o'chirildi` : null, r.archived ? `${r.archived} tasi hujjatlarda ishlatilgan — arxivga o'tkazildi` : null].filter(Boolean).join(', ');
+      w.notify(r.failed.length ? `${parts || "Hech biri o'chmadi"}; ${r.failed.length} tasida xato: ${r.failed[0]?.reason ?? ''}` : parts || 'Bajarildi', r.failed.length ? 'error' : 'success');
+      setSelected([]);
+      list.reload();
+    } catch (err) {
+      w.notify(errorMessage(err, "O'chirib bo'lmadi"), 'error');
+    } finally {
+      setRemoving(false);
+      setConfirm(null);
+    }
+  };
 
   return (
     <>
@@ -53,6 +80,11 @@ export default function WarehouseStockPage() {
       <div className="space-y-4 p-6">
         <SourceActions
           add={{ label: 'Yangi buyum', onClick: () => setCreating(true), hint: "Ma'lumotnomaga qo'shish — keyin kirim va chiqimda tanlanadi" }}
+          remove={
+            isAdmin
+              ? { count: selected.length, label: "Belgilanganlarni o'chirish", hint: "Buyumlarni belgilang. Hujjatda ishlatilganlari arxivga o'tadi", onClick: () => setConfirm(items.filter((i) => selected.includes(i.id))) }
+              : undefined
+          }
           extra={
             isAdmin ? (
               <>
@@ -60,7 +92,6 @@ export default function WarehouseStockPage() {
                   {w.keeper ? 'Qabul qilish' : 'Kirim'}
                 </Button>
                 <DocButtons onNew={(k) => w.newDoc(k)} only={['ISSUE', 'WRITE_OFF']} />
-                <span className="text-xs text-(--color-text-muted)">Buyumni o&apos;chirish — qatorni bosing, oyna ochiladi.</span>
               </>
             ) : null
           }
@@ -103,6 +134,18 @@ export default function WarehouseStockPage() {
             <Table>
               <THead>
                 <Tr>
+                  {isAdmin && (
+                    <Th className="w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Hammasini belgilash"
+                        checked={allChecked}
+                        disabled={!selectable.length}
+                        onChange={() => setSelected(allChecked ? [] : selectable.map((i) => i.id))}
+                        className="size-4"
+                      />
+                    </Th>
+                  )}
                   <Th className="w-28">Kod</Th>
                   <Th>Nomi</Th>
                   <Th className="w-36" align="right">
@@ -117,12 +160,24 @@ export default function WarehouseStockPage() {
                   <Th className="w-40" align="right">
                     Qoldiq qiymati
                   </Th>
-                  {isAdmin && <Th className="w-44" align="right" />}
+                  {isAdmin && <Th className="w-52" align="right" />}
                 </Tr>
               </THead>
               <TBody>
                 {items.map((i) => (
-                  <Tr key={i.id} clickable onClick={() => setEditing(i)} className={cn(!i.isActive && 'opacity-60')}>
+                  <Tr key={i.id} clickable onClick={() => setEditing(i)} className={cn(!i.isActive && 'opacity-60', selected.includes(i.id) && 'bg-brand-50/60')}>
+                    {isAdmin && (
+                      <Td onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`${i.name} belgilash`}
+                          disabled={!i.isActive}
+                          checked={selected.includes(i.id)}
+                          onChange={() => setSelected((s) => (s.includes(i.id) ? s.filter((x) => x !== i.id) : [...s, i.id]))}
+                          className="size-4"
+                        />
+                      </Td>
+                    )}
                     <Td className="money text-xs font-semibold text-(--color-text-muted)">{i.code}</Td>
                     <Td>
                       <div className="flex flex-wrap items-center gap-2">
@@ -174,6 +229,17 @@ export default function WarehouseStockPage() {
                             Berish
                           </Link>
                         )}
+                        {i.isActive && (
+                          <button
+                            type="button"
+                            title="O'chirish"
+                            aria-label={`${i.name} — o'chirish`}
+                            onClick={() => setConfirm([i])}
+                            className="ml-1 rounded p-1.5 align-middle text-(--color-text-muted) hover:bg-(--color-expense-soft) hover:text-(--color-expense)"
+                          >
+                            <IconTrash className="size-4" />
+                          </button>
+                        )}
                       </Td>
                     )}
                   </Tr>
@@ -181,7 +247,7 @@ export default function WarehouseStockPage() {
               </TBody>
               <TFoot>
                 <Tr>
-                  <Td colSpan={5} className="font-semibold">
+                  <Td colSpan={isAdmin ? 6 : 5} className="font-semibold">
                     Jami: {items.length} ta buyum
                   </Td>
                   <Td align="right" money className="font-bold">
@@ -210,6 +276,20 @@ export default function WarehouseStockPage() {
           w.notify(message);
           list.reload();
         }}
+      />
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm && confirm.length > 1 ? `${confirm.length} ta buyumni o'chirish` : "Buyumni o'chirish"}
+        message={
+          confirm
+            ? `${confirm.slice(0, 5).map((i) => i.name).join(', ')}${confirm.length > 5 ? ' …' : ''} — ma'lumotnomadan o'chiriladi. Hujjatlarda ishlatilganlari arxivga o'tadi (kirim-chiqim tarixi saqlanadi, «Arxivdagilar ham» belgisi bilan ko'rinadi).`
+            : ''
+        }
+        confirmLabel="O'chirish"
+        danger
+        loading={removing}
+        onConfirm={() => void remove()}
+        onCancel={() => setConfirm(null)}
       />
       {w.element}
     </>

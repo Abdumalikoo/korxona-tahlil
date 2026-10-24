@@ -230,6 +230,14 @@ export class WarehouseController {
     return { data: await this.warehouse.removeItem(id) };
   }
 
+  /** Belgilangan buyumlar (ishlatilganlari — arxivga) */
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('items/remove-many')
+  @HttpCode(HttpStatus.OK)
+  async removeItems(@Body() body: { ids?: unknown }) {
+    return { data: await this.warehouse.removeItems(body?.ids) };
+  }
+
   // ═══════════ Hujjatlar ═══════════
 
   /** ?kind=RECEIPT|ISSUE|RETURN|TRANSFER|WRITE_OFF&from&to&search&departmentId&regionCode */
@@ -284,7 +292,29 @@ export class WarehouseController {
     return { data: await this.warehouse.cancelDoc(id, userId) };
   }
 
+  /** Belgilangan hujjatlarni bekor qilish (eng yangisidan boshlab; xatolilar ro'yxatda) */
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('docs/cancel-many')
+  @HttpCode(HttpStatus.OK)
+  async cancelDocs(@Body() body: { ids?: unknown }, @CurrentUser('id') userId: string, @CurrentUser('role') role?: string) {
+    return { data: await this.warehouse.cancelDocs(body?.ids, userId, role) };
+  }
+
   // ═══════════ Asosiy vositalar ═══════════
+
+  /** Xato kiritilgan asosiy vositani o'chirish (kirim summasi va xarajati ham kamayadi) — administrator */
+  @Roles(UserRole.ADMIN)
+  @Delete('assets/:id')
+  async removeAsset(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.warehouse.removeAsset(id, userId) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('assets/remove-many')
+  @HttpCode(HttpStatus.OK)
+  async removeAssets(@Body() body: { ids?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.warehouse.removeAssets(body?.ids, userId) };
+  }
 
   /** ?status=IN_STOCK|IN_USE|WRITTEN_OFF&departmentId&regionCode&holder&itemId&search */
   @Get('assets')

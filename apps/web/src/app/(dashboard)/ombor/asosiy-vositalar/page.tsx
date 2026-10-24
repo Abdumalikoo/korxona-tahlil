@@ -5,6 +5,7 @@ import { SearchInput } from '@/components/shared/search-input';
 import { SourceActions } from '@/components/shared/source-actions';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { Select } from '@/components/ui/select';
 import { SubTabs } from '@/components/ui/tabs';
@@ -13,6 +14,7 @@ import { warehouseApi, type AssetStatus, type DocKind } from '@/features/warehou
 import { AssetStatusBadge } from '@/features/warehouse/bits';
 import { useWarehouseDialogs } from '@/features/warehouse/use-dialogs';
 import { useAuth } from '@/lib/auth-context';
+import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
@@ -21,16 +23,19 @@ import { useMemo, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Ombor › Asosiy vositalar — har biri inventar raqami bilan: hozir kimda, qayerda.
-// Belgilab bir nechtasini birdan berish / ko'chirish / qaytarish / hisobdan chiqarish mumkin.
+// Belgilab bir nechtasini birdan berish / ko'chirish / qaytarish / hisobdan chiqarish mumkin;
+// «O'chirish» (administrator) — xato kiritilganlarini: kirim summasi va xarajati ham kamayadi.
 // Qatorni bosing — harakat tarixi (masalan: Strategiya → Kadrlar).
 // ═══════════════════════════════════════════════════════════
 
 type StatusTab = 'ACTIVE' | AssetStatus;
 
 export default function WarehouseAssetsPage() {
-  const { canWrite } = useAuth();
+  const { canWrite, isAdmin: isRealAdmin } = useAuth();
   /** Kiritish huquqi: administrator yoki Omborchi */
   const isAdmin = canWrite('/ombor');
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const params = useSearchParams();
   const initialStatus = params.get('status');
   const [status, setStatus] = useState<StatusTab>(
@@ -69,6 +74,22 @@ export default function WarehouseAssetsPage() {
     { kind: 'WRITE_OFF', label: 'Hisobdan chiqarish', ok: chosen.length > 0 && chosen.every((a) => a.status !== 'WRITTEN_OFF') },
   ];
 
+  const remove = async () => {
+    setRemoving(true);
+    try {
+      const r = (await warehouseApi.removeAssets(chosen.map((a) => a.id))).data;
+      const ok = `${r.deleted.length} ta o'chirildi${r.docsCancelled.length ? ` (bo'shab qolgan kirim bekor bo'ldi: ${r.docsCancelled.join(', ')})` : ''}`;
+      w.notify(r.failed.length ? `${ok}; ${r.failed.length} tasi o'chmadi: ${r.failed[0]?.reason ?? ''}` : ok, r.failed.length ? 'error' : 'success');
+      setSelected([]);
+      list.reload();
+    } catch (err) {
+      w.notify(errorMessage(err, "O'chirib bo'lmadi"), 'error');
+    } finally {
+      setRemoving(false);
+      setConfirmRemove(false);
+    }
+  };
+
   const change = (fn: () => void) => {
     fn();
     setSelected([]);
@@ -100,6 +121,18 @@ export default function WarehouseAssetsPage() {
                     {b.label}
                   </Button>
                 ))}
+                {isRealAdmin && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!chosen.length}
+                    onClick={() => setConfirmRemove(true)}
+                    title={chosen.length ? "Xato kiritilgan vositalarni o'chirish" : 'Avval qatorlarni belgilang'}
+                    className="text-(--color-expense) hover:bg-(--color-expense-soft)"
+                  >
+                    O&apos;chirish
+                  </Button>
+                )}
               </div>
             ) : null
           }
@@ -236,6 +269,16 @@ export default function WarehouseAssetsPage() {
         </Card>
       </div>
 
+      <ConfirmDialog
+        open={confirmRemove}
+        title={`${chosen.length} ta asosiy vositani o'chirish`}
+        message={`${chosen.slice(0, 5).map((a) => a.inventoryNo).join(', ')}${chosen.length > 5 ? ' …' : ''} o'chiriladi. Kirim hujjatidagi miqdor, summa va xarajat shu vositalar narxiga kamayadi (hujjatda qator qolmasa — hujjat bekor bo'ladi). Berilgan / ko'chirilgan vosita o'chmaydi — avval o'sha hujjatni bekor qiling.`}
+        confirmLabel="O'chirish"
+        danger
+        loading={removing}
+        onConfirm={() => void remove()}
+        onCancel={() => setConfirmRemove(false)}
+      />
       {w.element}
     </>
   );

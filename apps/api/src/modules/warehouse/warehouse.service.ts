@@ -763,6 +763,135 @@ export class WarehouseService {
     return this.doc(id);
   }
 
+  // ═══════════ Ko'plab o'chirish (belgilanganlar) ═══════════
+
+  private ids(raw: unknown, max = 200): string[] {
+    if (!Array.isArray(raw)) throw new BadRequestException("Ro'yxat kerak");
+    const ids = [...new Set(raw.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 40))];
+    if (!ids.length) throw new BadRequestException('Hech narsa belgilanmagan');
+    if (ids.length > max) throw new BadRequestException(`Bir martada ${max} tadan ko'p emas`);
+    return ids;
+  }
+
+  /**
+   * Belgilangan hujjatlarni bekor qilish: eng yangisidan boshlab (keyingi harakatlar avval bekor bo'lsin).
+   * Bittasida xato bo'lsa — qolganlari davom etadi, xatolar ro'yxatda qaytadi.
+   */
+  async cancelDocs(raw: unknown, userId: string, role?: string): Promise<{ cancelled: { id: string; number: string }[]; failed: { id: string; number: string; reason: string }[] }> {
+    const ids = this.ids(raw);
+    const docs = await this.prisma.stockDoc.findMany({ where: { id: { in: ids } }, select: { id: true, number: true, kind: true, date: true, createdAt: true, deletedAt: true } });
+    docs.sort((a, b) => b.date.getTime() - a.date.getTime() || b.createdAt.getTime() - a.createdAt.getTime());
+    const cancelled: { id: string; number: string }[] = [];
+    const failed: { id: string; number: string; reason: string }[] = [];
+    for (const id of ids) if (!docs.some((d) => d.id === id)) failed.push({ id, number: '—', reason: 'Hujjat topilmadi' });
+    for (const d of docs) {
+      if (d.deletedAt) continue;
+      if (role === 'SKLADCHI' && d.kind === 'RECEIPT') {
+        failed.push({ id: d.id, number: d.number, reason: 'Kirimni faqat administrator bekor qiladi' });
+        continue;
+      }
+      try {
+        await this.cancelDoc(d.id, userId);
+        cancelled.push({ id: d.id, number: d.number });
+      } catch (e) {
+        failed.push({ id: d.id, number: d.number, reason: (e as Error).message });
+      }
+    }
+    return { cancelled, failed };
+  }
+
+  /** Belgilangan buyumlar: hujjatda ishlatilgan bo'lsa — arxivga, aks holda o'chiriladi */
+  async removeItems(raw: unknown): Promise<{ deleted: number; archived: number; failed: { id: string; reason: string }[] }> {
+    const ids = this.ids(raw, 500);
+    let deleted = 0;
+    let archived = 0;
+    const failed: { id: string; reason: string }[] = [];
+    for (const id of ids) {
+      try {
+        const r = await this.removeItem(id);
+        if (r.archived) archived += 1;
+        else deleted += 1;
+      } catch (e) {
+        failed.push({ id, reason: (e as Error).message });
+      }
+    }
+    return { deleted, archived, failed };
+  }
+
+  /**
+   * Asosiy vositani o'chirish (xato kiritilgan bo'lsa). Shartlar: kirimdan keyin hujjat bilan harakatlanmagan
+   * (berish, ko'chirish, qaytarish, hisobdan chiqarish bo'lsa — avval o'sha hujjatlar bekor qilinadi).
+   * Kirim hujjatida: qator miqdori 1 taga, summasi va xarajati shu vosita narxiga kamayadi; qator bo'shasa —
+   * qator va xarajat o'chadi; hujjatda qator qolmasa — hujjat bekor bo'ladi.
+   * «Xarajatlar › Asosiy vositalar» balansidagi yozuv: ombor kirimidan kelgan bo'lsa — o'chadi; Excel'dan
+   * kiritilgan bo'lsa — qoladi (faqat ombordagi bog'lanish uziladi).
+   */
+  async removeAsset(id: string, userId?: string): Promise<{ id: string; inventoryNo: string; docCancelled: string | null }> {
+    const a = await this.prisma.asset.findUnique({ where: { id }, include: { moves: { select: { id: true, kind: true, docId: true } } } });
+    if (!a) throw new NotFoundException('Asosiy vosita topilmadi');
+    const later = a.moves.filter((m) => m.docId && m.kind !== 'RECEIPT');
+    if (later.length) {
+      const docs = await this.prisma.stockDoc.findMany({ where: { id: { in: later.map((m) => m.docId!) }, deletedAt: null }, select: { number: true } });
+      if (docs.length) throw new BadRequestException(`${a.inventoryNo}: keyin hujjat bilan harakatlangan (${docs.map((d) => d.number).join(', ')}) — avval o'sha hujjatlarni bekor qiling`);
+    }
+    const now = new Date();
+    let docCancelled: string | null = null;
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.assetMove.deleteMany({ where: { assetId: id } });
+        await tx.stockCountAsset.deleteMany({ where: { assetId: id } });
+        await tx.asset.delete({ where: { id } });
+        const fixed = await tx.fixedAsset.findMany({ where: { assetId: id }, select: { id: true, source: true } });
+        for (const f of fixed) {
+          await tx.fixedAsset.update({ where: { id: f.id }, data: f.source === 'WAREHOUSE' ? { deletedAt: now } : { assetId: null } });
+        }
+        if (!a.receiptLineId) return;
+        const line = await tx.stockLine.findUnique({ where: { id: a.receiptLineId }, include: { doc: { select: { id: true, number: true, totalTiyin: true, deletedAt: true } } } });
+        if (!line) return;
+        const qty = line.qty - 1;
+        const amount = line.amountTiyin - a.priceTiyin > 0n ? line.amountTiyin - a.priceTiyin : 0n;
+        const minus = line.amountTiyin - amount;
+        if (qty <= EPS) {
+          if (line.expenseId) await tx.expense.updateMany({ where: { id: line.expenseId, deletedAt: null }, data: { deletedAt: now } });
+          await tx.stockLine.delete({ where: { id: line.id } });
+        } else {
+          await tx.stockLine.update({ where: { id: line.id }, data: { qty, amountTiyin: amount } });
+          if (line.expenseId) {
+            const e = await tx.expense.findUnique({ where: { id: line.expenseId }, select: { amountTiyin: true } });
+            if (e) await tx.expense.update({ where: { id: line.expenseId }, data: { amountTiyin: e.amountTiyin - minus > 0n ? e.amountTiyin - minus : 0n } });
+          }
+        }
+        const left = await tx.stockLine.count({ where: { docId: line.docId } });
+        const total = line.doc.totalTiyin - minus > 0n ? line.doc.totalTiyin - minus : 0n;
+        if (left === 0 && !line.doc.deletedAt) {
+          await tx.stockDoc.update({ where: { id: line.docId }, data: { totalTiyin: total, deletedAt: now, cancelledById: userId ?? null } });
+          docCancelled = line.doc.number;
+        } else {
+          await tx.stockDoc.update({ where: { id: line.docId }, data: { totalTiyin: total } });
+        }
+      },
+      { timeout: 60_000, maxWait: 10_000 },
+    );
+    return { id, inventoryNo: a.inventoryNo, docCancelled };
+  }
+
+  async removeAssets(raw: unknown, userId?: string): Promise<{ deleted: { id: string; inventoryNo: string }[]; docsCancelled: string[]; failed: { id: string; reason: string }[] }> {
+    const ids = this.ids(raw, 500);
+    const deleted: { id: string; inventoryNo: string }[] = [];
+    const docsCancelled: string[] = [];
+    const failed: { id: string; reason: string }[] = [];
+    for (const id of ids) {
+      try {
+        const r = await this.removeAsset(id, userId);
+        deleted.push({ id: r.id, inventoryNo: r.inventoryNo });
+        if (r.docCancelled) docsCancelled.push(r.docCancelled);
+      } catch (e) {
+        failed.push({ id, reason: (e as Error).message });
+      }
+    }
+    return { deleted, docsCancelled, failed };
+  }
+
   async docs(filter: DocFilter): Promise<DocView[]> {
     const kind = filter.kind && DOC_KINDS.includes(filter.kind as StockDocKind) ? (filter.kind as StockDocKind) : undefined;
     // Davr: "YYYY-MM-DD" (umumiy «Davr») yoki "YYYY-MM"

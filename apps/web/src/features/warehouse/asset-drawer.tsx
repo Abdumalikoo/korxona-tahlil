@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Drawer } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { ErrorState, LoadingState } from '@/components/ui/states';
@@ -32,7 +33,7 @@ export function AssetDrawer({
   onOpenDoc: (docId: string, tab?: 'info' | 'act') => void;
   onChanged: (message: string) => void;
 }) {
-  const { canWrite, isWorker } = useAuth();
+  const { canWrite, isWorker, isAdmin: isRealAdmin } = useAuth();
   /** Tuzatish huquqi (seriya, izoh): administrator yoki Omborchi */
   const isAdmin = canWrite('/ombor');
   /** Yangi hujjat (berish, ko'chirish …) — faqat Omborchi bo'limida; umumiy hudud dashbordida yo'q */
@@ -46,6 +47,8 @@ export function AssetDrawer({
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   useEffect(() => {
     if (!assetId) return;
@@ -81,6 +84,23 @@ export function AssetDrawer({
     }
   };
 
+  /** Xato kiritilgan vositani o'chirish (administrator) — kirim summasi va xarajati ham kamayadi */
+  const remove = async () => {
+    if (!asset) return;
+    setRemoving(true);
+    try {
+      const r = (await warehouseApi.removeAsset(asset.id)).data;
+      setConfirmRemove(false);
+      onChanged(`${r.inventoryNo} o'chirildi${r.docCancelled ? ` — kirim hujjati ${r.docCancelled} bo'shab qoldi va bekor bo'ldi` : ''}`);
+      onClose();
+    } catch (err) {
+      setConfirmRemove(false);
+      setSaveError(errorMessage(err, "O'chirib bo'lmadi"));
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   const actions: { kind: DocKind; label: string; show: boolean; primary?: boolean }[] = asset
     ? [
         { kind: 'ISSUE', label: 'Berish', show: asset.status === 'IN_STOCK', primary: true },
@@ -99,6 +119,11 @@ export function AssetDrawer({
       description="Hozir kimda turgani va qayerlardan o'tgani"
       footer={
         <>
+          {isRealAdmin && asset && (
+            <Button variant="ghost" onClick={() => setConfirmRemove(true)} className={cn('text-(--color-expense) hover:bg-(--color-expense-soft)', !(isAdmin && dirty) && 'mr-auto')}>
+              O&apos;chirish
+            </Button>
+          )}
           {isAdmin && dirty && (
             <Button className="mr-auto" onClick={() => void save()} loading={saving}>
               Saqlash
@@ -195,6 +220,16 @@ export function AssetDrawer({
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={confirmRemove}
+        title={`${asset?.inventoryNo ?? ''} — o'chirish`}
+        message="Xato kiritilgan bo'lsa o'chiring: kirim hujjatidagi miqdor, summa va xarajat shu vosita narxiga kamayadi (qator qolmasa — hujjat bekor bo'ladi). Berilgan yoki ko'chirilgan bo'lsa — avval o'sha hujjatni bekor qiling."
+        confirmLabel="O'chirish"
+        danger
+        loading={removing}
+        onConfirm={() => void remove()}
+        onCancel={() => setConfirmRemove(false)}
+      />
     </Drawer>
   );
 }
