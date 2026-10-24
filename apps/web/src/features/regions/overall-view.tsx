@@ -15,12 +15,15 @@ import { cn } from '@/lib/utils';
 import { useBrief } from '@/lib/view-mode';
 import { useRouter } from 'next/navigation';
 import { unitByCode } from '@/lib/segments';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { KIND_LABEL, KIND_ORDER, regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
 import { centerCover } from './center-cover';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { Bridge, EXPENSE_BAR } from './regions-charts';
-import { CompareTable, CoverTable, FmtToggle, money, MonthsTable, UnitDetail, type Fmt } from './overall-tables';
+import { CompareTable, CoverTable, FmtToggle, money, MonthsTable, type Fmt } from './overall-tables';
+import { UnitTree } from './overall-tree';
+import { DrillProvider } from '@/features/explore/drill';
+import Link from 'next/link';
 import { IconChevronRight } from '@/components/ui/icons';
 import { Fragment } from 'react';
 
@@ -129,7 +132,7 @@ export function OverallView({ range }: { range: DateRange }) {
   return (
     <div className="space-y-4">
       <PanelHeader
-        title="Umumiy: Markaz va hududlar birga"
+        title="Umumiy: Markaz, hududlar va yo'nalishlar birga"
         description={
           data
             ? `${formatDate(data.range.from)} — ${formatDate(data.range.to)} · solishtirish: ${data.compareLabel} (${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)})`
@@ -153,7 +156,9 @@ export function OverallView({ range }: { range: DateRange }) {
           <LoadingState label="Korxona bo'yicha hisoblanmoqda" />
         </Card>
       ) : (
-        <Body data={data} brief={brief} />
+        <DrillProvider range={{ from: data.range.from, to: data.range.to }}>
+          <Body data={data} brief={brief} />
+        </DrillProvider>
       )}
     </div>
   );
@@ -206,13 +211,15 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
 
   /** Biriktirilmagan yozuvlar paneli */
   const [unOpen, setUnOpen] = useState(false);
+  /** Umumiy jadvalda ochilgan birliklar — boshqa sahifaga o'tilmaydi, qator joyida kengayadi */
+  const [opened, setOpened] = useState<Set<string>>(new Set());
+  const toggleUnit = (key: string) => setOpened((o) => { const x = new Set(o); if (x.has(key)) x.delete(key); else x.add(key); return x; });
+  /** Boshqa jadval / grafikdan: birlikni umumiy jadvalda ochib, unga o'tish */
   const open = (s: UnitStats) => {
-    if (s.unit.kind === 'center') router.push('/solishtirma/markaz');
-    else if (s.unit.kind === 'region' && s.unit.code !== null) router.push(`/solishtirma?r=${s.unit.code}`);
-    else if (s.unit.kind === 'unassigned') setUnOpen(true);
-    // Yo'nalish — o'z sahifasi: Solishtirma › Tax free …
-    else if (s.unit.kind === 'segment') router.push(s.unit.segment && unitByCode(s.unit.segment) ? `/solishtirma/${unitByCode(s.unit.segment)!.slug}` : '/solishtirma');
+    setOpened((o) => new Set(o).add(s.unit.key));
+    setTimeout(() => document.getElementById(`unit-${s.unit.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   };
+  void router;
 
   const cover = centerCover(
     activeRegions.map((s) => ({ key: s.unit.key, code: s.unit.code, name: s.unit.name, income: s.income, profit: s.profit })),
@@ -231,15 +238,18 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
         profit={profit}
         previousProfit={previousProfit}
         regionsCount={activeRegions.length}
-        onUnassigned={() => setUnOpen(true)}
+        onUnassigned={() => (unassigned ? open(unassigned) : setUnOpen(true))}
+        segments={segments}
+        segColor={(k) => colorOf.get(k) ?? REGIONS_COLOR}
+        onUnit={open}
       />
 
-      <Matrix rows={rows} total={total} reg={reg} months={data.months} onOpen={open} />
+      <Matrix rows={rows} total={total} reg={reg} months={data.months} opened={opened} onToggle={toggleUnit} onToggleAll={(all) => setOpened(all ? new Set(rows.map((r) => r.s.unit.key)) : new Set())} data={data} />
 
       {!brief && <CompareTable units={units} compareLabel={data.compareLabel} onOpen={open} />}
       {!brief && <MonthsTable units={units} months={data.months} range={data.range} onOpen={open} />}
       {center && activeRegions.length > 0 && (
-        <CoverTable cover={cover} onOpenCode={(code) => (code !== null && code !== undefined ? router.push(`/solishtirma?r=${code}`) : undefined)} />
+        <CoverTable cover={cover} onOpenCode={(code) => { const u = activeRegions.find((x) => x.unit.code === code); if (u) open(u); }} />
       )}
 
       {/* ── Grafiklar: jadvallar bilan bir xil ma'lumot, sahifa oxirida ── */}
@@ -251,7 +261,7 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
         <Card>
           <div className="px-5 pt-4">
             <h3 className="text-sm font-bold text-heading">Korxona natijasi qanday shakllanadi</h3>
-            <p className="mt-0.5 text-xs text-(--color-text-muted)">Hududlar foydasi Markazning sof xarajatini qoplaydi — qolgani korxona natijasi</p>
+            <p className="mt-0.5 text-xs text-(--color-text-muted)">Hududlar foydasi Markazning sof xarajatini qoplaydi; yo&apos;nalishlar natijasi qo&apos;shiladi — qolgani korxona natijasi</p>
           </div>
           <div className="px-5 pb-3 pt-2">
             <Bridge
@@ -265,6 +275,7 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
                       { label: 'Markaz xarajati', value: -center.expense, hint: `ish haqi ${compact(center.payroll)}` },
                     ]
                   : []),
+                ...segments.map((sg) => ({ label: `${sg.unit.name} natijasi`, value: sg.profit, hint: "yo'nalish" })),
                 ...(unassigned ? [{ label: 'Biriktirilmagan yozuvlar', value: unassigned.profit, hint: 'hududi ko’rsatilmagan' }] : []),
                 { label: 'Korxona natijasi', value: profit, total: true, hint: total.income > 0 ? `rentabellik ${pct((profit / total.income) * 100)}` : undefined },
               ]}
@@ -279,7 +290,7 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
           <Card>
             <div className="px-5 pt-4">
               <h3 className="text-sm font-bold text-heading">Kim qancha ulush qo&apos;shadi</h3>
-              <p className="mt-0.5 text-xs text-(--color-text-muted)">Korxona daromadi va xarajatida har bir birlikning ulushi. Segmentni bosing — o&apos;sha birlikka o&apos;tadi</p>
+              <p className="mt-0.5 text-xs text-(--color-text-muted)">Korxona daromadi va xarajatida har bir birlikning ulushi. Segmentni bosing — umumiy jadvalda o&apos;sha birlik to&apos;liq ochiladi</p>
             </div>
             <div className="space-y-5 px-5 pb-5 pt-4">
               <ShareRibbon title="Daromad" rows={rows} value={(r) => r.s.income} total={total.income} onOpen={open} />
@@ -372,6 +383,9 @@ function Hero({
   previousProfit,
   regionsCount,
   onUnassigned,
+  segments,
+  segColor,
+  onUnit,
 }: {
   total: { income: number; expense: number; previousIncome: number; previousExpense: number; headcount: number };
   reg: { income: number; expense: number };
@@ -381,12 +395,17 @@ function Hero({
   previousProfit: number;
   regionsCount: number;
   onUnassigned: () => void;
+  /** Yo'nalishlar (Tax free, Qo'mita …) — alohida qatorlar, korxona jamisiga kiradi */
+  segments: UnitStats[];
+  segColor: (key: string) => string;
+  onUnit: (s: UnitStats) => void;
 }) {
   const margin = total.income > 0 ? (profit / total.income) * 100 : null;
   const prevMargin = total.previousIncome > 0 ? (previousProfit / total.previousIncome) * 100 : null;
   const parts = (pick: (s: UnitStats) => number, regValue: number) => [
     { label: `Hududlar (${regionsCount})`, value: regValue, color: REGIONS_COLOR },
-    ...(center ? [{ label: 'Markaz', value: pick(center), color: CENTER_COLOR }] : []),
+    ...(center ? [{ label: 'Markaz', value: pick(center), color: CENTER_COLOR, onClick: () => onUnit(center) }] : []),
+    ...segments.map((sg) => ({ label: sg.unit.name, value: pick(sg), color: segColor(sg.unit.key), onClick: () => onUnit(sg) })),
     ...(unassigned ? [{ label: 'Biriktirilmagan', value: pick(unassigned), color: UNASSIGNED_COLOR, onClick: onUnassigned }] : []),
   ];
   const incomeParts = parts((s) => s.income, reg.income);
@@ -423,6 +442,7 @@ function Hero({
           <div className="flex flex-wrap gap-2 text-xs">
             <Chip color="#7ea6d8" label="Hududlar" value={`${regionsCount} ta`} />
             {center && <Chip color={CENTER_COLOR} label="Markaz" value={`${center.unit.headcount} xodim`} />}
+            {segments.length > 0 && <Chip color={SEGMENT_COLORS[0]!} label="Yo'nalishlar" value={`${segments.length} ta`} />}
             <Chip color="#94a3b8" label="Jami xodim" value={String(total.headcount)} />
           </div>
         </div>
@@ -452,7 +472,8 @@ function Hero({
           good="up"
           parts={[
             { label: 'Hududlar', value: reg.income - reg.expense, color: REGIONS_COLOR },
-            ...(center ? [{ label: 'Markaz', value: center.profit, color: CENTER_COLOR }] : []),
+            ...(center ? [{ label: 'Markaz', value: center.profit, color: CENTER_COLOR, onClick: () => onUnit(center) }] : []),
+            ...segments.map((sg) => ({ label: sg.unit.name, value: sg.profit, color: segColor(sg.unit.key), onClick: () => onUnit(sg) })),
             ...(unassigned ? [{ label: 'Biriktirilmagan', value: unassigned.profit, color: UNASSIGNED_COLOR, onClick: onUnassigned }] : []),
           ]}
           calc={calcResult(total.income, total.expense, { title: 'Korxona natijasi' })}
@@ -613,20 +634,35 @@ function Matrix({
   total,
   reg,
   months,
-  onOpen,
+  opened,
+  onToggle,
+  onToggleAll,
+  data,
 }: {
   rows: Row[];
   total: { income: number; expense: number; previousIncome: number; previousExpense: number; headcount: number };
   reg: { income: number; expense: number; previousIncome: number; previousExpense: number };
   months: string[];
-  onOpen: (s: UnitStats) => void;
+  opened: Set<string>;
+  onToggle: (key: string) => void;
+  onToggleAll: (all: boolean) => void;
+  data: RegionsResult;
 }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'profit', dir: 'desc' });
   const [mode, setMode] = useState<MixMode>('bar');
   const [pinCenter, setPinCenter] = useState(true);
   const [fmt, setFmt] = useState<Fmt>('short');
-  const [opened, setOpened] = useState<Set<string>>(new Set());
-  const toggleOpen = (key: string) => setOpened((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  // Ochilgan tarkib paneli — jadval gorizontal aylantirilsa ham ko'rinadigan kenglikda (sticky)
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewW, setViewW] = useState<number | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setViewW(el.clientWidth));
+    ro.observe(el);
+    setViewW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
   const sgn = (v: number) => (Math.round(v / 100) === 0 ? '0' : `${v > 0 ? '+' : '−'}${money(Math.abs(v), fmt)}`);
 
   const groups = GROUPS.filter((g) => rows.some((r) => Math.round(r.mix[g.key] / 100) !== 0));
@@ -728,12 +764,13 @@ function Matrix({
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-4">
         <div>
-          <h3 className="text-sm font-bold text-heading">Umumiy jadval: Markaz va hududlar</h3>
+          <h3 className="text-sm font-bold text-heading">Umumiy jadval: Markaz, hududlar va yo&apos;nalishlar</h3>
           <p className="mt-0.5 text-xs text-(--color-text-muted)">
-            Bir xil ustunlar — bir xil hisob. ▸ — qator ichida daromad va xarajat tarkibi (joriy / o&apos;tgan / o&apos;zgarish). Qatorni bosing — birlik sahifasi
+            Bir xil ustunlar — bir xil hisob. Qatorni bosing — joyida kengayadi: tumanlar, bo&apos;limlar, tuzilmalar, xodimlar, oylar va yozuvlargacha
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <SmallButton onClick={() => onToggleAll(opened.size === 0)}>{opened.size ? 'Hammasini yopish' : 'Hammasini ochish'}</SmallButton>
           <FmtToggle value={fmt} onChange={setFmt} />
           <Segmented
             value={mode}
@@ -761,7 +798,7 @@ function Matrix({
           <span className="text-(--color-text-faint)">· «ih» — ish haqi ulushi</span>
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div ref={scrollRef} className="overflow-x-auto">
         <table className={cn('w-full border-collapse whitespace-nowrap text-[13px]', mode === 'bar' ? 'min-w-[980px]' : 'min-w-[1180px]')}>
           <thead>
             <tr className="border-y border-(--color-line) bg-(--color-surface-muted)">
@@ -801,7 +838,8 @@ function Matrix({
               return (
                 <Fragment key={s.unit.key}>
                 <tr
-                  onClick={clickable ? () => onOpen(s) : undefined}
+                  id={`unit-${s.unit.key}`}
+                  onClick={clickable ? () => onToggle(s.unit.key) : undefined}
                   className={cn(
                     'group border-b border-(--color-line) transition-colors',
                     clickable && 'cursor-pointer hover:bg-(--color-surface-muted)',
@@ -815,7 +853,7 @@ function Matrix({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          toggleOpen(s.unit.key);
+                          onToggle(s.unit.key);
                         }}
                         aria-expanded={isOpen}
                         title="Tarkibini ochish"
@@ -829,7 +867,7 @@ function Matrix({
                           {s.unit.name}
                         </span>
                         <span className="block text-[10.5px] text-(--color-text-faint)">
-                          {isCenter ? "Markaz · bo'limlar" : isUn ? <span className="font-medium text-brand-700 group-hover:underline">hududi ko&apos;rsatilmagan · ichini ko&apos;rish ›</span> : 'Hudud'}
+                          {isCenter ? "Markaz · bo'limlar" : isUn ? "hududi ko'rsatilmagan" : s.unit.kind === 'segment' ? "yo'nalish" : 'Hudud'}
                         </span>
                       </span>
                     </span>
@@ -874,8 +912,23 @@ function Matrix({
                 </tr>
                 {isOpen && (
                   <tr className="border-b border-(--color-line) bg-(--color-surface-muted)/60">
-                    <td colSpan={9 + (mode === 'bar' ? 1 : cols.length)} className="whitespace-normal px-6 py-3">
-                      <UnitDetail s={s} fmt={fmt} onOpen={() => onOpen(s)} />
+                    <td colSpan={9 + (mode === 'bar' ? 1 : cols.length)} className="whitespace-normal p-0">
+                      <div className="sticky left-0 px-4 py-3" style={viewW ? { width: viewW } : undefined}>
+                      <UnitTree s={s} range={data.range} section={data.section} compare={data.compare} fmt={fmt} />
+                      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--color-text-muted)">
+                        <span>
+                          Yozuvlar: daromad <b className="text-heading">{s.unit.incomeCount}</b> ta, xarajat <b className="text-heading">{s.unit.expenseCount}</b> ta
+                        </span>
+                        {s.activeMonths > 0 && (
+                          <span>
+                            Oxirgi 12 oyda zararli oylar: <b className={s.lossMonths ? 'text-(--color-expense)' : 'text-heading'}>{s.lossMonths}</b> / {s.activeMonths}
+                          </span>
+                        )}
+                        <Link href={pageOf(s)} className="ml-auto font-semibold text-brand-700 hover:underline">
+                          Alohida sahifada ochish ↗
+                        </Link>
+                      </div>
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -903,7 +956,7 @@ function Matrix({
             />
             <TotalRow
               label="Korxona jami"
-              sub="Markaz + hududlar"
+              sub="Markaz + hududlar + yo'nalishlar"
               color="#0f172a"
               strong
               income={total.income}
@@ -928,6 +981,14 @@ function Matrix({
       </div>
     </Card>
   );
+}
+
+/** Birlikning alohida Solishtirma sahifasi */
+function pageOf(s: UnitStats): string {
+  if (s.unit.kind === 'center') return '/solishtirma/markaz';
+  if (s.unit.kind === 'region' && s.unit.code !== null) return `/solishtirma?r=${s.unit.code}`;
+  if (s.unit.kind === 'segment' && s.unit.segment && unitByCode(s.unit.segment)) return `/solishtirma/${unitByCode(s.unit.segment)!.slug}`;
+  return '/solishtirma';
 }
 
 function TotalRow({

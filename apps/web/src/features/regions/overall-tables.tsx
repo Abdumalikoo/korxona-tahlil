@@ -222,7 +222,7 @@ export function CompareTable({ units, compareLabel, onOpen }: { units: UnitStats
 
   return (
     <Card className="overflow-hidden">
-      <Head title="Taqqoslash: joriy davr va o'tgan davr" hint={`Har bir birlik uchun: joriy, ${compareLabel} va o'zgarish (% va summa). Qatorni bosing — birlik sahifasi ochiladi`}>
+      <Head title="Taqqoslash: joriy davr va o'tgan davr" hint={`Har bir birlik uchun: joriy, ${compareLabel} va o'zgarish (% va summa). Qatorni bosing — umumiy jadvalda o'sha birlik to'liq ochiladi`}>
         <FmtToggle value={fmt} onChange={setFmt} />
         <SmallButton onClick={exportCsv}>CSV</SmallButton>
       </Head>

@@ -232,3 +232,25 @@ Har bir yo'nalish sahifasida (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalter
   - «Hammasini ochish» tugmasi bor;
   - summa yoki oy katagi bosilsa, aynan o'sha yozuvlar ochiladi.
 - **Markaz va Hududlar:** ularning ichma-ich tizimi avvalgidek ishlaydi: Markaz → bo'lim → xodim → oylar; viloyat → tuman → xodim → oylar.
+
+## Solishtirma › Umumiy: joyida kengayadigan to'liq jadval
+
+Umumiy sahifada qator bosilsa, endi boshqa sahifaga o'tilmaydi. Qatorning o'zi kengayib, birlikning to'liq tarkibi ochiladi (`features/regions/overall-tree.tsx`):
+
+- **Hudud:** tumanlar → tuman (xizmatlar, xarajat tarkibi, xodimlar) → xodim → oylar (ish haqi, reja, tushum). Hudud qatorida daromad va xarajat tarkibi ham bor.
+- **Markaz:** bo'limlar → bo'lim (daromad va xarajat tarkibi, xodimlar) → xodim → oylar. Bulardan tashqari: daromad manbalari, o'z xarajati, hududlar uchun to'langan (qaysi hudud uchun).
+- **Yo'nalishlar** (Tax free, Qo'mita …):
+  - xarajat tuzilmalari → xodim / filial / to'lov oluvchi / modda → oylar;
+  - daromad → mijoz → oylar;
+  - siyosat bo'yicha boshqa bo'lim hisobiga o'tganlari.
+- **Biriktirilmagan:** moddalar → yozuvlar.
+- **Ustunlar:** Daromad, Xarajat, Natija, O'tgan davr va o'zgarish, Xodim.
+- **Boshqaruv:**
+  - «yozuvlar» tugmasi o'sha summani tashkil qilgan yozuvlarni ochadi;
+  - panelda «Hammasini ochish» 3 darajagacha birdan ochadi;
+  - jadval tepasidagi «Hammasini ochish» hamma birliklarni ochadi;
+  - ichki darajalar bosilganda yuklanadi;
+  - har birlikda «Alohida sahifada ochish ↗» havolasi bor.
+- **Kenglik:** ochilgan panel jadval gorizontal aylantirilsa ham ko'rinadigan kenglikda turadi.
+- **Boshqa jadval va grafiklar:** Taqqoslash, Oylar, Ulush lentasi, Markazni qoplash va tepadagi kartochkalardan bosilsa, umumiy jadvalda o'sha birlik ochiladi va unga o'tiladi.
+- **Yo'nalishlar hisobda:** tepadagi «Butun korxona» kartochkasi va natija ko'prigi (Bridge) grafigiga yo'nalishlar alohida qator bo'lib qo'shildi. Shu bilan qismlar yig'indisi korxona jamiga teng bo'ladi.
