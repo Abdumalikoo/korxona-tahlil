@@ -61,7 +61,9 @@ Har bo'lim umumiy Xarajatlar sahifasi kabi tuzilgan: sarlavha ostida o'z tarkibi
 
 - Manzil: `/xarajatlar/bolim/<bo'lim>/<tuzilma>`; bo'limning o'zi ochilganda tuzilmalar tugmalari chiqadi.
 - **Tax free**: Ish haqi · Ish haqi tarkibi · Ijara va kommunal · Asosiy vositalar · Bank xarajatlari · Reklama xarajatlari · Boshqa xarajatlar.
-- Hozircha faqat tugmalar. Har bir tuzilmaning yuklash tartibi va shabloni keyin birma-bir qo'shiladi.
+- **Marksheyder**: Ish haqi · Ish haqi tarkibi · Xizmat safari · Asosiy vositalar · Mashina xarajatlari · Boshqa xarajatlar. Ish haqi va Ish haqi tarkibi Tax free'dagidek ishlaydi (xodimlar — faqat Marksheyder xodimlari); qolganlari hozircha tugma.
+- Har bir bo'limda oxirgi yorliq — **Xarajatlar siyosati** (avtomatik qo'shiladi).
+- Shabloni berilmagan tuzilmalar hozircha faqat tugma. Har bir tuzilmaning yuklash tartibi va shabloni keyin birma-bir qo'shiladi.
 - Qolgan bo'limlarda tuzilmalar ro'yxati berilmaguncha «hali belgilanmagan» yozuvi chiqadi.
 
 ### Daromadlar › bo'lim

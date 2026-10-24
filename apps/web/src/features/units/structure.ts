@@ -33,6 +33,15 @@ const EXPENSE: Record<string, UnitTab[]> = {
     { slug: 'reklama', label: 'Reklama xarajatlari', view: 'entries', entryKind: 'AD' },
     { slug: 'boshqa', label: 'Boshqa xarajatlar', view: 'entries', entryKind: 'OTHER' },
   ],
+  MARKSHEYDER: [
+    { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
+    { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi', view: 'composition' },
+    // Hozircha tugma — yuklash tartibi va shabloni keyin belgilanadi
+    { slug: 'xizmat-safari', label: 'Xizmat safari' },
+    { slug: 'asosiy-vositalar', label: 'Asosiy vositalar' },
+    { slug: 'mashina', label: 'Mashina xarajatlari' },
+    { slug: 'boshqa', label: 'Boshqa xarajatlar' },
+  ],
 };
 
 const BY_KIND: Record<EntryKind, Record<string, UnitTab[]>> = { expense: EXPENSE, income: {} };
