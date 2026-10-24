@@ -76,7 +76,7 @@ Doimiy / Boshqa / Xizmat turlari — faqat shu bo'lim yozuvlari. Excel'dan yukla
 
 Manzil: Xarajatlar › Tax free › Ish haqi (`/xarajatlar/bolim/tax-free/ish-haqi`). Umumiy Ish haqi sahifasi kabi ishlaydi, lekin undan alohida.
 
-- **Shablon** avvalgidek tuziladi. 1-varaq «Ish haqi»: A ustun — PINFL, B ustun — Summa. 2-varaq «Tax free xodimlari»: faqat shu bo'lim xodimlari (PINFL, F.I.Sh., lavozim).
+- **Shablon oylar oralig'i uchun.** «Dan» va «Gacha» oylari tanlanadi, masalan yanvar–mart. 1-varaq «Ish haqi»: PINFL, F.I.Sh., keyin har oy uchun alohida ustun. Qatorlarda bo'lim xodimlari turadi, oldin saqlangan summalar yozib qo'yiladi. 0 yoki bo'sh katak — o'sha oyda hisoblanmagan. Yuklanganda fayldagi hamma oylar o'qiladi, saqlanadigan oylar belgilanadi va har oy alohida vedomost bo'lib saqlanadi. Eski shablon (A — PINFL, B — Summa) ham o'qiladi: u yuqori paneldagi oyga yoziladi. 2-varaq «Tax free xodimlari»: faqat shu bo'lim xodimlari (PINFL, F.I.Sh., lavozim).
 - **Xodimlar bo'limi bilan bog'langan.** Xodimlar bazasidagi faol xodimlar ro'yxatga o'zi tushadi:
   - bog'langan bo'limda turganlar. Standart holatda bo'lim nomida «Tax free» so'zi bo'lsa, tizim uni o'zi bog'laydi. Kerakli bo'limlarni Ish haqi sahifasidagi «Bog'lash» orqali tanlash mumkin;
   - lavozimida «Tax free» yozilganlar (hududdagi aeroport filiallari uchun). Buni o'chirib qo'yish mumkin.

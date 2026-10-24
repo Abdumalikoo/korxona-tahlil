@@ -17,12 +17,14 @@ import { useMonthChange, usePeriod } from '@/lib/period';
 import type { EntryUnit } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
-import { useRef, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { MonthRangeCard, useMonthRange } from '@/features/units/month-range';
 import {
-  analyzeUnitFile,
+  analyzeUnitFileMany,
   downloadUnitTemplate,
   unitPayrollApi,
   type UnitAnalyzeResult,
+  type UnitManyResult,
   type UnitBatch,
   type UnitRowStatus,
   type UnitStaff,
@@ -47,7 +49,11 @@ const STATUS: Record<UnitRowStatus, { label: string; tone: 'neutral' | 'income' 
 export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
   const { isAdmin } = useAuth();
   const { month: period } = usePeriod();
-  const [analysis, setAnalysis] = useState<UnitAnalyzeResult | null>(null);
+  const range = useMonthRange('month');
+  const [many, setMany] = useState<UnitManyResult | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [activeMonth, setActiveMonth] = useState<string | null>(null);
+  const analysis = many?.months.find((m) => m.period === activeMonth) ?? many?.months[0] ?? null;
   const [names, setNames] = useState<Record<string, string>>({});
   const [replacePrevious, setReplacePrevious] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -64,7 +70,9 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
   const activeCount = staff.data?.data.active ?? 0;
 
   function reset() {
-    setAnalysis(null);
+    setMany(null);
+    setPicked(new Set());
+    setActiveMonth(null);
     setNames({});
     setReplacePrevious(false);
     if (inputRef.current) inputRef.current.value = '';
@@ -75,7 +83,8 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
   async function handleTemplate() {
     setDownloading(true);
     try {
-      await downloadUnitTemplate(unit.code, period);
+      if (range.error) throw new Error(range.error);
+      await downloadUnitTemplate(unit.code, range.from, range.to);
     } catch (err) {
       setToast({ message: errorMessage(err, "Shablonni yuklab bo'lmadi"), tone: 'error' });
     } finally {
@@ -89,12 +98,16 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
       return;
     }
     setUploading(true);
-    setAnalysis(null);
+    setMany(null);
     try {
-      const result = await analyzeUnitFile(unit.code, period, file);
-      setAnalysis(result);
+      const result = await analyzeUnitFileMany(unit.code, period, file);
+      setMany(result);
       setNames({});
-      setReplacePrevious(result.hasPrevious);
+      // Hammasi 0 (to'ldirilmagan) oylar — standart belgilanmagan
+      const filled = result.months.filter((m) => m.totalTiyin !== '0' || result.months.length === 1);
+      setPicked(new Set((filled.length ? filled : result.months).map((m) => m.period)));
+      setActiveMonth((filled[0] ?? result.months[0])?.period ?? null);
+      setReplacePrevious(result.months.some((m) => m.hasPrevious));
     } catch (err) {
       setToast({ message: errorMessage(err, "Faylni o'qib bo'lmadi"), tone: 'error' });
     } finally {
@@ -103,29 +116,36 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
     }
   }
 
-  const missingNames = analysis ? analysis.rows.filter((r) => !r.fullName && (names[r.pinfl] ?? '').trim().length < 3).length : 0;
+  const pickedMonths = (many?.months ?? []).filter((m) => picked.has(m.period));
+  // Ismi noma'lum yangi xodimlar — belgilangan oylar bo'yicha (bir xodim — bir marta)
+  const missingNames = new Set(pickedMonths.flatMap((m) => m.rows.filter((r) => !r.fullName && (names[r.pinfl] ?? '').trim().length < 3).map((r) => r.pinfl))).size;
+  const previousMonths = pickedMonths.filter((m) => m.hasPrevious);
 
   async function handleSave() {
-    if (!analysis || missingNames > 0) return;
+    if (!many || !pickedMonths.length || missingNames > 0) return;
     setSaving(true);
+    const done: string[] = [];
+    let total = 0n;
+    let newStaff = 0;
     try {
-      const rows = analysis.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName ? null : (names[r.pinfl] ?? '').trim() }));
-      const res = (await unitPayrollApi.commit(unit.code, period, { rows, fileName: analysis.fileName }, replacePrevious)).data;
+      for (const m of pickedMonths) {
+        const rows = m.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName ? null : (names[r.pinfl] ?? '').trim() }));
+        const res = (await unitPayrollApi.commit(unit.code, m.period, { rows, fileName: many.fileName }, replacePrevious && m.hasPrevious)).data;
+        done.push(m.monthLabel);
+        total += BigInt(res.totalTiyin);
+        newStaff += res.newStaff;
+      }
       setToast({
         tone: 'success',
-        message:
-          `${res.employees} xodim saqlandi · ${formatTiyin(res.totalTiyin)} so'm` +
-          (res.newStaff ? ` · ${res.newStaff} yangi xodim ro'yxatga qo'shildi` : '') +
-          (res.returned ? ` · ${res.returned} xodim qaytdi` : '') +
-          (res.replacedPrevious ? ' · oldingi vedomost almashtirildi' : ''),
+        message: `${done.join(', ')} saqlandi · ${formatTiyin(total.toString())} so'm` + (newStaff ? ` · ${newStaff} yangi xodim ro'yxatga qo'shildi` : '') + (replacePrevious && previousMonths.length ? ` · ${previousMonths.length} oyda oldingisi almashtirildi` : ''),
       });
       reset();
-      batches.reload();
-      staff.reload();
     } catch (err) {
-      setToast({ message: errorMessage(err, 'Saqlashda xatolik'), tone: 'error' });
+      setToast({ message: `${done.length ? `${done.join(', ')} saqlandi; ` : ''}${errorMessage(err, 'Saqlashda xatolik')}`, tone: 'error' });
     } finally {
       setSaving(false);
+      batches.reload();
+      staff.reload();
     }
   }
 
@@ -146,6 +166,7 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
 
   return (
     <div className="space-y-4">
+      <MonthRangeCard range={range} />
       <SourceActions
         upload={
           isAdmin
@@ -158,10 +179,10 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
               }
             : undefined
         }
-        template={{ label: 'Shablon', onClick: () => void handleTemplate(), loading: downloading, hint: `1-varaq: PINFL, Summa · 2-varaq: ${unit.label} xodimlari` }}
+        template={{ label: range.error ? 'Shablon' : `Shablon · ${range.text}`, onClick: () => void handleTemplate(), loading: downloading, disabled: Boolean(range.error), hint: `Har oy — alohida ustun (PINFL, F.I.Sh., oylar) · 2-varaq: ${unit.label} xodimlari` }}
         note={
           <>
-            Oy: <b className="text-heading">{formatPeriod(period)}</b> (yuqori paneldagi «Davr»). Shablonning 2-varag&apos;ida — faqat {unit.label} xodimlari (
+            Shablon tanlangan oylar uchun: har oy ustuniga summa yoziladi, <b className="text-heading">0 yoki bo&apos;sh — o&apos;sha oyda hisoblanmagan</b>. Yuklanganda fayldagi hamma oylar o&apos;qiladi. Tarix — yuqori paneldagi oy ({formatPeriod(period)}). Xodimlar — faqat {unit.label} xodimlari (
             <b className="text-heading">{activeCount}</b> ta) — Xodimlar bo&apos;limidan o&apos;zi olinadi: u yerda yangi xodim qo&apos;shilsa, keyingi shablonda chiqadi.
           </>
         }
@@ -224,6 +245,15 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
       {analysis && (
         <AnalysisView
           analysis={analysis}
+          monthBar={
+            many && many.months.length > 1 ? (
+              <MonthBar months={many.months} picked={picked} active={analysis.period} onPick={setPicked} onActive={setActiveMonth} />
+            ) : null
+          }
+          extraInvalid={many?.format === 'MONTHS' ? many.invalidRows : undefined}
+          previousNote={previousMonths.length ? `${previousMonths.map((m) => m.monthLabel).join(', ')} uchun oldin vedomost saqlangan` : null}
+          saveLabel={pickedMonths.length > 1 ? `Saqlash (${pickedMonths.length} oy)` : 'Saqlash'}
+          canSave={pickedMonths.length > 0}
           names={names}
           onName={(pinfl, v) => setNames((s) => ({ ...s, [pinfl]: v }))}
           missingNames={missingNames}
@@ -316,6 +346,11 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
 
 function AnalysisView({
   analysis,
+  monthBar,
+  extraInvalid,
+  previousNote,
+  saveLabel,
+  canSave,
   names,
   onName,
   missingNames,
@@ -326,6 +361,14 @@ function AnalysisView({
   onCancel,
 }: {
   analysis: UnitAnalyzeResult;
+  /** Bir necha oy: oylar tanlovi (qaysilari saqlanadi, qaysi biri ko'rinadi) */
+  monthBar?: ReactNode;
+  /** Fayl bo'yicha o'qilmagan kataklar (oylar shablonida) */
+  extraInvalid?: { rowIndex: number; reason: string }[];
+  /** Oldin saqlangan oylar (null — yo'q) */
+  previousNote: string | null;
+  saveLabel: string;
+  canSave: boolean;
   names: Record<string, string>;
   onName: (pinfl: string, value: string) => void;
   missingNames: number;
@@ -342,6 +385,7 @@ function AnalysisView({
     <Card className="overflow-hidden">
       <CardHeader title={`Tahlil: ${analysis.fileName}`} description={`${analysis.label} · ${formatPeriod(analysis.period)} — hali saqlanmagan`} />
       <CardBody className="space-y-4">
+        {monthBar}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <SummaryBox label="Xodim" value={String(analysis.validRows)} />
           <SummaryBox label="Jami summa" value={formatTiyin(analysis.totalTiyin)} tone="expense" />
@@ -359,10 +403,10 @@ function AnalysisView({
             {analysis.unnamedRows ? ` ${analysis.unnamedRows} tasining ismi bazada yo'q — jadvalda F.I.Sh. kiriting.` : ''}
           </Note>
         )}
-        {analysis.invalidRows.length > 0 && (
+        {(extraInvalid ?? analysis.invalidRows).length > 0 && (
           <Note tone="expense">
-            Saqlanmaydigan qatorlar: {analysis.invalidRows.slice(0, 12).map((r) => `${r.rowIndex}-qator (${r.reason})`).join(', ')}
-            {analysis.invalidRows.length > 12 ? ` va yana ${analysis.invalidRows.length - 12} ta` : ''}.
+            O&apos;qilmagan kataklar (o&apos;sha oyda shu xodim saqlanmaydi — tuzatib qayta yuklang): {(extraInvalid ?? analysis.invalidRows).slice(0, 12).map((r) => `${r.rowIndex}-qator (${r.reason})`).join(', ')}
+            {(extraInvalid ?? analysis.invalidRows).length > 12 ? ` va yana ${(extraInvalid ?? analysis.invalidRows).length - 12} ta` : ''}.
           </Note>
         )}
         {analysis.duplicates.length > 0 && <Note tone="warn">Takror PINFL ({analysis.duplicates.length} ta) — summalari qo&apos;shildi: {analysis.duplicates.slice(0, 6).join(', ')}{analysis.duplicates.length > 6 ? ' …' : ''}</Note>}
@@ -373,11 +417,9 @@ function AnalysisView({
           </Note>
         )}
 
-        {analysis.hasPrevious && (
+        {previousNote && (
           <div className="rounded-(--radius-control) bg-(--color-surface-muted) p-3">
-            <p className="mb-2 text-sm font-medium">
-              Bu oy uchun allaqachon {analysis.previousCount} ta vedomost saqlangan (<Money tiyin={analysis.previousTiyin} />)
-            </p>
+            <p className="mb-2 text-sm font-medium">{previousNote}</p>
             <div className="grid gap-2 md:grid-cols-2">
               <Choice checked={replacePrevious} onChange={() => onReplaceChange(true)} title="Almashtirish" description="Oldingisi bekor qilinadi, xarajati savatga tushadi" />
               <Choice checked={!replacePrevious} onChange={() => onReplaceChange(false)} title="Qo'shish" description="Oldingisi qoladi, bu vedomost alohida qo'shiladi" />
@@ -460,9 +502,9 @@ function AnalysisView({
           <Button variant="ghost" onClick={onCancel} disabled={saving}>
             Bekor qilish
           </Button>
-          <Button onClick={onSave} loading={saving} disabled={missingNames > 0}>
+          <Button onClick={onSave} loading={saving} disabled={missingNames > 0 || !canSave}>
             <IconCheck className="size-4" />
-            Saqlash
+            {saveLabel}
           </Button>
         </div>
       </CardBody>
@@ -755,5 +797,59 @@ function Choice({ checked, onChange, title, description }: { checked: boolean; o
         <span className="block text-xs text-(--color-text-muted)">{description}</span>
       </span>
     </label>
+  );
+}
+
+// ─────────── Oylar tanlovi (oylar oralig'i shabloni) ───────────
+
+function MonthBar({
+  months,
+  picked,
+  active,
+  onPick,
+  onActive,
+}: {
+  months: { period: string; monthLabel: string; totalTiyin: string; paidRows: number; zeroRows: number; hasPrevious: boolean }[];
+  picked: Set<string>;
+  active: string;
+  onPick: (s: Set<string>) => void;
+  onActive: (p: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-xs font-medium text-(--color-text-muted)">Fayldagi oylar — belgilanganlari saqlanadi; bosilgani pastda ko&apos;rinadi</p>
+      <div className="flex flex-wrap gap-2">
+        {months.map((m) => {
+          const on = picked.has(m.period);
+          return (
+            <div
+              key={m.period}
+              className={cn('flex items-start gap-2 rounded-(--radius-control) border bg-white px-3 py-2', m.period === active ? 'border-brand-600 shadow-sm ring-1 ring-brand-200' : 'border-(--color-line)')}
+            >
+              <input
+                type="checkbox"
+                aria-label={`${m.monthLabel} — saqlash`}
+                className="mt-0.5 size-4 accent-brand-600"
+                checked={on}
+                onChange={() => {
+                  const x = new Set(picked);
+                  if (x.has(m.period)) x.delete(m.period);
+                  else x.add(m.period);
+                  onPick(x);
+                }}
+              />
+              <button type="button" onClick={() => onActive(m.period)} className="text-left">
+                <span className="block text-sm font-semibold text-heading">{m.monthLabel}</span>
+                <span className="money block text-xs text-(--color-text-muted)">
+                  {m.totalTiyin === '0' ? 'hammasi 0 — hisoblanmagan' : `${formatTiyin(m.totalTiyin)} so'm · ${m.paidRows} xodim`}
+                  {m.zeroRows && m.totalTiyin !== '0' ? ` · ${m.zeroRows} hisoblanmagan` : ''}
+                </span>
+                <span className={cn('block text-[11px]', m.hasPrevious ? 'text-amber-700' : 'text-emerald-700')}>{m.hasPrevious ? 'oldin saqlangan' : 'yangi'}</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

@@ -36,10 +36,10 @@ export interface MonthRange {
   preset: (kind: 'month' | 'quarter' | 'year') => void;
 }
 
-/** Standart: yil boshidan joriy (yuqori paneldagi) oygacha */
-export function useMonthRange(): MonthRange {
+/** Standart: yil boshidan joriy (yuqori paneldagi) oygacha; 'month' — faqat joriy oy */
+export function useMonthRange(initial: 'year' | 'month' = 'year'): MonthRange {
   const { month } = usePeriod();
-  const [from, setFrom] = useState(`${month.slice(0, 4)}-01`);
+  const [from, setFrom] = useState(initial === 'month' ? month : `${month.slice(0, 4)}-01`);
   const [to, setTo] = useState(month);
   const count = monthsCount(from, to);
   const error = !PERIOD_RE.test(from) || !PERIOD_RE.test(to) ? 'Oylarni tanlang' : count < 1 ? "«Dan» oyi «Gacha»dan keyin bo'lmasin" : count > MAX_RANGE_MONTHS ? `Ko'pi bilan ${MAX_RANGE_MONTHS} oy` : null;

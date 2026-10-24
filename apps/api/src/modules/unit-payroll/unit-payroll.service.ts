@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
 
 // ═══════════════════════════════════════════════════════════
 // Bo'lim (yo'nalish) ish haqi — masalan, Xarajatlar › Tax free › Ish haqi.
@@ -39,6 +40,8 @@ export interface StaffLink {
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
 const TASHKENT_OFFSET_HOURS = 5;
 const MAX_ROWS = 5000;
+/** Shablondagi yashirin oy kodlari qatori belgisi */
+const CODE_MARK = 'KOD';
 
 export interface StaffItem {
   pinfl: string;
@@ -388,29 +391,60 @@ export class UnitPayrollService {
 
   // ═══════════ Shablon ═══════════
 
-  async template(unit: string, period: string): Promise<{ buffer: Buffer; filename: string }> {
-    this.assertPeriod(period);
+  /**
+   * Shablon — oylar oralig'i uchun (from–to; bitta oy ham bo'ladi).
+   * 1-varaq «Ish haqi»: PINFL, F.I.Sh., keyin har oy ustuni (summa); yashirin 2-qatorda oy kodlari.
+   * Qatorlar — bo'lim xodimlari (oldin saqlangan summalar yozilgan holda). 0 yoki bo'sh — o'sha oyda hisoblanmagan.
+   * 2-varaq — bo'lim xodimlari ro'yxati.
+   */
+  async template(unit: string, from: string, to: string = from): Promise<{ buffer: Buffer; filename: string }> {
+    const months = monthsBetween(from, to);
     const label = entryUnitLabel(unit);
     const { items } = await this.staff(unit);
     const active = items.filter((i) => i.active);
+    const saved = new Map<string, Map<string, bigint> | null>();
+    for (const p of months) saved.set(p, await this.payrollMap(unit, p));
+    // Saqlangan vedomostda bor, lekin ro'yxatda faol bo'lmaganlar ham (o'sha oyda ish haqi olgan)
+    const rows = [...active.map((s) => ({ pinfl: s.pinfl, fullName: s.fullName }))];
+    const have = new Set(rows.map((r) => r.pinfl));
+    const extra = new Set<string>();
+    for (const m of saved.values()) for (const k of m?.keys() ?? []) if (!have.has(k)) extra.add(k);
+    if (extra.size) {
+      const names = await this.registryNames([...extra]);
+      const byPin = new Map(items.map((i) => [i.pinfl, i.fullName]));
+      for (const k of extra) rows.push({ pinfl: k, fullName: names.get(k)?.fullName ?? byPin.get(k) ?? '' });
+    }
+    rows.sort((a, b) => a.fullName.localeCompare(b.fullName));
 
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Korxona tahlil';
+    const sheet = wb.addWorksheet('Ish haqi', { views: [{ state: 'frozen', xSplit: 2, ySplit: 2 }] });
+    const head = sheet.getRow(1);
+    head.values = ['PINFL', 'F.I.Sh.', ...months.map(monthLabel)];
+    head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    head.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+    head.alignment = { horizontal: 'center', vertical: 'middle' };
+    head.height = 22;
+    const codes = sheet.getRow(2);
+    codes.values = [CODE_MARK, unit, ...months];
+    codes.hidden = true;
+    sheet.getColumn(1).width = 18;
+    sheet.getColumn(1).numFmt = '@';
+    sheet.getColumn(2).width = 40;
+    months.forEach((_, i) => {
+      sheet.getColumn(3 + i).width = 16;
+      sheet.getColumn(3 + i).numFmt = '#,##0.00';
+    });
+    for (const r of rows) {
+      const row = sheet.addRow([r.pinfl, r.fullName, ...months.map((p) => {
+        const v = saved.get(p)?.get(r.pinfl);
+        return v === undefined ? null : Number(v) / 100;
+      })]);
+      row.getCell(1).numFmt = '@';
+      months.forEach((_, i) => (row.getCell(3 + i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } }));
+    }
 
-    // 1-varaq — avvalgidek: PINFL va Summa
-    const sheet = wb.addWorksheet('Ish haqi', { views: [{ state: 'frozen', ySplit: 1 }] });
-    sheet.columns = [
-      { header: 'PINFL', key: 'pinfl', width: 20 },
-      { header: 'Summa', key: 'amount', width: 18 },
-    ];
-    const h = sheet.getRow(1);
-    h.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-    h.height = 22;
-    sheet.getColumn('A').numFmt = '@';
-    sheet.getColumn('B').numFmt = '#,##0';
-
-    // 2-varaq — faqat shu bo'lim xodimlari (tizim ro'yxati — yangi xodim qo'shilsa, keyingi shablonda chiqadi)
+    // 2-varaq — faqat shu bo'lim xodimlari (Xodimlar bo'limidan va o'z ro'yxatidan)
     const ref = wb.addWorksheet(`${label} xodimlari`.slice(0, 31), { views: [{ state: 'frozen', ySplit: 1 }] });
     ref.columns = [
       { header: '№', key: 'n', width: 6 },
@@ -425,16 +459,30 @@ export class UnitPayrollService {
     ref.getColumn('B').numFmt = '@';
     active.forEach((s, i) => ref.addRow({ n: i + 1, pinfl: s.pinfl, fullName: s.fullName, position: s.position ?? '' }));
     if (active.length) ref.autoFilter = { from: 'A1', to: `D${ref.rowCount}` };
-    else ref.addRow({ n: '', pinfl: '', fullName: `${label} xodimlari hali yo'q — birinchi vedomost saqlanganda ro'yxat o'zi to'ladi` });
+    else ref.addRow({ n: '', pinfl: '', fullName: `${label} xodimlari topilmadi — Xodimlar bo'limida bog'lang yoki vedomost yuklang` });
+
+    const help = wb.addWorksheet("Yo'riqnoma");
+    help.getColumn(1).width = 110;
+    [
+      `${label} — ish haqi shabloni · ${monthLabel(months[0]!)}${months.length > 1 ? ` – ${monthLabel(months[months.length - 1]!)}` : ''}`,
+      '',
+      "• «Ish haqi» varag'ida har oy ustuniga xodimning shu oydagi ish haqi summasini (so'mda) yozing.",
+      "• 0 yoki bo'sh — o'sha oyda hisoblanmagan.",
+      "• Yangi xodim — pastga qator qo'shing: PINFL va F.I.Sh. Saqlanganda ro'yxatga qo'shiladi.",
+      "• Ustun va sarlavhalarni o'chirmang. Yuklanganda fayldagi hamma oylar o'qiladi, saqlanadiganlarini tanlaysiz.",
+    ].forEach((t, i) => {
+      help.getCell(i + 1, 1).value = t;
+      if (i === 0) help.getCell(1, 1).font = { bold: true, size: 12 };
+    });
 
     const data = await wb.xlsx.writeBuffer();
-    return { buffer: Buffer.from(data), filename: `Ish-haqi-${label.replace(/\s+/g, '-')}-${period}.xlsx` };
+    const tag = months.length > 1 ? `${months[0]}_${months[months.length - 1]}` : months[0]!;
+    return { buffer: Buffer.from(data), filename: `Ish-haqi-${label.replace(/\s+/g, '-')}-${tag}.xlsx` };
   }
 
   // ═══════════ Tahlil — hech narsa saqlanmaydi ═══════════
 
-  async analyze(unit: string, period: string, file: Express.Multer.File | undefined) {
-    this.assertPeriod(period);
+  private async loadBook(file: Express.Multer.File | undefined): Promise<ExcelJS.Workbook> {
     if (!file?.buffer) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
     try {
@@ -442,34 +490,76 @@ export class UnitPayrollService {
     } catch {
       throw new BadRequestException("Faylni o'qib bo'lmadi — .xlsx formatidagi Excel fayl yuklang");
     }
-    const sheet = wb.worksheets[0];
-    if (!sheet) throw new BadRequestException('Faylda varaq topilmadi');
+    if (!wb.worksheets[0]) throw new BadRequestException('Faylda varaq topilmadi');
+    return wb;
+  }
 
-    const parsed = new Map<string, { rowIndex: number; amountTiyin: bigint }>();
+  /**
+   * Faylni o'qish: yangi shablon (oylar ustunlari, yashirin «KOD» qatori) yoki eski (A — PINFL, B — Summa; oy — tanlangan).
+   * Natija: oy → xodim → summa. Bo'sh yoki 0 — hisoblanmagan (0).
+   */
+  private parseBook(wb: ExcelJS.Workbook, period: string) {
+    const sheet = wb.worksheets[0]!;
     const invalidRows: { rowIndex: number; reason: string }[] = [];
     const duplicates = new Set<string>();
+    let codeRow = 0;
+    const cols: { col: number; period: string }[] = [];
+    for (let r = 1; r <= Math.min(sheet.rowCount, 6); r++) {
+      if (String(cellValue(sheet.getRow(r).getCell(1).value) ?? '').trim().toUpperCase() !== CODE_MARK) continue;
+      codeRow = r;
+      sheet.getRow(r).eachCell((cell, c) => {
+        const v = String(cellValue(cell.value) ?? '').trim();
+        if (c > 1 && /^\d{4}-(0[1-9]|1[0-2])$/.test(v)) cols.push({ col: c, period: v });
+      });
+      break;
+    }
+    const multi = codeRow > 0 && cols.length > 0;
+    if (!multi) cols.push({ col: 2, period });
+    const start = multi ? codeRow + 1 : 2;
+    const byMonth = new Map<string, Map<string, { rowIndex: number; amountTiyin: bigint }>>(cols.map((c) => [c.period, new Map()]));
+    const fileNames = new Map<string, string>();
 
-    sheet.eachRow((row, rowIndex) => {
-      if (rowIndex === 1) return;
+    for (let r = start; r <= sheet.rowCount; r++) {
+      const row = sheet.getRow(r);
       const rawPinfl = cellValue(row.getCell(1).value);
-      const rawAmount = cellValue(row.getCell(2).value);
-      if (isBlank(rawPinfl) && isBlank(rawAmount)) return;
+      const values = cols.map((c) => cellValue(row.getCell(c.col).value));
+      if (isBlank(rawPinfl) && values.every(isBlank)) continue;
       const pinfl = parsePinfl(rawPinfl);
-      if (!pinfl) return void invalidRows.push({ rowIndex, reason: "PINFL noto'g'ri" });
-      const amount = parseAmount(rawAmount);
-      if (amount === null) return void invalidRows.push({ rowIndex, reason: "Summa noto'g'ri" });
-      const prev = parsed.get(pinfl);
-      if (prev) {
-        prev.amountTiyin += amount;
-        duplicates.add(pinfl);
-        return;
+      if (!pinfl) {
+        invalidRows.push({ rowIndex: r, reason: "PINFL noto'g'ri" });
+        continue;
       }
-      parsed.set(pinfl, { rowIndex, amountTiyin: amount });
-    });
+      if (multi) {
+        const name = cleanName(cellValue(row.getCell(2).value));
+        if (name && !fileNames.has(pinfl)) fileNames.set(pinfl, name);
+      }
+      cols.forEach((c, i) => {
+        const amount = parseAmount(values[i]);
+        if (amount === null) {
+          invalidRows.push({ rowIndex: r, reason: `${multi ? `${monthLabel(c.period)}: ` : ''}summa noto'g'ri` });
+          return;
+        }
+        const m = byMonth.get(c.period)!;
+        const prev = m.get(pinfl);
+        if (prev) {
+          prev.amountTiyin += amount;
+          duplicates.add(pinfl);
+        } else m.set(pinfl, { rowIndex: r, amountTiyin: amount });
+      });
+    }
+    return { multi, byMonth, fileNames, invalidRows, duplicates: [...duplicates] };
+  }
 
-    if (parsed.size === 0) throw new BadRequestException('Faylda yaroqli qator topilmadi (1-varaq: A — PINFL, B — Summa)');
-    if (parsed.size > MAX_ROWS) throw new BadRequestException(`Qatorlar juda ko'p (${parsed.size}) — ${MAX_ROWS} tagacha`);
-
+  /** Bir oy natijasi (xodimlar holati, jamilar, oldingi vedomost) */
+  private async monthResult(
+    unit: string,
+    period: string,
+    fileName: string,
+    parsed: Map<string, { rowIndex: number; amountTiyin: bigint }>,
+    invalidRows: { rowIndex: number; reason: string }[],
+    duplicates: string[],
+    fileNames: Map<string, string> = new Map(),
+  ) {
     const staff = await this.staffOf(unit);
     const byPinfl = new Map(staff.map((s) => [s.pinfl, s]));
     const names = await this.registryNames([...parsed.keys()]);
@@ -478,7 +568,7 @@ export class UnitPayrollService {
       const own = byPinfl.get(pinfl);
       const reg = names.get(pinfl);
       const status: RowStatus = own ? (own.active ? 'KNOWN' : 'RETURNING') : reg ? 'REGISTRY' : 'NEW';
-      return { rowIndex: r.rowIndex, pinfl, fullName: reg?.fullName ?? own?.fullName ?? null, position: own?.position ?? reg?.position ?? null, amountTiyin: r.amountTiyin.toString(), status };
+      return { rowIndex: r.rowIndex, pinfl, fullName: reg?.fullName ?? own?.fullName ?? fileNames.get(pinfl) ?? null, position: own?.position ?? reg?.position ?? null, amountTiyin: r.amountTiyin.toString(), status };
     });
 
     const total = rows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
@@ -490,10 +580,12 @@ export class UnitPayrollService {
       unit,
       label: entryUnitLabel(unit),
       period,
-      fileName: String(file.originalname ?? 'ish-haqi.xlsx').slice(0, 200),
+      monthLabel: monthLabel(period),
+      fileName,
       totalRows: parsed.size + invalidRows.length,
       validRows: rows.length,
       zeroRows: rows.filter((r) => r.amountTiyin === '0').length,
+      paidRows: rows.filter((r) => r.amountTiyin !== '0').length,
       knownRows: rows.filter((r) => r.status === 'KNOWN').length,
       /** Ro'yxatga yangi qo'shiladiganlar (bazadan topilgan + mutlaqo yangi) va qaytganlar */
       newRows: rows.filter((r) => r.status === 'REGISTRY' || r.status === 'NEW').length,
@@ -502,13 +594,41 @@ export class UnitPayrollService {
       unnamedRows: rows.filter((r) => !r.fullName).length,
       totalTiyin: total.toString(),
       invalidRows,
-      duplicates: [...duplicates],
+      duplicates,
       notInFile,
       hasPrevious: previous.length > 0,
       previousCount: previous.length,
       previousTiyin: previous.reduce((s, b) => s + BigInt(b.totalTiyin), 0n).toString(),
       rows,
     };
+  }
+
+  /** Bitta oy (eski usul): fayldagi «period» ustuni yoki eski shablon (PINFL, Summa) */
+  async analyze(unit: string, period: string, file: Express.Multer.File | undefined) {
+    this.assertPeriod(period);
+    const p = this.parseBook(await this.loadBook(file), period);
+    const parsed = p.byMonth.get(period) ?? p.byMonth.values().next().value ?? new Map();
+    if (parsed.size === 0) throw new BadRequestException('Faylda yaroqli qator topilmadi (1-varaq: A — PINFL, keyin summa)');
+    if (parsed.size > MAX_ROWS) throw new BadRequestException(`Qatorlar juda ko'p (${parsed.size}) — ${MAX_ROWS} tagacha`);
+    return this.monthResult(unit, period, String(file?.originalname ?? 'ish-haqi.xlsx').slice(0, 200), parsed, p.invalidRows, p.duplicates, p.fileNames);
+  }
+
+  /**
+   * Fayldagi hamma oylar: yangi shablon — har oy ustuni alohida; eski shablon — tanlangan oy.
+   * Har oy — alohida natija (saqlashda tanlangan oylar birma-bir saqlanadi).
+   */
+  async analyzeMany(unit: string, period: string, file: Express.Multer.File | undefined) {
+    this.assertPeriod(period);
+    const p = this.parseBook(await this.loadBook(file), period);
+    const fileName = String(file?.originalname ?? 'ish-haqi.xlsx').slice(0, 200);
+    const size = Math.max(0, ...[...p.byMonth.values()].map((m) => m.size));
+    if (size === 0) throw new BadRequestException("Faylda yaroqli qator topilmadi — shablonni shu sahifadan yuklab oling (A — PINFL, keyin oylar)");
+    if (size > MAX_ROWS) throw new BadRequestException(`Qatorlar juda ko'p (${size}) — ${MAX_ROWS} tagacha`);
+    const months = [];
+    for (const [per, parsed] of [...p.byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      months.push(await this.monthResult(unit, per, fileName, parsed, [], p.duplicates, p.fileNames));
+    }
+    return { unit, label: entryUnitLabel(unit), fileName, format: p.multi ? 'MONTHS' : 'SINGLE', invalidRows: p.invalidRows, duplicates: p.duplicates, months };
   }
 
   // ═══════════ Saqlash ═══════════

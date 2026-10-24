@@ -57,8 +57,9 @@ export class UnitPayrollController {
   }
 
   @Get(':unit/template')
-  async template(@Param('unit') unit: string, @Query('period') period: string, @Res() response: Response) {
-    const { buffer, filename } = await this.service.template(this.service.unitOf(unit), period);
+  async template(@Param('unit') unit: string, @Query('period') period: string, @Res() response: Response, @Query('from') from?: string, @Query('to') to?: string) {
+    // ?from=&to= — oylar oralig'i; bo'lmasa — bitta oy (?period=)
+    const { buffer, filename } = await this.service.template(this.service.unitOf(unit), from || period, to || from || period);
     response.setHeader('Content-Type', XLSX_TYPE);
     response.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     response.send(buffer);
@@ -71,6 +72,15 @@ export class UnitPayrollController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
   async analyze(@Param('unit') unit: string, @Query('period') period: string, @UploadedFile() file: Express.Multer.File) {
     return { data: await this.service.analyze(this.service.unitOf(unit), period, file) };
+  }
+
+  /** Fayldagi hamma oylar (oylar oralig'i shabloni); eski shablon — ?period= oyi */
+  @Roles(UserRole.ADMIN)
+  @Post(':unit/analyze-many')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
+  async analyzeMany(@Param('unit') unit: string, @Query('period') period: string, @UploadedFile() file: Express.Multer.File) {
+    return { data: await this.service.analyzeMany(this.service.unitOf(unit), period, file) };
   }
 
   @Roles(UserRole.ADMIN)

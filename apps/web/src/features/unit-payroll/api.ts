@@ -81,6 +81,18 @@ export interface UnitAnalyzeResult {
   rows: UnitAnalyzeRow[];
 }
 
+/** Fayldagi hamma oylar (oylar oralig'i shabloni) */
+export interface UnitManyResult {
+  unit: string;
+  label: string;
+  fileName: string;
+  /** MONTHS — oylar ustunli shablon; SINGLE — eski (PINFL, Summa) — tanlangan oy */
+  format: 'MONTHS' | 'SINGLE';
+  invalidRows: { rowIndex: number; reason: string }[];
+  duplicates: string[];
+  months: (UnitAnalyzeResult & { monthLabel: string; paidRows: number })[];
+}
+
 export interface UnitCommitResult {
   success: true;
   batchId: string;
@@ -150,12 +162,13 @@ export const unitPayrollApi = {
 };
 
 /** Shablon: 1-varaq — PINFL, Summa; 2-varaq — faqat shu bo'lim xodimlari */
-export async function downloadUnitTemplate(unit: string, period: string): Promise<void> {
-  const response = await fetch(`${BASE}/unit-payroll/${enc(unit)}/template?period=${enc(period)}`, { headers: authHeaders() });
+/** Shablon — oylar oralig'i (from–to): har oy alohida ustun */
+export async function downloadUnitTemplate(unit: string, from: string, to: string = from): Promise<void> {
+  const response = await fetch(`${BASE}/unit-payroll/${enc(unit)}/template?from=${enc(from)}&to=${enc(to)}`, { headers: authHeaders() });
   if (!response.ok) throw new Error(await readError(response, "Shablonni yuklab bo'lmadi"));
   const disposition = response.headers.get('Content-Disposition') ?? '';
   const match = /filename="?([^";]+)"?/.exec(disposition);
-  const filename = match?.[1] ? decodeURIComponent(match[1]) : `Ish-haqi-${unit}-${period}.xlsx`;
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : `Ish-haqi-${unit}-${from}_${to}.xlsx`;
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement('a');
   link.href = url;
@@ -173,4 +186,13 @@ export async function analyzeUnitFile(unit: string, period: string, file: File):
   const response = await fetch(`${BASE}/unit-payroll/${enc(unit)}/analyze?period=${enc(period)}`, { method: 'POST', headers: authHeaders(), body: form });
   if (!response.ok) throw new Error(await readError(response, "Faylni tahlil qilib bo'lmadi"));
   return ((await response.json()) as ApiResponse<UnitAnalyzeResult>).data;
+}
+
+/** Faylni tahlil qiladi — undagi hamma oylar (eski shablon — tanlangan oy); hali saqlanmaydi */
+export async function analyzeUnitFileMany(unit: string, period: string, file: File): Promise<UnitManyResult> {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch(`${BASE}/unit-payroll/${enc(unit)}/analyze-many?period=${enc(period)}`, { method: 'POST', headers: authHeaders(), body: form });
+  if (!response.ok) throw new Error(await readError(response, "Faylni tahlil qilib bo'lmadi"));
+  return ((await response.json()) as ApiResponse<UnitManyResult>).data;
 }
