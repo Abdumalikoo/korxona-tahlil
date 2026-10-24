@@ -27,6 +27,8 @@ export interface ExpenseFilters {
   search?: string;
   /** Bo'lim: DOIMIY yoki BOSHQA */
   section?: 'DOIMIY' | 'BOSHQA';
+  /** Kiritish bo'limi: CENTER, REGION, TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA */
+  unit?: string;
   page?: number;
   limit?: number;
   sortBy?: SortField;

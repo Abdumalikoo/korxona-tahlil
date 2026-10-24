@@ -46,3 +46,35 @@ export function unitKeyOf(regionCode: number | null, departmentId: string | null
   if (departmentId) return 'center';
   return 'none';
 }
+
+// ═══════════════════════════════════════════════════════════
+// Kiritish bo'limlari — daromad va xarajat 6 bo'limda alohida yuritiladi:
+// Markaz, Hududlar va 4 ta yo'nalish. Har bo'limning o'z moddalar ro'yxati bor (unit-categories.ts).
+// ═══════════════════════════════════════════════════════════
+
+export const ENTRY_UNITS = [
+  { code: 'CENTER', label: 'Markaz' },
+  { code: 'REGION', label: 'Hududlar' },
+  ...SEGMENTS.map((s) => ({ code: s.code as string, label: s.label as string })),
+] as const;
+
+export const ENTRY_UNIT_CODES: string[] = ENTRY_UNITS.map((u) => u.code);
+
+export function entryUnitLabel(code: string): string {
+  return ENTRY_UNITS.find((u) => u.code === code)?.label ?? code;
+}
+
+/** Yozuv qaysi kiritish bo'limiga tegishli (biriktirilmagan — null) */
+export function entryUnitOf(place: { regionCode: number | null; departmentId: string | null; segment?: string | null }): string | null {
+  if (place.segment && isSegment(place.segment)) return place.segment;
+  if (place.regionCode === 0 || (place.regionCode === null && place.departmentId)) return 'CENTER';
+  if (place.regionCode !== null && place.regionCode > 0) return 'REGION';
+  return null;
+}
+
+/** Ro'yxat filtri: shu bo'lim yozuvlari (daromad va xarajat jadvallari uchun bir xil shart) */
+export function entryUnitWhere(code: string): Record<string, unknown> {
+  if (code === 'CENTER') return { segment: null, OR: [{ regionCode: 0 }, { regionCode: null, departmentId: { not: null } }] };
+  if (code === 'REGION') return { segment: null, regionCode: { gt: 0 } };
+  return { segment: code };
+}

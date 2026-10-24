@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { Income, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveEntryPlace, resolveEntryPlaceUpdate } from '../../common/segments/place';
+import { entryUnitOf, entryUnitWhere } from '../../common/segments/segments';
+import { assertUnitCategory } from '../../common/segments/unit-categories';
 import { AuditService } from '../audit/audit.service';
 import type { CreateIncomeDto } from './dto/create-income.dto';
 import type { QueryIncomeDto } from './dto/query-income.dto';
@@ -126,6 +128,8 @@ export class IncomesService {
     }
 
     if (query.departmentId) where.departmentId = query.departmentId;
+    // Kiritish bo'limi: Markaz, Hududlar yoki yo'nalish (Tax free …)
+    if (query.unit) where.AND = [entryUnitWhere(query.unit) as Prisma.IncomeWhereInput];
     if (query.categoryCode) where.categoryCode = query.categoryCode;
     if (query.paymentStatus) where.paymentStatus = query.paymentStatus;
 
@@ -147,6 +151,8 @@ export class IncomesService {
     await this.assertCategory(dto.categoryCode);
     if (dto.departmentId) await this.assertDepartment(dto.departmentId);
     const place = await resolveEntryPlace(this.prisma, { regionCode: dto.regionCode ?? null, districtId: dto.districtId || null, departmentId: dto.departmentId || null, segment: dto.segment || null }, 'daromad');
+    // Bo'lim moddalari: xizmat turi tanlangan bo'limning ro'yxatida bo'lsin
+    await assertUnitCategory(this.prisma, 'income', entryUnitOf(place), dto.categoryCode);
 
     const amount = BigInt(dto.amountTiyin);
     const { paidTiyin, paymentStatus } = this.resolvePayment(
@@ -294,6 +300,10 @@ export class IncomesService {
     // Qayerga tegishli: Markaz / hudud (tuman) / yo'nalish
     const cur = existing as unknown as { regionCode: number | null; districtId: string | null; departmentId: string | null; segment: string | null };
     const place = await resolveEntryPlaceUpdate(this.prisma, { regionCode: cur.regionCode ?? null, districtId: cur.districtId ?? null, departmentId: cur.departmentId ?? null, segment: cur.segment ?? null }, dto, 'daromad');
+    if (place || dto.categoryCode) {
+      const finalPlace = place ?? { regionCode: cur.regionCode ?? null, departmentId: cur.departmentId ?? null, segment: cur.segment ?? null };
+      await assertUnitCategory(this.prisma, 'income', entryUnitOf(finalPlace), dto.categoryCode ?? existing.categoryCode);
+    }
     if (place) {
       data.department = place.departmentId ? { connect: { id: place.departmentId } } : { disconnect: true };
       data.region = place.regionCode !== null ? { connect: { code: place.regionCode } } : { disconnect: true };

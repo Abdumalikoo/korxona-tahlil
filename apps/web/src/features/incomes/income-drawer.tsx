@@ -14,7 +14,9 @@ import {
 } from '@/lib/format';
 import { useEffect, useRef, useState } from 'react';
 import { incomesApi } from './api';
-import { EMPTY_PLACE, PlacePicker, placeCreatePayload, placeError, placeOf, placePayload, restorePlace, type PlaceValue } from '@/components/shared/place-picker';
+import { EMPTY_PLACE, PlacePicker, placeCreatePayload, placeError, placeForUnit, placeOf, placePayload, restorePlace, type PlaceValue } from '@/components/shared/place-picker';
+import { useUnitCategories } from '@/features/units/api';
+import { allowedByUnit, entryUnitOf, unitByCode } from '@/lib/segments';
 
 import { MoneyInput } from '@/components/shared/money-input';
 import { QuickServiceDialog } from '@/components/shared/quick-service-dialog';
@@ -53,6 +55,8 @@ interface IncomeDrawerProps {
   creating: boolean;
   /** Qaysi bo'limdan ochildi (Doimiy / Boshqa) — yangi yozuv shu bo'limga tushadi */
   section?: 'DOIMIY' | 'BOSHQA';
+  /** Kiritish bo'limi sahifasidan (CENTER, REGION, TAX_FREE …): yangi yozuv joyi shu bo'limga qulflanadi */
+  unit?: string | null;
   categories: IncomeCategory[];
   departments: Department[];
   onClose: () => void;
@@ -94,8 +98,22 @@ function emptyForm(): FormState {
 const MEMORY = 'income';
 type Remembered = Pick<FormState, 'categoryCode' | 'paymentMethod' | 'place'> & { departmentId?: string };
 
-function newForm(): FormState {
+/** Joyning kiritish bo'limi (Markaz, Hududlar, yo'nalish) */
+function unitOfPlace(p: PlaceValue): string | null {
+  return entryUnitOf({ segment: p.segment || null, regionCode: p.kind === 'CENTER' ? 0 : p.kind === 'REGION' ? 1 : null, departmentId: null });
+}
+
+function newForm(unit?: string | null): FormState {
   const last = recallForm<Remembered>(MEMORY);
+  const remembered = restorePlace(last.place);
+  // Bo'lim sahifasidan: eslab qolingan joy shu bo'limniki bo'lsa — o'sha, aks holda bo'limning o'zi
+  if (unit) {
+    return {
+      ...emptyForm(),
+      place: remembered && unitOfPlace(remembered) === unit ? remembered : (placeForUnit(unit) ?? EMPTY_PLACE),
+      ...(last.paymentMethod ? { paymentMethod: last.paymentMethod } : {}),
+    };
+  }
   return {
     ...emptyForm(),
     ...(typeof last.categoryCode === 'string' ? { categoryCode: last.categoryCode } : {}),
@@ -118,6 +136,7 @@ export function IncomeDrawer({
   income,
   creating,
   section,
+  unit = null,
   categories,
   departments,
   onClose,
@@ -134,6 +153,7 @@ export function IncomeDrawer({
   const [serverError, setServerError] = useState<string | null>(null);
   const [extraOpen, setExtraOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const unitLists = useUnitCategories('income');
   /** «Saqlash va yana» bilan shu oynada kiritilganlar */
   const [added, setAdded] = useState<{ count: number; last: string } | null>(null);
   const amountBox = useRef<HTMLDivElement>(null);
@@ -166,13 +186,14 @@ export function IncomeDrawer({
         ),
       );
     } else {
-      setForm(newForm());
+      setForm(newForm(unit));
       setExtraOpen(false);
     }
 
     setAdded(null);
     setErrors({});
     setServerError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [income, creating]);
 
   if (!isOpen) return null;
@@ -287,9 +308,14 @@ export function IncomeDrawer({
     }
   }
 
+  // Bo'lim xizmat turlari: tanlangan bo'lim ro'yxati (bo'lmasa — umumiy, hammasi); joriy tanlov doim ro'yxatda
+  const currentUnit = unit ?? unitOfPlace(form.place);
+  const unitList = currentUnit ? (unitLists.lists.get(currentUnit) ?? null) : null;
+  const unitCategories = allowedByUnit(categories.map((c) => ({ ...c, parentCode: null })), unitList).filter(Boolean);
+  const shown = unitCategories.some((c) => c.code === form.categoryCode) ? unitCategories : [...unitCategories, ...categories.filter((c) => c.code === form.categoryCode).map((c) => ({ ...c, parentCode: null }))];
   const categoryOptions = [
     { value: '', label: 'Tanlang' },
-    ...categories.map((item) => ({ value: item.code, label: item.label })),
+    ...shown.map((item) => ({ value: item.code, label: item.label })),
   ];
 
   const readOnly = !isAdmin;
@@ -394,7 +420,13 @@ export function IncomeDrawer({
             disabled={saving || readOnly}
             compact
             noun="daromad"
+            lockUnit={!income ? unit : null}
           />
+          {unitList && (
+            <p className="-mt-2 text-xs text-(--color-text-muted)">
+              Xizmat turlari — faqat «{unitByCode(currentUnit)?.label}» bo&apos;limi ro&apos;yxatidan ({unitCategories.length} ta).
+            </p>
+          )}
           {isEditing && !form.place.kind && (
             <p className="-mt-2 text-xs text-(--color-warn)">
               Bu yozuv hech qayerga biriktirilmagan — Solishtirmada «Hududga biriktirilmagan»da turibdi. Markaz, Hudud yoki yo‘nalishni tanlab saqlang.

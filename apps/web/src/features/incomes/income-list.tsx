@@ -10,7 +10,7 @@ import { moveMessage, otherSection, SECTION_LABELS, sectionsApi, type SectionVal
 import { SectionTabs } from '@/features/sections/section-tabs';
 import { referencesApi } from '@/features/shared/references';
 import { useAuth } from '@/lib/auth-context';
-import { placeText } from '@/lib/segments';
+import { placeText, type EntryUnit } from '@/lib/segments';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -45,8 +45,10 @@ function isLocked(income: Income): boolean {
  * Daromadlar ro'yxati — bitta bo'lim (Doimiy yoki Boshqa) uchun.
  * Boshqa bo'limdagi yozuvlar bu yerda umuman ko'rinmaydi.
  */
-export function IncomeList({ section }: { section: SectionValue }) {
+export function IncomeList({ section, unit = null }: { section: SectionValue; unit?: EntryUnit | null }) {
   const { isAdmin } = useAuth();
+  /** Bo'lim sahifasida (Markaz, Hududlar, Tax free …): faqat shu bo'lim yozuvlari */
+  const showDepartment = !unit || unit.code === 'CENTER';
   const searchParams = useSearchParams();
 
   const target = otherSection(section);
@@ -74,6 +76,7 @@ export function IncomeList({ section }: { section: SectionValue }) {
   const filters: IncomeFilters = {
     period,
     section,
+    ...(unit ? { unit: unit.code } : {}),
     departmentId: departmentId || undefined,
     categoryCode: categoryCode || undefined,
     paymentStatus: (paymentStatus || undefined) as PaymentStatus | undefined,
@@ -87,7 +90,7 @@ export function IncomeList({ section }: { section: SectionValue }) {
 
   const list = useAsync(
     () => incomesApi.list(filters),
-    [section, period, departmentId, categoryCode, paymentStatus, search, page],
+    [section, unit?.code, period, departmentId, categoryCode, paymentStatus, search, page],
   );
 
   const overview = useAsync(() => sectionsApi.overview('income', period), [period]);
@@ -196,43 +199,50 @@ export function IncomeList({ section }: { section: SectionValue }) {
 
   return (
     <>
-      <PageHeader
-        title="Daromadlar"
-        description={`${SECTION_LABELS[section]} · ${formatPeriod(period)}`}
-      />
+      {!unit && (
+        <>
+          <PageHeader
+            title="Daromadlar"
+            description={`${SECTION_LABELS[section]} · ${formatPeriod(period)}`}
+          />
 
-      <SectionTabs kind="income" section={section} />
+          <SectionTabs kind="income" section={section} />
+        </>
+      )}
 
-      <div className="space-y-4 p-6">
+      <div className={unit ? 'space-y-4' : 'space-y-4 p-6'}>
         {/* Amallar: qo'shish, yuklash, yuklab olish, o'chirish — hamma Manba sahifasida bir xil joyda */}
         <SourceActions
           add={{ label: 'Yangi daromad', onClick: () => setCreating(true) }}
-          upload={{ label: "Excel'dan yuklash", onClick: () => setImportOpen(true), hint: 'Shablon yuklash oynasining ichida' }}
+          // Bo'lim sahifasida Excel yuklash yo'q: yuklangan yozuvlarda joy (Markaz/hudud/yo'nalish) bo'lmaydi
+          {...(unit ? {} : { upload: { label: "Excel'dan yuklash", onClick: () => setImportOpen(true), hint: 'Shablon yuklash oynasining ichida' } })}
           download={{ label: "Excel'ga yuklab olish", onClick: () => void handleExport(), loading: exporting, disabled: items.length === 0 }}
-          deleteData={{
+          {...(unit ? {} : { deleteData: {
             target: 'INCOME',
             scope: { section },
             selectedIds: [...selectedIds],
             month: period,
             place: `Daromadlar › ${SECTION_LABELS[section]}`,
-            onDone: ({ count }) => {
+            onDone: ({ count }: { count: number }) => {
               setToast(`${count} ta yozuv savatga tushdi`);
               setSelectedIds(new Set());
               reloadAll();
             },
-          }}
+          } })}
         />
 
         {/* Filtrlar */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="w-48">
-            <Select
-              options={departmentOptions}
-              value={departmentId}
-              onChange={(event) => changeFilter(() => setDepartmentId(event.target.value))}
-              className="h-9"
-            />
-          </div>
+          {showDepartment && (
+            <div className="w-48">
+              <Select
+                options={departmentOptions}
+                value={departmentId}
+                onChange={(event) => changeFilter(() => setDepartmentId(event.target.value))}
+                className="h-9"
+              />
+            </div>
+          )}
 
           <div className="w-52">
             <Select
@@ -285,7 +295,7 @@ export function IncomeList({ section }: { section: SectionValue }) {
         {/* Yig'indi */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            label={hasFilters ? 'Filtr bo‘yicha' : `${SECTION_LABELS[section]} daromad`}
+            label={hasFilters ? 'Filtr bo‘yicha' : unit ? `${unit.label} · ${SECTION_LABELS[section].toLowerCase()}` : `${SECTION_LABELS[section]} daromad`}
             tiyin={meta?.sumTiyin ?? 0}
             tone="income"
             hint={meta ? `${meta.total} ta yozuv` : undefined}
@@ -300,13 +310,15 @@ export function IncomeList({ section }: { section: SectionValue }) {
             tone={Number(meta?.receivableTiyin ?? 0) > 0 ? 'expense' : 'neutral'}
           />
 
-          <StatCard
-            label="O'tgan oyga nisbatan"
-            tiyin={summary?.previousTiyin ?? 0}
-            changePercent={summary?.previousChange}
-            positiveIsGood
-            hint={overview.data ? formatPeriod(overview.data.data.previousPeriod) : undefined}
-          />
+          {!unit && (
+            <StatCard
+              label="O'tgan oyga nisbatan"
+              tiyin={summary?.previousTiyin ?? 0}
+              changePercent={summary?.previousChange}
+              positiveIsGood
+              hint={overview.data ? formatPeriod(overview.data.data.previousPeriod) : undefined}
+            />
+          )}
         </div>
 
         {/* Tanlanganlar bilan amallar */}
@@ -501,6 +513,7 @@ export function IncomeList({ section }: { section: SectionValue }) {
         income={selected}
         creating={creating}
         section={section}
+        unit={unit?.code ?? null}
         categories={categories.data?.data ?? []}
         departments={departments.data?.data ?? []}
         onClose={() => {

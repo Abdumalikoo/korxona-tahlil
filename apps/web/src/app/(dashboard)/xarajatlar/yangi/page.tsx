@@ -5,7 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { expensesApi, type CreateExpensePayload } from '@/features/expenses/api';
-import { EMPTY_PLACE, PlacePicker, placeCreatePayload, placeError, restorePlace, type PlaceValue } from '@/components/shared/place-picker';
+import { EMPTY_PLACE, PlacePicker, placeCreatePayload, placeError, placeForUnit, restorePlace, type PlaceValue } from '@/components/shared/place-picker';
+import { useUnitCategories } from '@/features/units/api';
+import { allowedByUnit, entryUnitOf, unitByCode } from '@/lib/segments';
 import { referencesApi } from '@/features/shared/references';
 import { errorMessage } from '@/lib/error-message';
 import { recallForm, rememberForm } from '@/lib/form-memory';
@@ -101,7 +103,13 @@ export default function NewExpensePage() {
   const searchParams = useSearchParams();
   /** Qaysi bo'limdan kelindi - yozuv shu bo'limga tushadi */
   const section = searchParams.get('section') === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY';
-  const backHref = section === 'BOSHQA' ? '/xarajatlar/boshqa' : '/xarajatlar/doimiy';
+  /** Bo'lim sahifasidan kelindi (?unit=TAX_FREE …) — joy shu bo'limga qulflanadi, moddalar — shu bo'limniki */
+  const lockedUnit = unitByCode(searchParams.get('unit'));
+  const backHref = lockedUnit
+    ? `/xarajatlar/bolim/${lockedUnit.slug}?section=${section}`
+    : section === 'BOSHQA'
+      ? '/xarajatlar/boshqa'
+      : '/xarajatlar/doimiy';
   const { isAdmin } = useAuth();
 
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -118,18 +126,24 @@ export default function NewExpensePage() {
   const departments = useAsync(() => referencesApi.departments(), []);
   const categories = useAsync(() => referencesApi.expenseLeaves(), []);
   const tree = useAsync(() => referencesApi.expenseTree(), []);
+  const unitLists = useUnitCategories('expense');
 
   // Oldingi safardagi joy (Markaz/hudud) va to'lov usuli o'zi turadi
   useEffect(() => {
     const last = recallForm<Remembered>('expense');
-    const place: PlaceValue | null =
-      restorePlace(last.place) ??
+    const remembered = restorePlace(last.place);
+    const place: PlaceValue | null = lockedUnit
+      ? remembered && entryUnitOf({ segment: remembered.segment, regionCode: remembered.kind === 'CENTER' ? 0 : remembered.regionCode ? Number(remembered.regionCode) : null, departmentId: remembered.departmentId || null }) === lockedUnit.code
+        ? remembered
+        : placeForUnit(lockedUnit.code)
+      : remembered ??
       (typeof last.departmentId === 'string' && last.departmentId ? { ...EMPTY_PLACE, kind: 'CENTER', departmentId: last.departmentId } : null);
     setForm((state) => ({
       ...state,
       ...(place ? { place } : {}),
       ...(last.paymentMethod ? { paymentMethod: last.paymentMethod } : {}),
     }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Ctrl+S — saqlash, Ctrl+Enter — saqlash va yana
@@ -167,6 +181,19 @@ export default function NewExpensePage() {
 
     return () => clearTimeout(timer);
   }, [form.date, form.categoryCode, form.amount]);
+
+  /** Tanlangan bo'lim (Markaz, Hududlar, yo'nalish) moddalari — bo'lim ro'yxati bo'lmasa, umumiy (hammasi) */
+  const currentUnit = lockedUnit?.code ?? entryUnitOf({ segment: form.place.segment || null, regionCode: form.place.kind === 'CENTER' ? 0 : form.place.kind === 'REGION' ? 1 : null, departmentId: null });
+  const parentOf = new Map((categories.data?.data ?? []).map((c) => [c.code, c.parentCode]));
+  for (const g of tree.data?.data ?? []) {
+    const walk = (n: { code: string; parentCode: string | null; children?: { code: string; parentCode: string | null; children?: unknown[] }[] }) => {
+      parentOf.set(n.code, n.parentCode);
+      for (const c of n.children ?? []) walk(c as typeof n);
+    };
+    walk(g);
+  }
+  const unitList = currentUnit ? (unitLists.lists.get(currentUnit) ?? null) : null;
+  const unitCategories = allowedByUnit(categories.data?.data ?? [], unitList, parentOf);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((state) => ({ ...state, [key]: value }));
@@ -279,7 +306,7 @@ export default function NewExpensePage() {
   return (
     <>
       <PageHeader
-        title={section === 'BOSHQA' ? 'Yangi xarajat · Boshqa' : 'Yangi xarajat · Doimiy'}
+        title={`Yangi xarajat · ${lockedUnit ? `${lockedUnit.label} · ` : ''}${section === 'BOSHQA' ? 'Boshqa' : 'Doimiy'}`}
         description="Avval qayerga tegishli ekanini tanlang (Markaz, Hudud yoki yo‘nalish), keyin xarajatni kiriting"
         actions={
           <Link href={backHref} className={buttonClass('ghost', 'sm')}>
@@ -302,7 +329,13 @@ export default function NewExpensePage() {
                   error={errors.place}
                   disabled={saving}
                   hideLabel
+                  lockUnit={lockedUnit?.code}
                 />
+                {unitList && (
+                  <p className="text-xs text-(--color-text-muted)">
+                    Kategoriyalar — faqat «{unitByCode(currentUnit)?.label}» bo&apos;limi moddalari ({unitCategories.length} ta).
+                  </p>
+                )}
               </section>
 
               {/* ─────────── 2. Xarajat ─────────── */}
@@ -322,7 +355,7 @@ export default function NewExpensePage() {
                   <div className="sm:col-span-2">
                     <CategoryPicker
                       label="Kategoriya (nima uchun)"
-                      categories={categories.data?.data ?? []}
+                      categories={unitCategories}
                       value={form.categoryCode}
                       onChange={(code) => update('categoryCode', code)}
                       error={errors.categoryCode}

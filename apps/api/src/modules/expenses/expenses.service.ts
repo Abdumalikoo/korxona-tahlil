@@ -1,4 +1,6 @@
 import { resolveEntryPlace, resolveEntryPlaceUpdate } from '../../common/segments/place';
+import { entryUnitOf, entryUnitWhere } from '../../common/segments/segments';
+import { assertUnitCategory } from '../../common/segments/unit-categories';
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import type { Prisma, Expense } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -125,6 +127,9 @@ export class ExpensesService {
       where.regionCode = query.regionCode;
     }
 
+    // Kiritish bo'limi: Markaz, Hududlar yoki yo'nalish (Tax free …)
+    if (query.unit) where.AND = [entryUnitWhere(query.unit) as Prisma.ExpenseWhereInput];
+
     if (query.categoryCode) {
       where.categoryCode = query.categoryCode;
     } else if (query.rootCategoryCode) {
@@ -188,6 +193,8 @@ export class ExpensesService {
       await this.assertDepartmentExists(dto.departmentId);
     }
     const place = await resolveEntryPlace(this.prisma, { regionCode: dto.regionCode ?? null, districtId: dto.districtId || null, departmentId: dto.departmentId || null, segment: dto.segment || null }, 'xarajat');
+    // Bo'lim moddalari: modda tanlangan bo'limning (Markaz, Hududlar, Tax free …) ro'yxatida bo'lsin
+    await assertUnitCategory(this.prisma, 'expense', entryUnitOf(place), dto.categoryCode);
 
     // QQS umumiy summadan oshmasligi kerak
     if (dto.vatTiyin !== undefined && dto.vatTiyin > dto.amountTiyin) {
@@ -362,6 +369,10 @@ export class ExpensesService {
     // Qayerga tegishli: Markaz / hudud (tuman) / yo'nalish — birgalikda tekshiriladi (yuborilmaganlari — joriy qiymat)
     const cur = current as unknown as { regionCode: number | null; districtId: string | null; departmentId: string | null; segment: string | null };
     const place = await resolveEntryPlaceUpdate(this.prisma, { regionCode: cur.regionCode, districtId: cur.districtId ?? null, departmentId: cur.departmentId, segment: cur.segment ?? null }, dto, 'xarajat');
+    if (place || dto.categoryCode) {
+      const finalPlace = place ?? { regionCode: cur.regionCode, departmentId: cur.departmentId, segment: cur.segment ?? null };
+      await assertUnitCategory(this.prisma, 'expense', entryUnitOf(finalPlace), dto.categoryCode ?? current.categoryCode);
+    }
     if (place) {
       data.department = place.departmentId ? { connect: { id: place.departmentId } } : { disconnect: true };
       data.region = place.regionCode !== null ? { connect: { code: place.regionCode } } : { disconnect: true };

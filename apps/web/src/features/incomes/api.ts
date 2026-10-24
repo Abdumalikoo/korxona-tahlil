@@ -19,6 +19,8 @@ export interface IncomeFilters {
   departmentId?: string;
   categoryCode?: string;
   section?: 'DOIMIY' | 'BOSHQA';
+  /** Kiritish bo'limi: CENTER, REGION, TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA */
+  unit?: string;
   paymentStatus?: PaymentStatus;
   search?: string;
   page?: number;

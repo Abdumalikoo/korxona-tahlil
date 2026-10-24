@@ -1,3 +1,4 @@
+import { ENTRY_UNIT_CODES } from '../../../common/segments/segments';
 import { IsOptional, IsString, IsInt, Min, Max, Matches, IsEnum, IsIn, IsDateString } from "class-validator";
 import { Type } from "class-transformer";
 import { PaymentMethod, PaymentStatus } from "@prisma/client";
@@ -89,4 +90,9 @@ export class QueryExpenseDto {
   @IsOptional()
   @IsString()
   section?: 'DOIMIY' | 'BOSHQA';
+
+  /** Kiritish bo'limi: CENTER, REGION, TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA */
+  @IsOptional()
+  @IsIn(ENTRY_UNIT_CODES)
+  unit?: string;
 }

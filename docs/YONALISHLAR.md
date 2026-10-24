@@ -50,3 +50,30 @@ Saqlash: `settings` jadvalidagi `expense.policy` yozuviga yangi `payers` maydoni
 - Iqtisodiy modellar (`econ`, `regional-econ`) yo'nalishlarni hali alohida birlik sifatida ko'rmaydi. Korxona jamisi to'g'ri chiqadi.
 - Yo'nalishlarda xodimlar soni yo'q, chunki xodimlar faqat hudud yoki Markazga biriktiriladi.
 - Eski yozuvlar avtomatik ko'chirilmaydi. Masalan, Markazdagi «Marksheyderlik» bo'limi yozuvlarini tahrirlash oynasi orqali qo'lda o'tkazish mumkin.
+
+## Bo'lim sahifalari (daromad va xarajat alohida yuritiladi)
+
+Chap menyuda «Daromadlar» yoki «Xarajatlar» ochilganda, ostida 6 ta bo'lim chiqadi. Har birining o'z sahifasi bor:
+
+- manzillar: `/daromadlar/bolim/<slug>` va `/xarajatlar/bolim/<slug>`;
+- slug'lar: `markaz`, `hududlar`, `tax-free`, `marksheyder`, `fermer`, `buxgalteriya`.
+
+Har bir bo'lim sahifasida:
+
+- **Doimiy / Boshqa** — faqat shu bo'lim yozuvlari ko'rinadi. Ro'yxatning `unit` filtri qidiruv, Excel'ga yuklab olish, jamilar va filtr bo'yicha o'chirishga ham ta'sir qiladi.
+- **Yangi xarajat / daromad** — yozuv joyi shu bo'limga qulflanadi. Markazda bo'lim, Hududlarda viloyat va tuman tanlanadi.
+- **Moddalar / Xizmat turlari** — shu bo'limda ishlatiladigan moddalar ro'yxati:
+  - **Umumiy** — hamma moddalar ochiq, keyin qo'shilganlari ham. Boshida hamma bo'lim shunday.
+  - **Faqat belgilanganlar** — kiritishda faqat shu moddalar chiqadi. Server ham boshqa moddani qabul qilmaydi. Ota modda to'liq belgilansa, unga keyin qo'shiladigan ichki moddalar ham o'zi kiradi.
+
+Bo'lim ro'yxatlari `settings` jadvalidagi `unit.categories` yozuvida saqlanadi, migratsiya kerak emas. API:
+
+- `GET /api/unit-categories?kind=expense|income` — bo'limlar ro'yxatlarini oladi;
+- `PATCH /api/unit-categories` — ro'yxatni saqlaydi. Tanasi: `{ kind, unit, codes | null }`, bunda `null` — umumiyga qaytarish. Faqat administrator saqlay oladi.
+
+Bo'lim sahifalarida Excel'dan yuklash va «oy bo'yicha o'chirish» tugmalari yo'q:
+
+- Excel'dan yuklangan yozuvlarda joy bo'lmaydi. Ular umumiy «Doimiy / Boshqa» sahifalaridan yuklanadi.
+- Oy bo'yicha o'chirish boshqa bo'limlarning yozuvlariga ham tegishi mumkin edi.
+
+Tanlab o'chirish va filtr bo'yicha o'chirish esa ishlaydi.

@@ -3,7 +3,7 @@
 import { SourceActions } from '@/components/shared/source-actions';
 import { useMonthChange, usePeriod } from '@/lib/period';
 import { regionsApi } from '@/features/employees/api';
-import { placeText } from '@/lib/segments';
+import { placeText, type EntryUnit } from '@/lib/segments';
 import { Mark } from '@/features/reactions/mark';
 import { categoryMark, counterpartyMark, recordMark } from '@/features/reactions/marks';
 import { downloadExpensesExcel, expensesApi, type ExpenseFilters, type SortField, type SortOrder } from '@/features/expenses/api';
@@ -53,12 +53,15 @@ const LOCKED_SOURCES: Record<string, string> = {
  * Xarajatlar ro'yxati — bitta bo'lim (Doimiy yoki Boshqa) uchun.
  * Boshqa bo'limdagi yozuvlar bu yerda umuman ko'rinmaydi.
  */
-export function ExpenseList({ section }: { section: SectionValue }) {
+export function ExpenseList({ section, unit = null }: { section: SectionValue; unit?: EntryUnit | null }) {
   const { isAdmin } = useAuth();
   const searchParams = useSearchParams();
 
   const target = otherSection(section);
-  const newHref = `${SECTION_NAV.expense.newHref}?section=${section}`;
+  /** Bo'lim sahifasida (Markaz, Hududlar, Tax free …): faqat shu bo'lim yozuvlari, yangisi ham shu bo'limga */
+  const newHref = `${SECTION_NAV.expense.newHref}?section=${section}${unit ? `&unit=${unit.code}` : ''}`;
+  const showDepartment = !unit || unit.code === 'CENTER';
+  const showRegion = !unit || unit.code === 'REGION';
 
   /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
   const { month: period } = usePeriod();
@@ -85,6 +88,7 @@ export function ExpenseList({ section }: { section: SectionValue }) {
   const filters: ExpenseFilters = {
     period,
     section,
+    ...(unit ? { unit: unit.code } : {}),
     departmentId: departmentId || undefined,
     rootCategoryCode: rootCategoryCode || undefined,
     paymentStatus: (paymentStatus || undefined) as PaymentStatus | undefined,
@@ -104,7 +108,7 @@ export function ExpenseList({ section }: { section: SectionValue }) {
 
   const list = useAsync(
     () => expensesApi.list(filters),
-    [section, period, departmentId, rootCategoryCode, paymentStatus, regionCode, search, page, sortBy, sortOrder],
+    [section, unit?.code, period, departmentId, rootCategoryCode, paymentStatus, regionCode, search, page, sortBy, sortOrder],
   );
 
   const overview = useAsync(() => sectionsApi.overview('expense', period), [period]);
@@ -227,35 +231,41 @@ export function ExpenseList({ section }: { section: SectionValue }) {
 
   return (
     <>
-      <PageHeader
-        title="Xarajatlar"
-        description={`${SECTION_LABELS[section]} · ${formatPeriod(period)}`}
-      />
+      {!unit && (
+        <>
+          <PageHeader
+            title="Xarajatlar"
+            description={`${SECTION_LABELS[section]} · ${formatPeriod(period)}`}
+          />
 
-      <SectionTabs kind="expense" section={section} />
+          <SectionTabs kind="expense" section={section} />
+        </>
+      )}
 
-      <div className="space-y-4 p-6">
+      <div className={unit ? 'space-y-4' : 'space-y-4 p-6'}>
         {/* Amallar: qo'shish, yuklash, yuklab olish, o'chirish — hamma Manba sahifasida bir xil joyda */}
         <SourceActions
           add={{ label: 'Yangi xarajat', href: newHref }}
-          upload={{ label: "Excel'dan yuklash", onClick: () => setImportOpen(true), hint: 'Shablon yuklash oynasining ichida' }}
+          // Bo'lim sahifasida Excel yuklash yo'q: yuklangan yozuvlarda joy (Markaz/hudud/yo'nalish) bo'lmaydi
+          {...(unit ? {} : { upload: { label: "Excel'dan yuklash", onClick: () => setImportOpen(true), hint: 'Shablon yuklash oynasining ichida' } })}
           download={{ label: "Excel'ga yuklab olish", onClick: () => void handleExport(), loading: exporting, disabled: items.length === 0 }}
-          deleteData={{
+          {...(unit ? {} : { deleteData: {
             target: 'EXPENSE',
             scope: { section },
             selectedIds: [...selectedIds],
             month: period,
             place: `Xarajatlar › ${SECTION_LABELS[section]}`,
-            onDone: ({ count }) => {
+            onDone: ({ count }: { count: number }) => {
               setToast(`${count} ta yozuv savatga tushdi`);
               setSelectedIds(new Set());
               reloadAll();
             },
-          }}
+          } })}
         />
 
         {/* Filtrlar */}
         <div className="flex flex-wrap items-center gap-3">
+          {showDepartment && (
           <div className="w-48">
             <Select
               options={departmentOptions}
@@ -264,6 +274,7 @@ export function ExpenseList({ section }: { section: SectionValue }) {
               className="h-9"
             />
           </div>
+          )}
 
           <div className="w-52">
             <Select
@@ -274,11 +285,12 @@ export function ExpenseList({ section }: { section: SectionValue }) {
             />
           </div>
 
+          {showRegion && (
           <div className="w-48">
             <Select
               options={[
                 { value: '', label: 'Barcha hududlar' },
-                ...(regions.data?.data ?? []).map((r) => ({
+                ...(regions.data?.data ?? []).filter((r) => !unit || r.code !== 0).map((r) => ({
                   value: String(r.code),
                   label: r.code === 0 ? r.name : `${r.code} \u2014 ${r.name}`,
                 })),
@@ -288,6 +300,7 @@ export function ExpenseList({ section }: { section: SectionValue }) {
               className="h-9"
             />
           </div>
+          )}
 
           <div className="w-44">
             <Select
@@ -332,13 +345,14 @@ export function ExpenseList({ section }: { section: SectionValue }) {
         {/* Yig'indi */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            label={hasFilters ? 'Filtr bo‘yicha' : `${SECTION_LABELS[section]} xarajat`}
+            label={hasFilters ? 'Filtr bo‘yicha' : unit ? `${unit.label} · ${SECTION_LABELS[section].toLowerCase()}` : `${SECTION_LABELS[section]} xarajat`}
             tiyin={meta?.sumTiyin ?? 0}
             tone="expense"
             hint={meta ? `${meta.total} ta yozuv` : undefined}
             icon={<IconWallet className="size-4" />}
           />
 
+          {!unit && (<>
           <StatCard
             label="O‘tgan oyga nisbatan"
             tiyin={summary?.previousTiyin ?? 0}
@@ -354,6 +368,7 @@ export function ExpenseList({ section }: { section: SectionValue }) {
             positiveIsGood={false}
             hint={overview.data ? formatPeriod(overview.data.data.lastYearPeriod) : undefined}
           />
+          </>)}
 
           <StatCard
             label="To‘lanmagan"

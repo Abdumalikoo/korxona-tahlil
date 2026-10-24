@@ -298,6 +298,7 @@ export function GroupEntry({
         <ul className="mb-1 ml-[1.35rem] mt-1 space-y-0.5 border-l border-white/25 pl-3">
           {children.map((child) => {
             const on = isChildActive(child, pathname);
+            const subs = (child.children ?? []).filter((c) => !c.adminOnly || isAdmin);
             return (
               <li key={child.href}>
                 <Link
@@ -316,6 +317,29 @@ export function GroupEntry({
                     {child.badge ? <span className="ml-auto shrink-0 rounded-full bg-amber-400 px-1.5 text-[11px] font-bold leading-5 text-amber-950">{child.badge}</span> : null}
                   </span>
                 </Link>
+                {/* Ichki bandlar (Daromadlar/Xarajatlar › 6 bo'lim) — shu band ochilganda pastida */}
+                {on && subs.length > 0 && (
+                  <ul className="mb-1 ml-3 mt-0.5 space-y-0.5 border-l border-white/20 pl-2">
+                    {subs.map((sub) => {
+                      const subOn = isChildActive(sub, pathname);
+                      return (
+                        <li key={sub.href}>
+                          <Link
+                            href={sub.href}
+                            aria-current={subOn ? 'page' : undefined}
+                            title={sub.description}
+                            className={cn(
+                              'flex items-center gap-2 truncate rounded-lg px-2.5 py-1.5 text-[13px] transition-colors before:size-1.5 before:shrink-0 before:rounded-full before:bg-current before:opacity-60',
+                              subOn ? 'bg-white font-semibold text-brand-700 shadow-sm' : 'text-white/80 hover:bg-white/10 hover:text-white',
+                            )}
+                          >
+                            <span className="truncate">{sub.label}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </li>
             );
           })}

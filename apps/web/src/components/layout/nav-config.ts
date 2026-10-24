@@ -1,4 +1,5 @@
 import type { ComponentType, SVGProps } from 'react';
+import { ENTRY_UNITS } from '@/lib/segments';
 import {
   NavCompare,
   NavBars,
@@ -94,6 +95,8 @@ export const MENU: NavItem[] = [
       { label: 'Natijalar', href: '/daromadlar/natijalar', description: 'Oylik natijalar' },
       { label: 'Reja va tushum', href: '/daromadlar/reja-tushum', description: "Xodimlar reja / tushum fayli — daromadni xodimlarga bo'lib beradi" },
       { label: 'Tahlil', href: '/daromadlar/tahlil', description: 'Daromad dinamikasi va tarkibi' },
+      // 6 bo'lim — chap menyuda «Daromadlar» ostida; yorliqlar qatorida emas (qidiruvda bor)
+      ...ENTRY_UNITS.map((u) => ({ label: `Daromadlar · ${u.label}`, href: `/daromadlar/bolim/${u.slug}`, description: `${u.hint}: daromadlar va xizmat turlari`, hidden: true })),
     ],
   },
   {
@@ -112,8 +115,10 @@ export const MENU: NavItem[] = [
       { label: 'Tahlil', href: '/xarajatlar/tahlil', description: 'Xarajat dinamikasi va tarkibi' },
       { label: 'Soliqlar', href: '/xarajatlar/soliqlar', description: "Hamma soliqlar: hudud va Markaz bo'yicha, ish haqidan foizlilar avtomatik" },
       { label: 'Asosiy vositalar', href: '/xarajatlar/asosiy-vositalar', description: "Balansdagi vositalar va oylik sarfi (eskirish)" },
-      { label: 'Xarajatlar siyosati', href: '/xarajatlar/siyosat', description: "Har bir xarajat moddasi kim hisobidan: Markaz yoki Hudud; Markaz xarajati tarkibi" },
+      { label: 'Xarajatlar siyosati', href: '/xarajatlar/siyosat', description: "Har bir xarajat moddasi kim hisobidan: yozilgan joyida, Markaz yoki yo'nalish" },
       { label: 'Yangi xarajat', href: '/xarajatlar/yangi', description: "Xarajat qo'shish", hidden: true },
+      // 6 bo'lim — chap menyuda «Xarajatlar» ostida; yorliqlar qatorida emas (qidiruvda bor)
+      ...ENTRY_UNITS.map((u) => ({ label: `Xarajatlar · ${u.label}`, href: `/xarajatlar/bolim/${u.slug}`, description: `${u.hint}: xarajatlar va moddalar`, hidden: true })),
     ],
   },
   { label: 'Xodimlar', href: '/xodimlar', icon: NavUsers, description: "Xodimlar ro'yxati va ko'chishlar" },
@@ -461,7 +466,13 @@ export interface SideChild {
   dot?: string;
   /** Yonidagi son (kutilayotgan ishlar) */
   badge?: number;
+  /** Ichki bandlar — shu band faol bo'lganda pastida ochiladi (Daromadlar/Xarajatlar › 6 bo'lim) */
+  children?: SideChild[];
 }
+
+/** Daromadlar / Xarajatlar ichidagi 6 bo'lim: Markaz, Hududlar, Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari */
+const unitChildren = (base: '/daromadlar' | '/xarajatlar'): SideChild[] =>
+  ENTRY_UNITS.map((u) => ({ label: u.label, href: `${base}/bolim/${u.slug}`, match: [`${base}/bolim/${u.slug}`], description: u.hint }));
 
 export interface SideGroup {
   kind: 'group';
@@ -519,8 +530,8 @@ export const SIDEBAR: SideEntry[] = [
     source: true,
     children: [
       { label: 'Tez kiritish', href: '/kiritish', match: ['/kiritish'] },
-      { label: 'Daromadlar', href: '/daromadlar', match: ['/daromadlar'] },
-      { label: 'Xarajatlar', href: '/xarajatlar', match: ['/xarajatlar'] },
+      { label: 'Daromadlar', href: '/daromadlar', match: ['/daromadlar'], children: unitChildren('/daromadlar') },
+      { label: 'Xarajatlar', href: '/xarajatlar', match: ['/xarajatlar'], children: unitChildren('/xarajatlar') },
       { label: 'Modellar', href: '/modellar', match: ['/modellar', '/katta-modellar'] },
       { label: 'Rollar', href: '/rollar', rolesSlot: true },
       { label: 'Xodimlar', href: '/xodimlar', match: ['/xodimlar'] },

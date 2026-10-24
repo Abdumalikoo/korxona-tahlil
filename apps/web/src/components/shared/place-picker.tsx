@@ -137,9 +137,22 @@ interface PlacePickerProps {
   compact?: boolean;
   /** «daromad» yoki «xarajat» — izoh matni uchun */
   noun?: string;
+  /**
+   * Bo'lim sahifasidan ochilganda (CENTER, REGION yoki yo'nalish kodi): faqat shu bo'lim ko'rinadi,
+   * boshqasiga o'tib bo'lmaydi (Markazda — bo'lim, Hududlarda — viloyat va tuman tanlanadi)
+   */
+  lockUnit?: string | null;
 }
 
-export function PlacePicker({ value, onChange, departments, error, disabled, hideLabel, compact, noun = 'xarajat' }: PlacePickerProps) {
+/** Bo'lim kodi → tanlovning boshlang'ich holati */
+export function placeForUnit(unit: string | null | undefined): PlaceValue | null {
+  if (unit === 'CENTER') return { ...EMPTY_PLACE, kind: 'CENTER' };
+  if (unit === 'REGION') return { ...EMPTY_PLACE, kind: 'REGION' };
+  if (isSegment(unit)) return { ...EMPTY_PLACE, kind: 'SEGMENT', segment: unit };
+  return null;
+}
+
+export function PlacePicker({ value, onChange, departments, error, disabled, hideLabel, compact, noun = 'xarajat', lockUnit }: PlacePickerProps) {
   const regions = useAsync(() => regionsApi.list(), []);
   const code = value.kind === 'REGION' && value.regionCode ? Number(value.regionCode) : null;
   const districts = useAsync(() => (code ? regionsApi.districts(code) : Promise.resolve(null)), [code]);
@@ -194,10 +207,10 @@ export function PlacePicker({ value, onChange, departments, error, disabled, hid
           Qayerga tegishli<span className="ml-0.5 text-(--color-expense)">*</span>
         </p>
       )}
-      <div role="radiogroup" aria-label="Qayerga tegishli" className={cn('grid gap-2', compact ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3')}>
-        {option('CENTER', value.kind === 'CENTER', 'Markaz', "Markaz va bo'limlari", <IconBuilding className="size-5" />, { ...EMPTY_PLACE, kind: 'CENTER' })}
-        {option('REGION', value.kind === 'REGION', 'Hudud', 'Viloyat va tumanlari', ICONS.REGION, { ...EMPTY_PLACE, kind: 'REGION' })}
-        {SEGMENTS.map((s) => option(s.code, value.kind === 'SEGMENT' && value.segment === s.code, s.label, s.hint, ICONS[s.code], { ...EMPTY_PLACE, kind: 'SEGMENT', segment: s.code }))}
+      <div role="radiogroup" aria-label="Qayerga tegishli" className={cn('grid gap-2', lockUnit ? 'grid-cols-1' : compact ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3')}>
+        {(!lockUnit || lockUnit === 'CENTER') && option('CENTER', value.kind === 'CENTER', 'Markaz', "Markaz va bo'limlari", <IconBuilding className="size-5" />, { ...EMPTY_PLACE, kind: 'CENTER' })}
+        {(!lockUnit || lockUnit === 'REGION') && option('REGION', value.kind === 'REGION', 'Hudud', 'Viloyat va tumanlari', ICONS.REGION, { ...EMPTY_PLACE, kind: 'REGION' })}
+        {SEGMENTS.filter((s) => !lockUnit || lockUnit === s.code).map((s) => option(s.code, value.kind === 'SEGMENT' && value.segment === s.code, s.label, s.hint, ICONS[s.code], { ...EMPTY_PLACE, kind: 'SEGMENT', segment: s.code }))}
       </div>
 
       {value.kind === 'CENTER' && (
