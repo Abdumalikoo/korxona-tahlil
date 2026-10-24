@@ -129,3 +129,18 @@ Manzil: Xarajatlar › Tax free › Bank xarajatlari. Shablon bank ko'chirmasi (
 - **Ko'rinish (ichma-ich):** oy (jami) → to'lovlar (izoh, sana, kimga, summa) → to'lov ochilsa, ko'chirmadagi hamma maydonlar, asl «Назначение платежа» ham.
 - **Saqlash joyi:** `settings` jadvali, `unit.bank.TAX_FREE`. Migratsiya kerak emas.
 - **API:** `/api/unit-bank/:unit/` ostida `template`, `analyze`, `commit`, `data?from=&to=`, `batches`, `batches/:id/cancel`.
+
+## Tax free › Asosiy vositalar, Reklama xarajatlari, Boshqa xarajatlar (qo'lda kiritish jadvali)
+
+Manzil: Xarajatlar › Tax free › Asosiy vositalar / Reklama xarajatlari / Boshqa xarajatlar. Uchalasi bitta jadval asosida ishlaydi, faqat moddasi va ustunlari farq qiladi.
+
+- **Jadval (Excel kabi):** katakka to'g'ridan-to'g'ri yoziladi. Enter bosilsa, pastdagi katakka o'tiladi. Yuqoridagi bo'sh qatorga yozilsa, ostidan yangi bo'sh qator ochiladi. Yangi qatorlar yashil, tahrirlangan qatorlar sariq ko'rinadi, xato katak qizil bo'ladi (sichqoncha olib borilsa, sababi chiqadi).
+- **Ustunlar:** Sana*, Nomi*, Filial (13 filial ro'yxatidan), Kontragent, Hujjat №, Summa*, Izoh. Asosiy vositalarda Soni va Narxi ham bor: Summa bo'sh qolsa, Soni × Narxi bo'yicha hisoblanadi.
+- **Excel'dan qo'yish:** Excel'da kataklar nusxalanadi (Ctrl+C) va jadvalning istalgan katagiga qo'yiladi (Ctrl+V). Qatorlar va ustunlar o'zi to'ladi, kerak bo'lsa yangi qatorlar ochiladi. Sana «05.01.2026» ko'rinishida ham qabul qilinadi. Filial nomi yoki № bo'yicha topiladi.
+- **Shablon → yuklash:** shablonda «Kiritish» varag'i (Filial ustunida ro'yxatdan tanlanadi), «Filiallar» va «Yo'riqnoma» varaqlari bor. To'ldirilgan fayl yuklansa, qatorlar jadvalga qoralama bo'lib tushadi. Ular tekshirilib, «Saqlash» bosiladi.
+- **Saqlash:** hamma o'zgarishlar (yangi va tahrir) birga saqlanadi. Bitta qatorda xato bo'lsa ham hech narsa yozilmaydi va xato qatorlar ko'rsatiladi. Har qator Xarajatlarda alohida yozuvga aylanadi: yo'nalish Tax free, manba — qo'lda. Qator tahrirlansa, o'sha yozuv yangilanadi.
+- **Moddalar** (yo'q bo'lsa avtomatik yaratiladi): `UNIT_ASSET` — Asosiy vositalar (xarid), `REKLAMA` — Reklama xarajatlari, `UNIT_OTHER` — Boshqa xarajatlar.
+- **O'chirish:** qatorlar belgilanib o'chiriladi va xarajat yozuvlari savatga tushadi. Xarajatlar bo'limida o'chirilgan yozuv bu jadvalda ko'rinmaydi, savatdan tiklansa qaytadi.
+- **Boshqa imkoniyatlar:** oylar oralig'i bo'yicha ko'rish, qidirish, oylar kesimida jami, Excel'ga yuklab olish.
+- **Saqlash joyi:** `settings` jadvali, `unit.entries.<BO'LIM>.<ASSET|AD|OTHER>`. Migratsiya kerak emas.
+- **API:** `/api/unit-entries/:unit/:kind/` ostida: GET `?from=&to=`, POST `save {rows}`, POST `delete {ids}`, GET `template`, GET `export?from=&to=`, POST `parse` (fayl).

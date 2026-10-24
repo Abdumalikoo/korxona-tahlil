@@ -24,6 +24,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Ichki xatolik yuz berdi';
     let code = 'INTERNAL_ERROR';
+    /** Qo'shimcha tafsilot (masalan, jadvalning qaysi qatorida xato) — bo'lsa, javobga qo'shiladi */
+    let details: unknown;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -32,9 +34,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if (typeof body === 'string') {
         message = body;
       } else if (typeof body === 'object' && body !== null) {
-        const payload = body as { message?: string | string[]; error?: string };
+        const payload = body as { message?: string | string[]; error?: string; details?: unknown };
         message = payload.message ?? exception.message;
         code = payload.error ?? code;
+        details = payload.details;
       }
     } else if (exception instanceof Error) {
       this.logger.error(exception.message, exception.stack);
@@ -51,6 +54,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         statusCode: status,
         path: request.url,
         timestamp: new Date().toISOString(),
+        ...(details !== undefined ? { details } : {}),
       },
     });
   }
