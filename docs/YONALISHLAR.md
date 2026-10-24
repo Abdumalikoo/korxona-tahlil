@@ -415,3 +415,43 @@ Eski bitta tarix birinchi ochilganda «Avvalgi suhbat» bo'lib ko'chadi. Migrats
 - `saved`: `GET`, `POST`, `DELETE`;
 - `saved/:id`: `PATCH` (izoh), `DELETE`;
 - `saved/export?ids=`.
+
+### Manba chati — kuchaytirilgan imkoniyatlar
+
+- **Xato yozuvlar tuzatiladi.** Masalan: «xarjat» → xarajat, «yanvr» → yanvar, «marksheydr» → Marksheyder, «Andjon» → Andijon. Javobda «Tuzatildi» deb ko'rsatiladi. Ism va familiyalar o'zgartirilmaydi. To'g'ri so'zlar tuzatishdan himoyalangan (olgan/otgan, buxgalter/buxgalteriya).
+- **Bo'limlar va viloyatlarni solishtirish:** «Fermer va Tax free xarajatini solishtir», «Andijon va Samarqand natijasi». Jadvalda har birining daromadi, xarajati, shu jumladan ish haqi, natijasi va rentabelligi; diagramma; eng kattasi matnda aytiladi.
+- **Yil-yil solishtirish:** «o'tgan yilning shu davri bilan solishtir».
+- **Filtrlar:**
+  - kontragent yoki mijoz: «Artelga to'langan», «kontragent X», qo'shtirnoqdagi so'z;
+  - summa: «5 mln dan katta», «500 ming so'mdan kam»;
+  - to'lanmagan (qarz);
+  - tuman: «Asaka tumani».
+
+  Filtrli javobda eng katta yozuvlar jadvali va kontragentlar diagrammasi chiqadi. «Kontragentlar bo'yicha» / «mijozlar bo'yicha» guruhlash ham bor.
+- **Korxona jamidagi ulushi** — bo'lim yoki hudud bo'yicha har pul javobida ko'rsatiladi.
+- **Xodimlar tahlili** (ma'lumotnomalar va Xodimlar bazasi):
+  - **filtrlar:** jinsi (16-jadval), yoshi («40 yoshdan katta», «30 yoshgacha», «25–35 yosh»), ma'lumoti (oliy, o'rta maxsus, tugallanmagan oliy), lavozim («buxgalterlar», «bosh mutaxassislar»), ishga kirgan davr (10-jadval «Tizimda»), viloyat, tuman, bo'lim;
+  - **guruhlash:** lavozim, yosh, jins, ma'lumot, viloyat, tuman yoki bo'lim bo'yicha;
+  - **javobda:** soni, ayol/erkak, o'rtacha yosh, ro'yxat (60 tagacha).
+- **Ish haqi reytingi:** «eng ko'p ish haqi olgan xodimlar», «eng kam», «o'rtacha ish haqi». Umumiy vedomost va bo'limlar vedomostlaridan olinadi. Javobda: jami, xodimlar soni, bir xodimga oyiga o'rtacha, top 25.
+- **«Balki shu xodimni nazarda tutgandirsiz?»** — savol tushunilmasa, familiyasi yaqin xodimlar taklif qilinadi.
+
+### Chat kodi
+
+Manzil: Sozlamalar › Chat kodi (`/sozlamalar/chat-kodi`). Standart kod — **8020**.
+
+- **Qayerda so'raladi** (sozlanadi):
+  - **Chatga kirish** — qulf ekrani. Kod to'g'ri bo'lsa, belgilangan muddat (15 daqiqadan 1 kungacha, standart 2 soat) shu brauzer oynasida qayta so'ralmaydi.
+  - **Saqlash** — ☆ «Saqlash» va Excel'ga yuklab olish, har safar.
+  - **Yangi suhbat** — «Yangi suhbat» tugmasi yoki suhbatsiz birinchi savol, har safar.
+- **O'zgartirish:** kod (4–8 raqam), qayerda so'ralishi va kirish muddati faqat joriy kod bilan saqlanadi. Kod almashtirilsa, chatga yangi kod bilan qayta kiriladi.
+- **Himoya:**
+  - bazada faqat xesh saqlanadi (scrypt + tuz);
+  - kod logga va audit jurnaliga yozilmaydi;
+  - 5 marta noto'g'ri kiritilsa — 5 daqiqa kutiladi;
+  - kirish ruxsati foydalanuvchiga bog'langan va imzolangan, muddati o'tsa — yaroqsiz;
+  - tekshiruv serverda: kodsiz so'rov rad etiladi.
+- **API** (`/api/source-chat/`):
+  - `pin/status`, `pin/unlock`, `pin` (`GET` / `PUT`);
+  - kirish ruxsati `X-Chat-Token` sarlavhasida yuboriladi;
+  - saqlash va yangi suhbat kodi `code` maydonida yoki `X-Chat-Code` sarlavhasida yuboriladi.

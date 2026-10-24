@@ -10,7 +10,8 @@ import { formatDateTime } from '@/lib/format';
 import { unitByCode } from '@/lib/segments';
 import { cn } from '@/lib/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { exportSaved, exportThread, sourceChatApi, type ChatAnswer, type ChatContext, type ChatThread, type SavedAnswer } from './api';
+import { chatPinApi, cleanMsg, exportSaved, exportThread, isLocked, needsCode, setChatToken, sourceChatApi, type ChatAnswer, type ChatContext, type ChatPinRequire, type ChatThread, type SavedAnswer } from './api';
+import { ChatLock, CodeDialog } from './pin-pad';
 import { ChatBlocks } from './blocks';
 
 // ═══════════════════════════════════════════════════════════
@@ -20,11 +21,15 @@ import { ChatBlocks } from './blocks';
 //   tepada — Excel'ga yuklab olish va suhbatni tozalash.
 //   «Saqlanganlar» — muhim javoblar (suhbat o'chirilsa ham qoladi): izoh, Excel, o'chirish.
 //   O'ngda — joriy kontekst (davom savollari uchun) va namuna savollar.
+//   Chat kodi (Sozlamalar › Chat kodi): kirishda — qulf ekrani; saqlash, Excel va yangi suhbatda — kod oynasi.
 // ═══════════════════════════════════════════════════════════
 
 type Msg = { kind: 'answer'; a: ChatAnswer } | { kind: 'pending'; text: string; id: string } | { kind: 'error'; text: string; error: string; id: string };
 type ToastState = { message: string; tone?: 'success' | 'error' } | null;
 type Confirm = { title: string; message: string; label: string; run: () => Promise<void> } | null;
+/** Kod so'rovi: tasdiqlanganda amal kod bilan bajariladi */
+type CodeAsk = { title: string; description: string; run: (code: string) => Promise<void> } | null;
+const msgOf = (err: unknown, fallback: string) => cleanMsg(errorMessage(err, fallback));
 
 const ACTIVE_KEY = 'chat.source.active';
 const readActive = () => {
@@ -46,10 +51,11 @@ const writeActive = (id: string | null) => {
 /** «…» bilan boshlanganlar — yuborilmaydi, yozish maydoniga qo'yiladi (F.I.Sh. yoki JShShIR yoziladi) */
 const EXAMPLES: { title: string; items: string[] }[] = [
   { title: 'Xodim (miya) — F.I.Sh. yoki JShShIR yozing', items: ["… barcha ma'lumotlari", '… yanvardagi ish haqi', "… qaysi bo'limda", "… ko'chishlari", 'Uning shu yildagi ish haqi'] },
-  { title: 'Xarajat va daromad', items: ["Fermer xo'jaligi xarajati shu yil oylar bo'yicha", 'Markaz daromadi va xarajati otgan oy', 'Ijara xarajati 1-chorak', 'Andijon viloyati natijasi shu yil'] },
-  { title: 'Ish haqi', items: ["Yanvardagi ish haqi bo'limlar bo'yicha", 'Tax free ish haqi oxirgi 3 oy'] },
-  { title: 'Tahlil', items: ["Eng ko'p xarajat qilgan hududlar shu yil", 'Yanvar va fevral xarajatlarini solishtir', "Xarajat moddalar bo'yicha shu oy", 'Oxirgi xarajat yozuvlari Markaz'] },
-  { title: 'Xodimlar', items: ["Fermer xo'jaligi xodimlari ro'yxati", 'Nechta xodim bor', 'Andijon viloyati xodimlari soni'] },
+  { title: 'Xarajat va daromad', items: ["Fermer xo'jaligi xarajati shu yil oylar bo'yicha", 'Markaz daromadi va xarajati otgan oy', 'Ijara xarajati 1-chorak', "Xarajat kontragentlar bo'yicha shu yil"] },
+  { title: 'Solishtirish', items: ['Fermer va Tax free xarajatini solishtir', 'Andijon va Samarqand natijasini solishtir', "Xarajat o'tgan yilning shu davri bilan solishtir", 'Yanvar va fevral xarajatlarini solishtir'] },
+  { title: 'Filtrlar', items: ["To'lanmagan xarajatlar", "5 mln dan katta xarajatlar shu yil", '«Artel» ga to‘langan', 'Asaka tumani xarajati shu yil'] },
+  { title: 'Ish haqi', items: ["Yanvardagi ish haqi bo'limlar bo'yicha", "Eng ko'p ish haqi olgan xodimlar shu yil", "Fermer o'rtacha ish haqi"] },
+  { title: 'Xodimlar tahlili', items: ['Ayol xodimlar soni', "40 yoshdan katta xodimlar lavozimlar bo'yicha", 'Buxgalterlar soni viloyatlar bo‘yicha', "Shu yil ishga kirganlar", "Fermer xodimlari yosh bo'yicha", 'Oliy ma‘lumotli xodimlar soni'] },
   { title: 'Tizim', items: ['Manbalar', "Qanday bo'limlar bor"] },
 ];
 
@@ -124,6 +130,14 @@ export function SourceChatView() {
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
+  const [pinReq, setPinReq] = useState<ChatPinRequire | null>(null);
+  const [locked, setLocked] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
+  const [lockError, setLockError] = useState<string | null>(null);
+  const [codeAsk, setCodeAsk] = useState<CodeAsk>(null);
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [bootKey, setBootKey] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -165,6 +179,15 @@ export function SourceChatView() {
     let alive = true;
     (async () => {
       try {
+        const st = (await chatPinApi.status()).data;
+        if (!alive) return;
+        setPinReq(st.require);
+        if (!st.unlocked) {
+          setChatToken(null);
+          setLocked(true);
+          return;
+        }
+        setLocked(false);
         const [list, sv] = await Promise.all([loadThreads(), sourceChatApi.saved().then((r) => r.data ?? []).catch(() => [] as SavedAnswer[])]);
         if (!alive) return;
         setSaved(sv);
@@ -178,22 +201,101 @@ export function SourceChatView() {
     return () => {
       alive = false;
     };
-  }, [loadThreads, openThread]);
+  }, [loadThreads, openThread, bootKey]);
+
+  /** Server «qulflangan» desa — qulf ekrani */
+  const lockIfNeeded = (err: unknown): boolean => {
+    if (!isLocked(errorMessage(err, ''))) return false;
+    setChatToken(null);
+    setLocked(true);
+    return true;
+  };
+
+  async function unlock(code: string) {
+    setUnlocking(true);
+    setLockError(null);
+    try {
+      const r = (await chatPinApi.unlock(code)).data;
+      setChatToken(r.token);
+      setLoading(true);
+      setBootKey((k) => k + 1);
+    } catch (err) {
+      setLockError(msgOf(err, "Kod noto'g'ri"));
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  /** Kod kerak bo'lsa — oyna; bo'lmasa — darhol */
+  function withCode(need: boolean, title: string, description: string, run: (code?: string) => Promise<void>) {
+    if (!need) {
+      void run().catch((err) => {
+        if (lockIfNeeded(err)) return;
+        if (needsCode(errorMessage(err, ''))) {
+          setCodeError(null);
+          setCodeAsk({ title, description, run: (c) => run(c) });
+          return;
+        }
+        setToast({ message: msgOf(err, 'Xatolik'), tone: 'error' });
+      });
+      return;
+    }
+    setCodeError(null);
+    setCodeAsk({ title, description, run: (c) => run(c) });
+  }
+
+  async function submitCode(code: string) {
+    if (!codeAsk) return;
+    setCodeBusy(true);
+    setCodeError(null);
+    try {
+      await codeAsk.run(code);
+      setCodeAsk(null);
+    } catch (err) {
+      if (lockIfNeeded(err)) {
+        setCodeAsk(null);
+        return;
+      }
+      const m = msgOf(err, 'Xatolik');
+      if (/kod|Kod/.test(m)) setCodeError(m);
+      else {
+        setCodeAsk(null);
+        setToast({ message: m, tone: 'error' });
+      }
+    } finally {
+      setCodeBusy(false);
+    }
+  }
+
+  function newChat() {
+    withCode(Boolean(pinReq?.newChat), 'Yangi suhbat', 'Yangi suhbat ochish uchun chat kodini kiriting', async (code) => {
+      const t = (await sourceChatApi.create(code)).data;
+      setThreads((ts) => [t, ...ts]);
+      await openThread(t.id);
+      inputRef.current?.focus();
+    });
+  }
 
   useEffect(() => {
     if (view === 'chat') endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, view]);
 
-  async function ask(q: string) {
+  async function ask(q: string, code?: string) {
     const question = q.trim();
     if (!question || busy) return;
+    if (!activeId && pinReq?.newChat && !code) {
+      // Suhbat yo'q — yangi suhbat uchun kod
+      setCodeError(null);
+      setCodeAsk({ title: 'Yangi suhbat', description: 'Birinchi savol yangi suhbat ochadi — chat kodini kiriting', run: (c) => ask(question, c) });
+      return;
+    }
     setView('chat');
     const pid = `p${Date.now()}`;
     setText('');
     setBusy(true);
     setMessages((m) => [...m, { kind: 'pending', text: question, id: pid }]);
     try {
-      const a = (await sourceChatApi.ask(question, ctx, activeId)).data;
+      const a = (await sourceChatApi.ask(question, ctx, activeId, code)).data;
       setMessages((m) => m.map((x) => (x.kind === 'pending' && x.id === pid ? { kind: 'answer', a } : x)));
       setCtx(a.context ?? {});
       if (a.threadId !== activeId) {
@@ -202,7 +304,17 @@ export function SourceChatView() {
       }
       setThreads((ts) => [a.thread, ...ts.filter((t) => t.id !== a.thread.id)].sort((x, y) => Number(y.pinned) - Number(x.pinned) || y.updatedAt.localeCompare(x.updatedAt)));
     } catch (err) {
-      setMessages((m) => m.map((x) => (x.kind === 'pending' && x.id === pid ? { kind: 'error', text: question, error: errorMessage(err, "Javob olib bo'lmadi"), id: pid } : x)));
+      if (lockIfNeeded(err)) {
+        setMessages((m) => m.filter((x) => !(x.kind === 'pending' && x.id === pid)));
+        return;
+      }
+      if (code && /kod/i.test(errorMessage(err, ''))) {
+        // Noto'g'ri kod — savol qoladi, kod oynasi ochiq turadi
+        setMessages((m) => m.filter((x) => !(x.kind === 'pending' && x.id === pid)));
+        setText(question);
+        throw err;
+      }
+      setMessages((m) => m.map((x) => (x.kind === 'pending' && x.id === pid ? { kind: 'error', text: question, error: msgOf(err, "Javob olib bo'lmadi"), id: pid } : x)));
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -226,7 +338,8 @@ export function SourceChatView() {
       await fn();
       if (ok) setToast({ message: ok });
     } catch (err) {
-      setToast({ message: errorMessage(err, 'Xatolik'), tone: 'error' });
+      if (lockIfNeeded(err)) return;
+      setToast({ message: msgOf(err, 'Xatolik'), tone: 'error' });
     }
   };
 
@@ -330,10 +443,12 @@ export function SourceChatView() {
       return;
     }
     if (!activeId) return;
-    await act(async () => {
-      const r = (await sourceChatApi.save(activeId, a.id)).data;
+    const tid = activeId;
+    withCode(Boolean(pinReq?.save), 'Javobni saqlash', 'Saqlash uchun chat kodini kiriting', async (code) => {
+      const r = (await sourceChatApi.save(tid, a.id, code)).data;
       setSaved((l) => [r, ...l.filter((x) => x.id !== r.id)]);
-    }, 'Saqlandi — «Saqlanganlar»da izoh qo‘shishingiz mumkin');
+      setToast({ message: 'Saqlandi — «Saqlanganlar»da izoh qo‘shishingiz mumkin' });
+    });
   }
 
   async function copyAnswer(a: ChatAnswer) {
@@ -356,12 +471,14 @@ export function SourceChatView() {
     ] as [string, string | null][]
   ).filter((x): x is [string, string] => Boolean(x[1]));
 
+  if (locked) return <ChatLock onUnlock={(c) => void unlock(c)} busy={unlocking} error={lockError} />;
+
   return (
     <div className="grid gap-4 lg:grid-cols-[16.5rem_minmax(0,1fr)] 2xl:grid-cols-[16.5rem_minmax(0,1fr)_18rem]">
       {/* ─── Suhbatlar ─── */}
       <Card className="flex h-[calc(100vh-13rem)] min-h-[520px] flex-col overflow-hidden">
         <div className="space-y-2 border-b border-(--color-line) p-3">
-          <Button className="w-full" onClick={() => void openThread(null)}>
+          <Button className="w-full" onClick={() => newChat()}>
             <IconPlus className="size-4" />
             Yangi suhbat
           </Button>
@@ -463,6 +580,7 @@ export function SourceChatView() {
           onAsk={(q) => ask0(q)}
           onToast={setToast}
           onConfirm={askConfirm}
+          onExport={(ids) => withCode(Boolean(pinReq?.save), "Excel'ga yuklab olish", 'Saqlanganlarni faylga saqlash uchun chat kodini kiriting', (code) => exportSaved(ids, code))}
         />
       ) : (
         <Card className="flex h-[calc(100vh-13rem)] min-h-[520px] flex-col overflow-hidden">
@@ -480,7 +598,12 @@ export function SourceChatView() {
                 <Button variant="ghost" size="sm" onClick={() => setRenaming(active.id)} title="Nomini o'zgartirish (chap ro'yxatda)">
                   <IconEdit className="size-4" />
                 </Button>
-                <Button variant="secondary" size="sm" disabled={!active.count} onClick={() => void act(() => exportThread(active.id))}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={!active.count}
+                  onClick={() => withCode(Boolean(pinReq?.save), "Excel'ga yuklab olish", 'Suhbatni faylga saqlash uchun chat kodini kiriting', (code) => exportThread(active.id, code))}
+                >
                   <IconDownload className="size-4" />
                   Excel
                 </Button>
@@ -628,6 +751,7 @@ export function SourceChatView() {
         onConfirm={() => void runConfirm()}
         onCancel={() => setConfirm(null)}
       />
+      {codeAsk && <CodeDialog title={codeAsk.title} description={codeAsk.description} busy={codeBusy} error={codeError} onSubmit={(c) => void submitCode(c)} onCancel={() => setCodeAsk(null)} />}
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
     </div>
   );
@@ -642,6 +766,7 @@ function SavedView({
   onAsk,
   onToast,
   onConfirm,
+  onExport,
 }: {
   saved: SavedAnswer[];
   setSaved: (fn: (l: SavedAnswer[]) => SavedAnswer[]) => void;
@@ -649,6 +774,7 @@ function SavedView({
   onAsk: (q: string) => void;
   onToast: (t: ToastState) => void;
   onConfirm: (c: NonNullable<Confirm>) => void;
+  onExport: (ids?: string[]) => void;
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -687,7 +813,7 @@ function SavedView({
           size="sm"
           disabled={!list.length}
           onClick={() =>
-            void exportSaved(list.length === saved.length ? undefined : list.map((s) => s.id)).catch((err) => onToast({ message: errorMessage(err, "Yuklab bo'lmadi"), tone: 'error' }))
+            onExport(list.length === saved.length ? undefined : list.map((s) => s.id))
           }
         >
           <IconDownload className="size-4" />
@@ -758,7 +884,7 @@ function SavedView({
                     <Button variant="ghost" size="sm" onClick={() => setOpen((o) => (o.has(s.id) ? new Set([...o].filter((x) => x !== s.id)) : new Set([...o, s.id])))}>
                       {isOpen ? 'Yig‘ish' : 'Ochish'}
                     </Button>
-                    <Button variant="ghost" size="sm" title="Excel'ga" onClick={() => void exportSaved([s.id]).catch((err) => onToast({ message: errorMessage(err, "Yuklab bo'lmadi"), tone: 'error' }))}>
+                    <Button variant="ghost" size="sm" title="Excel'ga" onClick={() => onExport([s.id])}>
                       <IconDownload className="size-4" />
                     </Button>
                     <Button variant="ghost" size="sm" title="Suhbatda ochish" onClick={() => onOpen(s)}>

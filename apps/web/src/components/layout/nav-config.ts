@@ -269,6 +269,7 @@ export const MENU: NavItem[] = [
       { label: 'Ish haqi komponentlari', href: '/sozlamalar/komponentlar' },
       { label: 'Savat', href: '/sozlamalar/savat' },
       { label: 'Xavfsizlik', href: '/sozlamalar/xavfsizlik', description: "O'chirish paroli: «Hammasi» yoki 50 tadan ortiq yozuv o'chirilganda so'raladi" },
+      { label: 'Chat kodi', href: '/sozlamalar/chat-kodi', description: "Chatga kirish, saqlash va yangi suhbat uchun kod (standart — 8020)" },
       { label: 'Tarix', href: '/sozlamalar/tarix' },
       { label: 'Tekshiruv', href: '/sozlamalar/tekshiruv' },
       { label: 'Zaxira', href: '/sozlamalar/zaxira' },

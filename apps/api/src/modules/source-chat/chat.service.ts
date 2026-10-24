@@ -15,6 +15,7 @@ import {
   monthsOf,
   norm,
   parse,
+  lev,
   periodLabel,
   skel,
   spanLabel,
@@ -59,6 +60,21 @@ export interface ChatAnswer {
   context: ChatContext;
 }
 
+interface HrFact {
+  pinfl: string;
+  fullName: string;
+  position: string | null;
+  unit: string | null;
+  regionCode: number | null;
+  district: string | null;
+  gender: 'F' | 'M' | null;
+  age: number | null;
+  education: string | null;
+  /** Tizimga kirgan sana (KK.OO.YYYY) */
+  hired: string | null;
+  source: 'hr' | 'registry';
+}
+
 interface MoneyRow {
   period: string;
   date: Date;
@@ -66,7 +82,10 @@ interface MoneyRow {
   categoryCode: string;
   regionCode: number | null;
   departmentId: string | null;
+  districtId?: string | null;
   segment: string | null;
+  paymentStatus?: string | null;
+  paidTiyin?: bigint | null;
   source?: string | null;
   description?: string | null;
   counterparty?: string | null;
@@ -94,7 +113,16 @@ const KIND_LABEL: Record<MoneyKind, string> = { expense: 'Xarajat', income: 'Dar
 
 @Injectable()
 export class SourceChatService {
-  private dictCache: { at: number; dict: ChatDict; names: Map<string, string>; regionNames: Map<number, string>; deptNames: Map<string, string>; catLabels: Map<string, string>; incLabels: Map<string, string> } | null = null;
+  private dictCache: {
+    at: number;
+    dict: ChatDict;
+    names: Map<string, string>;
+    regionNames: Map<number, string>;
+    deptNames: Map<string, string>;
+    districtNames: Map<string, string>;
+    catLabels: Map<string, string>;
+    incLabels: Map<string, string>;
+  } | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -106,13 +134,14 @@ export class SourceChatService {
 
   private async dict() {
     if (this.dictCache && Date.now() - this.dictCache.at < DICT_TTL_MS) return this.dictCache;
-    const [people, emps, regions, depts, cats, incCats] = await Promise.all([
+    const [people, emps, regions, depts, cats, incCats, districts] = await Promise.all([
       hrPeople(this.prisma).catch(() => new Map()),
-      this.prisma.employee.findMany({ select: { pinfl: true, fullName: true } }),
+      this.prisma.employee.findMany({ select: { pinfl: true, fullName: true, position: true } }),
       this.prisma.region.findMany({ select: { code: true, name: true } }),
       this.prisma.department.findMany({ select: { id: true, name: true } }),
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true } }),
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
+      this.prisma.district.findMany({ select: { id: true, regionCode: true, name: true } }).catch(() => [] as { id: string; regionCode: number; name: string }[]),
     ]);
     const names = new Map<string, string>();
     for (const e of emps) names.set(e.pinfl, e.fullName);
@@ -128,9 +157,17 @@ export class SourceChatService {
         byPrefix.set(k, arr);
       }
     });
+    const positionToks = new Set<string>();
+    for (const x of [...emps.map((e) => e.position), ...[...people.values()].map((p) => p.position)]) for (const t of tokens(norm(x ?? ''))) if (t.length >= 5) positionToks.add(t);
+    const nameToks = new Set(list.flatMap((p) => p.toks).filter((t) => t.length >= 3));
     const dict: ChatDict = {
       people: list,
       byPrefix,
+      positionToks: [...positionToks],
+      nameToks,
+      districts: districts
+        .map((d) => ({ id: d.id, regionCode: d.regionCode, name: d.name, stem: tokens(norm(d.name)).filter((t) => !['tumani', 'tuman', 'shahri', 'shahar', 'sh'].includes(t))[0] ?? '' }))
+        .filter((d) => d.stem.length >= 4),
       regions: regions
         .filter((r) => r.code !== 0)
         .map((r) => ({ code: r.code, name: r.name, stems: tokens(norm(r.name)).filter((t) => !['viloyati', 'viloyat', 'respublikasi', 'shahri', 'shahar', 'sh'].includes(t) && t.length >= 4).slice(0, 1) }))
@@ -147,6 +184,7 @@ export class SourceChatService {
       names,
       regionNames: new Map(regions.map((r) => [r.code, r.name])),
       deptNames: new Map(depts.map((d) => [d.id, d.name])),
+      districtNames: new Map(districts.map((d) => [d.id, d.name])),
       catLabels: new Map(cats.map((c) => [c.code, c.label])),
       incLabels: new Map(incCats.map((c) => [c.code, c.label])),
     };
@@ -219,18 +257,31 @@ export class SourceChatService {
     if (q.kind && q.intent !== 'person') u.push({ label: "Ko'rsatkich", value: q.overview ? 'Daromad, xarajat, natija' : KIND_LABEL[q.kind] });
     if (q.units.length) u.push({ label: "Bo'lim", value: q.units.map(entryUnitLabel).join(', ') });
     if (q.region !== null) u.push({ label: 'Viloyat', value: d.regionNames.get(q.region) ?? String(q.region) });
+    if (q.regions.length > 1) u.push({ label: 'Viloyatlar', value: q.regions.map((r) => d.regionNames.get(r) ?? String(r)).join(', ') });
+    if (q.district) u.push({ label: 'Tuman', value: d.districtNames.get(q.district) ?? q.district });
     if (q.dept) u.push({ label: "Markaz bo'limi", value: d.deptNames.get(q.dept) ?? q.dept });
+    if (q.party) u.push({ label: 'Kontragent / izoh', value: `«${q.party}»` });
+    if (q.minSom !== null) u.push({ label: 'Summa', value: `${som(BigInt(Math.round(q.minSom * 100)))} dan katta` });
+    if (q.maxSom !== null) u.push({ label: 'Summa', value: `${som(BigInt(Math.round(q.maxSom * 100)))} dan kichik` });
+    if (q.unpaid) u.push({ label: 'Holat', value: "to'lanmagan (qarz)" });
+    if (q.hr.gender) u.push({ label: 'Jinsi', value: q.hr.gender === 'F' ? 'ayol' : 'erkak' });
+    if (q.hr.minAge || q.hr.maxAge) u.push({ label: 'Yoshi', value: [q.hr.minAge ? `${q.hr.minAge} dan` : '', q.hr.maxAge ? `${q.hr.maxAge} gacha` : ''].filter(Boolean).join(' ') });
+    if (q.hr.education) u.push({ label: "Ma'lumoti", value: q.hr.education });
+    if (q.hr.positions.length) u.push({ label: 'Lavozim', value: q.hr.positions.join(', ') });
+    if (q.hr.hired) u.push({ label: 'Filtr', value: 'ishga kirganlar' });
     if (q.category) u.push({ label: 'Modda', value: d.catLabels.get(q.category) ?? d.incLabels.get(q.category) ?? q.category });
     if (q.period) u.push({ label: 'Davr', value: q.period.label });
     if (q.compare) u.push({ label: 'Solishtirish', value: q.compare.label });
-    if (q.groupBy) u.push({ label: 'Guruhlash', value: q.groupBy === 'month' ? "oylar bo'yicha" : q.groupBy === 'unit' ? "bo'limlar / hududlar bo'yicha" : "moddalar bo'yicha" });
+    const GB: Record<string, string> = { month: "oylar bo'yicha", unit: "bo'limlar / hududlar bo'yicha", category: "moddalar bo'yicha", party: "kontragent / mijoz bo'yicha", position: "lavozimlar bo'yicha", age: "yosh bo'yicha", gender: "jinsi bo'yicha", education: "ma'lumoti bo'yicha", region: "viloyatlar bo'yicha", district: "tumanlar bo'yicha" };
+    if (q.groupBy) u.push({ label: 'Guruhlash', value: GB[q.groupBy] ?? q.groupBy });
     if (q.top) u.push({ label: 'Tartib', value: q.top === 'desc' ? "eng ko'pdan" : 'eng kamdan' });
     if (q.inherited.length) u.push({ label: 'Oldingi savoldan', value: q.inherited.join(', ') });
+    if (q.fixes.length) u.push({ label: 'Tuzatildi', value: q.fixes.map((f) => `${f.from} → ${f.to}`).join(', ') });
     return [...u, ...extra];
   }
 
   private ctxOf(q: ParsedQuery): ChatContext {
-    return { intent: q.intent, kind: q.kind, pinfl: q.pinfl, units: q.units, region: q.region, dept: q.dept, category: q.category, period: q.period };
+    return { intent: q.intent, kind: q.kind, pinfl: q.pinfl, units: q.units, region: q.region, regions: q.regions, district: q.district, party: q.party, dept: q.dept, category: q.category, period: q.period };
   }
 
   private helpSuggestions(): string[] {
@@ -255,6 +306,12 @@ export class SourceChatService {
         return this.records(q, now, d);
       case 'staff':
         return this.staff(q, d);
+      case 'compareUnits':
+        return this.compareUnits(q, now, d);
+      case 'hr':
+        return this.hrQuery(q, now, d);
+      case 'topPay':
+        return this.topPay(q, now, d);
       case 'units':
         return this.units(d);
       case 'sources':
@@ -262,6 +319,7 @@ export class SourceChatService {
       default:
         return {
           blocks: [
+            ...this.didYouMean(q, d),
             { type: 'text', text: "Savolni tushunmadim. Men faqat tizimdagi manbalar bo'yicha javob beraman. Masalan:" },
             {
               type: 'table',
@@ -389,14 +447,14 @@ export class SourceChatService {
     if (kind === 'income') {
       const rows = await this.prisma.income.findMany({
         where: { deletedAt: null, period: { in: months } },
-        select: { period: true, date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, description: true, clientName: true },
+        select: { period: true, date: true, amountTiyin: true, paidTiyin: true, paymentStatus: true, categoryCode: true, regionCode: true, departmentId: true, districtId: true, segment: true, description: true, clientName: true },
       });
       return rows.map((r) => ({ ...r, owner: unitKeyOf(r.regionCode, r.departmentId, r.segment) }));
     }
     const [rows, policy, cats] = await Promise.all([
       this.prisma.expense.findMany({
         where: { deletedAt: null, period: { in: months } },
-        select: { period: true, date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, source: true, description: true, counterparty: true },
+        select: { period: true, date: true, amountTiyin: true, paymentStatus: true, categoryCode: true, regionCode: true, departmentId: true, districtId: true, segment: true, source: true, description: true, counterparty: true },
       }),
       readPolicy(this.prisma),
       this.prisma.category.findMany({ select: { code: true, parentCode: true } }),
@@ -419,14 +477,25 @@ export class SourceChatService {
     return out;
   }
 
+  /** Filtrlar: ko'rsatkich, modda, joy (bo'lim / viloyat / tuman / Markaz bo'limi), kontragent, summa, qarz */
   private matcher(q: ParsedQuery, catSet: Set<string> | null, kind: 'expense' | 'income', payroll: boolean) {
     const units = q.units;
+    const regions = new Set(q.regions.map((r) => `r:${r}`));
+    const party = q.party ? norm(q.party) : null;
+    const min = q.minSom !== null ? BigInt(Math.round(q.minSom * 100)) : null;
+    const max = q.maxSom !== null ? BigInt(Math.round(q.maxSom * 100)) : null;
     return (r: MoneyRow) => {
       if (payroll && !(r.source === 'PAYROLL' || r.categoryCode === 'PAYROLL_BASE' || r.categoryCode.startsWith('IHQ_'))) return false;
       if (catSet && kind === 'expense' && !catSet.has(r.categoryCode)) return false;
       if (catSet && kind === 'income' && !catSet.has(r.categoryCode)) return false;
-      const place = units.length || q.region !== null || q.dept;
+      if (min !== null && r.amountTiyin <= min) return false;
+      if (max !== null && r.amountTiyin >= max) return false;
+      if (q.unpaid && (kind === 'expense' ? r.paymentStatus === 'PAID' : (r.paidTiyin ?? 0n) >= r.amountTiyin)) return false;
+      if (party && !norm(`${r.counterparty ?? ''} ${r.clientName ?? ''} ${r.description ?? ''}`).includes(party)) return false;
+      if (q.district && r.districtId !== q.district) return false;
+      const place = units.length || q.region !== null || q.dept || regions.size;
       if (!place) return true;
+      if (regions.size > 1 && regions.has(r.owner)) return true;
       if (q.region !== null && r.owner === `r:${q.region}`) return true;
       if (q.dept && r.owner === 'center' && r.departmentId === q.dept) return true;
       for (const u of units) {
@@ -440,8 +509,9 @@ export class SourceChatService {
 
   private placeLabel(q: ParsedQuery, d: Awaited<ReturnType<SourceChatService['dict']>>): string {
     const parts = [
-      ...q.units.filter((u) => !(u === 'REGION' && q.region !== null) && !(u === 'CENTER' && q.dept)).map(entryUnitLabel),
-      q.region !== null ? (d.regionNames.get(q.region) ?? '') : null,
+      ...q.units.filter((u) => !(u === 'REGION' && (q.region !== null || q.regions.length)) && !(u === 'CENTER' && q.dept)).map(entryUnitLabel),
+      ...(q.regions.length > 1 ? q.regions.map((r) => d.regionNames.get(r) ?? '') : q.region !== null ? [d.regionNames.get(q.region) ?? ''] : []),
+      q.district ? (d.districtNames.get(q.district) ?? '') : null,
       q.dept ? `Markaz › ${d.deptNames.get(q.dept) ?? ''}` : null,
     ].filter(Boolean);
     return parts.length ? parts.join(', ') : 'Butun korxona';
@@ -540,6 +610,9 @@ export class SourceChatService {
     const R = cur.filter(m);
     const total = sum(R);
     const prevTotal = sum(prev.filter(m));
+    const hasPlace = Boolean(q.units.length || q.region !== null || q.regions.length || q.dept || q.district);
+    const allTotal = hasPlace ? sum(cur.filter(this.matcher({ ...q, units: [], region: null, regions: [], dept: null, district: null }, catSet, base, payroll))) : 0n;
+    const filtered = Boolean(q.party || q.minSom !== null || q.maxSom !== null || q.unpaid);
     const labelOf = (code: string) => (base === 'income' ? d.incLabels.get(code) : d.catLabels.get(code)) ?? code;
     const what = q.category ? `«${labelOf(q.category)}» ${KIND_LABEL[kind].toLowerCase()}i` : KIND_LABEL[kind].toLowerCase();
     if (!R.length) {
@@ -554,8 +627,19 @@ export class SourceChatService {
           { label: 'Oldingi davr', value: som(prevTotal), sub: spanLabel(prevFrom, prevTo) },
           { label: "O'zgarish", value: ch ?? '—', sub: som(total - prevTotal), tone: 'brand' },
           ...(months.length > 1 ? [{ label: "Oyiga o'rtacha", value: som(total / BigInt(months.length)), sub: `${months.length} oy` }] : []),
+          ...(hasPlace && allTotal > 0n ? [{ label: 'Korxona jamidagi ulushi', value: `${((Number(total) / Number(allTotal)) * 100).toFixed(1).replace('.', ',')}%`, sub: `jami: ${som(allTotal)}` }] : []),
         ],
       });
+      const byParty = () => {
+        const by = new Map<string, { v: bigint; n: number }>();
+        for (const x of R) {
+          const k = ((base === 'income' ? x.clientName : x.counterparty) ?? '').trim() || "Ko'rsatilmagan";
+          by.set(k, { v: (by.get(k)?.v ?? 0n) + x.amountTiyin, n: (by.get(k)?.n ?? 0) + 1 });
+        }
+        const items = [...by.entries()].sort((a, b) => (q.top === 'asc' ? Number(a[1].v - b[1].v) : Number(b[1].v - a[1].v))).slice(0, 20);
+        blocks.push({ type: 'bars', title: base === 'income' ? "Mijozlar bo'yicha" : "Kontragentlar bo'yicha", items: items.map(([k, v]) => ({ label: k, value: Number(v.v), display: som(v.v), sub: `${v.n} yozuv` })) });
+      };
+      if (q.groupBy === 'party' || (filtered && !q.party)) byParty();
       const byUnit = () => {
         const by = new Map<string, bigint>();
         for (const x of R) by.set(x.owner, (by.get(x.owner) ?? 0n) + x.amountTiyin);
@@ -595,6 +679,29 @@ export class SourceChatService {
         if (f === byCat && q.category && !catSet?.size) continue;
         f();
       }
+      if (filtered) {
+        const top = [...R].sort((a, b) => Number(b.amountTiyin - a.amountTiyin)).slice(0, 25);
+        blocks.push({
+          type: 'table',
+          title: `Yozuvlar (eng kattalari${R.length > 25 ? `, ${top.length} / ${num(R.length)}` : ''})`,
+          columns: [
+            { key: 'dt', label: 'Sana' },
+            { key: 'a', label: 'Summa', align: 'right' },
+            { key: 'c', label: 'Modda' },
+            { key: 'u', label: 'Kim hisobida' },
+            { key: 'x', label: base === 'income' ? 'Mijoz / izoh' : 'Kontragent / izoh' },
+            ...(q.unpaid ? [{ key: 'st', label: 'Holat' }] : []),
+          ],
+          rows: top.map((r) => ({
+            dt: r.date.toISOString().slice(0, 10).split('-').reverse().join('.'),
+            a: som(r.amountTiyin),
+            c: labelOf(r.categoryCode),
+            u: this.ownerLabel(r.owner, d),
+            x: [r.counterparty ?? r.clientName, r.description].filter(Boolean).join(' — ').slice(0, 120) || null,
+            ...(q.unpaid ? { st: base === 'income' ? `to'langan: ${som(r.paidTiyin ?? 0n)}` : (r.paymentStatus ?? '') } : {}),
+          })),
+        });
+      }
     }
     sources.push(`${base === 'income' ? 'Daromadlar' : 'Xarajatlar'} (${num(R.length)} yozuv${base === 'expense' ? ", Xarajatlar siyosati qo'llangan" : ''})`);
     if (payroll) sources.push("Ish haqi: umumiy va bo'limlar vedomostlari, ish haqi qismlari");
@@ -605,7 +712,8 @@ export class SourceChatService {
       suggestions: [
         q.groupBy !== 'month' ? "Oylar bo'yicha" : "Moddalar bo'yicha",
         q.groupBy !== 'unit' ? "Bo'limlar bo'yicha" : "Moddalar bo'yicha",
-        'Otgan yil shu davr',
+        "O'tgan yilning shu davri bilan solishtir",
+        base === 'income' ? "Mijozlar bo'yicha" : "Kontragentlar bo'yicha",
         base === 'income' ? 'Xarajati-chi?' : 'Daromadi-chi?',
         `Oxirgi ${kind === 'income' ? 'daromad' : 'xarajat'} yozuvlari`,
       ],
@@ -720,6 +828,8 @@ export class SourceChatService {
   // ═══════════ Xodimlar ═══════════
 
   private async staff(q: ParsedQuery, d: Awaited<ReturnType<SourceChatService['dict']>>): Promise<Ans> {
+    // Viloyat xodimlari — baza + ma'lumotnomalar (xodimlar tahlili orqali)
+    if (q.region !== null || q.regions.length || q.district) return this.hrQuery(q, nowPeriod(), d);
     const blocks: ChatBlock[] = [];
     const sources: string[] = [];
     const listOf = async (): Promise<{ title: string; people: { pinfl: string; fullName: string; position: string | null; note?: string }[] } | null> => {
@@ -787,6 +897,335 @@ export class SourceChatService {
       rows,
     });
     return { blocks, understood: this.understood(q, d), sources: ['Xodimlar bazasi', "Bo'lim ro'yxatlari (miya)", "Ma'lumotnomalar"], suggestions: ["Fermer xo'jaligi xodimlari ro'yxati", 'Markaz xodimlari soni'], context: { ...this.ctxOf(q), intent: 'staff' as const } };
+  }
+
+  // ═══════════ Bo'limlar / viloyatlarni solishtirish ═══════════
+
+  private async compareUnits(q: ParsedQuery, now: string, d: Awaited<ReturnType<SourceChatService['dict']>>): Promise<Ans> {
+    const period = q.period ?? this.defaultPeriod(now);
+    const months = monthsOf(period.from, period.to);
+    const places = [...q.units.filter((u) => !(u === 'REGION' && q.regions.length)), ...q.regions.map((r) => `r:${r}`)];
+    const [inc, exp] = await Promise.all([this.rows('income', months), this.rows('expense', months)]);
+    const catSet = await this.categorySet(q.category);
+    const blank = { ...q, units: [] as string[], region: null, regions: [] as number[], dept: null, district: null };
+    const qOf = (p: string): ParsedQuery => (p.startsWith('r:') ? { ...blank, region: Number(p.slice(2)) } : { ...blank, units: [p] });
+    const labelOf = (p: string) => (p.startsWith('r:') ? (d.regionNames.get(Number(p.slice(2))) ?? p) : entryUnitLabel(p));
+    const sum = (rs: MoneyRow[]) => rs.reduce((a, r) => a + r.amountTiyin, 0n);
+    const rows = places.map((p) => {
+      const qq = qOf(p);
+      const i = sum(inc.filter(this.matcher({ ...qq, category: null }, null, 'income', false)));
+      const e = sum(exp.filter(this.matcher({ ...qq, category: null }, null, 'expense', false)));
+      const pay = sum(exp.filter(this.matcher({ ...qq, category: null }, null, 'expense', true)));
+      const cat = catSet ? sum(exp.filter(this.matcher(qq, catSet, 'expense', false))) : null;
+      return { p, label: labelOf(p), i, e, r: i - e, pay, cat };
+    });
+    const kind = q.kind ?? 'result';
+    const metric = (x: (typeof rows)[number]) => (q.category ? x.cat! : kind === 'income' ? x.i : kind === 'expense' ? x.e : kind === 'payroll' ? x.pay : x.r);
+    const sorted = [...rows].sort((a, b) => Number(metric(b) - metric(a)));
+    const lead = sorted[0]!;
+    const mName = q.category ? `«${d.catLabels.get(q.category) ?? q.category}» xarajati` : KIND_LABEL[kind].toLowerCase();
+    const blocks: ChatBlock[] = [
+      { type: 'text', text: `${period.label} · ${mName}: eng ko'pi — ${lead.label} (${som(metric(lead))}). ${sorted.slice(1).map((x) => `${x.label}: ${som(metric(x))}`).join(', ')}.` },
+      {
+        type: 'table',
+        title: "Solishtirma (Xarajatlar siyosati qo'llangan)",
+        columns: [
+          { key: 'u', label: 'Birlik' },
+          { key: 'i', label: 'Daromad', align: 'right' },
+          { key: 'e', label: 'Xarajat', align: 'right' },
+          { key: 'pay', label: 'shu jumladan ish haqi', align: 'right' },
+          ...(q.category ? [{ key: 'cat', label: d.catLabels.get(q.category) ?? 'Modda', align: 'right' as const }] : []),
+          { key: 'r', label: 'Natija', align: 'right' },
+          { key: 'm', label: 'Rentabellik', align: 'right' },
+        ],
+        rows: rows.map((x) => ({ u: x.label, i: som(x.i), e: som(x.e), pay: som(x.pay), ...(q.category ? { cat: som(x.cat ?? 0n) } : {}), r: som(x.r), m: x.i > 0n ? `${((Number(x.r) / Number(x.i)) * 100).toFixed(1).replace('.', ',')}%` : '—' })),
+      },
+      { type: 'bars', title: mName[0]!.toUpperCase() + mName.slice(1), items: sorted.map((x) => ({ label: x.label, value: Number(metric(x)), display: som(metric(x)) })) },
+    ];
+    return {
+      blocks,
+      understood: this.understood({ ...q, period }, d),
+      sources: [`Daromadlar va xarajatlar · ${period.label}`],
+      suggestions: ["Oylar bo'yicha", "Ish haqi bo'yicha solishtir", "O'tgan yilning shu davri bilan solishtir"],
+      context: { ...this.ctxOf(q), intent: 'compareUnits', period },
+    };
+  }
+
+  // ═══════════ Xodimlar tahlili (ma'lumotnomalar + baza) ═══════════
+
+  private factsCache: { at: number; facts: HrFact[] } | null = null;
+
+  private async hrFacts(d: Awaited<ReturnType<SourceChatService['dict']>>): Promise<HrFact[]> {
+    if (this.factsCache && Date.now() - this.factsCache.at < DICT_TTL_MS) return this.factsCache.facts;
+    const [people, j10, j16, emps] = await Promise.all([
+      hrPeople(this.prisma).catch(() => new Map()),
+      loadSnapshot(this.prisma, 'J10'),
+      loadSnapshot(this.prisma, 'J16'),
+      this.prisma.employee.findMany({ where: { isActive: true }, select: { pinfl: true, fullName: true, position: true, regionCode: true, hiredAt: true, district: { select: { name: true } } } }),
+    ]);
+    const rowsOf = (s: Awaited<ReturnType<typeof loadSnapshot>>, key: string) => {
+      const m = new Map<string, Record<string, string | null>>();
+      if (!s) return m;
+      const i = s.cols.indexOf(key);
+      for (const r of s.rows) {
+        const o: Record<string, string | null> = {};
+        s.cols.forEach((c, k) => (o[c] = r[k] ?? null));
+        if (r[i]) m.set(r[i]!, o);
+      }
+      return m;
+    };
+    const a10 = rowsOf(j10, 'pinfl');
+    const a16 = rowsOf(j16, 'pinfl');
+    const regionOf = (txt: string): number | null => {
+      const t = norm(txt);
+      const hit = d.dict.regions.filter((r) => r.stems.some((st) => t.includes(st)));
+      if (!hit.length) return null;
+      if (hit.length > 1 && hit.some((r) => r.stems[0] === 'toshkent')) return hit.find((r) => (/shahr/.test(t) ? /shahr/ : /viloyat/).test(norm(r.name)))?.code ?? hit[0]!.code;
+      return hit[0]!.code;
+    };
+    const ageOf = (birth: string | null): number | null => {
+      const m = birth?.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+      if (!m) return null;
+      const now = new Date();
+      let a = now.getFullYear() - Number(m[3]);
+      if (now.getMonth() + 1 < Number(m[2]) || (now.getMonth() + 1 === Number(m[2]) && now.getDate() < Number(m[1]))) a -= 1;
+      return a;
+    };
+    const facts = new Map<string, HrFact>();
+    for (const p of people.values()) {
+      if (!p.working) continue;
+      const o10 = a10.get(p.pinfl) ?? {};
+      const o16 = a16.get(p.pinfl) ?? {};
+      const placeTxt = [o16.toliqTuzilma, o16.departament, o16.tuzilma, o10.tuzilma].filter(Boolean).join(' | ');
+      const district = norm(`${o10.tuzilma ?? ''} ${o16.tuzilma ?? ''}`).match(/([a-z]+)\s+tumani/)?.[1] ?? null;
+      const jinsi = norm(o16.jinsi ?? '');
+      facts.set(p.pinfl, {
+        pinfl: p.pinfl,
+        fullName: p.fullName,
+        position: p.position,
+        unit: p.unit,
+        regionCode: regionOf(placeTxt),
+        district: district ? district[0]!.toUpperCase() + district.slice(1) : null,
+        gender: /ayol/.test(jinsi) ? 'F' : /erkak/.test(jinsi) ? 'M' : null,
+        age: o10.yosh && /^\d+$/.test(o10.yosh) ? Number(o10.yosh) : ageOf(o10.tugilganSana ?? null),
+        education: o10.malumot ? norm(o10.malumot).replace(/-/g, ' ') : o16.malumot ? norm(o16.malumot).replace(/-/g, ' ') : null,
+        hired: o10.tizimda ?? o16.buyruqSana ?? null,
+        source: 'hr',
+      });
+    }
+    for (const e of emps) {
+      if (facts.has(e.pinfl)) {
+        const f = facts.get(e.pinfl)!;
+        if (f.regionCode === null && e.regionCode && e.regionCode > 0) f.regionCode = e.regionCode;
+        continue;
+      }
+      facts.set(e.pinfl, {
+        pinfl: e.pinfl,
+        fullName: e.fullName,
+        position: e.position ?? null,
+        unit: e.regionCode === 0 ? 'CENTER' : e.regionCode ? 'REGION' : null,
+        regionCode: e.regionCode && e.regionCode > 0 ? e.regionCode : null,
+        district: e.district?.name ?? null,
+        gender: null,
+        age: null,
+        education: null,
+        hired: e.hiredAt ? e.hiredAt.toISOString().slice(0, 10).split('-').reverse().join('.') : null,
+        source: 'registry',
+      });
+    }
+    const list = [...facts.values()];
+    this.factsCache = { at: Date.now(), facts: list };
+    return list;
+  }
+
+  private async hrQuery(q: ParsedQuery, now: string, d: Awaited<ReturnType<SourceChatService['dict']>>): Promise<Ans> {
+    const all = await this.hrFacts(d);
+    const ym = (dmy: string | null) => (dmy && /^\d{2}\.\d{2}\.\d{4}$/.test(dmy) ? `${dmy.slice(6)}-${dmy.slice(3, 5)}` : null);
+    const hirePeriod = q.hr.hired ? (q.period ?? { from: `${now.slice(0, 4)}-01`, to: now, label: `${now.slice(0, 4)} yil` }) : null;
+    const distStem = q.district ? tokens(norm(d.districtNames.get(q.district) ?? ''))[0] ?? null : null;
+    const regions = q.regions.length ? new Set(q.regions) : q.region !== null ? new Set([q.region]) : null;
+    const list = all.filter((f) => {
+      if (q.units.length) {
+        const ok = q.units.some((u) => (u === 'REGION' ? f.unit === 'REGION' || (f.regionCode !== null && !isSegment(f.unit ?? '')) : f.unit === u));
+        if (!ok) return false;
+      }
+      if (regions && (f.regionCode === null || !regions.has(f.regionCode))) return false;
+      if (distStem && !norm(f.district ?? '').startsWith(distStem)) return false;
+      if (q.hr.gender && f.gender !== q.hr.gender) return false;
+      if (q.hr.minAge && (f.age === null || f.age < q.hr.minAge)) return false;
+      if (q.hr.maxAge && (f.age === null || f.age > q.hr.maxAge)) return false;
+      if (q.hr.education && !(f.education ?? '').startsWith(q.hr.education)) return false;
+      if (q.hr.positions.length && !q.hr.positions.some((w) => norm(f.position ?? '').includes(w.slice(0, Math.max(5, w.length - 2))))) return false;
+      if (hirePeriod) {
+        const h = ym(f.hired);
+        if (!h || h < hirePeriod.from || h > hirePeriod.to) return false;
+      }
+      return true;
+    });
+    const unknownG = q.hr.gender ? all.filter((f) => f.gender === null).length : 0;
+    const f = list.filter((x) => x.gender === 'F').length;
+    const m = list.filter((x) => x.gender === 'M').length;
+    const ages = list.map((x) => x.age).filter((x): x is number => x !== null);
+    const filters = this.understood(q, d).map((u) => `${u.label.toLowerCase()}: ${u.value}`).join('; ');
+    const blocks: ChatBlock[] = [
+      { type: 'text', text: `${filters ? `Shart — ${filters}. ` : ''}Topildi: ${num(list.length)} ta xodim${hirePeriod ? ` (ishga kirgan: ${hirePeriod.label})` : ''}.` },
+      {
+        type: 'metrics',
+        items: [
+          { label: 'Xodimlar', value: num(list.length), tone: 'brand' },
+          { label: 'Ayol / erkak', value: `${num(f)} / ${num(m)}`, sub: list.length - f - m ? `jinsi noma'lum: ${num(list.length - f - m)}` : undefined },
+          { label: "O'rtacha yosh", value: ages.length ? (ages.reduce((a, b) => a + b, 0) / ages.length).toFixed(1).replace('.', ',') : '—', sub: ages.length ? `${Math.min(...ages)}–${Math.max(...ages)} yosh` : undefined },
+          { label: 'Xodimlar bazasida', value: num(list.filter((x) => x.source === 'registry' || d.names.has(x.pinfl)).length) },
+        ],
+      },
+    ];
+    const group = (title: string, key: (x: HrFact) => string) => {
+      const by = new Map<string, number>();
+      for (const x of list) by.set(key(x), (by.get(key(x)) ?? 0) + 1);
+      const items = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30);
+      blocks.push({ type: 'bars', title, items: items.map(([k, v]) => ({ label: k, value: v, display: `${num(v)} ta`, sub: `${((v / Math.max(1, list.length)) * 100).toFixed(1).replace('.', ',')}%` })) });
+    };
+    const band = (a: number | null) => (a === null ? "noma'lum" : a < 25 ? '25 gacha' : a < 30 ? '25–29' : a < 40 ? '30–39' : a < 50 ? '40–49' : a < 60 ? '50–59' : '60 va katta');
+    const gb = q.groupBy;
+    if (gb === 'position' || (!gb && !q.hr.positions.length)) group("Lavozimlar bo'yicha", (x) => x.position ?? "ko'rsatilmagan");
+    if (gb === 'age') group("Yosh bo'yicha", (x) => band(x.age));
+    if (gb === 'gender') group("Jinsi bo'yicha", (x) => (x.gender === 'F' ? 'Ayol' : x.gender === 'M' ? 'Erkak' : "Noma'lum"));
+    if (gb === 'education') group("Ma'lumoti bo'yicha", (x) => x.education ?? "noma'lum");
+    if (gb === 'region' || (!gb && !regions && !q.units.length)) group("Viloyatlar bo'yicha", (x) => (x.regionCode !== null ? (d.regionNames.get(x.regionCode) ?? String(x.regionCode)) : x.unit === 'CENTER' ? 'Markaz' : 'aniqlanmagan'));
+    if (gb === 'district' || (!gb && regions && regions.size === 1)) group("Tumanlar bo'yicha", (x) => x.district ?? 'aniqlanmagan');
+    if (gb === 'unit') group("Bo'limlar bo'yicha (miya)", (x) => (x.unit ? entryUnitLabel(x.unit) : 'aniqlanmagan'));
+    if (list.length)
+      blocks.push({
+        type: 'table',
+        title: `Ro'yxat${list.length > 60 ? ` (birinchi 60 ta / ${num(list.length)})` : ''}`,
+        columns: [
+          { key: 'n', label: '№', align: 'right' },
+          { key: 'f', label: 'F.I.Sh.' },
+          { key: 'l', label: 'Lavozim' },
+          { key: 'u', label: "Bo'lim" },
+          { key: 'a', label: 'Yosh', align: 'right' },
+          { key: 'h', label: 'Tizimda' },
+        ],
+        rows: [...list]
+          .sort((a, b) => a.fullName.localeCompare(b.fullName))
+          .slice(0, 60)
+          .map((x, i) => ({ n: String(i + 1), f: x.fullName, l: x.position, u: x.unit ? entryUnitLabel(x.unit) : null, a: x.age !== null ? String(x.age) : null, h: x.hired })),
+      });
+    if (unknownG && q.hr.gender) blocks.push({ type: 'text', tone: 'muted', text: `Eslatma: ${num(unknownG)} kishining jinsi ma'lumotnomada (16-jadval) ko'rsatilmagan — ular hisobga kirmadi.` });
+    return {
+      blocks,
+      understood: this.understood(q, d),
+      sources: ["Ma'lumotnomalar (10, 16-jadval)", 'Xodimlar bazasi (faol)'],
+      suggestions: ["Lavozimlar bo'yicha", "Yosh bo'yicha", "Viloyatlar bo'yicha", "Ma'lumoti bo'yicha"].filter((x) => !this.understood(q, d).some((u) => u.value === x.toLowerCase())),
+      context: { ...this.ctxOf(q), intent: 'hr' },
+    };
+  }
+
+  // ═══════════ Ish haqi reytingi va o'rtacha ═══════════
+
+  private async topPay(q: ParsedQuery, now: string, d: Awaited<ReturnType<SourceChatService['dict']>>): Promise<Ans> {
+    const period = q.period ?? this.defaultPeriod(now);
+    const months = monthsOf(period.from, period.to);
+    const inM = new Set(months);
+    const seg = q.units.filter((u) => isSegment(u));
+    const wantsCentral = !seg.length || q.units.includes('CENTER') || q.units.includes('REGION') || q.region !== null;
+    const per = new Map<string, { total: bigint; months: Set<string>; units: Set<string>; name?: string }>();
+    const add = (pinfl: string, period: string, amount: bigint, unit: string, name?: string) => {
+      const x = per.get(pinfl) ?? { total: 0n, months: new Set<string>(), units: new Set<string>(), name };
+      x.total += amount;
+      x.months.add(period);
+      x.units.add(unit);
+      per.set(pinfl, x);
+    };
+    if (wantsCentral) {
+      const emps = new Map((await this.prisma.employee.findMany({ select: { pinfl: true, regionCode: true } })).map((e) => [e.pinfl, e.regionCode]));
+      const entries = await this.prisma.payrollEntry.findMany({ where: { deletedAt: null, period: { in: months } }, select: { employeePinfl: true, period: true, totalTiyin: true } });
+      for (const e of entries) {
+        const rc = emps.get(e.employeePinfl);
+        const unit = rc === 0 ? 'CENTER' : 'REGION';
+        if (q.units.includes('CENTER') && unit !== 'CENTER' && !q.units.includes('REGION')) continue;
+        if (q.units.includes('REGION') && unit !== 'REGION' && !q.units.includes('CENTER')) continue;
+        if (q.region !== null && rc !== q.region) continue;
+        if (seg.length && !q.units.includes('CENTER') && !q.units.includes('REGION') && q.region === null) continue;
+        add(e.employeePinfl, e.period, BigInt(e.totalTiyin ?? 0n), unit);
+      }
+    }
+    if (!(q.region !== null && !seg.length)) {
+      const keys = await this.prisma.setting.findMany({ where: { key: { startsWith: 'unit.payroll.' } }, select: { key: true, value: true } });
+      for (const k of keys) {
+        const mm = /^unit\.payroll\.([A-Z_]+)\.(\d{4}-\d{2})$/.exec(k.key);
+        if (!mm || !inM.has(mm[2]!)) continue;
+        if ((q.units.length || q.region !== null) && !(seg as string[]).includes(mm[1]!)) continue;
+        for (const b of ((k.value as { batches?: { status?: string; rows?: { pinfl: string; fullName: string; amountTiyin: string }[] }[] } | null)?.batches ?? []).filter((x) => x.status === 'COMMITTED'))
+          for (const r of b.rows ?? []) if (BigInt(r.amountTiyin) > 0n) add(r.pinfl, mm[2]!, BigInt(r.amountTiyin), mm[1]!, r.fullName);
+      }
+    }
+    const people = [...per.entries()].filter(([, v]) => v.total > 0n);
+    const total = people.reduce((a, [, v]) => a + v.total, 0n);
+    const personMonths = people.reduce((a, [, v]) => a + v.months.size, 0);
+    const avgMonth = personMonths ? total / BigInt(personMonths) : 0n;
+    const place = this.placeLabel(q, d);
+    const sorted = people.sort((a, b) => (q.top === 'asc' ? Number(a[1].total - b[1].total) : Number(b[1].total - a[1].total)));
+    const blocks: ChatBlock[] = people.length
+      ? [
+          { type: 'text', text: `${place} · ${period.label}: ${num(people.length)} xodimga jami ${som(total)} ish haqi. Bir xodimga oyiga o'rtacha ${som(avgMonth)}.` },
+          {
+            type: 'metrics',
+            items: [
+              { label: 'Jami ish haqi', value: som(total), tone: 'expense' },
+              { label: 'Xodimlar', value: num(people.length) },
+              { label: "Oyiga o'rtacha (1 xodim)", value: som(avgMonth), tone: 'brand' },
+              { label: 'Eng katta / eng kichik', value: som(sorted[0]![1].total), sub: `eng kichik: ${som(sorted[sorted.length - 1]![1].total)}` },
+            ],
+          },
+          {
+            type: 'table',
+            title: q.top === 'asc' ? 'Eng kam olganlar' : "Eng ko'p olganlar",
+            columns: [
+              { key: 'n', label: '№', align: 'right' },
+              { key: 'f', label: 'F.I.Sh.' },
+              { key: 'u', label: "Bo'lim" },
+              { key: 't', label: 'Jami', align: 'right' },
+              { key: 'm', label: 'Oylar', align: 'right' },
+              { key: 'a', label: "Oyiga o'rtacha", align: 'right' },
+            ],
+            rows: sorted.slice(0, 25).map(([p, v], i) => ({
+              n: String(i + 1),
+              f: d.names.get(p) ?? v.name ?? p,
+              u: [...v.units].map(entryUnitLabel).join(', '),
+              t: som(v.total),
+              m: String(v.months.size),
+              a: som(v.total / BigInt(v.months.size)),
+            })),
+          },
+        ]
+      : [{ type: 'text', tone: 'warn', text: `${place} · ${period.label}: ish haqi vedomostlarida yozuv topilmadi.` }];
+    return {
+      blocks,
+      understood: this.understood({ ...q, period }, d),
+      sources: ["Umumiy ish haqi vedomosti (xodim bo'yicha)", "Bo'limlar ish haqi vedomostlari"],
+      suggestions: ["Eng kam ish haqi olganlar", "Ish haqi bo'limlar bo'yicha", ...sorted.slice(0, 1).map(([p]) => `${p} ish haqi`)],
+      context: { ...this.ctxOf(q), intent: 'topPay', period },
+    };
+  }
+
+  // ═══════════ «Balki shuni nazarda tutgandirsiz» ═══════════
+
+  private didYouMean(q: ParsedQuery, d: Awaited<ReturnType<SourceChatService['dict']>>): ChatBlock[] {
+    const toks = tokens(q.text).filter((t) => t.length >= 4 && !/^\d+$/.test(t));
+    if (!toks.length) return [];
+    const scored: { pinfl: string; d: number }[] = [];
+    for (const p of d.dict.people) {
+      const sur = p.toks[0];
+      if (!sur) continue;
+      let best = 9;
+      for (const t of toks) best = Math.min(best, lev(skel(t), sur, 2));
+      if (best <= 2) scored.push({ pinfl: p.pinfl, d: best });
+      if (scored.length > 200) break;
+    }
+    const top = scored.sort((a, b) => a.d - b.d).slice(0, 5);
+    if (!top.length) return [];
+    return [{ type: 'choices', title: 'Balki shu xodimni nazarda tutgandirsiz?', items: top.map((x) => ({ label: d.names.get(x.pinfl) ?? x.pinfl, sub: `JShShIR …${x.pinfl.slice(-4)}`, ask: `${x.pinfl} barcha ma'lumotlari` })) }];
   }
 
   private async units(d: Awaited<ReturnType<SourceChatService['dict']>>): Promise<Ans> {
