@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { isSegment, SEGMENT_CODES, segmentKey, segmentLabel } from '../../common/segments/segments';
 import { PrismaService } from '../prisma/prisma.service';
 import type { DataWarning, Panel, UnitKind, UnitSeries } from './econ.types';
 import { median } from './econ.math';
@@ -25,6 +26,8 @@ interface MonthRow {
   departmentId: string | null;
   section: string;
   source: string | null;
+  /** Yo'nalish (Tax free …) yoki null */
+  segment?: string | null;
   total: bigint | number | string | null;
   count: number | bigint;
 }
@@ -69,7 +72,8 @@ function monthStart(period: string): Date {
   return new Date(Date.UTC(y, m - 1, 1) - TASHKENT_MS);
 }
 
-function unitKeyOf(regionCode: number | null, departmentId: string | null): string {
+function unitKeyOf(regionCode: number | null, departmentId: string | null, segment?: string | null): string {
+  if (segment && isSegment(segment)) return segmentKey(segment);
   if (regionCode !== null) return regionCode === 0 ? 'center' : `r:${regionCode}`;
   if (departmentId) return 'center';
   return 'none';
@@ -164,16 +168,16 @@ export class EconData {
       this.prisma.region.findMany({ select: { code: true, name: true, isActive: true }, orderBy: { code: 'asc' } }),
       this.prisma.$queryRaw<MonthRow[]>(Prisma.sql`
         SELECT to_char("date" + interval '5 hours', 'YYYY-MM') AS month, "regionCode", "departmentId", "section"::text AS section,
-               NULL::text AS source, SUM("amountTiyin")::bigint AS total, COUNT(*)::int AS count
+               NULL::text AS source, "segment", SUM("amountTiyin")::bigint AS total, COUNT(*)::int AS count
         FROM "incomes"
         WHERE "deletedAt" IS NULL AND "date" >= ${windowStart} AND "date" < ${windowEnd}
-        GROUP BY 1, 2, 3, 4`),
+        GROUP BY 1, 2, 3, 4, 6`),
       this.prisma.$queryRaw<MonthRow[]>(Prisma.sql`
         SELECT to_char("date" + interval '5 hours', 'YYYY-MM') AS month, "regionCode", "departmentId", "section"::text AS section,
-               "source"::text AS source, SUM("amountTiyin")::bigint AS total, COUNT(*)::int AS count
+               "source"::text AS source, "segment", SUM("amountTiyin")::bigint AS total, COUNT(*)::int AS count
         FROM "expenses"
         WHERE "deletedAt" IS NULL AND "date" >= ${windowStart} AND "date" < ${windowEnd}
-        GROUP BY 1, 2, 3, 4, 5`),
+        GROUP BY 1, 2, 3, 4, 5, 6`),
       this.prisma.employee.findMany({ select: { regionCode: true, hiredAt: true, firedAt: true, isActive: true } }),
     ]);
     const first = bounds[0]?.first ?? null;
@@ -212,6 +216,7 @@ export class EconData {
       let u = units.get(key);
       if (!u) {
         if (key === 'none') u = make('none', null, 'Hududga biriktirilmagan', 'unassigned');
+        else if (key.startsWith('s:')) u = make(key, null, segmentLabel(key.slice(2)), 'segment');
         else {
           const code = Number(key.slice(2));
           u = make(key, code, regionName.get(code) ?? `Hudud ${code}`, 'region');
@@ -227,7 +232,7 @@ export class EconData {
       if (i === undefined) continue;
       const amount = som(BigInt(row.total ?? 0));
       const count = Number(row.count);
-      for (const u of [unit(unitKeyOf(row.regionCode, row.departmentId)), total]) {
+      for (const u of [unit(unitKeyOf(row.regionCode, row.departmentId, row.segment)), total]) {
         u.income[i]! += amount;
         u.incomeCount[i]! += count;
         if (row.section === 'DOIMIY') u.incomeDoimiy[i]! += amount;
@@ -239,7 +244,7 @@ export class EconData {
       if (i === undefined) continue;
       const amount = som(BigInt(row.total ?? 0));
       const count = Number(row.count);
-      for (const u of [unit(unitKeyOf(row.regionCode, row.departmentId)), total]) {
+      for (const u of [unit(unitKeyOf(row.regionCode, row.departmentId, row.segment)), total]) {
         u.expense[i]! += amount;
         u.expenseCount[i]! += count;
         if (row.section === 'DOIMIY') u.expenseDoimiy[i]! += amount;
@@ -263,10 +268,10 @@ export class EconData {
       });
     }
 
-    const kindOrder: Record<UnitKind, number> = { total: 0, region: 1, center: 2, unassigned: 3 };
+    const kindOrder: Record<UnitKind, number> = { total: 0, region: 1, center: 2, segment: 3, unassigned: 4 };
     const list = [...units.values()]
       .filter((u) => u.kind !== 'unassigned' || u.income.some((v) => v !== 0) || u.expense.some((v) => v !== 0))
-      .sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || (a.code ?? 0) - (b.code ?? 0));
+      .sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || (a.kind === 'segment' ? SEGMENT_CODES.indexOf(a.key.slice(2)) - SEGMENT_CODES.indexOf(b.key.slice(2)) : (a.code ?? 0) - (b.code ?? 0)));
 
     return {
       months,
@@ -377,7 +382,7 @@ export class EconData {
           level: 'info',
           unit: 'none',
           period: null,
-          text: `Yozuvlarning bir qismi (${fmtPct(share * 100)} gacha) hech qaysi hududga biriktirilmagan — ular korxona jami hisobida bor, lekin hududlar modellariga kirmaydi.`,
+          text: `Yozuvlarning bir qismi (${fmtPct(share * 100)} gacha) hech qayerga (hudud, Markaz yoki yo'nalish) biriktirilmagan — ular korxona jami hisobida bor, lekin hududlar modellariga kirmaydi.`,
         });
       }
     }

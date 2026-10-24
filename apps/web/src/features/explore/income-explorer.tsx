@@ -31,14 +31,14 @@ export function IncomeExplorer({ range }: { range: DateRange }) {
   const t = d.totals;
 
   const cuts = {
-    categories: { nodes: d.categories, name: 'Modda', desc: "Har bir modda ichida — Markaz va hududlar bo'yicha" },
-    regions: { nodes: d.regions, name: 'Hudud', desc: "Markaz va har bir hudud ichida — moddalar bo'yicha" },
+    categories: { nodes: d.categories, name: 'Modda', desc: "Har bir modda ichida — Markaz, hududlar va yo'nalishlar bo'yicha" },
+    regions: { nodes: d.regions, name: 'Birlik', desc: "Markaz, har bir hudud va yo'nalish (Tax free …) ichida — moddalar bo'yicha" },
     departments: { nodes: d.departments, name: "Bo'lim", desc: "Bo'lim ko'rsatilgan yozuvlar (asosan Markaz) — moddalar bo'yicha" },
     clients: { nodes: d.clients.rows, name: 'Mijoz', desc: `Eng katta ${Math.min(30, d.clients.total)} ta mijoz (jami ${d.clients.total} ta nomli mijoz)` },
   }[cut];
 
   const none = t.none.cur || t.none.prev || t.none.ly;
-  const noneRow: MatrixRow = { key: 'none', label: 'Biriktirilmagan', kind: 'income', f: { unit: 'none' }, values: d.months.total.values.map((v, i) => v - (d.months.units[0]?.values[i] ?? 0) - (d.months.units[1]?.values[i] ?? 0)), total: t.none.cur };
+  const noneRow: MatrixRow = { key: 'none', label: 'Biriktirilmagan', kind: 'income', f: { unit: 'none' }, values: d.months.total.values.map((v, i) => v - d.months.units.reduce((sum, u) => sum + (u.values[i] ?? 0), 0)), total: t.none.cur };
   const unitSeries: Series[] = [...d.months.units, ...(none ? [noneRow] : [])].map((u) => ({ key: u.key, label: u.label, color: UNIT_COLOR[u.key] ?? '#a3a29c', values: u.values, kind: 'income', f: u.f }));
 
   return (
@@ -50,11 +50,14 @@ export function IncomeExplorer({ range }: { range: DateRange }) {
           <Kpi label="Jami daromad" cur={t.cur} prev={t.prev} ly={t.ly} kind="income" drill={{ kind: 'income', f: {}, title: `${ROOT} › Jami` }} sub={`${t.count.toLocaleString('uz')} ta yozuv${t.quantity ? ` · ${t.quantity.toLocaleString('uz')} ta xizmat · o'rtacha ${short(t.cur / t.quantity)}` : ''}`} />
           <Kpi label="Markaz" cur={t.center.cur} prev={t.center.prev} ly={t.center.ly} kind="income" drill={{ kind: 'income', f: { unit: 'center' }, title: `${ROOT} › Markaz` }} sub={`Ulushi ${pct(share(t.center.cur, t.cur))} · ${t.center.count} ta yozuv`} />
           <Kpi label="Hududlar" cur={t.regions.cur} prev={t.regions.prev} ly={t.regions.ly} kind="income" drill={{ kind: 'income', f: { unit: 'regions' }, title: `${ROOT} › Hududlar` }} sub={`Ulushi ${pct(share(t.regions.cur, t.cur))} · ${t.regions.count} ta yozuv`} />
+          {(t.bySegment ?? []).map((sg) => (
+            <Kpi key={sg.key} label={sg.label} cur={sg.cur} prev={sg.prev} ly={sg.ly} kind="income" drill={{ kind: 'income', f: { unit: sg.key }, title: `${ROOT} › ${sg.label}` }} sub={`Ulushi ${pct(share(sg.cur, t.cur))} · ${sg.count} ta yozuv`} />
+          ))}
           <Kpi label="To'lanmagan (debitorlik)" cur={t.open} kind="expense" tone={t.open ? 'expense' : undefined} drill={{ kind: 'income', f: { unpaid: true }, title: `${ROOT} › To'lanmagan` }} sub={<>Tushgan: <b className="money text-heading">{som(t.received)}</b> ({pct(share(t.received, t.cur))})</>} />
         </div>
         {none ? (
           <p className="rounded-(--radius-control) bg-(--color-warn-soft) px-3 py-2 text-xs text-(--color-warn)">
-            {som(t.none.cur)} so&apos;m daromadda hudud ham, bo&apos;lim ham ko&apos;rsatilmagan («Biriktirilmagan» qatori). Ularni Markaz yoki hududga biriktirsangiz, tahlil aniqroq bo&apos;ladi.
+            {som(t.none.cur)} so&apos;m daromadda hudud, bo&apos;lim yoki yo&apos;nalish (Tax free …) ko&apos;rsatilmagan («Biriktirilmagan» qatori). Ularni Markaz, hudud yoki yo&apos;nalishga biriktirsangiz, tahlil aniqroq bo&apos;ladi.
           </p>
         ) : null}
 
@@ -104,7 +107,7 @@ export function IncomeExplorer({ range }: { range: DateRange }) {
 
         <SectionTitle hint="Jadvallar bilan bir xil ma'lumot; ustun yoki chiziq bosilsa — yozuvlar">Grafiklar</SectionTitle>
         <div className="grid gap-4 lg:grid-cols-2">
-          <ChartCard title="Oylar bo'yicha daromad" description="Markaz va hududlar ulushi" legend={unitSeries.map((s) => ({ label: s.label, color: s.color }))}>
+          <ChartCard title="Oylar bo'yicha daromad" description="Markaz, hududlar va yo'nalishlar ulushi" legend={unitSeries.map((s) => ({ label: s.label, color: s.color }))}>
             <StackedMonths months={d.monthList} series={unitSeries} root={ROOT} />
           </ChartCard>
           <ChartCard title="Eng katta 10 modda" description="Joriy davr, jami daromaddagi ulushi bilan">

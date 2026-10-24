@@ -61,7 +61,7 @@ export function ResultExplorer({ range }: { range: DateRange }) {
         <SectionTitle hint="Daromad ▸ Markaz / Hududlar ▸ moddalar; Xarajat ▸ guruhlar ▸ moddalar">Foyda va zarar hisoboti</SectionTitle>
         <PnlTable d={d} />
 
-        <SectionTitle hint="▸ bosilsa — eng katta daromad va xarajat moddalari">Markaz va hududlar natijasi</SectionTitle>
+        <SectionTitle hint="▸ bosilsa — eng katta daromad va xarajat moddalari">Markaz, hududlar va yo'nalishlar natijasi</SectionTitle>
         <UnitsTable units={d.units} totals={d.totals} />
 
         <SectionTitle hint="Jadvallar bilan bir xil ma'lumot; ustun bosilsa — o'sha oy yozuvlari">Grafiklar</SectionTitle>
@@ -228,7 +228,7 @@ function UnitsTable({ units, totals }: { units: UnitRow[]; totals: ResultExplore
   const filterOf = (u: UnitRow) => ({ unit: u.key });
 
   const exportCsv = () =>
-    downloadCsv('Markaz va hududlar natijasi', [
+    downloadCsv('Markaz, hududlar va yo\'nalishlar natijasi', [
       ['Birlik', "Daromad (so'm)", "Xarajat (so'm)", "Natija (so'm)", 'Rentabellik, %', "O'tgan davr natija (so'm)", "O'tgan yil natija (so'm)", 'Daromad ulushi, %'],
       ...list.map((u) => [u.label, csvSom(u.income.cur), csvSom(u.expense.cur), csvSom(u.result.cur), u.margin === null ? null : Math.round(u.margin * 1000) / 10, csvSom(u.result.prev), csvSom(u.result.ly), totals.income.cur ? Math.round((u.income.cur / totals.income.cur) * 1000) / 10 : null]),
     ]);
@@ -267,7 +267,7 @@ function UnitsTable({ units, totals }: { units: UnitRow[]; totals: ResultExplore
           <p className="mt-0.5 text-xs text-(--color-text-muted)">Daromad yoki xarajat summasi bosilsa — o&apos;sha birlik yozuvlari</p>
         </div>
         <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-8 rounded-(--radius-control) border border-(--color-line) bg-white px-2 text-xs" aria-label="Tartib">
-          <option value="order">Markaz, so&apos;ng hududlar</option>
+          <option value="order">Markaz, hududlar, yo&apos;nalishlar</option>
           <option value="result">Natija bo&apos;yicha</option>
           <option value="margin">Rentabellik bo&apos;yicha</option>
         </select>

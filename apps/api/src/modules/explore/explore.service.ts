@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { SEGMENTS, segmentKey, segmentLabel } from '../../common/segments/segments';
 import { PrismaService } from '../prisma/prisma.service';
 import { ranges, type Ranges, type Span } from './explore.range';
 
@@ -9,8 +10,9 @@ import { ranges, type Ranges, type Span } from './explore.range';
 //  Har bir qatorda «f» — shu qatorni tashkil qilgan yozuvlar filtri: /explore/records ga berilsa,
 //  aynan o'sha yozuvlar va ularning jami qaytadi (jadvaldagi summa bilan bir xil).
 //
-//  Birlik (Markaz / hudud) qoidasi Solishtirma bilan bir xil:
-//   hudud kodi bo'lsa — hudud (0 — Markaz); hudud yo'q, bo'lim bor — Markaz; ikkalasi ham yo'q — biriktirilmagan.
+//  Birlik qoidasi Solishtirma bilan bir xil:
+//   yo'nalish (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya) bo'lsa — o'sha bo'limniki ("s:KOD");
+//   hudud kodi bo'lsa — hudud (0 — Markaz); hudud yo'q, bo'lim bor — Markaz; hech biri yo'q — biriktirilmagan.
 //  Barcha summalar tiyinda (son).
 // ═══════════════════════════════════════════════════════════
 
@@ -19,7 +21,7 @@ export type Kind = 'income' | 'expense';
 export interface Filter {
   /** Moddalar (xarajatda — ichki moddalari bilan) */
   cats?: string[];
-  /** center | regions | none | r:<kod> */
+  /** center | regions | segments | none | r:<kod> | s:<yo'nalish kodi> */
   unit?: string;
   /** Bo'lim id yoki 'none' */
   dep?: string;
@@ -95,11 +97,15 @@ type GroupModel = {
 
 const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
 
-export function unitKey(regionCode: number | null, departmentId: string | null): string {
+export function unitKey(regionCode: number | null, departmentId: string | null, segment?: string | null): string {
+  if (segment && SEGMENT_KEYS.includes(segmentKey(segment))) return segmentKey(segment);
   if (regionCode !== null && regionCode !== undefined) return regionCode === 0 ? 'center' : `r:${regionCode}`;
   if (departmentId) return 'center';
   return 'none';
 }
+
+/** Yo'nalishlar (Tax free …) birlik kalitlari — tartib bo'yicha */
+export const SEGMENT_KEYS: string[] = SEGMENTS.map((x) => segmentKey(x.code));
 
 export const NO_PARTY = '';
 const TOP_PARTIES = 30;
@@ -133,7 +139,7 @@ export class ExploreService {
   private async load(kind: Kind, s: Span, opts: { period?: boolean; party?: boolean } = {}): Promise<Row[]> {
     const partyField = kind === 'income' ? 'clientName' : 'counterparty';
     // Mijoz / kontragent kesimi alohida yuklanadi (aks holda guruhlar soni juda ko'payadi)
-    const by = opts.party ? [partyField, 'paymentStatus'] : ['categoryCode', 'regionCode', 'departmentId', 'paymentStatus', ...(opts.period ? ['period'] : [])];
+    const by = opts.party ? [partyField, 'paymentStatus'] : ['categoryCode', 'regionCode', 'departmentId', 'segment', 'paymentStatus', ...(opts.period ? ['period'] : [])];
     const groups = await this.model(kind).groupBy({
       by,
       where: { deletedAt: null, date: { gte: s.start, lt: s.end } },
@@ -147,7 +153,7 @@ export class ExploreService {
       const open = status === 'PAID' ? 0 : kind === 'income' ? Math.max(0, sum - num(g._sum.paidTiyin)) : sum;
       return {
         cat: String(g.categoryCode ?? ''),
-        unit: unitKey((g.regionCode as number | null) ?? null, (g.departmentId as string | null) ?? null),
+        unit: unitKey((g.regionCode as number | null) ?? null, (g.departmentId as string | null) ?? null, (g.segment as string | null) ?? null),
         dep: (g.departmentId as string | null) ?? 'none',
         period: String(g.period ?? ''),
         party: String(g[partyField] ?? NO_PARTY),
@@ -198,7 +204,7 @@ export class ExploreService {
     }
     return (r) =>
       (!cats || cats.has(r.cat)) &&
-      (!f.unit || (f.unit === 'regions' ? r.unit.startsWith('r:') : r.unit === f.unit)) &&
+      (!f.unit || (f.unit === 'regions' ? r.unit.startsWith('r:') : f.unit === 'segments' ? r.unit.startsWith('s:') : r.unit === f.unit)) &&
       (!f.dep || r.dep === f.dep) &&
       (!f.month || r.period === f.month) &&
       (f.party === undefined || r.party === f.party) &&
@@ -241,6 +247,8 @@ export class ExploreService {
     if (unit === 'center') return 'Markaz';
     if (unit === 'none') return 'Biriktirilmagan';
     if (unit === 'regions') return 'Hududlar';
+    if (unit === 'segments') return "Yo'nalishlar";
+    if (unit.startsWith('s:')) return segmentLabel(unit.slice(2));
     const code = Number(unit.slice(2));
     return lk.regions.get(code) ?? `Hudud ${code}`;
   }
@@ -259,11 +267,22 @@ export class ExploreService {
     return [...out];
   }
 
-  /** Hudud birliklari: Markaz, so'ng hududlar (kod tartibida) */
+  /** Birliklar: Markaz, hududlar (kod tartibida), yo'nalishlar (Tax free …), so'ng biriktirilmagan */
   private unitsOf(s: Sets): string[] {
     const units = ExploreService.distinct(s, (r) => r.unit);
     const regions = units.filter((u) => u.startsWith('r:')).sort((a, b) => Number(a.slice(2)) - Number(b.slice(2)));
-    return [...(units.includes('center') ? ['center'] : []), ...regions, ...(units.includes('none') ? ['none'] : [])];
+    return [...(units.includes('center') ? ['center'] : []), ...regions, ...SEGMENT_KEYS.filter((k) => units.includes(k)), ...(units.includes('none') ? ['none'] : [])];
+  }
+
+  /** Davrda yozuvi bor yo'nalishlar (Tax free …) */
+  private segmentsOf(...sets: Sets[]): string[] {
+    const have = new Set(sets.flatMap((s) => ExploreService.distinct(s, (r) => r.unit)));
+    return SEGMENT_KEYS.filter((k) => have.has(k));
+  }
+
+  /** Yo'nalishlar bo'yicha jami (KPI kartochkalari uchun) */
+  private bySegment(kind: Kind, s: Sets, lk: Lookups) {
+    return this.segmentsOf(s).map((k) => ({ key: k, label: this.unitLabel(k, lk), ...this.vals(s, this.matcher(kind, { unit: k }, lk)) }));
   }
 
   private matrix(kind: Kind, s: Sets, lk: Lookups, months: string[], key: string, label: string, f: Filter): MatrixRow {
@@ -291,7 +310,7 @@ export class ExploreService {
   }
 
   private record(kind: Kind, r: Record<string, unknown>, lk: Lookups) {
-    const unit = unitKey((r.regionCode as number | null) ?? null, (r.departmentId as string | null) ?? null);
+    const unit = unitKey((r.regionCode as number | null) ?? null, (r.departmentId as string | null) ?? null, (r.segment as string | null) ?? null);
     const amount = num(r.amountTiyin);
     const status = String(r.paymentStatus ?? 'PAID');
     return {
@@ -356,10 +375,12 @@ export class ExploreService {
     const tree = ExploreService.tidy([
       this.node(K, s, lk, 'center', 'Markaz', { unit: 'center' }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: 'center' }, (code) => ExploreService.tidy(deps.map((d) => this.node(K, s, lk, `d:${d}`, this.depLabel(d, lk), { unit: 'center', cats: [code], dep: d }))))))),
       this.node(K, s, lk, 'regions', 'Hududlar', { unit: 'regions' }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: 'regions' }, (code) => ExploreService.tidy(regionUnits.map((u) => this.node(K, s, lk, u, this.unitLabel(u, lk), { unit: u, cats: [code] }))))))),
+      // Yo'nalishlar — har biri alohida bo'lim: moddalar → (Markazdagidek) ichiga kiriladi
+      ...this.segmentsOf(s).map((k) => this.node(K, s, lk, k, this.unitLabel(k, lk), { unit: k }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: k }))))),
       this.node(K, s, lk, 'none', 'Biriktirilmagan', { unit: 'none' }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: 'none' })))),
     ]);
-    // Daraxtdagi tartib: Markaz, Hududlar, Biriktirilmagan
-    const ORDER = ['center', 'regions', 'none'];
+    // Daraxtdagi tartib: Markaz, Hududlar, yo'nalishlar, Biriktirilmagan
+    const ORDER = ['center', 'regions', ...SEGMENT_KEYS, 'none'];
     tree.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
 
     // 2) Moddalar → birliklar (Markaz va har bir hudud)
@@ -374,7 +395,11 @@ export class ExploreService {
     const months = {
       rows: categories.map((c) => this.matrix(K, s, lk, r.months, c.key, c.label, c.f)),
       total: this.matrix(K, s, lk, r.months, 'total', 'Jami', {}),
-      units: [this.matrix(K, s, lk, r.months, 'center', 'Markaz', { unit: 'center' }), this.matrix(K, s, lk, r.months, 'regions', 'Hududlar', { unit: 'regions' })],
+      units: [
+        this.matrix(K, s, lk, r.months, 'center', 'Markaz', { unit: 'center' }),
+        this.matrix(K, s, lk, r.months, 'regions', 'Hududlar', { unit: 'regions' }),
+        ...this.segmentsOf(s).map((k) => this.matrix(K, s, lk, r.months, k, this.unitLabel(k, lk), { unit: k })),
+      ],
     };
     const t = this.totals(s);
     const qty = await this.model(K).aggregate({ where: { deletedAt: null, date: { gte: r.cur.start, lt: r.cur.end } }, _sum: { quantity: true }, _count: { _all: true } });
@@ -386,7 +411,9 @@ export class ExploreService {
         quantity: num(qty._sum.quantity),
         center: this.vals(s, this.matcher(K, { unit: 'center' }, lk)),
         regions: this.vals(s, this.matcher(K, { unit: 'regions' }, lk)),
+        segments: this.vals(s, this.matcher(K, { unit: 'segments' }, lk)),
         none: this.vals(s, this.matcher(K, { unit: 'none' }, lk)),
+        bySegment: this.bySegment(K, s, lk),
       },
       tree,
       categories,
@@ -430,7 +457,7 @@ export class ExploreService {
       const unitKids = !children.length && leafUnits ? ExploreService.tidy(units.map((u) => this.node(K, s, lk, u, this.unitLabel(u, lk), { ...base, cats: [code], unit: u }))) : [];
       const n = this.node(K, s, lk, `c:${code}`, this.catLabel(K, code, lk), { ...base, cats: [code] }, children.length ? ExploreService.tidy(children) : unitKids);
       const test = (u: string) => this.vals(s, this.matcher(K, { ...base, cats: [code], unit: u }, lk)).cur;
-      n.x = { ...n.x, center: test('center'), regions: test('regions'), none: test('none'), leaf: children.length ? 0 : 1 };
+      n.x = { ...n.x, center: test('center'), regions: test('regions'), none: test('none'), ...Object.fromEntries(SEGMENT_KEYS.map((k) => [k, test(k)])), leaf: children.length ? 0 : 1 };
       return n;
     };
     return ExploreService.tidy((kids.get(null) ?? []).map(build));
@@ -454,7 +481,11 @@ export class ExploreService {
         children: (n.children ?? []).filter((c) => c.f.cats && !c.f.unit).map((c) => this.matrix(K, s, lk, r.months, c.key, c.label, c.f)),
       })),
       total: this.matrix(K, s, lk, r.months, 'total', 'Jami', {}),
-      units: [this.matrix(K, s, lk, r.months, 'center', 'Markaz', { unit: 'center' }), this.matrix(K, s, lk, r.months, 'regions', 'Hududlar', { unit: 'regions' })],
+      units: [
+        this.matrix(K, s, lk, r.months, 'center', 'Markaz', { unit: 'center' }),
+        this.matrix(K, s, lk, r.months, 'regions', 'Hududlar', { unit: 'regions' }),
+        ...this.segmentsOf(s).map((k) => this.matrix(K, s, lk, r.months, k, this.unitLabel(k, lk), { unit: k })),
+      ],
     };
     const t = this.totals(s);
     const unpaid = this.vals(s, (x) => x.status !== 'PAID');
@@ -466,7 +497,9 @@ export class ExploreService {
         unpaidCount: unpaid.count,
         center: this.vals(s, this.matcher(K, { unit: 'center' }, lk)),
         regions: this.vals(s, this.matcher(K, { unit: 'regions' }, lk)),
+        segments: this.vals(s, this.matcher(K, { unit: 'segments' }, lk)),
         none: this.vals(s, this.matcher(K, { unit: 'none' }, lk)),
+        bySegment: this.bySegment(K, s, lk),
       },
       tree,
       regions,
@@ -483,7 +516,7 @@ export class ExploreService {
     const r = ranges(from, to);
     const [lk, inc, exp] = await Promise.all([this.lookups(), this.sets('income', r), this.sets('expense', r)]);
     const units = [...new Set([...this.unitsOf(inc), ...this.unitsOf(exp)])].sort((a, b) => {
-      const w = (u: string) => (u === 'center' ? -1 : u === 'none' ? 1e9 : Number(u.slice(2)));
+      const w = (u: string) => (u === 'center' ? -1 : u === 'none' ? 1e9 : u.startsWith('s:') ? 1e6 + SEGMENT_KEYS.indexOf(u) : Number(u.slice(2)));
       return w(a) - w(b);
     });
 
@@ -500,6 +533,10 @@ export class ExploreService {
       children: [
         { ...row('income', inc, 'inc:center', 'Markaz', { unit: 'center' }), children: incCats.map((c) => row('income', inc, `c:${c.f.cats![0]}`, c.label, { unit: 'center', cats: c.f.cats })).filter((x) => x.total || x.prev || x.ly) },
         { ...row('income', inc, 'inc:regions', 'Hududlar', { unit: 'regions' }), children: incCats.map((c) => row('income', inc, `c:${c.f.cats![0]}`, c.label, { unit: 'regions', cats: c.f.cats })).filter((x) => x.total || x.prev || x.ly) },
+        ...this.segmentsOf(inc).map((k) => ({
+          ...row('income', inc, `inc:${k}`, this.unitLabel(k, lk), { unit: k }),
+          children: incCats.map((c) => row('income', inc, `c:${c.f.cats![0]}`, c.label, { unit: k, cats: c.f.cats })).filter((x) => x.total || x.prev || x.ly),
+        })),
         ...(this.vals(inc, (x) => x.unit === 'none').count ? [row('income', inc, 'inc:none', 'Biriktirilmagan', { unit: 'none' })] : []),
       ],
     };
@@ -570,10 +607,14 @@ export class ExploreService {
       }
       and.push({ categoryCode: { in: codes } });
     }
-    if (f.unit === 'center') and.push({ OR: [{ regionCode: 0 }, { regionCode: null, departmentId: { not: null } }] });
-    else if (f.unit === 'regions') and.push({ regionCode: { gt: 0 } });
-    else if (f.unit === 'none') and.push({ regionCode: null, departmentId: null });
-    else if (f.unit?.startsWith('r:')) and.push({ regionCode: Number(f.unit.slice(2)) });
+    // Yo'nalish yozuvi (segment) — o'sha bo'limniki; Markaz / hudud / biriktirilmagan — yo'nalishsiz yozuvlar
+    const noSegment = { OR: [{ segment: null }, { segment: { notIn: SEGMENTS.map((x) => x.code) } }] };
+    if (f.unit === 'center') and.push(noSegment, { OR: [{ regionCode: 0 }, { regionCode: null, departmentId: { not: null } }] });
+    else if (f.unit === 'regions') and.push(noSegment, { regionCode: { gt: 0 } });
+    else if (f.unit === 'none') and.push(noSegment, { regionCode: null, departmentId: null });
+    else if (f.unit === 'segments') and.push({ segment: { in: SEGMENTS.map((x) => x.code) } });
+    else if (f.unit?.startsWith('s:')) and.push({ segment: f.unit.slice(2) });
+    else if (f.unit?.startsWith('r:')) and.push(noSegment, { regionCode: Number(f.unit.slice(2)) });
     if (f.dep) and.push({ departmentId: f.dep === 'none' ? null : f.dep });
     if (f.month) and.push({ period: f.month });
     if (f.party !== undefined) {
@@ -588,7 +629,7 @@ export class ExploreService {
     const f: Filter = {};
     if (q.cats) f.cats = q.cats.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 500);
     if (q.unit) {
-      if (!/^(center|regions|none|r:\d{1,4})$/.test(q.unit)) throw new BadRequestException("Birlik noto'g'ri");
+      if (!/^(center|regions|segments|none|r:\d{1,4})$/.test(q.unit) && !SEGMENT_KEYS.includes(q.unit)) throw new BadRequestException("Birlik noto'g'ri");
       f.unit = q.unit;
     }
     if (q.dep) f.dep = q.dep;

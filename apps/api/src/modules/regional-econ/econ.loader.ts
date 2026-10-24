@@ -1,5 +1,5 @@
 import type { PrismaService } from '../prisma/prisma.service';
-import { loadCenterCategories } from '../expense-policy/policy.util';
+import { loadCenterCategories, loadPolicyRouting } from '../expense-policy/policy.util';
 import { regionalEmployees } from '../regional-data/rd.employees';
 import { CENTRAL_REGION, periodDays } from '../regional-data/rd.util';
 
@@ -82,9 +82,12 @@ const emptyUnit = (): UnitMoney => ({ income: 0n, expense: 0n, payroll: 0n, coun
 export async function loadMonths(prisma: PrismaService, periods: string[], lookups: Lookups): Promise<MonthData[]> {
   if (!periods.length) return [];
   const centerCategories = await loadCenterCategories(prisma);
+  // Yo'nalishlar (Tax free …) — alohida bo'limlar: hududlar modeliga kirmaydi, «biriktirilmagan» ham emas;
+  // faqat siyosat bo'yicha Markaz hisobiga o'tganlari Markaz xarajatiga qo'shiladi
+  const routing = await loadPolicyRouting(prisma).catch(() => null);
   const [incomes, expenses, salaries, batches, budgets, manual] = await Promise.all([
-    prisma.income.findMany({ where: { deletedAt: null, period: { in: periods } }, select: { period: true, regionCode: true, departmentId: true, amountTiyin: true } }),
-    prisma.expense.findMany({ where: { deletedAt: null, period: { in: periods } }, select: { period: true, regionCode: true, departmentId: true, amountTiyin: true, source: true, categoryCode: true } }),
+    prisma.income.findMany({ where: { deletedAt: null, period: { in: periods }, segment: null }, select: { period: true, regionCode: true, departmentId: true, amountTiyin: true } }),
+    prisma.expense.findMany({ where: { deletedAt: null, period: { in: periods } }, select: { period: true, regionCode: true, departmentId: true, amountTiyin: true, source: true, categoryCode: true, segment: true } }),
     prisma.employeeSalary.findMany({ select: { employeePinfl: true, effectiveFrom: true, rate: true }, orderBy: { effectiveFrom: 'asc' } }),
     prisma.payrollBatch.findMany({ where: { period: { in: periods }, status: 'COMMITTED' }, select: { id: true, period: true } }),
     prisma.expenseBudget.findMany({ where: { period: { in: periods } }, select: { period: true, regionCode: true, amountTiyin: true, categoryCode: true } }),
@@ -132,7 +135,10 @@ export async function loadMonths(prisma: PrismaService, periods: string[], looku
     for (const e of expenses) {
       if (e.period !== period) continue;
       // Xarajatlar siyosati: Markaz hisobidagi moddalar (bayram puli, komandirovka …) — Markazga
-      const u = centerCategories.has(e.categoryCode) ? unitOf(CENTRAL_REGION, null) : unitOf(e.regionCode, e.departmentId);
+      if (e.segment) {
+        if (routing?.route(e)?.key !== 'center') continue;
+      }
+      const u = e.segment || centerCategories.has(e.categoryCode) ? unitOf(CENTRAL_REGION, null) : unitOf(e.regionCode, e.departmentId);
       const isPayroll = e.source === 'PAYROLL';
       if ('region' in u) {
         const r = region(u.region);

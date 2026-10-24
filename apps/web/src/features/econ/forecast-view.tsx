@@ -410,6 +410,7 @@ export function ForecastView({ overview }: { overview: EconOverview }) {
     { key: 'all', name: 'Butun korxona' },
     ...overview.units.filter((u) => u.kind === 'region'),
     ...overview.units.filter((u) => u.kind === 'center'),
+    ...overview.units.filter((u) => u.kind === 'segment'),
     ...overview.units.filter((u) => u.kind === 'unassigned'),
   ];
   const word = TARGET_OPTIONS.find((o) => o.value === target)!.label.toLowerCase();

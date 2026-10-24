@@ -165,3 +165,16 @@ Manzil: Xarajatlar › <bo'lim> › Xarajatlar siyosati. Bu sahifa 6 bo'limning 
   O'zgarishlar «Saqlash» bosilishidan oldin ham jami summalarda ko'rinadi.
 - **Saqlash joyi:** `settings` jadvali, `expense.policy` kalitidagi `unitRules` maydoni: `{ TAX_FREE: { INTERNET: 'CENTER' } }`. Migratsiya kerak emas. Umumiy siyosat saqlanganda bo'lim qoidalari o'chmaydi.
 - **API:** GET `/api/expense-policy/unit/:unit?from=YYYY-MM&to=YYYY-MM`, PATCH `/api/expense-policy/unit/:unit { rules }` (to'liq ro'yxat yuboriladi).
+
+## Umumiy ko'rinish: yo'nalishlar — o'z bo'limi sifatida
+
+Bosh sahifa › Daromad / Xarajat / Tahlil (ichma-ich jadvallar) va Modellar sahifalarida Tax free, Marksheyder, Fermer xo'jaligi va Buxgalteriya xizmatlari yozuvlari endi «Biriktirilmagan» deb ko'rinmaydi. Har biri o'z nomi bilan alohida birlik sifatida chiqadi:
+
+- **Ko'rsatkichlar:** har yo'nalish uchun alohida kartochka (summa, ulushi, yozuvlar soni). Bosilsa, o'sha bo'lim yozuvlari ochiladi.
+- **Daromad tarkibi:** daraxt tartibi Markaz → Hududlar → Tax free → … → Biriktirilmagan. Yo'nalish ichida moddalar bor, ular ichidagi summa bosilsa yozuvlar ochiladi.
+- **Xarajat moddalari:** Markaz va Hududlar ustunlaridan keyin yozuvi bor har bir yo'nalish uchun alohida ustun qo'shiladi.
+- **Kesimlar va oylar:** «Birlik» kesimida va oylar grafigida yo'nalishlar alohida ko'rinadi.
+- **Tahlil (natija):** foyda va zarar hisobotida daromad yo'nalishlar bo'yicha ham ajratiladi. Har bir birlik jadvalida yo'nalishning o'z daromadi, xarajati va natijasi bor.
+- **Biriktirilmagan:** faqat hudud, bo'lim yoki yo'nalish ko'rsatilmagan yozuvlar shu yerda qoladi.
+- **Modellar:** yo'nalish alohida birlik (`segment`) bo'ladi. Hududlar uchun reja va ustama xarajat taqsimotida yo'nalish yozuvlari hisobga olinmaydi. Siyosat bo'yicha Markaz hisobiga o'tganlari esa Markaz xarajatiga qo'shiladi.
+- **Filtr:** `unit = s:TAX_FREE`, `s:MARKSHEYDER` … bitta yo'nalish uchun, `segments` hamma yo'nalishlar uchun.

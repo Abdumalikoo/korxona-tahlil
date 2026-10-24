@@ -21,7 +21,7 @@ import { SalaryStructureCard } from '@/features/salary-composition/salary-struct
 type Cut = 'regions' | 'departments' | 'parties';
 const ROOT = 'Xarajat';
 
-const UNIT_COLS: ExtraCol[] = [
+const BASE_COLS: ExtraCol[] = [
   { key: 'center', label: 'Markaz', hint: 'Shu moddaning Markazga tegishli qismi', get: (n) => n.x?.center ?? 0, drill: (n) => ({ ...n.f, unit: 'center' }), tone: 'muted' },
   { key: 'regions', label: 'Hududlar', hint: 'Shu moddaning hududlarga tegishli qismi', get: (n) => n.x?.regions ?? 0, drill: (n) => ({ ...n.f, unit: 'regions' }), tone: 'muted' },
 ];
@@ -35,10 +35,13 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
   const d = res.data!;
   const t = d.totals;
   const cuts = {
-    regions: { nodes: d.regions, name: 'Hudud', desc: "Markaz va har bir hudud — xarajat guruhlari bo'yicha" },
+    regions: { nodes: d.regions, name: 'Birlik', desc: "Markaz, har bir hudud va yo'nalish (Tax free …) — xarajat guruhlari bo'yicha" },
     departments: { nodes: d.departments, name: "Bo'lim", desc: "Bo'limlar — xarajat guruhlari bo'yicha" },
     parties: { nodes: d.counterparties.rows, name: 'Kontragent', desc: `Eng katta ${Math.min(30, d.counterparties.total)} ta kontragent (jami ${d.counterparties.total} ta)` },
   }[cut];
+  // Ustunlar: Markaz, Hududlar va yozuvi bor har bir yo'nalish (Tax free …) — o'z bo'limi sifatida
+  const segCols: ExtraCol[] = (t.bySegment ?? []).map((sg) => ({ key: sg.key, label: sg.label, hint: `Shu moddaning «${sg.label}» bo'limiga tegishli qismi`, get: (n) => n.x?.[sg.key] ?? 0, drill: (n) => ({ ...n.f, unit: sg.key }), tone: 'muted' }));
+  const unitCols = [...BASE_COLS, ...segCols];
   const groupSeries: Series[] = foldSeries(d.months.rows, 5);
   const unitSeries: Series[] = d.months.units.map((u) => ({ key: u.key, label: u.label, color: UNIT_COLOR[u.key] ?? '#a3a29c', values: u.values, kind: 'expense', f: u.f }));
   const none = t.none.cur || t.none.prev || t.none.ly;
@@ -52,16 +55,19 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
           <Kpi label="Jami xarajat" cur={t.cur} prev={t.prev} ly={t.ly} kind="expense" drill={{ kind: 'expense', f: {}, title: `${ROOT} › Jami` }} sub={`${t.count.toLocaleString('uz')} ta yozuv`} />
           <Kpi label="Markaz" cur={t.center.cur} prev={t.center.prev} ly={t.center.ly} kind="expense" drill={{ kind: 'expense', f: { unit: 'center' }, title: `${ROOT} › Markaz` }} sub={`Ulushi ${pct(share(t.center.cur, t.cur))} · ${t.center.count} ta yozuv`} />
           <Kpi label="Hududlar" cur={t.regions.cur} prev={t.regions.prev} ly={t.regions.ly} kind="expense" drill={{ kind: 'expense', f: { unit: 'regions' }, title: `${ROOT} › Hududlar` }} sub={`Ulushi ${pct(share(t.regions.cur, t.cur))} · ${t.regions.count} ta yozuv`} />
+          {(t.bySegment ?? []).map((sg) => (
+            <Kpi key={sg.key} label={sg.label} cur={sg.cur} prev={sg.prev} ly={sg.ly} kind="expense" drill={{ kind: 'expense', f: { unit: sg.key }, title: `${ROOT} › ${sg.label}` }} sub={`Ulushi ${pct(share(sg.cur, t.cur))} · ${sg.count} ta yozuv`} />
+          ))}
           <Kpi label="To'lanmagan (kreditorlik)" cur={t.open} kind="expense" tone={t.open ? 'expense' : undefined} drill={{ kind: 'expense', f: { unpaid: true }, title: `${ROOT} › To'lanmagan` }} sub={`${t.unpaidCount} ta yozuv · to'langan ${pct(share(t.paid, t.cur))}`} />
         </div>
         {none ? (
           <p className="rounded-(--radius-control) bg-(--color-warn-soft) px-3 py-2 text-xs text-(--color-warn)">
-            {som(t.none.cur)} so&apos;m xarajatda hudud ham, bo&apos;lim ham ko&apos;rsatilmagan — ular Markaz va Hududlar ustunlariga kirmaydi.
+            {som(t.none.cur)} so&apos;m xarajatda hudud, bo&apos;lim yoki yo&apos;nalish (Tax free …) ko&apos;rsatilmagan — ular Markaz, Hududlar va yo&apos;nalishlar ustunlariga kirmaydi.
           </p>
         ) : null}
 
         <SectionTitle hint="Guruh → ichki moddalar → Markaz / hududlar">Xarajat moddalari</SectionTitle>
-        <DrillTable nodes={d.tree} title="Pul nimaga sarflandi" description="▸ bosilsa ichi ochiladi; Markaz / Hududlar ustunlari ham bosiladi" nameHeader="Modda" root={ROOT} openDepth={1} extra={UNIT_COLS} total={t} csv="Xarajat moddalari" note="To‘lanmagan summalar — «Kesimlar» jadvalida va yuqoridagi «To‘lanmagan» kartochkasida." />
+        <DrillTable nodes={d.tree} title="Pul nimaga sarflandi" description="▸ bosilsa ichi ochiladi; Markaz / Hududlar / yo'nalishlar ustunlari ham bosiladi" nameHeader="Modda" root={ROOT} openDepth={1} extra={unitCols} total={t} csv="Xarajat moddalari" note="To‘lanmagan summalar — «Kesimlar» jadvalida va yuqoridagi «To‘lanmagan» kartochkasida." />
 
         <SectionTitle hint="Bir xil xarajat — boshqa tomondan">Kesimlar</SectionTitle>
         <DrillTable
@@ -108,7 +114,7 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
           <ChartCard title="Oylar bo'yicha: xarajat guruhlari" description="Eng katta 5 guruh, qolganlari — «Boshqalar»" legend={groupSeries.map((s) => ({ label: s.label, color: s.color }))}>
             <StackedMonths months={d.monthList} series={groupSeries} root={ROOT} />
           </ChartCard>
-          <ChartCard title="Oylar bo'yicha: Markaz va hududlar" legend={unitSeries.map((s) => ({ label: s.label, color: s.color }))}>
+          <ChartCard title="Oylar bo'yicha: Markaz, hududlar va yo'nalishlar" legend={unitSeries.map((s) => ({ label: s.label, color: s.color }))}>
             <StackedMonths months={d.monthList} series={unitSeries} root={ROOT} />
           </ChartCard>
           <ChartCard title="Eng katta 10 guruh" description="Joriy davr, jami xarajatdagi ulushi bilan">

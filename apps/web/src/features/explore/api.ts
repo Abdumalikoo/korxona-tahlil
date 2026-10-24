@@ -11,7 +11,7 @@ export type Which = 'cur' | 'prev' | 'ly';
 
 export interface Filter {
   cats?: string[];
-  /** center | regions | none | r:<kod> */
+  /** center | regions | segments | none | r:<kod> | s:<yo'nalish> (Tax free …) */
   unit?: string;
   dep?: string;
   month?: string;
@@ -90,9 +90,11 @@ export interface RecordRow {
 }
 
 type UnitVals = Vals & { open: number };
+/** Yo'nalish (Tax free, Marksheyder …) — o'z bo'limi sifatida */
+export type SegmentVals = UnitVals & { key: string; label: string };
 
 export interface IncomeExplore extends Header {
-  totals: UnitVals & { received: number; quantity: number; center: UnitVals; regions: UnitVals; none: UnitVals };
+  totals: UnitVals & { received: number; quantity: number; center: UnitVals; regions: UnitVals; none: UnitVals; segments?: UnitVals; bySegment?: SegmentVals[] };
   tree: XNode[];
   categories: XNode[];
   regions: XNode[];
@@ -103,7 +105,7 @@ export interface IncomeExplore extends Header {
 }
 
 export interface ExpenseExplore extends Header {
-  totals: UnitVals & { paid: number; unpaidCount: number; center: UnitVals; regions: UnitVals; none: UnitVals };
+  totals: UnitVals & { paid: number; unpaidCount: number; center: UnitVals; regions: UnitVals; none: UnitVals; segments?: UnitVals; bySegment?: SegmentVals[] };
   tree: XNode[];
   regions: XNode[];
   departments: XNode[];
@@ -248,7 +250,15 @@ export function goodUp(kind: Kind | 'result'): boolean {
 /** Kategorik ranglar (tekshirilgan tartib) — doim bir xil tartibda beriladi */
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#6250d6'];
 export const OTHER = '#a3a29c';
-export const UNIT_COLOR: Record<string, string> = { center: SERIES[0]!, regions: SERIES[1]!, none: OTHER };
+export const UNIT_COLOR: Record<string, string> = {
+  center: SERIES[0]!,
+  regions: SERIES[1]!,
+  's:TAX_FREE': SERIES[2]!,
+  's:MARKSHEYDER': SERIES[3]!,
+  's:FERMER': SERIES[4]!,
+  's:BUXGALTERIYA': SERIES[5]!,
+  none: OTHER,
+};
 
 /** CSV yuklab olish (Excel ochadi) */
 export function downloadCsv(name: string, rows: (string | number | null)[][]) {

@@ -6,7 +6,8 @@ import type { ItemFilter, ItemKind, MarkItem } from '@/features/reactions/api';
 // Pul — tiyinda, satr ko'rinishida
 // ═══════════════════════════════════════════════════════════
 
-export type EconUnitKind = 'total' | 'region' | 'center' | 'unassigned';
+/** segment — yo'nalish (Tax free, Marksheyder …) */
+export type EconUnitKind = 'total' | 'region' | 'center' | 'segment' | 'unassigned';
 export type Target = 'income' | 'expense' | 'result' | 'payroll';
 export type Reliability = 'high' | 'medium' | 'low' | 'none';
 export type ModelKind = 'mean' | 'ses' | 'holt' | 'seasonal' | 'combined' | 'none';

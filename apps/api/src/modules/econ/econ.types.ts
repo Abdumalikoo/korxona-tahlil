@@ -3,7 +3,8 @@
 // Pul qiymatlari tiyinda, satr ko'rinishida (BigInt aniqligi saqlanadi)
 // ═══════════════════════════════════════════════════════════
 
-export type UnitKind = 'total' | 'region' | 'center' | 'unassigned';
+/** segment — yo'nalish (Tax free, Marksheyder …): o'z bo'limi sifatida, biriktirilmaganga qo'shilmaydi */
+export type UnitKind = 'total' | 'region' | 'center' | 'segment' | 'unassigned';
 
 /** Bir birlik (korxona, hudud, Markaz) uchun oylik qatorlar — so'mda (float, faqat hisoblash uchun) */
 export interface UnitSeries {
