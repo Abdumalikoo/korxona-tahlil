@@ -10,6 +10,7 @@ import { unitBySlug, type EntryUnit } from '@/lib/segments';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CompositionWorkspace } from '@/app/(dashboard)/xarajatlar/tarkib/_components/composition-workspace';
+import { UnitBankView } from '@/features/unit-bank/unit-bank-view';
 import { UnitLeaseView } from '@/features/unit-lease/unit-lease-view';
 import { UnitPayrollView } from '@/features/unit-payroll/unit-payroll-view';
 import { UnitCategories } from './unit-categories';
@@ -97,6 +98,8 @@ function ExpenseUnit({ unit, tab }: { unit: EntryUnit; tab?: string }) {
           <CompositionWorkspace unit={unit} />
         ) : current?.view === 'lease' ? (
           <UnitLeaseView unit={unit} />
+        ) : current?.view === 'bank' ? (
+          <UnitBankView unit={unit} />
         ) : current ? (
           <Card className="px-6 py-14 text-center">
             <p className="text-base font-bold text-heading">{current.label}</p>

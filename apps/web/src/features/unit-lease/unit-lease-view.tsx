@@ -11,7 +11,7 @@ import { Toast } from '@/components/ui/toast';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatDateTime, formatTiyin } from '@/lib/format';
-import { usePeriod } from '@/lib/period';
+import { MonthRangeCard, monthLabel, useMonthRange } from '@/features/units/month-range';
 import type { EntryUnit } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
@@ -27,17 +27,6 @@ import { analyzeLeaseFile, downloadLeaseTemplate, unitLeaseApi, type LeaseAnalyz
 
 type ToastState = { message: string; tone?: 'success' | 'error' } | null;
 
-const MONTHS_UZ = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
-const monthLabel = (p: string) => `${MONTHS_UZ[Number(p.slice(5, 7)) - 1] ?? p} ${p.slice(0, 4)}`;
-const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-
-function monthsCount(from: string, to: string): number {
-  if (!PERIOD_RE.test(from) || !PERIOD_RE.test(to)) return 0;
-  const a = Number(from.slice(0, 4)) * 12 + Number(from.slice(5, 7));
-  const b = Number(to.slice(0, 4)) * 12 + Number(to.slice(5, 7));
-  return b - a + 1;
-}
-
 const STATE: Record<LeaseBatch['state'], { label: string; tone: 'income' | 'neutral' | 'warn' }> = {
   ACTIVE: { label: 'Amalda', tone: 'income' },
   PARTIAL: { label: 'Qisman almashtirilgan', tone: 'warn' },
@@ -49,11 +38,8 @@ const money = (t: string | null | undefined) => (t && t !== '0' ? formatTiyin(t)
 
 export function UnitLeaseView({ unit }: { unit: EntryUnit }) {
   const { isAdmin } = useAuth();
-  const { month } = usePeriod();
-  const [from, setFrom] = useState(`${month.slice(0, 4)}-01`);
-  const [to, setTo] = useState(month);
-  const count = monthsCount(from, to);
-  const rangeError = !PERIOD_RE.test(from) || !PERIOD_RE.test(to) ? 'Oylarni tanlang' : count < 1 ? "«Dan» oyi «Gacha»dan keyin bo'lmasin" : count > 24 ? "Ko'pi bilan 24 oy" : null;
+  const range = useMonthRange();
+  const { from, to, error: rangeError, text: rangeText } = range;
 
   const [analysis, setAnalysis] = useState<LeaseAnalyzeResult | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -73,22 +59,6 @@ export function UnitLeaseView({ unit }: { unit: EntryUnit }) {
     setAnalysis(null);
     setPicked(new Set());
     if (inputRef.current) inputRef.current.value = '';
-  }
-
-  function preset(kind: 'month' | 'year' | 'quarter') {
-    const y = month.slice(0, 4);
-    const m = Number(month.slice(5, 7));
-    if (kind === 'month') {
-      setFrom(month);
-      setTo(month);
-    } else if (kind === 'year') {
-      setFrom(`${y}-01`);
-      setTo(month);
-    } else {
-      const q0 = Math.floor((m - 1) / 3) * 3 + 1;
-      setFrom(`${y}-${String(q0).padStart(2, '0')}`);
-      setTo(`${y}-${String(q0 + 2).padStart(2, '0')}`);
-    }
   }
 
   async function handleTemplate() {
@@ -136,9 +106,7 @@ export function UnitLeaseView({ unit }: { unit: EntryUnit }) {
         tone: 'success',
         message: `${res.months.map(monthLabel).join(', ')} saqlandi · ${formatTiyin(res.totalTiyin)} so'm · ${res.expensesCreated} ta xarajat` + (res.replacedMonths ? ` · ${res.replacedMonths} oy almashtirildi` : ''),
       });
-      // Saqlangan oylar ko'rinsin
-      if (months[0]! < from) setFrom(months[0]!);
-      if (months[months.length - 1]! > to) setTo(months[months.length - 1]!);
+      range.include(months); // saqlangan oylar ko'rinsin
       reset();
       data.reload();
       batches.reload();
@@ -165,43 +133,9 @@ export function UnitLeaseView({ unit }: { unit: EntryUnit }) {
     }
   }
 
-  const rangeText = rangeError ? '' : from === to ? monthLabel(from) : `${monthLabel(from)} – ${monthLabel(to)}`;
-
   return (
     <div className="space-y-4">
-      {/* Oylar oralig'i */}
-      <Card>
-        <CardBody className="flex flex-wrap items-end gap-3">
-          <label className="text-xs font-medium text-(--color-text-muted)">
-            Dan
-            <input type="month" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 block h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm text-heading" />
-          </label>
-          <label className="text-xs font-medium text-(--color-text-muted)">
-            Gacha
-            <input type="month" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 block h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm text-heading" />
-          </label>
-          <div className="flex flex-wrap gap-1.5 pb-0.5">
-            {(
-              [
-                ['month', 'Shu oy'],
-                ['quarter', 'Shu chorak'],
-                ['year', 'Yil boshidan'],
-              ] as const
-            ).map(([k, l]) => (
-              <button key={k} type="button" onClick={() => preset(k)} className="rounded-full border border-(--color-line) bg-white px-3 py-1.5 text-xs font-medium text-heading hover:border-brand-300 hover:bg-brand-50">
-                {l}
-              </button>
-            ))}
-          </div>
-          <p className={cn('ml-auto pb-1.5 text-sm', rangeError ? 'text-(--color-expense)' : 'text-(--color-text-muted)')}>
-            {rangeError ?? (
-              <>
-                <b className="text-heading">{count}</b> oy · {rangeText}
-              </>
-            )}
-          </p>
-        </CardBody>
-      </Card>
+      <MonthRangeCard range={range} />
 
       <SourceActions
         upload={

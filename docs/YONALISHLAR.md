@@ -111,3 +111,16 @@ Manzil: Xarajatlar › Tax free › Ijara va kommunal. To'lovlar 13 ta filial ke
 - **Bekor qilish:** shu yuklash bilan turgan oylarning ma'lumoti o'chadi, xarajatlari savatga tushadi. Undan oldingi yuklash qaytmaydi.
 - **Saqlash joyi:** `settings` jadvali, `unit.lease.TAX_FREE`. Migratsiya kerak emas.
 - **API:** `/api/unit-lease/:unit/` ostida `branches`, `template?from=&to=`, `analyze`, `commit`, `data?from=&to=`, `batches`, `batches/:id/cancel`.
+
+## Tax free › Bank xarajatlari
+
+Manzil: Xarajatlar › Tax free › Bank xarajatlari. Shablon bank ko'chirmasi (выписка) shaklida. Ustunlar: №пп, Дата документа, Дата обработки, № док, Наименование счёта, ИНН, № счёта, МФО, Обороты по дебету, Обороты по кредиту, Назначение платежа.
+
+- **O'qish:** fayldagi ma'lumot aynan o'zidek olinadi. Ustunlar sarlavha matni bo'yicha topiladi, shuning uchun tartibi farq qilsa ham o'qiladi.
+- **Nima xarajat hisoblanadi:** «Обороты по дебету» summasi bor har bir qator. Faqat kredit (kirim) summasi bor qatorlar va «Итого» qatori xarajat emas. Kirim qatorlari soni va summasi ekranda ko'rsatiladi.
+- **Izoh:** «Назначение платежа»dan olinadi. «За выд.ин.вал. по курсу ЦБ.» o'rniga «Naqd pul konvertatsiya to'lovi» yoziladi. Almashtirish qoidalari `apps/api/src/modules/unit-bank/unit-bank.service.ts` faylidagi `PURPOSE_RULES` ro'yxatida, yangisi bitta qator bilan qo'shiladi.
+- **Oy va sana:** «Дата документа» bo'yicha. Fayldagi hamma oylar o'qiladi, saqlanadigan oylar ekranda belgilanadi. Oy qayta saqlansa, oldingi ma'lumoti almashtiriladi.
+- **Xarajat yozuvi:** har bir to'lov alohida yoziladi. Yo'nalish — Tax free, modda — «Bank xarajatlari» (`BANK_XARAJAT`; yo'q bo'lsa avtomatik yaratiladi), kontragent — «Наименование счёта», hujjat raqami — «№ док».
+- **Ko'rinish (ichma-ich):** oy (jami) → to'lovlar (izoh, sana, kimga, summa) → to'lov ochilsa, ko'chirmadagi hamma maydonlar, asl «Назначение платежа» ham.
+- **Saqlash joyi:** `settings` jadvali, `unit.bank.TAX_FREE`. Migratsiya kerak emas.
+- **API:** `/api/unit-bank/:unit/` ostida `template`, `analyze`, `commit`, `data?from=&to=`, `batches`, `batches/:id/cancel`.
