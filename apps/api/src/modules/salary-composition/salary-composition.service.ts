@@ -3,6 +3,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
     type OnModuleInit,
 } from '@nestjs/common';
 import type {
@@ -13,7 +14,9 @@ import type {
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import ExcelJS from 'exceljs';
+import { entryUnitLabel } from '../../common/segments/segments';
 import { PayrollService } from '../payroll/payroll.service';
+import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
     CATEGORY_LABELS,
@@ -67,6 +70,8 @@ export class SalaryCompositionService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payrollService: PayrollService,
+    /** Yo'nalish (Tax free …) ish haqi — alohida tarkib shu vedomost bilan solishtiriladi */
+    @Optional() private readonly unitPayroll?: UnitPayrollService,
   ) {}
 
   /** Komponentlar jadvali bo'sh bo'lsa — standart komponentlarni yozamiz; keyin qo'shilgan «Choraklik mukofot» — mavjud bazaga ham */
@@ -161,9 +166,10 @@ export class SalaryCompositionService implements OnModuleInit {
   }
 
   /** Reestrdagi ism va bo'lim / hudud */
-  private async registry(pinfls: string[]): Promise<Map<string, RegistryInfo>> {
+  private async registry(pinfls: string[], unit?: string): Promise<Map<string, RegistryInfo>> {
     const map = new Map<string, RegistryInfo>();
     if (pinfls.length === 0) return map;
+    if (unit) return this.unitRegistry(pinfls, unit);
 
     const employees = await this.prisma.employee.findMany({
       where: { pinfl: { in: pinfls } },
@@ -189,7 +195,13 @@ export class SalaryCompositionService implements OnModuleInit {
   }
 
   /** Soliq hisoboti (tasdiqlangan ish haqi) — xodim bo'yicha jami */
-  private async payroll(period: string): Promise<PayrollInfo> {
+  private async payroll(period: string, unit?: string): Promise<PayrollInfo> {
+    if (unit) {
+      // Yo'nalish: shu bo'lim ish haqi vedomosti (Xarajatlar › <yo'nalish> › Ish haqi); hamma xodim — doira ichida
+      const map = await this.unitService().payrollMap(unit, period);
+      if (!map) return { uploaded: false, map: new Map(), central: new Set(), regionOf: new Map() };
+      return { uploaded: true, map, central: new Set(map.keys()), regionOf: new Map() };
+    }
     const batchCount = await this.prisma.payrollBatch.count({
       where: { period, status: 'COMMITTED' },
     });
@@ -259,6 +271,7 @@ export class SalaryCompositionService implements OnModuleInit {
     period: string,
     rows: CheckInput[] | null,
     payroll: PayrollInfo,
+    unit?: string,
   ): Promise<CheckSummary> {
     const compositionUploaded = rows !== null;
     const list = rows ?? [];
@@ -311,7 +324,7 @@ export class SalaryCompositionService implements OnModuleInit {
       const absent = [...payroll.map.entries()].filter(
         ([pinfl, amount]) => amount !== 0n && !inComposition.has(pinfl) && inScope(pinfl),
       );
-      const names = await this.registry(absent.map(([pinfl]) => pinfl));
+      const names = await this.registry(absent.map(([pinfl]) => pinfl), unit);
 
       for (const [pinfl, amount] of absent) {
         missingInComposition.push({
@@ -366,7 +379,7 @@ export class SalaryCompositionService implements OnModuleInit {
       mismatches,
       missingInComposition,
       notInPayroll,
-      scope: 'CENTER',
+      scope: unit ? 'UNIT' : 'CENTER',
       outOfScope: {
         employees: outsidePeople.length,
         payrollTiyin: outsideTotal.toString(),
@@ -616,13 +629,14 @@ export class SalaryCompositionService implements OnModuleInit {
   // Shablon
   // ═══════════════════════════════════════════════════════════
 
-  async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
+  async buildTemplate(period: string, unit?: string): Promise<{ buffer: Buffer; filename: string }> {
     this.assertPeriod(period);
 
     const components = (await this.allComponents()).filter((c) => c.isActive);
     if (components.length === 0) {
       throw new BadRequestException('Faol komponent yo\'q — Sozlamalarda komponent qo\'shing');
     }
+    if (unit) return this.unitTemplate(period, unit, components);
 
     const payroll = await this.payroll(period);
 
@@ -657,7 +671,7 @@ export class SalaryCompositionService implements OnModuleInit {
   // Faylni o'qish
   // ═══════════════════════════════════════════════════════════
 
-  async analyze(period: string, file: Express.Multer.File | undefined, sheetName?: string): Promise<AnalysisResult> {
+  async analyze(period: string, file: Express.Multer.File | undefined, sheetName?: string, unit?: string): Promise<AnalysisResult> {
     this.assertPeriod(period);
     if (!file) throw new BadRequestException('Fayl yuklanmadi');
 
@@ -852,9 +866,9 @@ export class SalaryCompositionService implements OnModuleInit {
     }
 
     const [registry, payroll, previous] = await Promise.all([
-      this.registry(parsed.map((p) => p.pinfl)),
-      this.payroll(period),
-      this.activeBatch(period),
+      this.registry(parsed.map((p) => p.pinfl), unit),
+      this.payroll(period, unit),
+      unit ? this.unitActive(unit, period) : this.activeBatch(period),
     ]);
 
     const unknownEmployees: AnalysisResult['unknownEmployees'] = [];
@@ -886,6 +900,7 @@ export class SalaryCompositionService implements OnModuleInit {
       period,
       rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, totalTiyin: BigInt(r.totalTiyin) })),
       payroll,
+      unit,
     );
 
     const found = components.filter((c) => comps.has(c.code));
@@ -928,8 +943,10 @@ export class SalaryCompositionService implements OnModuleInit {
     fileName: string;
     userId: string;
     rows: CommitRow[];
+    /** Yo'nalish (Tax free …) — umumiy tarkibga tegmaydi, alohida saqlanadi */
+    unit?: string;
   }): Promise<CommitResult> {
-    const { period, rows } = input;
+    const { period, rows, unit } = input;
     this.assertPeriod(period);
 
     if (rows.length === 0) throw new BadRequestException('Saqlash uchun ma\'lumot yo\'q');
@@ -954,7 +971,7 @@ export class SalaryCompositionService implements OnModuleInit {
     }
 
     // ─── Hisob ───
-    const registry = await this.registry(rows.map((r) => r.pinfl));
+    const registry = await this.registry(rows.map((r) => r.pinfl), unit);
     const prepared = rows.map((row) => ({
       id: randomUUID(),
       row,
@@ -968,14 +985,17 @@ export class SalaryCompositionService implements OnModuleInit {
       0,
     );
 
-    const payroll = await this.payroll(period);
+    const payroll = await this.payroll(period, unit);
     const check = await this.buildCheck(
       period,
       prepared.map((p) => ({ pinfl: p.row.pinfl, fullName: p.fullName ?? '—', totalTiyin: p.total })),
       payroll,
+      unit,
     );
     const status: SalaryCompositionStatus =
       check.state === 'MATCHED' ? 'MATCHED' : check.state === 'MISMATCH' ? 'MISMATCH' : 'NO_PAYROLL';
+
+    if (unit) return this.unitCommit({ unit, period, fileName: input.fileName, userId: input.userId, prepared, grandTotal, check, status });
 
     // ─── Tranzaksiya ───
     const result = await this.prisma.$transaction(
@@ -1080,7 +1100,8 @@ export class SalaryCompositionService implements OnModuleInit {
     };
   }
 
-  async cancel(batchId: string): Promise<{ success: true; period: string }> {
+  async cancel(batchId: string, unit?: string, period?: string): Promise<{ success: true; period: string }> {
+    if (unit) return this.unitCancel(unit, period ?? '', batchId);
     const batch = await this.prisma.salaryCompositionBatch.findUnique({ where: { id: batchId } });
     if (!batch) throw new NotFoundException('Yuklash topilmadi');
     if (batch.cancelledAt) throw new BadRequestException('Bu yuklash allaqachon bekor qilingan');
@@ -1101,8 +1122,13 @@ export class SalaryCompositionService implements OnModuleInit {
     return { success: true, period: batch.period };
   }
 
-  async batches(period?: string): Promise<BatchDto[]> {
+  async batches(period?: string, unit?: string): Promise<BatchDto[]> {
     if (period) this.assertPeriod(period);
+    if (unit) {
+      if (!period) throw new BadRequestException('Oy (period) kerak');
+      const list = [...(await this.unitBatches(unit, period))].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return this.toBatchDtos(list.map((b) => this.unitBatchRecord(b)));
+    }
 
     const list = await this.prisma.salaryCompositionBatch.findMany({
       where: period ? { period } : undefined,
@@ -1117,8 +1143,12 @@ export class SalaryCompositionService implements OnModuleInit {
   // ═══════════════════════════════════════════════════════════
 
   /** Oy holati — ish haqi sahifasidagi belgi uchun (jonli hisoblanadi) */
-  async check(period: string): Promise<CheckSummary> {
+  async check(period: string, unit?: string): Promise<CheckSummary> {
     this.assertPeriod(period);
+    if (unit) {
+      const [batch, payroll] = await Promise.all([this.unitActive(unit, period), this.payroll(period, unit)]);
+      return this.buildCheck(period, batch ? batch.rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName ?? '—', totalTiyin: BigInt(r.totalTiyin) })) : null, payroll, unit);
+    }
 
     const [batch, payroll] = await Promise.all([this.activeBatch(period), this.payroll(period)]);
     if (!batch) return this.buildCheck(period, null, payroll);
@@ -1159,8 +1189,9 @@ export class SalaryCompositionService implements OnModuleInit {
   }
 
   /** Oy tarkibi: xodimlar, komponentlar, jamilar va tekshiruv */
-  async view(period: string): Promise<CompositionView> {
+  async view(period: string, unit?: string): Promise<CompositionView> {
     this.assertPeriod(period);
+    if (unit) return this.unitView(period, unit);
 
     const [batch, payroll, components, usage] = await Promise.all([
       this.activeBatch(period),
@@ -1243,10 +1274,11 @@ export class SalaryCompositionService implements OnModuleInit {
   }
 
   /** Bitta xodimning oylar bo'yicha tarkibi */
-  async employeeHistory(pinfl: string, from?: string, to?: string): Promise<EmployeeHistory> {
+  async employeeHistory(pinfl: string, from?: string, to?: string, unit?: string): Promise<EmployeeHistory> {
     if (!/^\d{14}$/.test(pinfl ?? '')) throw new BadRequestException('PINFL noto\'g\'ri');
     if (from) this.assertPeriod(from);
     if (to) this.assertPeriod(to);
+    if (unit) return this.unitEmployeeHistory(pinfl, unit, from, to);
 
     const periodFilter: { gte?: string; lte?: string } = {};
     if (from) periodFilter.gte = from;
@@ -1313,13 +1345,290 @@ export class SalaryCompositionService implements OnModuleInit {
   // Excel eksport
   // ═══════════════════════════════════════════════════════════
 
-  async exportExcel(period: string): Promise<{ buffer: Buffer; filename: string }> {
-    const view = await this.view(period);
+  async exportExcel(period: string, unit?: string): Promise<{ buffer: Buffer; filename: string }> {
+    const view = await this.view(period, unit);
     if (!view.batch) throw new NotFoundException('Bu oy uchun tarkib yuklanmagan');
 
     const workbook = buildExportWorkbook(view);
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
-    return { buffer, filename: `ish-haqi-tarkibi-${period}-hisobot.xlsx` };
+    const tag = unit ? `-${entryUnitLabel(unit).replace(/\s+/g, '-')}` : '';
+    return { buffer, filename: `ish-haqi-tarkibi${tag}-${period}-hisobot.xlsx` };
   }
+
+  // ═══════════════════════════════════════════════════════════
+  // Yo'nalish (Tax free …) ish haqi tarkibi — umumiy tarkibdan ALOHIDA.
+  // Shablon va fayl o'qish — avvalgidek (vedomost shakli). Farqi:
+  //  • xodimlar — faqat shu bo'lim xodimlari (Xarajatlar › <yo'nalish> › Ish haqi ro'yxati);
+  //  • solishtirish — shu bo'lim ish haqi vedomosti bilan;
+  //  • saqlash — `settings` jadvali (unit.composition.<BO'LIM>.<OY>), umumiy tarkib va Markaz ulushiga tegmaydi.
+  // ═══════════════════════════════════════════════════════════
+
+  private unitService(): UnitPayrollService {
+    if (!this.unitPayroll) throw new BadRequestException("Yo'nalish ish haqi moduli ulanmagan");
+    return this.unitPayroll;
+  }
+
+  private unitKey(unit: string, period: string): string {
+    return `unit.composition.${unit}.${period}`;
+  }
+
+  private readUnitList(value: unknown): UnitCompBatch[] {
+    const list = (value as { batches?: unknown } | null)?.batches;
+    return Array.isArray(list) ? (list as UnitCompBatch[]) : [];
+  }
+
+  private async unitBatches(unit: string, period: string): Promise<UnitCompBatch[]> {
+    const row = await this.prisma.setting.findUnique({ where: { key: this.unitKey(unit, period) } });
+    return this.readUnitList(row?.value ?? null);
+  }
+
+  private async unitActive(unit: string, period: string): Promise<UnitCompBatch | null> {
+    const list = (await this.unitBatches(unit, period)).filter((b) => !b.cancelledAt);
+    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  }
+
+  /** Saqlangan yuklama → toBatchDtos shakli */
+  private unitBatchRecord(b: UnitCompBatch) {
+    return {
+      id: b.id,
+      period: b.period,
+      fileName: b.fileName,
+      employeeCount: b.employeeCount,
+      totalTiyin: BigInt(b.totalTiyin),
+      payrollTiyin: BigInt(b.payrollTiyin),
+      status: b.status,
+      mismatchCount: b.mismatchCount,
+      uploadedById: b.uploadedById,
+      createdAt: new Date(b.createdAt),
+      cancelledAt: b.cancelledAt ? new Date(b.cancelledAt) : null,
+    };
+  }
+
+  /** Ism: avval umumiy xodimlar bazasi, bo'lmasa — bo'lim ro'yxati */
+  private async unitRegistry(pinfls: string[], unit: string): Promise<Map<string, RegistryInfo>> {
+    const label = entryUnitLabel(unit);
+    const map = new Map<string, RegistryInfo>();
+    const want = new Set(pinfls);
+    for (const s of await this.unitService().staffOf(unit)) if (want.has(s.pinfl)) map.set(s.pinfl, { fullName: s.fullName, unitName: label });
+    const general = await this.prisma.employee.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, fullName: true } });
+    for (const e of general) map.set(e.pinfl, { fullName: e.fullName, unitName: label });
+    return map;
+  }
+
+  private async unitTemplate(period: string, unit: string, components: SalaryComponent[]): Promise<{ buffer: Buffer; filename: string }> {
+    const label = entryUnitLabel(unit);
+    const payroll = await this.payroll(period, unit);
+    const staff = await this.unitService().staffOf(unit);
+    // Xodimlar: bo'limning faol xodimlari + shu oy ish haqi vedomostidagilar (ketgan bo'lsa ham)
+    const pinfls = new Set([...staff.filter((s) => s.active).map((s) => s.pinfl), ...payroll.map.keys()]);
+    const names = await this.unitRegistry([...pinfls], unit);
+    const byPinfl = new Map(staff.map((s) => [s.pinfl, s]));
+    const employees = [...pinfls]
+      .map((pinfl) => ({
+        pinfl,
+        fullName: names.get(pinfl)?.fullName ?? pinfl,
+        position: byPinfl.get(pinfl)?.position ?? null,
+        regionCode: CENTRAL_REGION,
+        region: null,
+        department: { name: label },
+      }))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName));
+    const workbook = buildVedomostWorkbook({ period, components, employees, payroll });
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    return { buffer, filename: `ish-haqi-tarkibi-${label.replace(/\s+/g, '-')}-${period}.xlsx` };
+  }
+
+  private async unitCommit(p: {
+    unit: string;
+    period: string;
+    fileName: string;
+    userId: string;
+    prepared: { row: CommitRow; fullName: string | null; total: bigint }[];
+    grandTotal: bigint;
+    check: CheckSummary;
+    status: SalaryCompositionStatus;
+  }): Promise<CommitResult> {
+    const key = this.unitKey(p.unit, p.period);
+    const batch: UnitCompBatch = {
+      id: randomUUID(),
+      period: p.period,
+      fileName: p.fileName.slice(0, 255),
+      employeeCount: p.prepared.length,
+      totalTiyin: p.grandTotal.toString(),
+      payrollTiyin: p.check.payrollTiyin,
+      status: p.status,
+      mismatchCount: p.check.mismatchCount,
+      uploadedById: p.userId,
+      createdAt: new Date().toISOString(),
+      cancelledAt: null,
+      rows: p.prepared.map((x) => ({
+        pinfl: x.row.pinfl,
+        fullName: x.fullName,
+        workedDays: x.row.workedDays,
+        rate: x.row.rate,
+        totalTiyin: x.total.toString(),
+        items: this.mapToRecord(x.row.items),
+      })),
+    };
+    // Nazorat: qatorlar jami = umumiy jami
+    const sum = batch.rows.reduce((s, r) => s + BigInt(r.totalTiyin), 0n);
+    if (sum !== p.grandTotal) throw new BadRequestException('Saqlashda nazorat summasi mos kelmadi — hech narsa saqlanmadi');
+
+    const replaced = await this.prisma.$transaction(async (tx) => {
+      const list = this.readUnitList((await tx.setting.findUnique({ where: { key } }))?.value ?? null);
+      const now = new Date().toISOString();
+      let n = 0;
+      for (const b of list) {
+        if (b.cancelledAt) continue;
+        b.cancelledAt = now;
+        b.rows = []; // bekor qilingan tarkib qatorlari saqlanmaydi (umumiy tarkibdagidek)
+        n += 1;
+      }
+      const value = { batches: [...list, batch] } as object;
+      await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+      return n;
+    });
+
+    return {
+      success: true,
+      batchId: batch.id,
+      saved: batch.rows.length,
+      replacedPrevious: replaced > 0,
+      totalTiyin: batch.totalTiyin,
+      payrollTiyin: batch.payrollTiyin,
+      status: p.status,
+      mismatchCount: p.check.mismatchCount,
+      centerTiyin: '0',
+      centerEmployees: 0,
+    };
+  }
+
+  private async unitCancel(unit: string, period: string, batchId: string): Promise<{ success: true; period: string }> {
+    this.assertPeriod(period);
+    const key = this.unitKey(unit, period);
+    await this.prisma.$transaction(async (tx) => {
+      const list = this.readUnitList((await tx.setting.findUnique({ where: { key } }))?.value ?? null);
+      const b = list.find((x) => x.id === batchId);
+      if (!b) throw new NotFoundException('Yuklash topilmadi');
+      if (b.cancelledAt) throw new BadRequestException('Bu yuklash allaqachon bekor qilingan');
+      b.cancelledAt = new Date().toISOString();
+      b.rows = [];
+      const value = { batches: list } as object;
+      await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    });
+    return { success: true, period };
+  }
+
+  private async unitView(period: string, unit: string): Promise<CompositionView> {
+    const [batch, payroll, components, usage] = await Promise.all([this.unitActive(unit, period), this.payroll(period, unit), this.allComponents(), this.usageCounts()]);
+    if (!batch) {
+      return {
+        period,
+        batch: null,
+        components: components.filter((c) => c.isActive).map((c) => this.toComponentDto(c, usage.get(c.code) ?? 0)),
+        byComponent: [],
+        byCategory: [],
+        check: await this.buildCheck(period, null, payroll, unit),
+        rows: [],
+      };
+    }
+    const registry = await this.unitRegistry(batch.rows.map((r) => r.pinfl), unit);
+    const withItems = batch.rows.map((r) => ({ r, items: new Map(Object.entries(r.items ?? {}).map(([c, v]) => [c, BigInt(v)])) }));
+    const usedCodes = new Set(withItems.flatMap((x) => [...x.items.keys()]));
+    const visible = components.filter((c) => c.isActive || usedCodes.has(c.code));
+    const rows: CompositionRowDto[] = withItems
+      .map(({ r, items }) => {
+        const reg = registry.get(r.pinfl);
+        const total = BigInt(r.totalTiyin);
+        const state = this.rowState(r.pinfl, total, payroll);
+        return {
+          rowIndex: null,
+          pinfl: r.pinfl,
+          fullName: reg?.fullName ?? r.fullName ?? '—',
+          inRegistry: !!reg,
+          unitName: reg?.unitName ?? entryUnitLabel(unit),
+          workedDays: r.workedDays,
+          rate: r.rate,
+          items: this.mapToRecord(items),
+          totalTiyin: r.totalTiyin,
+          payrollTiyin: state.payrollTiyin === null ? null : state.payrollTiyin.toString(),
+          diffTiyin: state.diffTiyin === null ? null : state.diffTiyin.toString(),
+          state: state.state,
+        };
+      })
+      .sort((a, b) => a.fullName.localeCompare(b.fullName));
+    const check = await this.buildCheck(period, rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, totalTiyin: BigInt(r.totalTiyin) })), payroll, unit);
+    const { byComponent, byCategory } = this.totals(withItems, components);
+    const status: SalaryCompositionStatus = check.state === 'MATCHED' ? 'MATCHED' : check.state === 'MISMATCH' ? 'MISMATCH' : 'NO_PAYROLL';
+    const [batchDto] = await this.toBatchDtos([{ ...this.unitBatchRecord(batch), status, mismatchCount: check.mismatchCount, payrollTiyin: BigInt(check.payrollTiyin) }]);
+    return { period, batch: batchDto ?? null, components: visible.map((c) => this.toComponentDto(c, usage.get(c.code) ?? 0)), byComponent, byCategory, check, rows };
+  }
+
+  private async unitEmployeeHistory(pinfl: string, unit: string, from?: string, to?: string): Promise<EmployeeHistory> {
+    const prefix = `unit.composition.${unit}.`;
+    const settings = await this.prisma.setting.findMany({ where: { key: { startsWith: prefix } } });
+    const found: { period: string; row: UnitCompRow }[] = [];
+    for (const s of settings) {
+      const period = s.key.slice(prefix.length);
+      if (!/^\d{4}-\d{2}$/.test(period) || (from && period < from) || (to && period > to)) continue;
+      const active = this.readUnitList(s.value).filter((b) => !b.cancelledAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      const row = active?.rows.find((r) => r.pinfl === pinfl);
+      if (row) found.push({ period, row });
+    }
+    found.sort((a, b) => a.period.localeCompare(b.period));
+    const [components, registry] = await Promise.all([this.allComponents(), this.unitRegistry([pinfl], unit)]);
+    const reg = registry.get(pinfl);
+    if (!reg && found.length === 0) throw new NotFoundException('Xodim topilmadi');
+    const withItems = found.map((f) => ({ ...f, items: new Map(Object.entries(f.row.items ?? {}).map(([c, v]) => [c, BigInt(v)])) }));
+    const usedCodes = new Set(withItems.flatMap((x) => [...x.items.keys()]));
+    const { byCategory } = this.totals(withItems, components);
+    const periods = [];
+    for (const { period, row, items } of withItems) {
+      const payroll = await this.payroll(period, unit);
+      const state = this.rowState(pinfl, BigInt(row.totalTiyin), payroll);
+      periods.push({
+        period,
+        workedDays: row.workedDays,
+        rate: row.rate,
+        items: this.mapToRecord(items),
+        totalTiyin: row.totalTiyin,
+        payrollTiyin: state.payrollTiyin === null ? null : state.payrollTiyin.toString(),
+        diffTiyin: state.diffTiyin === null ? null : state.diffTiyin.toString(),
+        state: state.state,
+      });
+    }
+    return {
+      employee: { pinfl, fullName: reg?.fullName ?? found[0]?.row.fullName ?? '—', unitName: entryUnitLabel(unit), inRegistry: !!reg },
+      components: components.filter((c) => usedCodes.has(c.code)).map((c) => this.toComponentDto(c)),
+      periods,
+      byCategory,
+    };
+  }
+}
+
+/** Yo'nalish tarkibi qatori (settings'da) */
+interface UnitCompRow {
+  pinfl: string;
+  fullName: string | null;
+  workedDays: number | null;
+  rate: number | null;
+  totalTiyin: string;
+  items: Record<string, string>;
+}
+
+/** Yo'nalish tarkibi yuklamasi (settings'da) */
+interface UnitCompBatch {
+  id: string;
+  period: string;
+  fileName: string;
+  employeeCount: number;
+  totalTiyin: string;
+  payrollTiyin: string;
+  status: SalaryCompositionStatus;
+  mismatchCount: number;
+  uploadedById: string;
+  createdAt: string;
+  cancelledAt: string | null;
+  rows: UnitCompRow[];
 }

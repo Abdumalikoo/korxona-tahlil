@@ -107,7 +107,7 @@ export interface CheckSummary {
    * Solishtirish doirasi: CENTER — faqat Markaz xodimlari (va tarkib faylidagilar); hudud xodimlari solishtirilmaydi,
    * chunki ish haqi tarkibi faqat Markaz uchun tuziladi. Raqamlar (soliq hisoboti, farq, holat) shu doira bo'yicha.
    */
-  scope: 'CENTER';
+  scope: 'CENTER' | 'UNIT';
   /** Doiradan tashqarida qolgan hudud xodimlari (soliq hisobotida bor, tarkibda yo'q) — farq emas, ma'lumot uchun */
   outOfScope: {
     employees: number;

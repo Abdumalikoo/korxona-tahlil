@@ -146,7 +146,8 @@ export interface CheckSummary {
   missingInComposition: CheckPerson[];
   notInPayroll: CheckPerson[];
   /** Solishtirish doirasi: faqat Markaz xodimlari (va tarkib faylidagilar) — tarkib faqat Markaz uchun tuziladi */
-  scope?: 'CENTER';
+  /** CENTER — umumiy (Markaz xodimlari); UNIT — yo'nalish (Tax free …) xodimlari */
+  scope?: 'CENTER' | 'UNIT';
   /** Doiradan tashqari: hudud xodimlari (soliq hisobotida bor, tarkibda yo'q) — farq emas */
   outOfScope?: {
     employees: number;
@@ -310,8 +311,11 @@ async function saveFile(response: Response, fallbackName: string): Promise<void>
 }
 
 /** Shablon — faol komponentlar va shu oy soliq summalari bilan */
-export async function downloadCompositionTemplate(period: string): Promise<void> {
-  const response = await fetch(`${BASE}/salary-composition/template?period=${period}`, {
+/** unit — yo'nalish (TAX_FREE …): alohida tarkib; bo'lmasa — umumiy */
+const unitQs = (unit?: string) => (unit ? `&unit=${encodeURIComponent(unit)}` : '');
+
+export async function downloadCompositionTemplate(period: string, unit?: string): Promise<void> {
+  const response = await fetch(`${BASE}/salary-composition/template?period=${period}${unitQs(unit)}`, {
     headers: authHeaders(),
   });
 
@@ -323,8 +327,8 @@ export async function downloadCompositionTemplate(period: string): Promise<void>
 }
 
 /** Saqlangan tarkib hisoboti — Tarkib, Guruhlar, Farqlar varaqlari */
-export async function downloadCompositionExcel(period: string): Promise<void> {
-  const response = await fetch(`${BASE}/salary-composition/export?period=${period}`, {
+export async function downloadCompositionExcel(period: string, unit?: string): Promise<void> {
+  const response = await fetch(`${BASE}/salary-composition/export?period=${period}${unitQs(unit)}`, {
     headers: authHeaders(),
   });
 
@@ -340,11 +344,12 @@ export async function analyzeCompositionFile(
   period: string,
   file: File,
   sheet?: string,
+  unit?: string,
 ): Promise<CompositionAnalysis> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const qs = new URLSearchParams({ period, ...(sheet ? { sheet } : {}) });
+  const qs = new URLSearchParams({ period, ...(sheet ? { sheet } : {}), ...(unit ? { unit } : {}) });
   const response = await fetch(`${BASE}/salary-composition/analyze?${qs.toString()}`, {
     method: 'POST',
     headers: authHeaders(),
@@ -365,8 +370,8 @@ export async function analyzeCompositionFile(
 
 export const compositionApi = {
   /** Tahlil natijasini saqlaydi — shu oyning oldingi tarkibi almashtiriladi */
-  commit: (period: string, fileName: string, rows: CompositionRow[]) =>
-    api.post<ApiResponse<CommitResult>>(`/salary-composition/commit?period=${period}`, {
+  commit: (period: string, fileName: string, rows: CompositionRow[], unit?: string) =>
+    api.post<ApiResponse<CommitResult>>(`/salary-composition/commit?period=${period}${unitQs(unit)}`, {
       fileName,
       rows: rows.map((row) => ({
         pinfl: row.pinfl,
@@ -377,25 +382,26 @@ export const compositionApi = {
       })),
     }),
 
-  cancel: (batchId: string) =>
+  /** Yo'nalishda (unit) — oy ham kerak */
+  cancel: (batchId: string, unit?: string, period?: string) =>
     api.post<ApiResponse<{ success: true; period: string }>>(
-      `/salary-composition/batches/${batchId}/cancel`,
+      `/salary-composition/batches/${batchId}/cancel${unit ? `?unit=${encodeURIComponent(unit)}&period=${period ?? ''}` : ''}`,
     ),
 
-  batches: (period?: string) =>
+  batches: (period?: string, unit?: string) =>
     api.get<ApiResponse<CompositionBatch[]>>('/salary-composition/batches', {
-      params: { period },
+      params: { period, unit },
     }),
 
-  view: (period: string) =>
-    api.get<ApiResponse<CompositionView>>('/salary-composition/view', { params: { period } }),
+  view: (period: string, unit?: string) =>
+    api.get<ApiResponse<CompositionView>>('/salary-composition/view', { params: { period, unit } }),
 
-  check: (period: string) =>
-    api.get<ApiResponse<CheckSummary>>('/salary-composition/check', { params: { period } }),
+  check: (period: string, unit?: string) =>
+    api.get<ApiResponse<CheckSummary>>('/salary-composition/check', { params: { period, unit } }),
 
-  employee: (pinfl: string, from?: string, to?: string) =>
+  employee: (pinfl: string, from?: string, to?: string, unit?: string) =>
     api.get<ApiResponse<EmployeeHistory>>(`/salary-composition/employee/${pinfl}`, {
-      params: { from, to },
+      params: { from, to, unit },
     }),
 
   // ─────────── Komponentlar ───────────

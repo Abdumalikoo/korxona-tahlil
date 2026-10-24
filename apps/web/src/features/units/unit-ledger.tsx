@@ -9,6 +9,8 @@ import { usePeriod } from '@/lib/period';
 import { unitBySlug, type EntryUnit } from '@/lib/segments';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { CompositionWorkspace } from '@/app/(dashboard)/xarajatlar/tarkib/_components/composition-workspace';
+import { UnitLeaseView } from '@/features/unit-lease/unit-lease-view';
 import { UnitPayrollView } from '@/features/unit-payroll/unit-payroll-view';
 import { UnitCategories } from './unit-categories';
 import { unitTabs } from './structure';
@@ -91,6 +93,10 @@ function ExpenseUnit({ unit, tab }: { unit: EntryUnit; tab?: string }) {
           </Card>
         ) : current?.view === 'payroll' ? (
           <UnitPayrollView unit={unit} />
+        ) : current?.view === 'composition' ? (
+          <CompositionWorkspace unit={unit} />
+        ) : current?.view === 'lease' ? (
+          <UnitLeaseView unit={unit} />
         ) : current ? (
           <Card className="px-6 py-14 text-center">
             <p className="text-base font-bold text-heading">{current.label}</p>

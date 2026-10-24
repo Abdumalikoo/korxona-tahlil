@@ -11,15 +11,18 @@ export interface UnitTab {
   /** Manzil: /xarajatlar/bolim/<bo'lim>/<slug> */
   slug: string;
   label: string;
-  /** Tayyor sahifa: payroll — ish haqi (shablon, vedomost, bo'lim xodimlari). Bo'lmasa — hali tugma */
-  view?: 'payroll';
+  /**
+   * Tayyor sahifa: payroll — ish haqi (shablon, vedomost, bo'lim xodimlari); composition — ish haqi tarkibi;
+   * lease — ijara va kommunal (filiallar kesimida, oylar oralig'i). Bo'lmasa — hali tugma.
+   */
+  view?: 'payroll' | 'composition' | 'lease';
 }
 
 const EXPENSE: Record<string, UnitTab[]> = {
   TAX_FREE: [
     { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
-    { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi' },
-    { slug: 'ijara-kommunal', label: 'Ijara va kommunal' },
+    { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi', view: 'composition' },
+    { slug: 'ijara-kommunal', label: 'Ijara va kommunal', view: 'lease' },
     { slug: 'asosiy-vositalar', label: 'Asosiy vositalar' },
     { slug: 'bank', label: 'Bank xarajatlari' },
     { slug: 'reklama', label: 'Reklama xarajatlari' },

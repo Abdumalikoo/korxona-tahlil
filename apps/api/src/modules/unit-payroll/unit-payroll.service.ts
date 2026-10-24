@@ -176,6 +176,19 @@ export class UnitPayrollService {
     return readBatches(await this.readSetting(payrollKey(unit, period)));
   }
 
+  /**
+   * Shu oy saqlangan vedomost(lar) bo'yicha xodim → summa (ish haqi tarkibi bilan solishtirish uchun).
+   * Saqlangan vedomost yo'q bo'lsa — null.
+   */
+  async payrollMap(unit: string, period: string): Promise<Map<string, bigint> | null> {
+    this.assertPeriod(period);
+    const committed = (await this.batchesOf(unit, period)).filter((b) => b.status === 'COMMITTED');
+    if (!committed.length) return null;
+    const map = new Map<string, bigint>();
+    for (const b of committed) for (const r of b.rows ?? []) map.set(r.pinfl, (map.get(r.pinfl) ?? 0n) + BigInt(r.amountTiyin));
+    return map;
+  }
+
   /** Xodimlar bazasidagi (umumiy reestr) ismlar — bo'lsa */
   private async registryNames(pinfls: string[]): Promise<Map<string, { fullName: string; position: string | null }>> {
     if (!pinfls.length) return new Map();

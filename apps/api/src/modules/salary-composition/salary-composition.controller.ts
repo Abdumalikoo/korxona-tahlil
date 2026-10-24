@@ -18,6 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Roles } from '../../common/decorators';
+import { isSegment } from '../../common/segments/segments';
 import { SalaryCompositionService } from './salary-composition.service';
 import { SalaryStructureService } from './salary-composition.structure';
 import type { CommitRow, ComponentInput } from './salary-composition.types';
@@ -51,6 +52,13 @@ export class SalaryCompositionController {
       `attachment; filename="${encodeURIComponent(filename)}"`,
     );
     response.send(buffer);
+  }
+
+  /** ?unit= — yo'nalish (TAX_FREE …): alohida tarkib. Bo'lmasa — umumiy (Markaz) tarkib */
+  private unitOf(raw?: string): string | undefined {
+    if (raw === undefined || raw === '') return undefined;
+    if (isSegment(raw)) return raw;
+    throw new BadRequestException("Bo'lim noto'g'ri");
   }
 
   private optionalNumber(value: unknown): number | null {
@@ -93,8 +101,8 @@ export class SalaryCompositionController {
 
   /** Shablon — faol komponentlar, formulalar va Xodimlar varag'i bilan */
   @Get('template')
-  async template(@Query('period') period: string, @Res() response: Response) {
-    const { buffer, filename } = await this.composition.buildTemplate(period);
+  async template(@Query('period') period: string, @Res() response: Response, @Query('unit') unit?: string) {
+    const { buffer, filename } = await this.composition.buildTemplate(period, this.unitOf(unit));
     this.sendFile(response, buffer, filename);
   }
 
@@ -102,8 +110,8 @@ export class SalaryCompositionController {
   @Roles(UserRole.ADMIN)
   @Post('analyze')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@Query('period') period: string, @UploadedFile() file: Express.Multer.File, @Query('sheet') sheet?: string) {
-    const data = await this.composition.analyze(period, file, sheet || undefined);
+  async analyze(@Query('period') period: string, @UploadedFile() file: Express.Multer.File, @Query('sheet') sheet?: string, @Query('unit') unit?: string) {
+    const data = await this.composition.analyze(period, file, sheet || undefined, this.unitOf(unit));
     return { data };
   }
 
@@ -115,7 +123,9 @@ export class SalaryCompositionController {
     @Query('period') period: string,
     @Body() body: CommitBody,
     @CurrentUser('id') userId: string,
+    @Query('unit') unitRaw?: string,
   ) {
+    const unit = this.unitOf(unitRaw);
     if (!Array.isArray(body?.rows) || body.rows.length === 0) {
       throw new BadRequestException('Saqlash uchun ma\'lumot yo\'q');
     }
@@ -143,6 +153,7 @@ export class SalaryCompositionController {
       rows,
       fileName: body.fileName ?? 'tarkib.xlsx',
       userId,
+      unit,
     });
     return { data };
   }
@@ -151,15 +162,15 @@ export class SalaryCompositionController {
   @Roles(UserRole.ADMIN)
   @Post('batches/:id/cancel')
   @HttpCode(HttpStatus.OK)
-  async cancel(@Param('id') id: string) {
-    const data = await this.composition.cancel(id);
+  async cancel(@Param('id') id: string, @Query('unit') unit?: string, @Query('period') period?: string) {
+    const data = await this.composition.cancel(id, this.unitOf(unit), period);
     return { data };
   }
 
   /** Yuklashlar tarixi */
   @Get('batches')
-  async batches(@Query('period') period?: string) {
-    const data = await this.composition.batches(period || undefined);
+  async batches(@Query('period') period?: string, @Query('unit') unit?: string) {
+    const data = await this.composition.batches(period || undefined, this.unitOf(unit));
     return { data };
   }
 
@@ -167,15 +178,15 @@ export class SalaryCompositionController {
 
   /** Oy tarkibi: xodimlar, komponentlar, guruhlar, tekshiruv */
   @Get('view')
-  async view(@Query('period') period: string) {
-    const data = await this.composition.view(period);
+  async view(@Query('period') period: string, @Query('unit') unit?: string) {
+    const data = await this.composition.view(period, this.unitOf(unit));
     return { data };
   }
 
   /** Oy holati — soliq hisobotiga mosligi */
   @Get('check')
-  async check(@Query('period') period: string) {
-    const data = await this.composition.check(period);
+  async check(@Query('period') period: string, @Query('unit') unit?: string) {
+    const data = await this.composition.check(period, this.unitOf(unit));
     return { data };
   }
 
@@ -192,15 +203,16 @@ export class SalaryCompositionController {
     @Param('pinfl') pinfl: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('unit') unit?: string,
   ) {
-    const data = await this.composition.employeeHistory(pinfl, from || undefined, to || undefined);
+    const data = await this.composition.employeeHistory(pinfl, from || undefined, to || undefined, this.unitOf(unit));
     return { data };
   }
 
   /** Saqlangan tarkib Excel'da (Tarkib, Guruhlar, Farqlar) */
   @Get('export')
-  async exportExcel(@Query('period') period: string, @Res() response: Response) {
-    const { buffer, filename } = await this.composition.exportExcel(period);
+  async exportExcel(@Query('period') period: string, @Res() response: Response, @Query('unit') unit?: string) {
+    const { buffer, filename } = await this.composition.exportExcel(period, this.unitOf(unit));
     this.sendFile(response, buffer, filename);
   }
 }

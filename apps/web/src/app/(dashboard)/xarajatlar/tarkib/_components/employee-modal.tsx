@@ -17,8 +17,8 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { RowStateBadge } from './shared';
 
 /** Bitta xodimning oylar bo'yicha ish haqi tarkibi */
-export function EmployeeModal({ pinfl, onClose }: { pinfl: string; onClose: () => void }) {
-  const history = useAsync(() => compositionApi.employee(pinfl), [pinfl]);
+export function EmployeeModal({ pinfl, unit, onClose }: { pinfl: string; /** Yo'nalish (TAX_FREE …) */ unit?: string; onClose: () => void }) {
+  const history = useAsync(() => compositionApi.employee(pinfl, undefined, undefined, unit), [pinfl, unit]);
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {

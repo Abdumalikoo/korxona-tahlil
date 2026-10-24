@@ -89,3 +89,25 @@ Cheklovlar:
 - Tax free ish haqidan ijtimoiy soliq (Xarajatlar › Soliqlar) avtomatik hisoblanmaydi, chunki u umumiy vedomost asosida hisoblanadi.
 - Ish haqi tarkibi (bayram, choraklik ulushlari) Tax free'ga qo'llanmaydi.
 - Tax free xodimlari umumiy xodimlar bazasidagi Markaz yoki hudud sonlariga ta'sir qilmaydi.
+
+## Tax free › Ish haqi tarkibi
+
+Manzil: Xarajatlar › Tax free › Ish haqi tarkibi. Umumiy «Ish haqi tarkibi» sahifasining o'zi, Tax free uchun alohida yuritiladi.
+
+- **Shablon** avvalgidek, vedomost shaklida. Xodimlar faqat Tax free xodimlari: «Ish haqi» yorlig'idagi faol ro'yxat va shu oy Tax free vedomostida borlar.
+- **Fayl o'qilishi** avvalgidek: shablon yoki buxgalteriyaning «OYLIK» vedomosti, kerakli oy varag'i o'zi tanlanadi.
+- **Solishtirish** shu oy Tax free ish haqi vedomosti bilan, har bir xodim bo'yicha.
+- **Saqlash** `settings` jadvaliga (`unit.composition.TAX_FREE.<OY>`). Umumiy tarkibga, Markaz ulushiga (bayram, choraklik) va soliqlarga tegmaydi. Qayta saqlansa, shu oyning oldingi tarkibi almashtiriladi.
+- **API** — avvalgi `/api/salary-composition/...`, oxiriga `?unit=TAX_FREE` qo'shiladi: `template`, `analyze`, `commit`, `view`, `check`, `batches`, `batches/:id/cancel` (`&period=` bilan), `employee/:pinfl`, `export`.
+
+## Tax free › Ijara va kommunal
+
+Manzil: Xarajatlar › Tax free › Ijara va kommunal. To'lovlar 13 ta filial kesimida yuritiladi. Filiallar ro'yxati `apps/api/src/modules/unit-lease/unit-lease.branches.ts` faylida, kodlari TF01–TF13.
+
+- **Oylar oralig'i:** «Dan» va «Gacha» tanlanadi (masalan, yanvar–aprel), ko'pi bilan 24 oy. Tezkor tugmalar: «Shu oy», «Shu chorak», «Yil boshidan».
+- **Shablon:** bitta varaq. Qatorlar — 13 filial, ustunlar — har oy uchun «Ijara» va «Kommunal», oxirida «Jami» (formula) va JAMI qatori. Oldin saqlangan summalar shablonga yozib qo'yiladi. Yashirin 4-qatorda oy va tur kodlari turadi, fayl shu qator bo'yicha o'qiladi.
+- **Yuklash:** fayldagi hamma oylar o'qiladi. Ekranda saqlanadigan oylar belgilanadi: bo'sh oylar belgilanmagan bo'ladi, oldin saqlangan oy «almashtiriladi» deb ko'rsatiladi. Noto'g'ri katak 0 deb olinadi va ro'yxatda chiqadi. Filiali aniqlanmagan qator saqlanmaydi.
+- **Saqlash:** har bir filial, oy va tur bo'yicha summa 0 dan katta bo'lsa, alohida xarajat yoziladi. Yo'nalish — Tax free, modda — «Ijara» (`LEASE`) yoki «Kommunal to'lovlar» (`KOMMUNAL`; yo'q bo'lsa avtomatik yaratiladi), kontragent — filial nomi. Oy qayta saqlansa, oldingi xarajatlari savatga tushadi.
+- **Bekor qilish:** shu yuklash bilan turgan oylarning ma'lumoti o'chadi, xarajatlari savatga tushadi. Undan oldingi yuklash qaytmaydi.
+- **Saqlash joyi:** `settings` jadvali, `unit.lease.TAX_FREE`. Migratsiya kerak emas.
+- **API:** `/api/unit-lease/:unit/` ostida `branches`, `template?from=&to=`, `analyze`, `commit`, `data?from=&to=`, `batches`, `batches/:id/cancel`.
