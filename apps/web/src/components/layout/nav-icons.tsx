@@ -326,3 +326,13 @@ export function NavBars(props: IconProps) {
     </Icon>
   );
 }
+
+/** Chat — suhbat pufakchasi */
+export function NavChat(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 13.5z" />
+      <path d="M8 8.5h8M8 11.5h5" />
+    </Icon>
+  );
+}

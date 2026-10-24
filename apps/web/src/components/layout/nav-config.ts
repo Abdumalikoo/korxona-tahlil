@@ -3,6 +3,7 @@ import { ENTRY_UNITS } from '@/lib/segments';
 import {
   NavCompare,
   NavBars,
+  NavChat,
   NavBin,
   NavBolt,
   NavBox,
@@ -245,6 +246,17 @@ export const MENU: NavItem[] = [
   },
   { label: 'Nazorat', href: '/nazorat', icon: NavShield, description: 'Oylik chegaralar va buzilishlar' },
   { label: 'Hisobotlar', href: '/hisobotlar', icon: NavReport, description: 'Excel, PowerPoint, PDF va raqamlar tekshiruvi' },
+  {
+    label: 'Chat',
+    href: '/chat',
+    icon: NavChat,
+    adminOnly: true,
+    description: "Savol bering — javob tizimdagi manbalardan: xodimlar, ish haqi, xarajat, daromad, natija",
+    pages: [
+      { label: 'Manba chati', href: '/chat', description: "Javob faqat tizim manbalaridan: xodim kartasi, ish haqi, bo'lim / hudud / modda bo'yicha pul, xodimlar soni" },
+      { label: 'AI chati', href: '/chat/ai', description: "Sun'iy intellekt bilan suhbat — tez kunda" },
+    ],
+  },
   {
     label: 'Sozlamalar',
     href: '/sozlamalar',
@@ -543,6 +555,7 @@ export const SIDEBAR: SideEntry[] = [
       { label: 'Xodimlar', href: '/xodimlar', match: ['/xodimlar'] },
     ],
   },
+  { kind: 'item', item: byHref('/chat') },
   { kind: 'item', item: byHref('/solishtirma') },
   { kind: 'item', item: byHref('/hudud-reja') },
   { kind: 'item', item: byHref('/hisobotlar') },

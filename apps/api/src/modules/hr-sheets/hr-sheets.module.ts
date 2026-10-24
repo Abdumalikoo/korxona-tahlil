@@ -8,5 +8,6 @@ import { HrSheetsService } from './hr-sheets.service';
   imports: [UnitPayrollModule],
   controllers: [HrSheetsController],
   providers: [HrSheetsService],
+  exports: [HrSheetsService],
 })
 export class HrSheetsModule {}

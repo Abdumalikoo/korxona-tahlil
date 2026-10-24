@@ -9,6 +9,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { HrSheetsModule } from './modules/hr-sheets/hr-sheets.module';
+import { SourceChatModule } from './modules/source-chat/chat.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { CleanupModule } from './modules/cleanup/cleanup.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
@@ -115,6 +116,7 @@ import { RateLimitGuard } from './common/security/rate-limit';
     IntegrityModule,
     BackupModule,
     HrSheetsModule,
+    SourceChatModule,
   ],
   providers: [
     // Kirish sahifalarida urinishlar tezligini cheklash (@RateLimit)

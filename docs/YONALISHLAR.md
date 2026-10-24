@@ -333,3 +333,53 @@ Manzil: Xodimlar sahifasi, yangi yorliqlar «Ma'lumotnomalar (10 · 16 · 37 · 
 **Miya — xodim kartasi:** JShShIR yoki F.I.Sh. bo'yicha qidiruv (ma'lumotnomalar va Xodimlar bazasi). Kartada: holati, hozirgi bo'limi, bo'lim ro'yxatlarida, ko'chishlar tarixi, Xodimlar bazasidagi ma'lumot, har jadvaldagi hamma maydonlar (guruhlangan), ish haqi (umumiy vedomost va bo'limlar vedomosti). Ro'yxat yorlig'ida har xodim qatorida «Miya» tugmasi; ma'lumotnoma jadvalida qatorni bosish ham kartani ochadi.
 
 **API:** `/api/hr-sheets` (umumiy holat), `/:code/rows?q=&unit=&page=`, `/:code/template`, `/:code/export`, `POST /:code/analyze` (fayl), `POST /:code/commit` (`token`), `POST /:code/restore`, `DELETE /:code`, `/search?q=`, `/person/:pinfl`.
+
+## Chat › Manba chati
+
+Manzil: chap menyuda «Chat» (`/chat`). Ikki yorliq: **Manba chati** va **AI chati** (keyingi bosqich, `/chat/ai`). Faqat administrator ko'radi.
+
+Manba chati savolga **faqat tizimdagi manbalardan** javob beradi: sun'iy intellekt ishlatmaydi va taxmin qilmaydi. Ma'lumot topilmasa, shuni aytadi.
+
+**Nimani tushunadi** (`apps/api/src/modules/source-chat/chat.parse.ts`):
+- **Yozuv:** lotin va kirill, tutuq belgilari va qo'shimchalar bilan («Ўтган ойдаги иш ҳақи», «Aliyevning», «Andijonda», «fermerniki»).
+- **Xodim:** JShShIR (14 raqam) yoki F.I.Sh. bo'laklari. Yozilish farqlari teng ko'riladi: h/x, iy/i, yo/o. Bir nechta odam mos kelsa, tanlash uchun ro'yxat chiqadi.
+- **Davr:**
+  - oy nomlari: kelajakdagi oy o'tgan yilga tegishli deb olinadi;
+  - yil, `2026-03`, `03.2026`;
+  - «yanvardan martgacha»;
+  - «yanvar va fevral» — solishtirish;
+  - «2-chorak», «birinchi yarim yil»;
+  - «o'tgan oy», «shu oy», «o'tgan yil», «shu yil», «oxirgi 3 oy».
+  - Davr aytilmasa: pul uchun yil boshidan; yozuvlar uchun oxirgi 3 oy.
+- **Bo'lim:** Markaz, Hududlar, Tax free, Marksheyder, Fermer, Buxgalteriya, Qo'mita. Viloyat nomi bilan (Toshkent shahri va Toshkent viloyati farqlanadi). Markaz bo'limi nomi bilan.
+- **Modda:** xarajat yoki daromad moddasi nomi bo'yicha (Ijara, Internet …).
+- **Ko'rsatkich:** xarajat, daromad, natija (yoki daromad + xarajat), ish haqi.
+- **Guruhlash:** oylar, moddalar yoki bo'limlar/hududlar bo'yicha; «eng ko'p», «eng kam».
+- **Davom savollari:** oldingi javobdan kontekst olinadi.
+  - «fevraldagi-chi?», «daromadi-chi?»;
+  - «uning ish haqi» — oldingi xodim;
+  - «shu bo'lim xarajati» — oldingi bo'lim;
+  - «shu davr» — oldingi davr.
+
+**Javob turlari:**
+- **Xodim kartasi:** miyadagi hamma narsa — 4 ma'lumotnoma, Xodimlar bazasi, bo'limi, ko'chishlar, ish haqi. Alohida savol bilan faqat ish haqi (davr bo'yicha), faqat ko'chishlar yoki faqat «qaysi bo'limda».
+- **Pul:**
+  - jami, oldingi shuncha davrga nisbatan foiz, oyiga o'rtacha;
+  - oylar jadvali, moddalar diagrammasi, bo'limlar/hududlar diagrammasi;
+  - natija so'ralsa: daromad, xarajat, natija va rentabellik.
+  - Xarajat kim hisobida ekani Solishtirma bilan bir xil: Xarajatlar siyosati qo'llanadi.
+- **Solishtirish:** ikki davr, farq va eng katta o'zgargan moddalar.
+- **So'nggi yozuvlar:** 25 tasi — sana, summa, modda, kim hisobida, kontragent.
+- **Xodimlar soni va ro'yxati:** bo'lim ro'yxati (miya), Markaz, Hududlar, viloyat yoki Markaz bo'limi bo'yicha. Umumiy savolda — hamma bo'limlar bo'yicha.
+- **«Manbalar»:** qaysi manbada nechta yozuv bor. **«Qanday bo'limlar bor»:** bo'limlar ro'yxati.
+
+**Har javobda:**
+- «tushunildi» belgilari: ko'rsatkich, bo'lim, davr, modda, oldingi savoldan nima olingani;
+- manba (qaysi jadval, nechta yozuv);
+- davom savollari tugmalari.
+
+O'ng panelda joriy kontekst va namuna savollar turadi.
+
+**Tarix:** har foydalanuvchiniki alohida, oxirgi 80 ta savol-javob. Saqlash joyi — `settings`, `chat.source.<foydalanuvchi>`. «Suhbat tarixini tozalash» faqat suhbatni o'chiradi, ma'lumotlarga tegmaydi.
+
+**API:** `POST /api/source-chat/ask` (`text`, `context`), `GET` va `DELETE /api/source-chat/history`.
