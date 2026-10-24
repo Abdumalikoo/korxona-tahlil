@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════
 // Bo'limlarning tarkibiy tuzilmalari (yorliqlar qatori).
-// Har bo'lim alohida: o'z tuzilmalari. Hozircha faqat tugmalar — har birining yuklash tartibi
-// va shabloni keyin birma-bir belgilanadi.
+// Har bo'lim alohida: o'z tuzilmalari. Tayyorlari (view) — o'z sahifasi; qolganlari hozircha tugma,
+// yuklash tartibi va shabloni keyin birma-bir belgilanadi.
 // Yangi tuzilma qo'shish: shu ro'yxatga bitta qator.
 // ═══════════════════════════════════════════════════════════
 
@@ -11,11 +11,13 @@ export interface UnitTab {
   /** Manzil: /xarajatlar/bolim/<bo'lim>/<slug> */
   slug: string;
   label: string;
+  /** Tayyor sahifa: payroll — ish haqi (shablon, vedomost, bo'lim xodimlari). Bo'lmasa — hali tugma */
+  view?: 'payroll';
 }
 
 const EXPENSE: Record<string, UnitTab[]> = {
   TAX_FREE: [
-    { slug: 'ish-haqi', label: 'Ish haqi' },
+    { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
     { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi' },
     { slug: 'ijara-kommunal', label: 'Ijara va kommunal' },
     { slug: 'asosiy-vositalar', label: 'Asosiy vositalar' },

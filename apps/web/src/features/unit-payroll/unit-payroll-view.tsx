@@ -1,0 +1,681 @@
+'use client';
+
+import { SourceActions } from '@/components/shared/source-actions';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { IconAlert, IconCheck, IconSearch, IconSpinner, IconUpload } from '@/components/ui/icons';
+import { Money } from '@/components/ui/money';
+import { EmptyState, LoadingState } from '@/components/ui/states';
+import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
+import { Toast } from '@/components/ui/toast';
+import { useAuth } from '@/lib/auth-context';
+import { errorMessage } from '@/lib/error-message';
+import { formatDate, formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
+import { useMonthChange, usePeriod } from '@/lib/period';
+import type { EntryUnit } from '@/lib/segments';
+import { useAsync } from '@/lib/use-async';
+import { cn } from '@/lib/utils';
+import { useRef, useState, type FormEvent } from 'react';
+import {
+  analyzeUnitFile,
+  downloadUnitTemplate,
+  unitPayrollApi,
+  type UnitAnalyzeResult,
+  type UnitBatch,
+  type UnitRowStatus,
+  type UnitStaff,
+} from './api';
+
+// ═══════════════════════════════════════════════════════════
+// Xarajatlar › <yo'nalish> › Ish haqi (masalan, Tax free).
+// Avvalgi Ish haqi sahifasidek: Shablon → vedomostni yuklash → tahlil → saqlash → tarix.
+// Farqi: shablonning 2-varag'ida FAQAT shu bo'lim xodimlari. Ro'yxatni tizim o'zi yuritadi:
+// vedomostda yangi PINFL kelsa — saqlanganda ro'yxatga qo'shiladi va keyingi shablonda chiqadi.
+// ═══════════════════════════════════════════════════════════
+
+type ToastState = { message: string; tone?: 'success' | 'error' } | null;
+
+const STATUS: Record<UnitRowStatus, { label: string; tone: 'neutral' | 'income' | 'warn' | 'brand' }> = {
+  KNOWN: { label: "Ro'yxatda", tone: 'neutral' },
+  RETURNING: { label: 'Qaytdi', tone: 'brand' },
+  REGISTRY: { label: 'Yangi · bazadan', tone: 'income' },
+  NEW: { label: 'Yangi', tone: 'warn' },
+};
+
+export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
+  const { isAdmin } = useAuth();
+  const { month: period } = usePeriod();
+  const [analysis, setAnalysis] = useState<UnitAnalyzeResult | null>(null);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [replacePrevious, setReplacePrevious] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<UnitBatch | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [toast, setToast] = useState<ToastState>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const batches = useAsync(() => unitPayrollApi.batches(unit.code, period), [unit.code, period]);
+  const staff = useAsync(() => unitPayrollApi.staff(unit.code), [unit.code]);
+  const activeCount = staff.data?.data.active ?? 0;
+
+  function reset() {
+    setAnalysis(null);
+    setNames({});
+    setReplacePrevious(false);
+    if (inputRef.current) inputRef.current.value = '';
+  }
+
+  useMonthChange(period, reset);
+
+  async function handleTemplate() {
+    setDownloading(true);
+    try {
+      await downloadUnitTemplate(unit.code, period);
+    } catch (err) {
+      setToast({ message: errorMessage(err, "Shablonni yuklab bo'lmadi"), tone: 'error' });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleFile(file: File) {
+    if (!/\.xlsx$/i.test(file.name)) {
+      setToast({ message: 'Faqat Excel (.xlsx) fayl yuklang', tone: 'error' });
+      return;
+    }
+    setUploading(true);
+    setAnalysis(null);
+    try {
+      const result = await analyzeUnitFile(unit.code, period, file);
+      setAnalysis(result);
+      setNames({});
+      setReplacePrevious(result.hasPrevious);
+    } catch (err) {
+      setToast({ message: errorMessage(err, "Faylni o'qib bo'lmadi"), tone: 'error' });
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  const missingNames = analysis ? analysis.rows.filter((r) => !r.fullName && (names[r.pinfl] ?? '').trim().length < 3).length : 0;
+
+  async function handleSave() {
+    if (!analysis || missingNames > 0) return;
+    setSaving(true);
+    try {
+      const rows = analysis.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName ? null : (names[r.pinfl] ?? '').trim() }));
+      const res = (await unitPayrollApi.commit(unit.code, period, { rows, fileName: analysis.fileName }, replacePrevious)).data;
+      setToast({
+        tone: 'success',
+        message:
+          `${res.employees} xodim saqlandi · ${formatTiyin(res.totalTiyin)} so'm` +
+          (res.newStaff ? ` · ${res.newStaff} yangi xodim ro'yxatga qo'shildi` : '') +
+          (res.returned ? ` · ${res.returned} xodim qaytdi` : '') +
+          (res.replacedPrevious ? ' · oldingi vedomost almashtirildi' : ''),
+      });
+      reset();
+      batches.reload();
+      staff.reload();
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Saqlashda xatolik'), tone: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCancelBatch() {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    try {
+      await unitPayrollApi.cancel(unit.code, period, cancelTarget.id);
+      setToast({ message: 'Yuklash bekor qilindi, xarajat savatga tushdi', tone: 'success' });
+      batches.reload();
+    } catch (err) {
+      setToast({ message: errorMessage(err, 'Bekor qilishda xatolik'), tone: 'error' });
+    } finally {
+      setCancelling(false);
+      setCancelTarget(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <SourceActions
+        upload={
+          isAdmin
+            ? {
+                label: 'Vedomostni yuklash',
+                onClick: () => inputRef.current?.click(),
+                loading: uploading,
+                disabled: Boolean(analysis),
+                hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : `${unit.label} ish haqi vedomosti (Excel)`,
+              }
+            : undefined
+        }
+        template={{ label: 'Shablon', onClick: () => void handleTemplate(), loading: downloading, hint: `1-varaq: PINFL, Summa · 2-varaq: ${unit.label} xodimlari` }}
+        note={
+          <>
+            Oy: <b className="text-heading">{formatPeriod(period)}</b> (yuqori paneldagi «Davr»). Shablonning 2-varag&apos;ida — faqat {unit.label} xodimlari (
+            <b className="text-heading">{activeCount}</b> ta); yangi xodim vedomost bilan saqlansa, keyingi shablonda o&apos;zi chiqadi.
+          </>
+        }
+      />
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".xlsx"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleFile(file);
+        }}
+      />
+
+      {isAdmin && !analysis && (
+        <Card>
+          <CardBody>
+            <div
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                const file = e.dataTransfer.files[0];
+                if (file) void handleFile(file);
+              }}
+              onClick={() => inputRef.current?.click()}
+              className={cn(
+                'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-(--radius-card) border-2 border-dashed px-6 py-12 transition-colors',
+                dragging ? 'border-brand-600 bg-brand-50' : 'border-(--color-line-strong) hover:border-brand-400 hover:bg-(--color-surface-muted)',
+              )}
+            >
+              {uploading ? (
+                <>
+                  <IconSpinner className="size-8 animate-spin text-brand-700" />
+                  <p className="text-sm text-(--color-text-muted)">O&apos;qilmoqda…</p>
+                </>
+              ) : (
+                <>
+                  <IconUpload className="size-8 text-(--color-text-faint)" strokeWidth={1.5} />
+                  <p className="text-sm font-medium">{unit.label} ish haqi vedomostini shu yerga tashlang</p>
+                  <p className="text-xs text-(--color-text-muted)">yoki bosib tanlang · PINFL va summa. Summa bo&apos;sh yoki 0 — «hisoblanmagan»</p>
+                </>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
+      {analysis && (
+        <AnalysisView
+          analysis={analysis}
+          names={names}
+          onName={(pinfl, v) => setNames((s) => ({ ...s, [pinfl]: v }))}
+          missingNames={missingNames}
+          replacePrevious={replacePrevious}
+          onReplaceChange={setReplacePrevious}
+          saving={saving}
+          onSave={() => void handleSave()}
+          onCancel={reset}
+        />
+      )}
+
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Card className="overflow-hidden">
+          <CardHeader title="Yuklashlar tarixi" description={`${unit.label} · ${formatPeriod(period)}`} />
+          {batches.loading ? (
+            <LoadingState />
+          ) : batches.error ? (
+            <p className="px-5 py-6 text-sm text-(--color-expense)">{batches.error}</p>
+          ) : (batches.data?.data.length ?? 0) === 0 ? (
+            <EmptyState title="Bu oyda yuklash yo'q" />
+          ) : (
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Fayl</Th>
+                  <Th className="w-28">Holat</Th>
+                  <Th align="center" className="w-20">
+                    Xodim
+                  </Th>
+                  <Th align="right" className="w-36">
+                    Summa
+                  </Th>
+                  <Th className="w-24" />
+                </Tr>
+              </THead>
+              <TBody>
+                {batches.data?.data.map((b) => (
+                  <Tr key={b.id} className={cn(b.status === 'CANCELLED' && 'opacity-50')}>
+                    <Td>
+                      <span className="block truncate">{b.fileName}</span>
+                      <p className="text-xs text-(--color-text-muted)">
+                        {formatDateTime(b.createdAt)}
+                        {b.uploadedBy ? ` · ${b.uploadedBy}` : ''}
+                        {b.newStaff ? ` · +${b.newStaff} yangi xodim` : ''}
+                      </p>
+                    </Td>
+                    <Td>
+                      <Badge tone={b.status === 'COMMITTED' ? 'income' : 'neutral'} className="whitespace-nowrap">{b.status === 'COMMITTED' ? 'Saqlangan' : 'Bekor qilingan'}</Badge>
+                    </Td>
+                    <Td align="center" className="money text-(--color-text-muted)">
+                      {b.count}
+                    </Td>
+                    <Td money>
+                      <Money tiyin={b.totalTiyin} tone="expense" />
+                    </Td>
+                    <Td>
+                      {isAdmin && b.status === 'COMMITTED' && (
+                        <Button variant="ghost" size="sm" onClick={() => setCancelTarget(b)} className="text-(--color-text-muted) hover:text-(--color-expense)">
+                          Bekor qilish
+                        </Button>
+                      )}
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </Card>
+
+        <StaffCard unit={unit} list={staff.data?.data ?? null} loading={staff.loading} error={staff.error} onChanged={staff.reload} onToast={setToast} />
+      </div>
+
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        title="Yuklashni bekor qilish"
+        message={`${cancelTarget?.fileName ?? ''} bekor qilinadi. Undan yaratilgan xarajat savatga tushadi. Xodimlar ro'yxati o'zgarmaydi.`}
+        confirmLabel="Bekor qilish"
+        danger
+        loading={cancelling}
+        onConfirm={() => void handleCancelBatch()}
+        onCancel={() => setCancelTarget(null)}
+      />
+
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
+
+// ─────────── Tahlil natijasi ───────────
+
+function AnalysisView({
+  analysis,
+  names,
+  onName,
+  missingNames,
+  replacePrevious,
+  onReplaceChange,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  analysis: UnitAnalyzeResult;
+  names: Record<string, string>;
+  onName: (pinfl: string, value: string) => void;
+  missingNames: number;
+  replacePrevious: boolean;
+  onReplaceChange: (v: boolean) => void;
+  saving: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const [onlyNew, setOnlyNew] = useState(analysis.newRows + analysis.returningRows > 0);
+  const rows = onlyNew ? analysis.rows.filter((r) => r.status !== 'KNOWN') : analysis.rows;
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader title={`Tahlil: ${analysis.fileName}`} description={`${analysis.label} · ${formatPeriod(analysis.period)} — hali saqlanmagan`} />
+      <CardBody className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <SummaryBox label="Xodim" value={String(analysis.validRows)} />
+          <SummaryBox label="Jami summa" value={formatTiyin(analysis.totalTiyin)} tone="expense" />
+          <SummaryBox label="Hisoblanmagan" value={String(analysis.zeroRows)} tone={analysis.zeroRows ? 'warn' : 'neutral'} />
+          <SummaryBox label="Yangi xodim" value={String(analysis.newRows)} tone={analysis.newRows ? 'income' : 'neutral'} />
+          <SummaryBox label="Xato qator" value={String(analysis.invalidRows.length)} tone={analysis.invalidRows.length ? 'expense' : 'neutral'} />
+        </div>
+
+        {analysis.newRows + analysis.returningRows > 0 && (
+          <Note tone="brand">
+            {analysis.newRows ? `${analysis.newRows} ta yangi xodim` : ''}
+            {analysis.newRows && analysis.returningRows ? ' va ' : ''}
+            {analysis.returningRows ? `${analysis.returningRows} ta qaytgan xodim` : ''} saqlanganda {analysis.label} xodimlari ro&apos;yxatiga qo&apos;shiladi — keyingi shablonning
+            2-varag&apos;ida chiqadi.
+            {analysis.unnamedRows ? ` ${analysis.unnamedRows} tasining ismi bazada yo'q — jadvalda F.I.Sh. kiriting.` : ''}
+          </Note>
+        )}
+        {analysis.invalidRows.length > 0 && (
+          <Note tone="expense">
+            Saqlanmaydigan qatorlar: {analysis.invalidRows.slice(0, 12).map((r) => `${r.rowIndex}-qator (${r.reason})`).join(', ')}
+            {analysis.invalidRows.length > 12 ? ` va yana ${analysis.invalidRows.length - 12} ta` : ''}.
+          </Note>
+        )}
+        {analysis.duplicates.length > 0 && <Note tone="warn">Takror PINFL ({analysis.duplicates.length} ta) — summalari qo&apos;shildi: {analysis.duplicates.slice(0, 6).join(', ')}{analysis.duplicates.length > 6 ? ' …' : ''}</Note>}
+        {analysis.notInFile.length > 0 && (
+          <Note tone="neutral">
+            Ro&apos;yxatdagi {analysis.notInFile.length} xodim faylda yo&apos;q: {analysis.notInFile.slice(0, 8).map((x) => x.fullName).join(', ')}
+            {analysis.notInFile.length > 8 ? ' …' : ''}. Ishdan ketgan bo&apos;lsa — pastdagi ro&apos;yxatdan chiqaring.
+          </Note>
+        )}
+
+        {analysis.hasPrevious && (
+          <div className="rounded-(--radius-control) bg-(--color-surface-muted) p-3">
+            <p className="mb-2 text-sm font-medium">
+              Bu oy uchun allaqachon {analysis.previousCount} ta vedomost saqlangan (<Money tiyin={analysis.previousTiyin} />)
+            </p>
+            <div className="grid gap-2 md:grid-cols-2">
+              <Choice checked={replacePrevious} onChange={() => onReplaceChange(true)} title="Almashtirish" description="Oldingisi bekor qilinadi, xarajati savatga tushadi" />
+              <Choice checked={!replacePrevious} onChange={() => onReplaceChange(false)} title="Qo'shish" description="Oldingisi qoladi, bu vedomost alohida qo'shiladi" />
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="size-4 accent-brand-600" checked={onlyNew} onChange={(e) => setOnlyNew(e.target.checked)} />
+            Faqat yangi va qaytganlar
+          </label>
+          <span className="text-xs text-(--color-text-muted)">
+            {rows.length} / {analysis.rows.length} qator
+          </span>
+        </div>
+
+        <div className="max-h-[440px] overflow-auto rounded-(--radius-control) border border-(--color-line)">
+          <Table>
+            <THead>
+              <Tr>
+                <Th className="w-16">Qator</Th>
+                <Th className="w-40">PINFL</Th>
+                <Th>F.I.Sh.</Th>
+                <Th className="w-36">Holat</Th>
+                <Th align="right" className="w-40">
+                  Summa
+                </Th>
+              </Tr>
+            </THead>
+            <TBody>
+              {rows.map((r) => (
+                <Tr key={r.pinfl}>
+                  <Td className="money text-(--color-text-muted)">{r.rowIndex}</Td>
+                  <Td className="money">{r.pinfl}</Td>
+                  <Td>
+                    {r.fullName ? (
+                      <span>{r.fullName}</span>
+                    ) : (
+                      <input
+                        value={names[r.pinfl] ?? ''}
+                        onChange={(e) => onName(r.pinfl, e.target.value)}
+                        placeholder="F.I.Sh. kiriting"
+                        maxLength={150}
+                        aria-label={`${r.pinfl} — F.I.Sh.`}
+                        className={cn(
+                          'h-8 w-full rounded-(--radius-control) border bg-white px-2 text-sm',
+                          (names[r.pinfl] ?? '').trim().length >= 3 ? 'border-(--color-line-strong)' : 'border-amber-400',
+                        )}
+                      />
+                    )}
+                  </Td>
+                  <Td>
+                    <Badge tone={STATUS[r.status].tone} className="whitespace-nowrap">{STATUS[r.status].label}</Badge>
+                  </Td>
+                  <Td money>{r.amountTiyin === '0' ? <span className="text-(--color-text-muted)">hisoblanmagan</span> : <Money tiyin={r.amountTiyin} />}</Td>
+                </Tr>
+              ))}
+            </TBody>
+            <TFoot>
+              <Tr>
+                <Td colSpan={4} className="font-semibold">
+                  Jami ({analysis.validRows} xodim)
+                </Td>
+                <Td money className="font-semibold">
+                  <Money tiyin={analysis.totalTiyin} tone="expense" />
+                </Td>
+              </Tr>
+            </TFoot>
+          </Table>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {missingNames > 0 && (
+            <span className="mr-auto flex items-center gap-1.5 text-xs text-amber-800">
+              <IconAlert className="size-4" />
+              {missingNames} ta yangi xodimning F.I.Sh. kiritilmagan
+            </span>
+          )}
+          <Button variant="ghost" onClick={onCancel} disabled={saving}>
+            Bekor qilish
+          </Button>
+          <Button onClick={onSave} loading={saving} disabled={missingNames > 0}>
+            <IconCheck className="size-4" />
+            Saqlash
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+// ─────────── Bo'lim xodimlari ro'yxati («miya») ───────────
+
+function StaffCard({
+  unit,
+  list,
+  loading,
+  error,
+  onChanged,
+  onToast,
+}: {
+  unit: EntryUnit;
+  list: { active: number; total: number; items: UnitStaff[] } | null;
+  loading: boolean;
+  error: string | null;
+  onChanged: () => void;
+  onToast: (t: ToastState) => void;
+}) {
+  const { isAdmin } = useAuth();
+  const [q, setQ] = useState('');
+  const [showLeft, setShowLeft] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [pinfl, setPinfl] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [position, setPosition] = useState('');
+  const [hint, setHint] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const items = list?.items ?? [];
+  const term = q.trim().toLowerCase();
+  const shown = items.filter((s) => (showLeft || s.active) && (!term || s.fullName.toLowerCase().includes(term) || s.pinfl.includes(term)));
+  const leftCount = items.filter((s) => !s.active).length;
+
+  async function lookup(value: string) {
+    const digits = value.replace(/\D/g, '');
+    setPinfl(digits);
+    setHint(null);
+    if (digits.length !== 14) return;
+    try {
+      const res = (await unitPayrollApi.lookup(unit.code, digits)).data;
+      if (res.inStaff && res.active) setHint("Bu xodim ro'yxatda allaqachon bor");
+      else if (res.fullName) {
+        setFullName((v) => v || res.fullName || '');
+        setPosition((v) => v || res.position || '');
+        setHint(res.inStaff ? 'Ketganlar ro‘yxatida — qaytariladi' : 'Xodimlar bazasidan topildi');
+      } else setHint("Bazada yo'q — F.I.Sh. kiriting");
+    } catch {
+      /* tekshiruv ixtiyoriy */
+    }
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy('add');
+    try {
+      await unitPayrollApi.addStaff(unit.code, { pinfl, fullName: fullName.trim() || undefined, position: position.trim() || undefined });
+      onToast({ message: `Xodim qo'shildi — keyingi shablonda chiqadi`, tone: 'success' });
+      setPinfl('');
+      setFullName('');
+      setPosition('');
+      setHint(null);
+      setAdding(false);
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Qo'shib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggle(s: UnitStaff) {
+    setBusy(s.pinfl);
+    try {
+      await unitPayrollApi.updateStaff(unit.code, s.pinfl, { active: !s.active });
+      onToast({ message: s.active ? `${s.fullName} ro'yxatdan chiqarildi — shablonda chiqmaydi` : `${s.fullName} ro'yxatga qaytarildi`, tone: 'success' });
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'zgartirib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card className="flex flex-col overflow-hidden">
+      <CardHeader
+        title={`${unit.label} xodimlari`}
+        description={`Shablonning 2-varag'i · faol: ${list?.active ?? 0} ta`}
+        actions={
+          isAdmin && !adding ? (
+            <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
+              + Xodim
+            </Button>
+          ) : undefined
+        }
+      />
+      {adding && (
+        <form onSubmit={(e) => void submit(e)} className="space-y-2 border-b border-(--color-line) bg-(--color-surface-muted) px-5 py-3">
+          <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_minmax(0,0.8fr)]">
+            <input
+              autoFocus
+              inputMode="numeric"
+              value={pinfl}
+              onChange={(e) => void lookup(e.target.value)}
+              placeholder="PINFL (14 raqam)"
+              maxLength={20}
+              className="h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm"
+            />
+            <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="F.I.Sh." maxLength={150} className="h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm" />
+            <input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Lavozim (ixtiyoriy)" maxLength={120} className="h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {hint && <span className="text-xs text-(--color-text-muted)">{hint}</span>}
+            <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => setAdding(false)}>
+              Bekor
+            </Button>
+            <Button type="submit" size="sm" loading={busy === 'add'} disabled={pinfl.length !== 14}>
+              Qo&apos;shish
+            </Button>
+          </div>
+        </form>
+      )}
+      <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) px-5 py-2.5">
+        <label className="relative min-w-[12rem] flex-1">
+          <IconSearch className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-(--color-text-faint)" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ism yoki PINFL" className="h-8 w-full rounded-(--radius-control) border border-(--color-line) bg-white pr-2 pl-7 text-sm" />
+        </label>
+        {leftCount > 0 && (
+          <label className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
+            <input type="checkbox" className="size-3.5 accent-brand-600" checked={showLeft} onChange={(e) => setShowLeft(e.target.checked)} />
+            Ketganlar ({leftCount})
+          </label>
+        )}
+      </div>
+      {loading ? (
+        <LoadingState />
+      ) : error ? (
+        <p className="px-5 py-6 text-sm text-(--color-expense)">{error}</p>
+      ) : items.length === 0 ? (
+        <div className="px-5 py-10 text-center">
+          <p className="text-sm font-semibold text-heading">Hali xodim yo&apos;q</p>
+          <p className="mt-1 text-xs text-(--color-text-muted)">Birinchi vedomost saqlanganda ro&apos;yxat o&apos;zi to&apos;ladi — yoki «+ Xodim» bilan qo&apos;shing.</p>
+        </div>
+      ) : (
+        <ul className="max-h-[480px] overflow-auto">
+          {shown.length === 0 && <li className="px-5 py-6 text-center text-xs text-(--color-text-muted)">Topilmadi</li>}
+          {shown.map((s, i) => (
+            <li key={s.pinfl} className={cn('flex items-center gap-3 border-b border-(--color-line) px-5 py-2', !s.active && 'opacity-55')}>
+              <span className="w-6 shrink-0 text-right text-xs text-(--color-text-faint)">{i + 1}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-heading">{s.fullName}</p>
+                <p className="truncate text-xs text-(--color-text-muted)">
+                  <span className="money">{s.pinfl}</span>
+                  {s.position ? ` · ${s.position}` : ''} · {s.active ? `${s.source === 'UPLOAD' ? 'vedomostdan' : "qo'lda"} ${formatDate(s.addedAt)}` : `ketgan ${s.leftAt ? formatDate(s.leftAt) : ''}`}
+                </p>
+              </div>
+              {isAdmin && (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void toggle(s)}
+                  className={cn(
+                    'shrink-0 rounded-md px-2 py-1 text-xs font-medium',
+                    s.active ? 'text-(--color-text-muted) hover:bg-(--color-expense-soft) hover:text-(--color-expense)' : 'text-brand-700 hover:bg-brand-50',
+                  )}
+                >
+                  {busy === s.pinfl ? '…' : s.active ? 'Chiqarish' : 'Qaytarish'}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+// ─────────── Kichik qismlar ───────────
+
+function SummaryBox({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'income' | 'expense' | 'warn' }) {
+  const colors = { neutral: 'text-(--color-text)', income: 'text-(--color-income)', expense: 'text-(--color-expense)', warn: 'text-(--color-warn)' };
+  return (
+    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">{label}</p>
+      <p className={cn('money mt-2 text-xl font-semibold', colors[tone])}>{value}</p>
+    </div>
+  );
+}
+
+function Note({ tone, children }: { tone: 'brand' | 'warn' | 'expense' | 'neutral'; children: React.ReactNode }) {
+  const cls = {
+    brand: 'border-brand-200 bg-brand-50 text-brand-900',
+    warn: 'border-amber-200 bg-amber-50 text-amber-900',
+    expense: 'border-(--color-expense)/30 bg-(--color-expense-soft) text-(--color-expense)',
+    neutral: 'border-(--color-line) bg-(--color-surface-muted) text-(--color-text-muted)',
+  }[tone];
+  return <p className={cn('rounded-(--radius-control) border px-3 py-2 text-xs', cls)}>{children}</p>;
+}
+
+function Choice({ checked, onChange, title, description }: { checked: boolean; onChange: () => void; title: string; description: string }) {
+  return (
+    <label className={cn('flex cursor-pointer items-start gap-2.5 rounded-(--radius-control) border bg-white px-3 py-2.5', checked ? 'border-brand-600' : 'border-transparent')}>
+      <input type="radio" checked={checked} onChange={onChange} className="mt-0.5 size-4" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="block text-xs text-(--color-text-muted)">{description}</span>
+      </span>
+    </label>
+  );
+}

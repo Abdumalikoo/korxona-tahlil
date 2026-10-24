@@ -71,3 +71,21 @@ Doimiy / Boshqa / Xizmat turlari — faqat shu bo'lim yozuvlari. Excel'dan yukla
 ### Bo'lim moddalari ro'yxati
 
 `settings` jadvalidagi `unit.categories` yozuvi. Ro'yxat bo'sh bo'lsa — cheklov yo'q. To'ldirilgan bo'lsa — qo'lda kiritishda faqat undagi moddalar qabul qilinadi. API: `GET/PATCH /api/unit-categories`, `POST /api/unit-categories/item`.
+
+## Tax free › Ish haqi
+
+Manzil: Xarajatlar › Tax free › Ish haqi (`/xarajatlar/bolim/tax-free/ish-haqi`). Umumiy Ish haqi sahifasi kabi ishlaydi, lekin undan alohida.
+
+- **Shablon** avvalgidek tuziladi. 1-varaq «Ish haqi»: A ustun — PINFL, B ustun — Summa. 2-varaq «Tax free xodimlari»: faqat shu bo'lim xodimlari (PINFL, F.I.Sh., lavozim).
+- **Xodimlar ro'yxatini tizim o'zi yuritadi.** Vedomostda yangi PINFL kelsa, saqlanganda ro'yxatga qo'shiladi va keyingi shablonning 2-varag'ida chiqadi. Ismi umumiy xodimlar bazasidan olinadi. Bazada bo'lmasa, tahlil jadvalida F.I.Sh. kiritiladi. Ro'yxatdan chiqarilgan xodim keyingi vedomostda kelsa, ro'yxatga qaytadi.
+- **Qo'lda boshqarish:** «+ Xodim» (PINFL kiritilsa, ism bazadan o'zi chiqadi), «Chiqarish» va «Qaytarish». Chiqarilgan xodim shablonga tushmaydi.
+- **Saqlash** bitta xarajat yozuvini yaratadi: yo'nalish Tax free, modda «Ish haqi» (`PAYROLL_BASE`), sanasi oyning oxirgi kuni. Shu oyga oldin vedomost saqlangan bo'lsa, ikki yo'l bor: «Almashtirish» (oldingisi bekor qilinadi) yoki «Qo'shish». Bir xil vedomost ikki marta saqlanmaydi.
+- **Bekor qilish** xarajatni savatga tushiradi. Xodimlar ro'yxati o'zgarmaydi.
+- **Saqlash joyi:** `settings` jadvali. Xodimlar ro'yxati — `unit.staff`, vedomostlar — `unit.payroll.<BO'LIM>.<OY>`. Migratsiya kerak emas.
+- **API:** `/api/unit-payroll/:unit/` ostida `staff`, `lookup/:pinfl`, `template`, `analyze`, `commit`, `batches`, `batches/:id/cancel`. O'zgartirish faqat administratorga ruxsat.
+
+Cheklovlar:
+
+- Tax free ish haqidan ijtimoiy soliq (Xarajatlar › Soliqlar) avtomatik hisoblanmaydi, chunki u umumiy vedomost asosida hisoblanadi.
+- Ish haqi tarkibi (bayram, choraklik ulushlari) Tax free'ga qo'llanmaydi.
+- Tax free xodimlari umumiy xodimlar bazasidagi Markaz yoki hudud sonlariga ta'sir qilmaydi.

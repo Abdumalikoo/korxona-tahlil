@@ -9,6 +9,7 @@ import { usePeriod } from '@/lib/period';
 import { unitBySlug, type EntryUnit } from '@/lib/segments';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { UnitPayrollView } from '@/features/unit-payroll/unit-payroll-view';
 import { UnitCategories } from './unit-categories';
 import { unitTabs } from './structure';
 import type { EntryKind } from './api';
@@ -88,6 +89,8 @@ function ExpenseUnit({ unit, tab }: { unit: EntryUnit; tab?: string }) {
               «{unit.label}» bo&apos;limiga qaytish
             </Link>
           </Card>
+        ) : current?.view === 'payroll' ? (
+          <UnitPayrollView unit={unit} />
         ) : current ? (
           <Card className="px-6 py-14 text-center">
             <p className="text-base font-bold text-heading">{current.label}</p>
