@@ -73,7 +73,7 @@ export class UnitPayrollController {
 
   @Roles(UserRole.ADMIN)
   @Patch(':unit/link')
-  async setLink(@Param('unit') unit: string, @Body() body: { departmentIds?: unknown; byPosition?: unknown }, @CurrentUser('id') userId: string) {
+  async setLink(@Param('unit') unit: string, @Body() body: { departmentIds?: unknown; byPosition?: unknown; byHr?: unknown }, @CurrentUser('id') userId: string) {
     return { data: await this.service.setLink(this.service.unitOf(unit), body ?? {}, userId) };
   }
 

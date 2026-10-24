@@ -4,6 +4,8 @@ import { SourceActions } from '@/components/shared/source-actions';
 import { downloadEmployeesExcel, employeesApi, regionsApi, type EmployeeFilters } from '@/features/employees/api';
 import { transfersApi, transferSummary } from '@/features/employees/transfers-api';
 import { TransfersView } from '@/features/employees/transfers-view';
+import { MiyaView } from '@/features/hr-sheets/miya-view';
+import { HrSheetsView } from '@/features/hr-sheets/sheets-view';
 import { Mark } from '@/features/reactions/mark';
 import { employeeMark } from '@/features/reactions/marks';
 import { referencesApi } from '@/features/shared/references';
@@ -61,7 +63,17 @@ export default function EmployeesPage() {
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [view, setView] = useState<'list' | 'transfers'>('list');
+  type View = 'list' | 'transfers' | 'sheets' | 'miya';
+  const [view, setView] = useState<View>(() => {
+    const t = searchParams.get('tab');
+    return t === 'transfers' || t === 'sheets' || t === 'miya' ? t : 'list';
+  });
+  /** Miya: ochilgan xodim (JShShIR) */
+  const [miyaPinfl, setMiyaPinfl] = useState<string | null>(() => searchParams.get('pinfl'));
+  const openMiya = useCallback((pinfl: string) => {
+    setMiyaPinfl(pinfl);
+    setView('miya');
+  }, []);
 
   /** Excel faylni yuklab olish */
   async function handleExport() {
@@ -170,10 +182,12 @@ export default function EmployeesPage() {
       <div className="flex items-center gap-1 border-b border-(--color-line) bg-white px-6">
         {(
           [
-            { key: 'list', label: "Ro'yxat" },
-            { key: 'transfers', label: "O'tkazmalar" },
+            { key: 'list', label: "Ro'yxat", admin: false },
+            { key: 'transfers', label: "O'tkazmalar", admin: false },
+            { key: 'sheets', label: "Ma'lumotnomalar (10 · 16 · 37 · 51)", admin: true },
+            { key: 'miya', label: 'Miya — xodim kartasi', admin: true },
           ] as const
-        ).map((item) => (
+        ).filter((item) => !item.admin || isAdmin).map((item) => (
           <button
             key={item.key}
             type="button"
@@ -193,7 +207,15 @@ export default function EmployeesPage() {
         ))}
       </div>
 
-      {view === 'transfers' ? (
+      {view === 'sheets' && isAdmin ? (
+        <div className="p-6">
+          <HrSheetsView onOpenPerson={openMiya} />
+        </div>
+      ) : view === 'miya' && isAdmin ? (
+        <div className="p-6">
+          <MiyaView pinfl={miyaPinfl} onPinfl={setMiyaPinfl} />
+        </div>
+      ) : view === 'transfers' ? (
         <div className="p-6">
           <TransfersView
             regionOptions={regionOptions}
@@ -309,7 +331,7 @@ export default function EmployeesPage() {
                     <Th className="w-40">PINFL</Th>
                     <Th className="w-28">Ish turi</Th>
                     <Th className="w-56">Joylashuv</Th>
-                    <Th className="w-10" />
+                    <Th className="w-24" />
                   </Tr>
                 </THead>
 
@@ -360,7 +382,22 @@ export default function EmployeesPage() {
                       </Td>
 
                       <Td className="pr-3 text-right">
-                        <IconEdit className="ml-auto size-4 text-(--color-text-faint) opacity-0 transition-opacity group-hover:opacity-100" />
+                        <div className="flex items-center justify-end gap-2">
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              title="Miya — xodimning hamma ma'lumoti (ma'lumotnomalar, bo'limi, ish haqi)"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openMiya(employee.pinfl);
+                              }}
+                              className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-brand-50"
+                            >
+                              Miya
+                            </button>
+                          )}
+                          <IconEdit className="size-4 text-(--color-text-faint) opacity-0 transition-opacity group-hover:opacity-100" />
+                        </div>
                       </Td>
                     </Tr>
                   ))}

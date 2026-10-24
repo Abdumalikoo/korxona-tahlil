@@ -61,6 +61,9 @@ export interface StaffLinkInfo {
   auto: boolean;
   /** Lavozimida yo'nalish nomi bor xodimlar ham */
   byPosition: boolean;
+  /** Ma'lumotnomalardan (10/16/37/51-jadval) — tuzilmasi shu yo'nalishga tegishlilar */
+  byHr?: boolean;
+  hrCount?: number;
   departments: { id: string; name: string; employees: number; selected: boolean }[];
   /** Bazadan bog'langan faol xodimlar soni */
   linkedCount: number;
@@ -214,7 +217,7 @@ export const unitPayrollApi = {
   addMove: (unit: string, body: { pinfl: string; unit: string; from: string; note?: string; fullName?: string }) => api.post<ApiResponse<UnitMove>>(`/unit-payroll/${enc(unit)}/moves`, body),
   removeMove: (unit: string, id: string) => api.delete<ApiResponse<{ success: true; id: string }>>(`/unit-payroll/${enc(unit)}/moves/${enc(id)}`),
   link: (unit: string) => api.get<ApiResponse<StaffLinkInfo>>(`/unit-payroll/${enc(unit)}/link`),
-  setLink: (unit: string, body: { departmentIds?: string[] | null; byPosition?: boolean }) => api.patch<ApiResponse<StaffLinkInfo>>(`/unit-payroll/${enc(unit)}/link`, body),
+  setLink: (unit: string, body: { departmentIds?: string[] | null; byPosition?: boolean; byHr?: boolean }) => api.patch<ApiResponse<StaffLinkInfo>>(`/unit-payroll/${enc(unit)}/link`, body),
   lookup: (unit: string, pinfl: string) => api.get<ApiResponse<StaffLookup>>(`/unit-payroll/${enc(unit)}/lookup/${enc(pinfl)}`),
   addStaff: (unit: string, body: { pinfl: string; fullName?: string; position?: string }) =>
     api.post<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff`, body),

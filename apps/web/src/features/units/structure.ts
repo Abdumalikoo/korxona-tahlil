@@ -41,6 +41,14 @@ const EXPENSE: Record<string, UnitTab[]> = {
     { slug: 'tmz', label: 'TMZ', view: 'entries', entryKind: 'TMZ' },
     { slug: 'boshqa', label: 'Boshqa xarajatlar', view: 'entries', entryKind: 'OTHER' },
   ],
+  BUXGALTERIYA: [
+    { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
+    { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi', view: 'composition' },
+    { slug: 'reklama', label: 'Reklama xarajatlari', view: 'entries', entryKind: 'AD' },
+    { slug: 'asosiy-vositalar', label: 'Asosiy vositalar', view: 'entries', entryKind: 'ASSET' },
+    { slug: 'tmz', label: 'TMZ', view: 'entries', entryKind: 'TMZ' },
+    { slug: 'boshqa', label: 'Boshqa xarajatlar', view: 'entries', entryKind: 'OTHER' },
+  ],
   MARKSHEYDER: [
     { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
     { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi', view: 'composition' },

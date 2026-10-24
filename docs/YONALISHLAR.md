@@ -62,6 +62,7 @@ Har bo'lim umumiy Xarajatlar sahifasi kabi tuzilgan: sarlavha ostida o'z tarkibi
 - Manzil: `/xarajatlar/bolim/<bo'lim>/<tuzilma>`; bo'limning o'zi ochilganda tuzilmalar tugmalari chiqadi.
 - **Tax free**: Ish haqi · Ish haqi tarkibi · Ijara va kommunal · Asosiy vositalar · Bank xarajatlari · Reklama xarajatlari · Boshqa xarajatlar.
 - **Fermer xo'jaligi**: Ish haqi · Ish haqi tarkibi · Ijara va internet · Asosiy vositalar · TMZ · Boshqa xarajatlar. Ish haqi va Ish haqi tarkibi oldingi shablon tizimida (xodimlar — faqat Fermer xodimlari); Ijara va internet — Tax free'dagi Ijara va kommunal kabi; Asosiy vositalar, TMZ va Boshqa xarajatlar — qo'lda kiritish jadvali.
+- **Buxgalteriya xizmatlari**: Ish haqi · Ish haqi tarkibi · Reklama xarajatlari · Asosiy vositalar · TMZ · Boshqa xarajatlar. Ish haqi va Ish haqi tarkibi oldingidek (xodimlar — faqat Buxgalteriya xizmatlari xodimlari); qolganlari — qo'lda kiritish jadvali.
 - **Marksheyder**: Ish haqi · Ish haqi tarkibi · Xizmat safari · Asosiy vositalar · Mashina xarajatlari · Boshqa xarajatlar. Ish haqi va Ish haqi tarkibi Tax free'dagidek ishlaydi (xodimlar — faqat Marksheyder xodimlari); qolganlari hozircha tugma.
 - Har bir bo'limda oxirgi yorliq — **Xarajatlar siyosati** (avtomatik qo'shiladi).
 - Shabloni berilmagan tuzilmalar hozircha faqat tugma. Har bir tuzilmaning yuklash tartibi va shabloni keyin birma-bir qo'shiladi.
@@ -304,3 +305,31 @@ Umumiy sahifada qator bosilsa, endi boshqa sahifaga o'tilmaydi. Qatorning o'zi k
     - Markazga — Markaz ish haqi xarajati bo'lib (Xodimlar bazasidagi bo'limi bilan);
     - Hududlarga — xodimning hududi ish haqi xarajati bo'lib. Hududi noma'lum bo'lsa, rad etiladi.
 - **API:** GET `/api/unit-payroll/:unit/saved?period=`, POST `saved/remove?period= {pinfls}`, POST `saved/move?period= {pinfls, target, onlyThisMonth, withAmount}`.
+
+## Xodimlar › Ma'lumotnomalar va Miya
+
+Manzil: Xodimlar sahifasi, yangi yorliqlar «Ma'lumotnomalar (10 · 16 · 37 · 51)» va «Miya — xodim kartasi». Faqat administrator ko'radi.
+
+**Jadvallar** (ustunlar asl fayllardagi kabi; ro'yxat `apps/api/src/modules/hr-sheets/hr-sheets.config.ts`da):
+
+| Jadval | Mazmuni | Xodim qanday tanib olinadi |
+|---|---|---|
+| 10-jadval · Umumiy | tabel, tug'ilgan sana/joy, holati, tashkilot, tuzilma, lavozim, tizimda/lavozimida, ma'lumoti, manzil, yoshi, unvon | ЖШШИР |
+| 16-jadval · Shaxsiy | departament, tuzilma, lavozim, tayinlash buyrug'i, pasport, jinsi, millati, aloqa, ta'lim, diplom, to'liq tuzilma, shartnoma muddati | PINFL |
+| 37-jadval · Ishga kirganlar | soliq organi, lavozimi, ma'lumoti, ilgari ishlagan joyi | F.I.Sh. (10/16-jadval yoki Xodimlar bazasidagi bilan bir xil yozilsa, bitta odamga to'g'ri kelsa) |
+| 51-jadval · Qabul va o'tkazish | hudud kodi, tashkilot, qaysi tuzilma/lavozimga, asos, markaziy apparat xulosasi, holati; bir xodimga bir necha qator | JSHSHIR |
+
+- **Shablon:** asl shaklda (1-qatorda jadval raqami, 7-qatorda sarlavha, 9-qatorda ustunlar), «Ko'rsatma» varag'i bilan.
+- **Yuklash:** sarlavha qatori birinchi 30 qatordan o'zi topiladi, ustunlar nomi bo'yicha moslanadi (tartib o'zgarsa, ortiqcha ustun bo'lsa ham o'qiladi; kirill/lotin nomlari). Tahlilda: saqlanadigan qatorlar, xato qatorlar (JShShIR 14 raqam emas, F.I.Sh. bo'sh), takrorlar, topilmagan ustunlar, hozirgi holatga nisbatan yangi / chiqib ketadigan / o'zgargan, Xodimlar bazasida bor-yo'qligi, bo'limlar bo'yicha taqsimot.
+- **Saqlash:** har yuklash jadvalning yangi to'liq holati. Oldingisi bitta saqlanadi — «Oldingi holatga qaytarish». «Tozalash» ham qaytariladi. Saqlash joyi — `settings`: `hr.sheet.<J10|J16|J37|J51>` va `.prev`. Migratsiya kerak emas.
+- **Maxfiylik:** pasport, telefon, e-pochta, IP, manzil, diplom raqami jadval ro'yxatida yashirin (oxirgi 3 belgi). To'liq — faqat xodim kartasida, «Ko'rsatish» bosilganda. Audit jurnaliga faqat sonlar yoziladi.
+
+**Miya qanday oziqlanadi:**
+
+- Tuzilma / departament nomidan bo'lim aniqlanadi: «Fermer …» → Fermer xo'jaligi, «Tax free» yoki «Chet el fuqarolariga qo'shilgan qiymat solig'ini qaytarish …» → Tax free, «Marksheyder …» → Marksheyder, «Buxgalteriya xizmat …» → Buxgalteriya xizmatlari. Ustuvorlik: 10-jadval → 16-jadval → 51-jadval → 37-jadval.
+- Bo'lim ish haqi (Xarajatlar › bo'lim › Ish haqi) shablonining xodimlar varag'iga shu bo'limga tegishli va ishlayotgan xodimlar o'zi tushadi. «Bog'lash» oynasida «Ma'lumotnomalardan» belgisi bilan o'chirib qo'yish mumkin. Ko'chishlar ustun turadi.
+- Xodimlar bazasida yo'q JShShIR uchun vedomost tahlili, saqlangan ish haqi va ko'chishlarda ism va lavozim ma'lumotnomalardan olinadi.
+
+**Miya — xodim kartasi:** JShShIR yoki F.I.Sh. bo'yicha qidiruv (ma'lumotnomalar va Xodimlar bazasi). Kartada: holati, hozirgi bo'limi, bo'lim ro'yxatlarida, ko'chishlar tarixi, Xodimlar bazasidagi ma'lumot, har jadvaldagi hamma maydonlar (guruhlangan), ish haqi (umumiy vedomost va bo'limlar vedomosti). Ro'yxat yorlig'ida har xodim qatorida «Miya» tugmasi; ma'lumotnoma jadvalida qatorni bosish ham kartani ochadi.
+
+**API:** `/api/hr-sheets` (umumiy holat), `/:code/rows?q=&unit=&page=`, `/:code/template`, `/:code/export`, `POST /:code/analyze` (fayl), `POST /:code/commit` (`token`), `POST /:code/restore`, `DELETE /:code`, `/search?q=`, `/person/:pinfl`.

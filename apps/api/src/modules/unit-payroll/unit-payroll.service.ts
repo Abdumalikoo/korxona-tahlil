@@ -6,6 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
 import { ensurePayrollPartCategories, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
+import { hrPeople, hrUnitStaff } from '../hr-sheets/hr-sheets.store';
 
 // ═══════════════════════════════════════════════════════════
 // Bo'lim (yo'nalish) ish haqi — masalan, Xarajatlar › Tax free › Ish haqi.
@@ -15,6 +16,9 @@ import { ensurePayrollPartCategories, payrollPartCategory, readPolicy } from '..
 //  • Xodimlar bo'limi (umumiy baza) bilan bog'langan: shu yo'nalish bo'limidagi (masalan, «Tax free») va lavozimida
 //    yo'nalish nomi bor faol xodimlar ro'yxatga o'zi tushadi — Xodimlarda yangi xodim qo'shilsa, keyingi shablonda chiqadi.
 //    Qaysi bo'limlar — avtomatik (nomi bo'yicha) yoki Ish haqi sahifasida «Bog'lash»da tanlanadi.
+//  • Ma'lumotnomalar (Xodimlar › 10/16/37/51-jadval) ham «miya»ni oziqlaydi: tuzilmasi shu yo'nalishga tegishli
+//    (masalan, «… Fermer xo'jaliklarida buxgalteriya hisobi …») va ishlayotgan xodimlar ro'yxatga o'zi tushadi;
+//    Xodimlar bazasida yo'q PINFL'ning nomi va lavozimi ham shu jadvallardan olinadi.
 //  • Bo'lim xodimlari ro'yxatini tizim o'zi yuritadi («miya»): vedomostda yangi PINFL kelsa — saqlanganda
 //    ro'yxatga qo'shiladi va keyingi shablonning 2-varag'ida chiqadi. Qo'lda qo'shish / chiqarish ham bor.
 //  • Saqlanganda — bitta xarajat yozuvi: shu yo'nalish (segment), modda «Ish haqi» (PAYROLL_BASE).
@@ -37,6 +41,8 @@ export interface StaffLink {
   departmentIds: string[] | null;
   /** Lavozimida yo'nalish nomi bor xodimlar ham (masalan, «Tax free operatori») */
   byPosition: boolean;
+  /** Ma'lumotnomalardan (10/16/37/51-jadval) — tuzilmasi shu yo'nalishga tegishlilar ham */
+  byHr: boolean;
 }
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
 const TASHKENT_OFFSET_HOURS = 5;
@@ -250,6 +256,7 @@ export class UnitPayrollService {
     return {
       departmentIds: Array.isArray(v.departmentIds) ? v.departmentIds.filter((x): x is string => typeof x === 'string') : null,
       byPosition: v.byPosition !== false,
+      byHr: v.byHr !== false,
     };
   }
 
@@ -270,15 +277,28 @@ export class UnitPayrollService {
     if (deps.length) or.push({ departmentId: { in: deps.map((d) => d.id) } });
     // Lavozim bo'yicha: lavozimi yozilganlar olinadi, naqsh bilan tekshiriladi (kirill/lotin yozilishlari)
     if (link.byPosition && re) or.push({ position: { not: null } });
-    if (!or.length) return [];
-    const rows = await this.prisma.employee.findMany({
-      where: { isActive: true, OR: or },
-      select: { pinfl: true, fullName: true, position: true, departmentId: true },
-    });
+    const rows = or.length
+      ? await this.prisma.employee.findMany({
+          where: { isActive: true, OR: or },
+          select: { pinfl: true, fullName: true, position: true, departmentId: true },
+        })
+      : [];
     const depIds = new Set(deps.map((d) => d.id));
-    return rows
+    const out = rows
       .filter((r) => (r.departmentId && depIds.has(r.departmentId)) || (link.byPosition && re && r.position && re.test(r.position)))
       .map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, position: r.position ?? null }));
+    if (link.byHr) {
+      // Ma'lumotnomalardan: tuzilmasi shu yo'nalishga tegishli, ishlayotganlar (Xodimlar bazasida arxivda bo'lsa — olinmaydi)
+      const have = new Set(out.map((r) => r.pinfl));
+      const hr = (await hrUnitStaff(this.prisma, unit)).filter((p) => !have.has(p.pinfl));
+      if (hr.length) {
+        const archived = new Set(
+          (await this.prisma.employee.findMany({ where: { pinfl: { in: hr.map((p) => p.pinfl) }, isActive: false }, select: { pinfl: true } })).map((e) => e.pinfl),
+        );
+        for (const p of hr) if (!archived.has(p.pinfl)) out.push({ pinfl: p.pinfl, fullName: p.fullName, position: p.position });
+      }
+    }
+    return out;
   }
 
   /**
@@ -418,12 +438,14 @@ export class UnitPayrollService {
       label: entryUnitLabel(unit),
       auto: link.departmentIds === null,
       byPosition: link.byPosition,
+      byHr: link.byHr,
+      hrCount: link.byHr ? (await hrUnitStaff(this.prisma, unit)).length : 0,
       departments: deps.map((d) => ({ id: d.id, name: d.name, employees: count.get(d.id) ?? 0, selected: on.has(d.id) })),
       linkedCount: (await this.registryStaff(unit)).length,
     };
   }
 
-  async setLink(unit: string, body: { departmentIds?: unknown; byPosition?: unknown }, userId: string) {
+  async setLink(unit: string, body: { departmentIds?: unknown; byPosition?: unknown; byHr?: unknown }, userId: string) {
     const all = { ...(((await this.readSetting(LINK_KEY)) ?? {}) as Record<string, unknown>) };
     const prev = await this.linkOf(unit);
     let departmentIds: string[] | null = prev.departmentIds;
@@ -434,10 +456,14 @@ export class UnitPayrollService {
       if (found.length !== ids.length) throw new BadRequestException("Bo'lim topilmadi");
       departmentIds = ids;
     }
-    const value: StaffLink = { departmentIds, byPosition: typeof body?.byPosition === 'boolean' ? body.byPosition : prev.byPosition };
+    const value: StaffLink = {
+      departmentIds,
+      byPosition: typeof body?.byPosition === 'boolean' ? body.byPosition : prev.byPosition,
+      byHr: typeof body?.byHr === 'boolean' ? body.byHr : prev.byHr,
+    };
     all[unit] = value;
     await this.writeSetting(LINK_KEY, all);
-    await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_staff_link', entityId: unit, summary: `${entryUnitLabel(unit)} xodimlari — Xodimlar bazasi bilan bog'lash: ${departmentIds === null ? 'avtomatik' : `${departmentIds.length} ta bo'lim`}${value.byPosition ? ', lavozim bo\'yicha ham' : ''}` });
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_staff_link', entityId: unit, summary: `${entryUnitLabel(unit)} xodimlari — Xodimlar bazasi bilan bog'lash: ${departmentIds === null ? 'avtomatik' : `${departmentIds.length} ta bo'lim`}${value.byPosition ? ', lavozim bo\'yicha ham' : ''}${value.byHr ? ", ma'lumotnomalardan ham" : ''}` });
     return this.link(unit);
   }
 
@@ -465,10 +491,19 @@ export class UnitPayrollService {
   }
 
   /** Xodimlar bazasidagi (umumiy reestr) ismlar — bo'lsa */
+  /** PINFL → nomi va lavozimi: Xodimlar bazasidan, bo'lmasa — ma'lumotnomalardan («miya») */
   private async registryNames(pinfls: string[]): Promise<Map<string, { fullName: string; position: string | null }>> {
     if (!pinfls.length) return new Map();
     const rows = await this.prisma.employee.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, fullName: true, position: true } });
-    return new Map(rows.map((r) => [r.pinfl, { fullName: r.fullName, position: r.position ?? null }]));
+    const out = new Map(rows.map((r) => [r.pinfl, { fullName: r.fullName, position: r.position ?? null }]));
+    if (out.size < pinfls.length) {
+      const hr = await hrPeople(this.prisma).catch(() => new Map());
+      for (const p of pinfls) {
+        const h = hr.get(p);
+        if (!out.has(p) && h) out.set(p, { fullName: h.fullName, position: h.position });
+      }
+    }
+    return out;
   }
 
   // ═══════════ Xodimlar ro'yxati ═══════════

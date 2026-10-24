@@ -121,7 +121,7 @@ export const MENU: NavItem[] = [
       ...ENTRY_UNITS.map((u) => ({ label: `Xarajatlar · ${u.label}`, href: `/xarajatlar/bolim/${u.slug}`, description: `${u.hint}: xarajatlar va moddalar`, hidden: true })),
     ],
   },
-  { label: 'Xodimlar', href: '/xodimlar', icon: NavUsers, description: "Xodimlar ro'yxati va ko'chishlar" },
+  { label: 'Xodimlar', href: '/xodimlar', icon: NavUsers, description: "Xodimlar ro'yxati, ko'chishlar, ma'lumotnomalar (10/16/37/51-jadval) va miya — xodim kartasi" },
   {
     label: 'Ombor',
     href: '/ombor',

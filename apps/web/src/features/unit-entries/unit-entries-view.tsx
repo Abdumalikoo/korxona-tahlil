@@ -538,7 +538,7 @@ export function UnitEntriesView({ unit, kind }: { unit: EntryUnit; kind: EntryKi
           <>
             Katakka to&apos;g&apos;ridan-to&apos;g&apos;ri yozing — <b>Enter</b> pastga o&apos;tadi. Excel&apos;dan nusxa olib (<b>Ctrl+C</b>) istalgan katakka qo&apos;ying (
             <b>Ctrl+V</b>) — qatorlar o&apos;zi to&apos;ladi.{withQty && <> Summa bo&apos;sh qolsa — <b>Soni × Narxi</b>.</>} Har qator — Xarajatlarda alohida yozuv ({unit.label} ·{' '}
-            {data?.label ?? text.item}).$
+            {data?.label ?? text.item}).
           </>
         }
       />

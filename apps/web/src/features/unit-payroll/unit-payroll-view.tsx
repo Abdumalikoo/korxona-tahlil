@@ -687,7 +687,7 @@ function StaffCard({
     }
   }
 
-  async function saveLink(body: { departmentIds?: string[] | null; byPosition?: boolean }) {
+  async function saveLink(body: { departmentIds?: string[] | null; byPosition?: boolean; byHr?: boolean }) {
     setBusy('link');
     try {
       const r = (await unitPayrollApi.setLink(unit.code, body)).data;
@@ -732,6 +732,7 @@ function StaffCard({
               <span className="text-(--color-text-muted)">
                 {linkedDeps.length ? `· bo'lim: ${linkedDeps.map((d) => d.name).join(', ')}` : "· bo'lim tanlanmagan"}
                 {linkInfo.byPosition ? ` · lavozimida «${unit.label}» bo'lganlar` : ''}
+                {linkInfo.byHr ? ` · ma'lumotnomalardan ${linkInfo.hrCount ?? 0} ta` : ''}
                 {linkInfo.auto ? ' (avtomatik)' : ''}
               </span>
             </>
@@ -770,6 +771,10 @@ function StaffCard({
               <label className="flex cursor-pointer items-center gap-2">
                 <input type="checkbox" className="size-3.5 accent-brand-600" checked={linkInfo.byPosition} disabled={busy === 'link'} onChange={() => void saveLink({ byPosition: !linkInfo.byPosition })} />
                 Lavozimida «{unit.label}» yozilganlar ham (hududdagi filiallar)
+              </label>
+              <label className="flex cursor-pointer items-center gap-2" title="Xodimlar › Ma'lumotnomalar: tuzilmasi shu yo'nalishga tegishli va ishlayotgan xodimlar">
+                <input type="checkbox" className="size-3.5 accent-brand-600" checked={linkInfo.byHr !== false} disabled={busy === 'link'} onChange={() => void saveLink({ byHr: linkInfo.byHr === false })} />
+                Ma&apos;lumotnomalardan (10/16/37/51-jadval, tuzilmasi bo&apos;yicha){typeof linkInfo.hrCount === 'number' ? ` — ${linkInfo.hrCount} ta` : ''}
               </label>
               {!linkInfo.auto && (
                 <button type="button" disabled={busy === 'link'} onClick={() => void saveLink({ departmentIds: null })} className="ml-auto rounded px-2 py-1 font-semibold text-brand-700 hover:bg-brand-50">
