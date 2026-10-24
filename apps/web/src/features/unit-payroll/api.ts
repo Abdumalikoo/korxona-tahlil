@@ -10,7 +10,8 @@ export interface UnitStaff {
   position: string | null;
   active: boolean;
   addedAt: string;
-  source: 'UPLOAD' | 'MANUAL';
+  /** UPLOAD — vedomostdan, MANUAL — qo'lda, REGISTRY — Xodimlar bazasidan (bo'limi yoki lavozimi bo'yicha) */
+  source: 'UPLOAD' | 'MANUAL' | 'REGISTRY';
   leftAt: string | null;
   /** Umumiy xodimlar bazasida ham bor */
   inRegistry: boolean;
@@ -22,6 +23,19 @@ export interface UnitStaffList {
   active: number;
   total: number;
   items: UnitStaff[];
+}
+
+/** Xodimlar bazasi bilan bog'lash */
+export interface StaffLinkInfo {
+  unit: string;
+  label: string;
+  /** Bo'limlar nomi bo'yicha avtomatik tanlanadi */
+  auto: boolean;
+  /** Lavozimida yo'nalish nomi bor xodimlar ham */
+  byPosition: boolean;
+  departments: { id: string; name: string; employees: number; selected: boolean }[];
+  /** Bazadan bog'langan faol xodimlar soni */
+  linkedCount: number;
 }
 
 export interface StaffLookup {
@@ -120,6 +134,8 @@ const enc = encodeURIComponent;
 
 export const unitPayrollApi = {
   staff: (unit: string) => api.get<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff`),
+  link: (unit: string) => api.get<ApiResponse<StaffLinkInfo>>(`/unit-payroll/${enc(unit)}/link`),
+  setLink: (unit: string, body: { departmentIds?: string[] | null; byPosition?: boolean }) => api.patch<ApiResponse<StaffLinkInfo>>(`/unit-payroll/${enc(unit)}/link`, body),
   lookup: (unit: string, pinfl: string) => api.get<ApiResponse<StaffLookup>>(`/unit-payroll/${enc(unit)}/lookup/${enc(pinfl)}`),
   addStaff: (unit: string, body: { pinfl: string; fullName?: string; position?: string }) =>
     api.post<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff`, body),

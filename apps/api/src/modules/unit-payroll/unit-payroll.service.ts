@@ -10,6 +10,9 @@ import { PrismaService } from '../prisma/prisma.service';
 //
 // Umumiy vedomostdan ALOHIDA:
 //  • Shablon — avvalgidek: 1-varaq «Ish haqi» (PINFL, Summa), 2-varaq — FAQAT shu bo'lim xodimlari.
+//  • Xodimlar bo'limi (umumiy baza) bilan bog'langan: shu yo'nalish bo'limidagi (masalan, «Tax free») va lavozimida
+//    yo'nalish nomi bor faol xodimlar ro'yxatga o'zi tushadi — Xodimlarda yangi xodim qo'shilsa, keyingi shablonda chiqadi.
+//    Qaysi bo'limlar — avtomatik (nomi bo'yicha) yoki Ish haqi sahifasida «Bog'lash»da tanlanadi.
 //  • Bo'lim xodimlari ro'yxatini tizim o'zi yuritadi («miya»): vedomostda yangi PINFL kelsa — saqlanganda
 //    ro'yxatga qo'shiladi va keyingi shablonning 2-varag'ida chiqadi. Qo'lda qo'shish / chiqarish ham bor.
 //  • Saqlanganda — bitta xarajat yozuvi: shu yo'nalish (segment), modda «Ish haqi» (PAYROLL_BASE).
@@ -17,6 +20,22 @@ import { PrismaService } from '../prisma/prisma.service';
 // ═══════════════════════════════════════════════════════════
 
 const STAFF_KEY = 'unit.staff';
+const LINK_KEY = 'unit.staffLink';
+
+/** Xodimlar bazasidagi bo'lim / lavozim nomi bo'yicha avtomatik bog'lash */
+const NAME_PATTERNS: Record<string, RegExp> = {
+  TAX_FREE: /tax\s*-?\s*free|такс\s*-?\s*фри|taks\s*-?\s*fri/i,
+  MARKSHEYDER: /marksheyder|маркшейдер/i,
+  FERMER: /fermer|фермер/i,
+  BUXGALTERIYA: /buxgalteriya\s+xizmat|бухгалтерия\s+хизмат/i,
+};
+
+export interface StaffLink {
+  /** Tanlangan bo'limlar (null — avtomatik: nomi bo'yicha) */
+  departmentIds: string[] | null;
+  /** Lavozimida yo'nalish nomi bor xodimlar ham (masalan, «Tax free operatori») */
+  byPosition: boolean;
+}
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
 const TASHKENT_OFFSET_HOURS = 5;
 const MAX_ROWS = 5000;
@@ -28,8 +47,8 @@ export interface StaffItem {
   /** Faol — shablonning 2-varag'ida chiqadi */
   active: boolean;
   addedAt: string;
-  /** Qanday qo'shilgan: vedomostdan (avtomatik) yoki qo'lda */
-  source: 'UPLOAD' | 'MANUAL';
+  /** Qanday qo'shilgan: vedomostdan (avtomatik), qo'lda yoki Xodimlar bazasidan (bo'limi bo'yicha) */
+  source: 'UPLOAD' | 'MANUAL' | 'REGISTRY';
   leftAt: string | null;
 }
 
@@ -114,7 +133,7 @@ function readStaff(raw: unknown): StaffItem[] {
       position: typeof r.position === 'string' ? r.position : null,
       active: r.active !== false,
       addedAt: typeof r.addedAt === 'string' ? r.addedAt : new Date(0).toISOString(),
-      source: r.source === 'MANUAL' ? 'MANUAL' : 'UPLOAD',
+      source: r.source === 'MANUAL' || r.source === 'REGISTRY' ? r.source : 'UPLOAD',
       leftAt: typeof r.leftAt === 'string' ? r.leftAt : null,
     });
   }
@@ -161,9 +180,102 @@ export class UnitPayrollService {
     await this.prisma.setting.upsert({ where: { key }, create: { key, value: v }, update: { value: v } });
   }
 
-  async staffOf(unit: string): Promise<StaffItem[]> {
+  /** Bo'limning o'z ro'yxati (qo'lda, vedomostdan va bazadagilarni «chiqarish» belgilari) — yozish uchun */
+  private async ownStaff(unit: string): Promise<StaffItem[]> {
     const all = ((await this.readSetting(STAFF_KEY)) ?? {}) as Record<string, unknown>;
     return readStaff(all[unit]);
+  }
+
+  // ─────────── Xodimlar bazasi bilan bog'lash ───────────
+
+  async linkOf(unit: string): Promise<StaffLink> {
+    const all = ((await this.readSetting(LINK_KEY)) ?? {}) as Record<string, Partial<StaffLink> | undefined>;
+    const v = all[unit] ?? {};
+    return {
+      departmentIds: Array.isArray(v.departmentIds) ? v.departmentIds.filter((x): x is string => typeof x === 'string') : null,
+      byPosition: v.byPosition !== false,
+    };
+  }
+
+  /** Bog'langan bo'limlar: tanlangan yoki (avtomatik) nomida yo'nalish nomi borlar */
+  private async linkedDepartments(unit: string, link: StaffLink): Promise<{ id: string; name: string }[]> {
+    const deps = await this.prisma.department.findMany({ select: { id: true, name: true } });
+    if (link.departmentIds) return deps.filter((d) => link.departmentIds!.includes(d.id));
+    const re = NAME_PATTERNS[unit];
+    return re ? deps.filter((d) => re.test(d.name)) : [];
+  }
+
+  /** Xodimlar bazasidagi shu yo'nalish xodimlari (faol): bog'langan bo'limda yoki lavozimida yo'nalish nomi bor */
+  private async registryStaff(unit: string): Promise<{ pinfl: string; fullName: string; position: string | null }[]> {
+    const link = await this.linkOf(unit);
+    const deps = await this.linkedDepartments(unit, link);
+    const re = NAME_PATTERNS[unit];
+    const or: Record<string, unknown>[] = [];
+    if (deps.length) or.push({ departmentId: { in: deps.map((d) => d.id) } });
+    // Lavozim bo'yicha: lavozimi yozilganlar olinadi, naqsh bilan tekshiriladi (kirill/lotin yozilishlari)
+    if (link.byPosition && re) or.push({ position: { not: null } });
+    if (!or.length) return [];
+    const rows = await this.prisma.employee.findMany({
+      where: { isActive: true, OR: or },
+      select: { pinfl: true, fullName: true, position: true, departmentId: true },
+    });
+    const depIds = new Set(deps.map((d) => d.id));
+    return rows
+      .filter((r) => (r.departmentId && depIds.has(r.departmentId)) || (link.byPosition && re && r.position && re.test(r.position)))
+      .map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, position: r.position ?? null }));
+  }
+
+  /**
+   * Bo'lim xodimlari (o'qish uchun): Xodimlar bazasidan bog'langanlar + o'z ro'yxati.
+   * O'z ro'yxatida «chiqarilgan» (active=false) bo'lsa — bazada bo'lsa ham chiqmaydi.
+   */
+  async staffOf(unit: string): Promise<StaffItem[]> {
+    const own = await this.ownStaff(unit);
+    const have = new Set(own.map((s) => s.pinfl));
+    const out = [...own];
+    for (const e of await this.registryStaff(unit)) {
+      if (have.has(e.pinfl)) continue;
+      out.push({ pinfl: e.pinfl, fullName: e.fullName, position: e.position, active: true, addedAt: '', source: 'REGISTRY', leftAt: null });
+    }
+    return out;
+  }
+
+  /** Bog'lash sozlamasi va ko'rinishi: bo'limlar (tanlangani, xodimlar soni) */
+  async link(unit: string) {
+    const link = await this.linkOf(unit);
+    const [deps, counts, linked] = await Promise.all([
+      this.prisma.department.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+      this.prisma.employee.groupBy({ by: ['departmentId'], where: { isActive: true }, _count: { _all: true } }).catch(() => [] as { departmentId: string | null; _count: { _all: number } }[]),
+      this.linkedDepartments(unit, link),
+    ]);
+    const count = new Map(counts.map((c) => [c.departmentId, c._count._all]));
+    const on = new Set(linked.map((d) => d.id));
+    return {
+      unit,
+      label: entryUnitLabel(unit),
+      auto: link.departmentIds === null,
+      byPosition: link.byPosition,
+      departments: deps.map((d) => ({ id: d.id, name: d.name, employees: count.get(d.id) ?? 0, selected: on.has(d.id) })),
+      linkedCount: (await this.registryStaff(unit)).length,
+    };
+  }
+
+  async setLink(unit: string, body: { departmentIds?: unknown; byPosition?: unknown }, userId: string) {
+    const all = { ...(((await this.readSetting(LINK_KEY)) ?? {}) as Record<string, unknown>) };
+    const prev = await this.linkOf(unit);
+    let departmentIds: string[] | null = prev.departmentIds;
+    if (body?.departmentIds === null) departmentIds = null;
+    else if (Array.isArray(body?.departmentIds)) {
+      const ids = [...new Set(body.departmentIds.filter((x): x is string => typeof x === 'string'))].slice(0, 200);
+      const found = await this.prisma.department.findMany({ where: { id: { in: ids } }, select: { id: true } });
+      if (found.length !== ids.length) throw new BadRequestException("Bo'lim topilmadi");
+      departmentIds = ids;
+    }
+    const value: StaffLink = { departmentIds, byPosition: typeof body?.byPosition === 'boolean' ? body.byPosition : prev.byPosition };
+    all[unit] = value;
+    await this.writeSetting(LINK_KEY, all);
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_staff_link', entityId: unit, summary: `${entryUnitLabel(unit)} xodimlari — Xodimlar bazasi bilan bog'lash: ${departmentIds === null ? 'avtomatik' : `${departmentIds.length} ta bo'lim`}${value.byPosition ? ', lavozim bo\'yicha ham' : ''}` });
+    return this.link(unit);
   }
 
   private async saveStaff(unit: string, items: StaffItem[]): Promise<void> {
@@ -219,14 +331,16 @@ export class UnitPayrollService {
   async addStaff(unit: string, body: { pinfl?: unknown; fullName?: unknown; position?: unknown }, userId: string) {
     const pinfl = parsePinfl(body?.pinfl);
     if (!pinfl) throw new BadRequestException("PINFL 14 ta raqam bo'lishi kerak");
-    const items = await this.staffOf(unit);
+    const merged = await this.staffOf(unit);
+    const items = await this.ownStaff(unit);
     const reg = (await this.registryNames([pinfl])).get(pinfl);
     const fullName = cleanName(body?.fullName) ?? reg?.fullName ?? null;
     if (!fullName) throw new BadRequestException("F.I.Sh. kiriting (kamida 3 harf) — bu PINFL xodimlar bazasida yo'q");
     const position = cleanPosition(body?.position) ?? reg?.position ?? null;
     const now = new Date().toISOString();
+    const present = merged.find((s) => s.pinfl === pinfl && s.active);
+    if (present) throw new BadRequestException(`${present.fullName} — ro'yxatda allaqachon bor${present.source === 'REGISTRY' ? ' (Xodimlar bazasidan)' : ''}`);
     const existing = items.find((s) => s.pinfl === pinfl);
-    if (existing?.active) throw new BadRequestException(`${existing.fullName} — ro'yxatda allaqachon bor`);
     if (existing) Object.assign(existing, { active: true, leftAt: null, fullName, position });
     else items.push({ pinfl, fullName, position, active: true, addedAt: now, source: 'MANUAL', leftAt: null });
     await this.saveStaff(unit, items);
@@ -237,8 +351,16 @@ export class UnitPayrollService {
   /** Ro'yxatdan chiqarish (ishdan ketgan) yoki qaytarish; ism / lavozimni tuzatish */
   async updateStaff(unit: string, pinflRaw: string, body: { active?: unknown; fullName?: unknown; position?: unknown }, userId: string) {
     const pinfl = parsePinfl(pinflRaw);
-    const items = await this.staffOf(unit);
-    const item = pinfl ? items.find((s) => s.pinfl === pinfl) : undefined;
+    const items = await this.ownStaff(unit);
+    let item = pinfl ? items.find((s) => s.pinfl === pinfl) : undefined;
+    if (!item && pinfl) {
+      // Xodimlar bazasidan kelgan: o'z ro'yxatiga yoziladi (masalan, «chiqarish» — shablonda chiqmasin)
+      const linked = (await this.staffOf(unit)).find((s) => s.pinfl === pinfl && s.source === 'REGISTRY');
+      if (linked) {
+        item = { ...linked, addedAt: new Date().toISOString() };
+        items.push(item);
+      }
+    }
     if (!item) throw new NotFoundException("Xodim bo'lim ro'yxatida topilmadi");
     const changes: string[] = [];
     if (typeof body?.active === 'boolean' && body.active !== item.active) {
@@ -257,7 +379,9 @@ export class UnitPayrollService {
       changes.push('lavozim');
     }
     if (!changes.length) return this.staff(unit);
-    await this.saveStaff(unit, items);
+    // Bazadan kelgan xodim qaytarildi (boshqa o'zgarish yo'q) — yana faqat bog'lanish orqali (o'z ro'yxatidan olinadi)
+    const finalItems = item.source === 'REGISTRY' && item.active && changes.length === 1 && changes[0] === 'qaytarildi' ? items.filter((x) => x !== item) : items;
+    await this.saveStaff(unit, finalItems);
     await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_staff', entityId: `${unit}:${item.pinfl}`, summary: `${entryUnitLabel(unit)} xodimlari: ${item.fullName} — ${changes.join(', ')}` });
     return this.staff(unit);
   }
@@ -418,8 +542,10 @@ export class UnitPayrollService {
     }
 
     const pinfls = [...merged.keys()];
-    const staff = await this.staffOf(unit);
-    const byPinfl = new Map(staff.map((s) => [s.pinfl, s]));
+    const staff = await this.ownStaff(unit);
+    const unitStaff = await this.staffOf(unit);
+    const ownBy = new Map(staff.map((s) => [s.pinfl, s]));
+    const byPinfl = new Map(unitStaff.map((s) => [s.pinfl, s]));
     const names = await this.registryNames(pinfls);
 
     const unnamed = pinfls.filter((p) => !byPinfl.has(p) && !names.has(p) && !merged.get(p)!.fullName);
@@ -489,11 +615,12 @@ export class UnitPayrollService {
         let newStaff = 0;
         let returned = 0;
         for (const r of rows) {
-          const own = byPinfl.get(r.pinfl);
-          if (!own) {
+          const known = byPinfl.get(r.pinfl);
+          const own = ownBy.get(r.pinfl);
+          if (!known) {
             staff.push({ pinfl: r.pinfl, fullName: r.fullName, position: names.get(r.pinfl)?.position ?? null, active: true, addedAt: now, source: 'UPLOAD', leftAt: null });
             newStaff += 1;
-          } else if (!own.active) {
+          } else if (own && !own.active) {
             own.active = true;
             own.leftAt = null;
             returned += 1;

@@ -162,7 +162,7 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
         note={
           <>
             Oy: <b className="text-heading">{formatPeriod(period)}</b> (yuqori paneldagi «Davr»). Shablonning 2-varag&apos;ida — faqat {unit.label} xodimlari (
-            <b className="text-heading">{activeCount}</b> ta); yangi xodim vedomost bilan saqlansa, keyingi shablonda o&apos;zi chiqadi.
+            <b className="text-heading">{activeCount}</b> ta) — Xodimlar bo&apos;limidan o&apos;zi olinadi: u yerda yangi xodim qo&apos;shilsa, keyingi shablonda chiqadi.
           </>
         }
       />
@@ -496,6 +496,10 @@ function StaffCard({
   const [position, setPosition] = useState('');
   const [hint, setHint] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const link = useAsync(() => unitPayrollApi.link(unit.code), [unit.code, list?.total]);
+  const linkInfo = link.data?.data;
+  const linkedDeps = (linkInfo?.departments ?? []).filter((d) => d.selected);
 
   const items = list?.items ?? [];
   const term = q.trim().toLowerCase();
@@ -513,7 +517,7 @@ function StaffCard({
       else if (res.fullName) {
         setFullName((v) => v || res.fullName || '');
         setPosition((v) => v || res.position || '');
-        setHint(res.inStaff ? 'Ketganlar ro‘yxatida — qaytariladi' : 'Xodimlar bazasidan topildi');
+        setHint(res.inStaff ? 'Chiqarilganlar ro‘yxatida — qaytariladi' : 'Xodimlar bazasidan topildi');
       } else setHint("Bazada yo'q — F.I.Sh. kiriting");
     } catch {
       /* tekshiruv ixtiyoriy */
@@ -552,6 +556,20 @@ function StaffCard({
     }
   }
 
+  async function saveLink(body: { departmentIds?: string[] | null; byPosition?: boolean }) {
+    setBusy('link');
+    try {
+      const r = (await unitPayrollApi.setLink(unit.code, body)).data;
+      onToast({ message: `Xodimlar bazasidan: ${r.linkedCount} ta xodim bog'landi — shablonda o'zi chiqadi`, tone: 'success' });
+      link.reload();
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Saqlab bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <Card className="flex flex-col overflow-hidden">
       <CardHeader
@@ -565,6 +583,66 @@ function StaffCard({
           ) : undefined
         }
       />
+      {/* Xodimlar bazasi bilan bog'lanish */}
+      <div className="border-b border-(--color-line) bg-brand-50/40 px-5 py-2.5 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-(--color-text-muted)">Xodimlar bazasidan:</span>
+          {link.loading && !linkInfo ? (
+            <span className="text-(--color-text-faint)">…</span>
+          ) : linkInfo ? (
+            <>
+              <b className="text-heading">{linkInfo.linkedCount} ta</b>
+              <span className="text-(--color-text-muted)">
+                {linkedDeps.length ? `· bo'lim: ${linkedDeps.map((d) => d.name).join(', ')}` : "· bo'lim tanlanmagan"}
+                {linkInfo.byPosition ? ` · lavozimida «${unit.label}» bo'lganlar` : ''}
+                {linkInfo.auto ? ' (avtomatik)' : ''}
+              </span>
+            </>
+          ) : null}
+          {isAdmin && (
+            <button type="button" onClick={() => setLinkOpen((v) => !v)} className="ml-auto rounded px-2 py-1 font-semibold text-brand-700 hover:bg-brand-50">
+              {linkOpen ? 'Yopish' : "Bog'lash"}
+            </button>
+          )}
+        </div>
+        {linkOpen && linkInfo && (
+          <div className="mt-2 space-y-2 rounded-(--radius-control) border border-(--color-line) bg-white p-3">
+            <p className="text-(--color-text-muted)">
+              Qaysi bo&apos;lim xodimlari {unit.label} xodimi hisoblanadi. Xodimlar bo&apos;limida shu bo&apos;limga yangi xodim qo&apos;shilsa — keyingi shablonda o&apos;zi chiqadi.
+            </p>
+            <div className="max-h-48 space-y-1 overflow-auto">
+              {linkInfo.departments.map((d) => (
+                <label key={d.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-brand-50/50">
+                  <input
+                    type="checkbox"
+                    className="size-3.5 accent-brand-600"
+                    checked={d.selected}
+                    disabled={busy === 'link'}
+                    onChange={() =>
+                      void saveLink({
+                        departmentIds: d.selected ? linkedDeps.filter((x) => x.id !== d.id).map((x) => x.id) : [...linkedDeps.map((x) => x.id), d.id],
+                      })
+                    }
+                  />
+                  <span className="flex-1 text-heading">{d.name}</span>
+                  <span className="text-(--color-text-faint)">{d.employees} xodim</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-3 border-t border-(--color-line) pt-2">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" className="size-3.5 accent-brand-600" checked={linkInfo.byPosition} disabled={busy === 'link'} onChange={() => void saveLink({ byPosition: !linkInfo.byPosition })} />
+                Lavozimida «{unit.label}» yozilganlar ham (hududdagi filiallar)
+              </label>
+              {!linkInfo.auto && (
+                <button type="button" disabled={busy === 'link'} onClick={() => void saveLink({ departmentIds: null })} className="ml-auto rounded px-2 py-1 font-semibold text-brand-700 hover:bg-brand-50">
+                  Avtomatikka qaytarish
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
       {adding && (
         <form onSubmit={(e) => void submit(e)} className="space-y-2 border-b border-(--color-line) bg-(--color-surface-muted) px-5 py-3">
           <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_minmax(0,0.8fr)]">
@@ -599,7 +677,7 @@ function StaffCard({
         {leftCount > 0 && (
           <label className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
             <input type="checkbox" className="size-3.5 accent-brand-600" checked={showLeft} onChange={(e) => setShowLeft(e.target.checked)} />
-            Ketganlar ({leftCount})
+            Chiqarilganlar ({leftCount})
           </label>
         )}
       </div>
@@ -622,7 +700,7 @@ function StaffCard({
                 <p className="truncate text-sm font-medium text-heading">{s.fullName}</p>
                 <p className="truncate text-xs text-(--color-text-muted)">
                   <span className="money">{s.pinfl}</span>
-                  {s.position ? ` · ${s.position}` : ''} · {s.active ? `${s.source === 'UPLOAD' ? 'vedomostdan' : "qo'lda"} ${formatDate(s.addedAt)}` : `ketgan ${s.leftAt ? formatDate(s.leftAt) : ''}`}
+                  {s.position ? ` · ${s.position}` : ''} · {s.active ? (s.source === 'REGISTRY' ? 'Xodimlar bazasidan' : `${s.source === 'UPLOAD' ? 'vedomostdan' : "qo'lda"} ${formatDate(s.addedAt)}`) : `chiqarilgan ${s.leftAt ? formatDate(s.leftAt) : ''}`}
                 </p>
               </div>
               {isAdmin && (

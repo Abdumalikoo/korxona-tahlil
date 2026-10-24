@@ -21,6 +21,18 @@ export class UnitPayrollController {
     return { data: await this.service.staff(this.service.unitOf(unit)) };
   }
 
+  /** Xodimlar bazasi bilan bog'lash: qaysi bo'limlar (avtomatik — nomi bo'yicha), lavozim bo'yicha */
+  @Get(':unit/link')
+  async link(@Param('unit') unit: string) {
+    return { data: await this.service.link(this.service.unitOf(unit)) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Patch(':unit/link')
+  async setLink(@Param('unit') unit: string, @Body() body: { departmentIds?: unknown; byPosition?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.setLink(this.service.unitOf(unit), body ?? {}, userId) };
+  }
+
   @Get(':unit/lookup/:pinfl')
   async lookup(@Param('unit') unit: string, @Param('pinfl') pinfl: string) {
     return { data: await this.service.lookup(this.service.unitOf(unit), pinfl) };

@@ -77,6 +77,11 @@ Doimiy / Boshqa / Xizmat turlari — faqat shu bo'lim yozuvlari. Excel'dan yukla
 Manzil: Xarajatlar › Tax free › Ish haqi (`/xarajatlar/bolim/tax-free/ish-haqi`). Umumiy Ish haqi sahifasi kabi ishlaydi, lekin undan alohida.
 
 - **Shablon** avvalgidek tuziladi. 1-varaq «Ish haqi»: A ustun — PINFL, B ustun — Summa. 2-varaq «Tax free xodimlari»: faqat shu bo'lim xodimlari (PINFL, F.I.Sh., lavozim).
+- **Xodimlar bo'limi bilan bog'langan.** Xodimlar bazasidagi faol xodimlar ro'yxatga o'zi tushadi:
+  - bog'langan bo'limda turganlar. Standart holatda bo'lim nomida «Tax free» so'zi bo'lsa, tizim uni o'zi bog'laydi. Kerakli bo'limlarni Ish haqi sahifasidagi «Bog'lash» orqali tanlash mumkin;
+  - lavozimida «Tax free» yozilganlar (hududdagi aeroport filiallari uchun). Buni o'chirib qo'yish mumkin.
+
+  Xodimlar bo'limida yangi xodim qo'shilsa, keyingi shablonda o'zi chiqadi. Bazadan kelgan xodimni «Chiqarish» bilan ro'yxatdan olib tashlasa bo'ladi, unda u shablonda chiqmaydi. Sozlama `settings` jadvalidagi `unit.staffLink` yozuvida saqlanadi. API: `GET` va `PATCH /api/unit-payroll/:unit/link`.
 - **Xodimlar ro'yxatini tizim o'zi yuritadi.** Vedomostda yangi PINFL kelsa, saqlanganda ro'yxatga qo'shiladi va keyingi shablonning 2-varag'ida chiqadi. Ismi umumiy xodimlar bazasidan olinadi. Bazada bo'lmasa, tahlil jadvalida F.I.Sh. kiritiladi. Ro'yxatdan chiqarilgan xodim keyingi vedomostda kelsa, ro'yxatga qaytadi.
 - **Qo'lda boshqarish:** «+ Xodim» (PINFL kiritilsa, ism bazadan o'zi chiqadi), «Chiqarish» va «Qaytarish». Chiqarilgan xodim shablonga tushmaydi.
 - **Saqlash** bitta xarajat yozuvini yaratadi: yo'nalish Tax free, modda «Ish haqi» (`PAYROLL_BASE`), sanasi oyning oxirgi kuni. Shu oyga oldin vedomost saqlangan bo'lsa, ikki yo'l bor: «Almashtirish» (oldingisi bekor qilinadi) yoki «Qo'shish». Bir xil vedomost ikki marta saqlanmaydi.
