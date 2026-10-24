@@ -38,6 +38,13 @@ export class UpdateExpenseDto {
   @IsString()
   districtId?: string | null;
 
+  /** Yo'nalish; null yoki '' — yo'nalish olib tashlanadi */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  segment?: string | null;
+
+
 
   @IsOptional()
   @IsString()

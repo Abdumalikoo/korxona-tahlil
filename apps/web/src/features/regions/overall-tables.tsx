@@ -7,7 +7,7 @@ import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useState, type ReactNode } from 'react';
-import type { UnitPart, UnitStats } from './api';
+import { KIND_ORDER, type UnitPart, type UnitStats } from './api';
 import type { CoverResult } from './center-cover';
 
 // ═══════════════════════════════════════════════════════════
@@ -74,7 +74,7 @@ function Head({ title, hint, children }: { title: string; hint?: ReactNode; chil
   );
 }
 
-const kindOrder = (s: UnitStats) => (s.unit.kind === 'center' ? 0 : s.unit.kind === 'unassigned' ? 2 : 1);
+const kindOrder = (s: UnitStats) => KIND_ORDER[s.unit.kind];
 
 // ───────────────────────── Qator ichi: tarkib ─────────────────────────
 
@@ -152,7 +152,7 @@ export function UnitDetail({ s, fmt, onOpen }: { s: UnitStats; fmt: Fmt; onOpen:
           </span>
         )}
         <button type="button" onClick={onOpen} className="ml-auto font-semibold text-brand-700 hover:underline">
-          {s.unit.kind === 'center' ? 'Markaz sahifasini ochish ›' : s.unit.kind === 'unassigned' ? "Biriktirilmagan yozuvlarni ko'rish ›" : 'Hudud sahifasini ochish ›'}
+          {s.unit.kind === 'center' ? 'Markaz sahifasini ochish ›' : s.unit.kind === 'unassigned' ? "Biriktirilmagan yozuvlarni ko'rish ›" : s.unit.kind === 'segment' ? "Solishtirmada ko'rish ›" : 'Hudud sahifasini ochish ›'}
         </button>
       </div>
     </div>
@@ -263,6 +263,7 @@ export function CompareTable({ units, compareLabel, onOpen }: { units: UnitStats
                   <td className={cn('sticky left-0 z-[1] px-2.5 py-2 font-medium', isCenter ? 'bg-[#f6f4fc]' : 'bg-white')}>
                     {s.unit.name}
                     {s.unit.kind === 'unassigned' && <span className="block text-[10.5px] text-(--color-text-faint)">hududi ko&apos;rsatilmagan</span>}
+                    {s.unit.kind === 'segment' && <span className="block text-[10.5px] text-(--color-text-faint)">yo&apos;nalish</span>}
                   </td>
                   {cells(tot([s]), false, isCenter)}
                 </tr>

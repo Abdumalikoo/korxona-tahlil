@@ -174,6 +174,8 @@ export class UnassignedService {
       deletedAt: null,
       regionCode: null,
       departmentId: null,
+      // Yo'nalishga (Tax free, Marksheyder …) yozilganlar biriktirilmagan emas
+      segment: null,
       date: { gte: start, lt: end },
       ...(section !== 'ALL' ? { section } : {}),
     };

@@ -178,7 +178,7 @@ export function drivers(
 export interface UnitStat {
   key: string;
   name: string;
-  kind: 'region' | 'center' | 'none';
+  kind: 'region' | 'center' | 'segment' | 'none';
   income: bigint;
   expense: bigint;
   result: bigint;
@@ -208,7 +208,7 @@ export function unitStats(incomes: MoneyRow[], expenses: MoneyRow[], names: Map<
     out.push({
       key,
       name: names.get(key) ?? key,
-      kind: key.startsWith('r:') ? 'region' : key === 'center' ? 'center' : 'none',
+      kind: key.startsWith('r:') ? 'region' : key === 'center' ? 'center' : key.startsWith('s:') ? 'segment' : 'none',
       income,
       expense,
       result,

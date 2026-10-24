@@ -42,10 +42,10 @@ export class ExpensesReport {
     const detailed = (
       await this.prisma.expense.findMany({
         where,
-        select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, counterparty: true, description: true, paymentStatus: true, source: true },
+        select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, counterparty: true, description: true, paymentStatus: true, source: true, segment: true },
       })
     )
-      .map((r) => ({ ...r, amount: Number(r.amountTiyin) / 100, unit: unitKeyOf(r.regionCode, r.departmentId) }))
+      .map((r) => ({ ...r, amount: Number(r.amountTiyin) / 100, unit: unitKeyOf(r.regionCode, r.departmentId, r.segment) }))
       .filter((r) => unit === 'all' || r.unit === unit);
 
     // ─────────── 1. Umumiy ───────────

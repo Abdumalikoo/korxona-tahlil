@@ -3,7 +3,8 @@ import { AuditService } from '../audit/audit.service';
 import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { bounds, parseDay, trendMonths } from '../structure/structure.engine';
-import { ALWAYS_CENTER, ASSET_GROUP_CODES, ensureCenterCategories, expandCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, POLICY_KEY, readPolicy, writePolicy } from './policy.util';
+import { SEGMENTS, isSegment, segmentLabel } from '../../common/segments/segments';
+import { ALWAYS_CENTER, ASSET_GROUP_CODES, ensureCenterCategories, expandCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, POLICY_KEY, policyRouting, readPolicy, writePolicy } from './policy.util';
 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
@@ -34,6 +35,8 @@ export interface PolicyCategory {
   locked: boolean;
   /** Nima uchun o'zgartirib bo'lmaydi */
   lockedReason?: string;
+  /** Amaldagi to'lovchi: 'region' — yozilgan joyida, 'center' — Markaz, yoki yo'nalish kodi (TAX_FREE …) */
+  payer: string;
 }
 
 /** Modda bo'yicha davrdagi xarajat: qayerda yozilgani */
@@ -45,6 +48,8 @@ export interface CategoryAmount {
   centerTiyin: string;
   /** Hudud ham, bo'lim ham ko'rsatilmagan */
   noneTiyin: string;
+  /** Yo'nalishlarda (Tax free, Marksheyder …) yozilgan */
+  segmentTiyin: string;
   count: number;
 }
 
@@ -114,7 +119,7 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     }, 8_000);
   }
 
-  async get(): Promise<{ categories: PolicyCategory[]; centerCategories: string[]; excludeCategories: string[]; recommended: { parent: typeof RECOMMENDED_PARENT; items: typeof RECOMMENDED; missing: number }; payrollComponents: PayrollComponentOption[] }> {
+  async get(): Promise<{ categories: PolicyCategory[]; centerCategories: string[]; excludeCategories: string[]; payers: Record<string, string>; payerOptions: { code: string; label: string }[]; recommended: { parent: typeof RECOMMENDED_PARENT; items: typeof RECOMMENDED; missing: number }; payrollComponents: PayrollComponentOption[] }> {
     await ensureCenterCategories(this.prisma).catch(() => null);
     const [policy, cats, components] = await Promise.all([
       readPolicy(this.prisma),
@@ -126,6 +131,7 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     const selected = new Set(policy.chosenCategories.filter((c) => known.has(c)));
     const excluded = policy.excludedCategories.filter((c) => known.has(c));
     const all = expandCategories([...selected, ...ALWAYS_CENTER, ...excluded.map((c) => `!${c}`)], cats);
+    const routing = policyRouting({ centerCategories: [...selected, ...ALWAYS_CENTER, ...excluded.map((c) => `!${c}`)], payers: policy.payers }, cats);
     const missing = [RECOMMENDED_PARENT, ...RECOMMENDED].filter((r) => !known.has(r.code)).length;
     const catLabel = new Map(cats.map((c) => [c.code, c.label]));
     const CATEGORY_LABEL: Record<string, string> = { ASOSIY: 'Asosiy ish haqi', TATIL: "Ta'til va kasallik", PREMIYA: 'Premiyalar', KOMPENSATSIYA: 'Kompensatsiyalar', USTAMA: 'Ustamalar', BOSHQA: 'Boshqa' };
@@ -142,10 +148,15 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     return {
       categories: cats.map((c) => {
         const reason = lockedReason(c.code);
-        return { code: c.code, label: c.label, parentCode: c.parentCode, isLeaf: c.isLeaf, isActive: c.isActive, selected: selected.has(c.code), inherited: !selected.has(c.code) && (all.has(c.code) || taxLocked.has(c.code)), locked: Boolean(reason), ...(reason ? { lockedReason: reason } : {}) };
+        const moved = all.has(c.code) || taxLocked.has(c.code) || Boolean(reason);
+        const key = moved ? (reason ? 'center' : routing.payerKey(c.code)) : 'region';
+        const payer = key.startsWith('s:') ? key.slice(2) : key;
+        return { code: c.code, label: c.label, parentCode: c.parentCode, isLeaf: c.isLeaf, isActive: c.isActive, selected: selected.has(c.code), inherited: !selected.has(c.code) && (all.has(c.code) || taxLocked.has(c.code)), locked: Boolean(reason), ...(reason ? { lockedReason: reason } : {}), payer };
       }),
       centerCategories: [...selected],
       excludeCategories: excluded,
+      payers: policy.payers,
+      payerOptions: [{ code: 'center', label: 'Markaz' }, ...SEGMENTS.map((x) => ({ code: x.code, label: x.label }))],
       recommended: { parent: RECOMMENDED_PARENT, items: RECOMMENDED, missing },
       payrollComponents: components.map((c) => {
         const target = PAYROLL_CENTER_CATEGORY[c.code]?.code ?? PAYROLL_CENTER_OTHER.code;
@@ -180,8 +191,9 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     return report;
   }
 
-  async save(codesInput: unknown, userId: string, excludeInput?: unknown) {
+  async save(codesInput: unknown, userId: string, excludeInput?: unknown, payersInput?: unknown) {
     if (!Array.isArray(codesInput)) throw new BadRequestException("Moddalar ro'yxati kerak");
+    if (payersInput !== undefined && (payersInput === null || typeof payersInput !== 'object' || Array.isArray(payersInput))) throw new BadRequestException("To'lovchilar ro'yxati noto'g'ri");
     if (excludeInput !== undefined && !Array.isArray(excludeInput)) throw new BadRequestException("Istisnolar ro'yxati noto'g'ri");
     const clean = (list: unknown[]) => [...new Set(list.filter((c): c is string => typeof c === 'string' && c.length > 0 && c.length <= 64))];
     const codes = clean(codesInput);
@@ -189,14 +201,22 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     const known = new Set((await this.prisma.category.findMany({ where: { code: { in: [...codes, ...excludes] } }, select: { code: true } })).map((c) => c.code));
     const unknown = [...codes, ...excludes].filter((c) => !known.has(c));
     if (unknown.length) throw new BadRequestException(`Modda topilmadi: ${unknown.slice(0, 5).join(', ')}`);
+    // To'lovchi: faqat belgilangan moddalar uchun va faqat ma'lum yo'nalish (Markaz — yozilmaydi, standart)
+    const payers: Record<string, string> = {};
+    for (const [code, seg] of Object.entries((payersInput ?? {}) as Record<string, unknown>)) {
+      if (seg === 'center' || seg === null || seg === '') continue;
+      if (!isSegment(seg)) throw new BadRequestException(`Yo'nalish noto'g'ri: ${String(seg).slice(0, 30)}`);
+      if (!codes.includes(code)) throw new BadRequestException(`To'lovchi faqat belgilangan moddaga beriladi: ${code.slice(0, 64)}`);
+      payers[code] = seg;
+    }
     const before = await readPolicy(this.prisma);
-    await writePolicy(this.prisma, { centerCategories: codes, excludeCategories: excludes });
+    await writePolicy(this.prisma, { centerCategories: codes, excludeCategories: excludes, ...(payersInput !== undefined ? { payers } : {}) });
     await this.audit.log({
       userId,
       action: 'UPDATE',
       entity: 'expense_policy',
       entityId: POLICY_KEY,
-      summary: `Xarajatlar siyosati: Markaz hisobidagi moddalar ${before.chosenCategories.length} → ${codes.filter((c) => !ALWAYS_CENTER.includes(c)).length}${excludes.length ? `, hududda qoldirilgan ichki moddalar: ${excludes.length}` : ''}`,
+      summary: `Xarajatlar siyosati: boshqa hisobdan to'lanadigan moddalar ${before.chosenCategories.length} → ${codes.filter((c) => !ALWAYS_CENTER.includes(c)).length}${excludes.length ? `, yozilgan joyida qoldirilgan ichki moddalar: ${excludes.length}` : ''}${Object.keys(payers).length ? `; yo'nalishlar hisobidan: ${Object.entries(payers).slice(0, 8).map(([c, x]) => `${c} → ${segmentLabel(x)}`).join(', ')}` : ''}`,
     });
     return this.get();
   }
@@ -236,16 +256,17 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     if ((b - a) / 86_400_000 > MAX_DAYS) throw new BadRequestException('Davr 3 yildan oshmasin');
     const { start, end } = bounds(range);
     const groups = await this.prisma.expense.groupBy({
-      by: ['categoryCode', 'regionCode', 'departmentId'],
+      by: ['categoryCode', 'regionCode', 'departmentId', 'segment'],
       where: { deletedAt: null, date: { gte: start, lt: end } },
       _sum: { amountTiyin: true },
       _count: { _all: true },
     });
-    const map = new Map<string, { region: bigint; center: bigint; none: bigint; count: number }>();
+    const map = new Map<string, { region: bigint; center: bigint; none: bigint; segment: bigint; count: number }>();
     for (const g of groups) {
-      const r = map.get(g.categoryCode) ?? { region: 0n, center: 0n, none: 0n, count: 0 };
+      const r = map.get(g.categoryCode) ?? { region: 0n, center: 0n, none: 0n, segment: 0n, count: 0 };
       const v = g._sum.amountTiyin ?? 0n;
-      if (g.regionCode !== null && g.regionCode !== 0) r.region += v;
+      if ((g as { segment?: string | null }).segment) r.segment += v;
+      else if (g.regionCode !== null && g.regionCode !== 0) r.region += v;
       else if (g.regionCode === 0 || g.departmentId) r.center += v;
       else r.none += v;
       r.count += g._count._all;
@@ -253,7 +274,7 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     }
     return {
       range,
-      rows: [...map.entries()].map(([code, r]) => ({ code, regionTiyin: r.region.toString(), centerTiyin: r.center.toString(), noneTiyin: r.none.toString(), count: r.count })),
+      rows: [...map.entries()].map(([code, r]) => ({ code, regionTiyin: r.region.toString(), centerTiyin: r.center.toString(), noneTiyin: r.none.toString(), segmentTiyin: r.segment.toString(), count: r.count })),
     };
   }
 
@@ -275,7 +296,9 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true } }),
       this.prisma.region.findMany({ select: { code: true, name: true } }),
     ]);
-    const center = expandCategories(policy.centerCategories, cats);
+    // Markaz hisobidagi moddalar (yo'nalishlar hisobidagilari — Markazga kirmaydi)
+    const routing = policyRouting(policy, cats);
+    const center = new Set([...routing.moved].filter((c) => routing.payerKey(c) === 'center'));
     const label = new Map(cats.map((c) => [c.code, c.label]));
     const parent = new Map(cats.map((c) => [c.code, c.parentCode]));
     const regionName = new Map(regions.map((r) => [r.code, r.name]));
@@ -284,7 +307,7 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
       where: {
         deletedAt: null,
         date: { gte: start, lt: end },
-        OR: [{ regionCode: 0 }, { regionCode: null, departmentId: { not: null } }, ...(center.size ? [{ categoryCode: { in: [...center] } }] : [])],
+        OR: [{ regionCode: 0, segment: null }, { regionCode: null, departmentId: { not: null }, segment: null }, ...(center.size ? [{ categoryCode: { in: [...center] } }] : [])],
       },
       select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true },
     });
@@ -304,6 +327,8 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
       m.set(key, p);
     };
     for (const r of rows) {
+      // Yo'nalish hisobidagi moddalar Markaz xarajatiga kirmaydi
+      if (routing.moved.has(r.categoryCode) && routing.payerKey(r.categoryCode) !== 'center') continue;
       const top = parent.get(r.categoryCode) ?? r.categoryCode;
       const mi = monthIndex.get(monthOf(r.date));
       if (ASSET_GROUP_CODES.includes(r.categoryCode)) {

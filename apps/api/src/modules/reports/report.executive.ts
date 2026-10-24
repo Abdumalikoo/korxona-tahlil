@@ -139,6 +139,8 @@ export class ExecutiveReport {
     const regions = units.filter((u) => u.kind === 'region');
     const center = units.find((u) => u.kind === 'center') ?? null;
     const unassigned = units.find((u) => u.kind === 'none' && (u.income !== 0n || u.expense !== 0n)) ?? null;
+    // Yo'nalishlar (Tax free, Marksheyder …) — reytingga kirmaydi, Markaz jadvalida alohida qator
+    const segmentUnits = units.filter((u) => u.kind === 'segment' && (u.income !== 0n || u.expense !== 0n));
     const withData = regions.filter((u) => u.income !== 0n || u.expense !== 0n);
     const rankResult = ranks(withData, (u) => u.key, (u) => u.result);
     const rankMargin = ranks(withData, (u) => u.key, (u) => u.margin);
@@ -471,13 +473,14 @@ export class ExecutiveReport {
       },
       {
         type: 'table',
-        title: 'Markaz (reytingga kirmaydi)',
+        title: "Markaz va yo'nalishlar (reytingga kirmaydi)",
         columns: [{ label: "Ko'rsatkich", width: 2.2 }, { label: 'Qiymat', format: 'money' }],
         rows: [
           ['Markaz xarajati (siyosat bo‘yicha Markazga tegishli moddalar)', toSom(coverage.centerExpense)],
           ["Markazning o'z daromadi", toSom(coverage.centerIncome)],
           ['Markaz sof xarajati (xarajat − daromad)', toSom(coverage.centerNet)],
           ['Hududlarning jami natijasi', toSom(coverage.regionsResult)],
+          ...segmentUnits.map((u) => [`${u.name} natijasi (yo'nalish)`, toSom(u.result)] as Cell[]),
           ...(unassigned ? [['Hududga biriktirilmagan yozuvlar natijasi', toSom(unassigned.result)] as Cell[]] : []),
         ],
         note: `Markazni qoplash: ${coverage.coverageNet === null ? 'hisoblanmaydi (Markaz sof xarajati ≤ 0)' : fmtPct(coverage.coverageNet)} = hududlar natijasi ÷ Markaz sof xarajati × 100 (Solishtirma bilan bir xil). Yalpi xarajatga nisbatan: ${coverage.coverageGross === null ? 'hisoblanmaydi' : fmtPct(coverage.coverageGross)}. Markaz xarajati hududlarga taqsimlanmaydi.`,

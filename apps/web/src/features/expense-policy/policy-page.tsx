@@ -106,10 +106,10 @@ export function ExpensePolicyPage() {
     }
   }, [policy.data]);
 
-  const save = async (include: string[], exclude: string[]) => {
+  const save = async (include: string[], exclude: string[], payers: Record<string, string>) => {
     setSaving(true);
     try {
-      await policyApi.save(include, exclude);
+      await policyApi.save(include, exclude, payers);
       setToast({ message: "Siyosat saqlandi — Solishtirma va hisob-kitoblar yangilandi" });
       policy.reload();
       summary.reload();
@@ -170,7 +170,7 @@ export function ExpensePolicyPage() {
 
   return (
     <>
-      <PageHeader title="Xarajatlar siyosati" description="Qaysi xarajatlar Markaz hisobidan — hudud xodimlari uchun bo'lsa ham" />
+      <PageHeader title="Xarajatlar siyosati" description="Har bir xarajat moddasi kim hisobidan: yozilgan joyida, Markaz yoki yo'nalish (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari)" />
       <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-6">
 
         <div className="flex flex-wrap items-center gap-2">
@@ -190,7 +190,7 @@ export function ExpensePolicyPage() {
             ))}
           </div>
         </div>
-        {/* ── Moddalar: Markaz yoki Hudud ── */}
+        {/* ── Moddalar: kim hisobidan ── */}
         {policy.data && policy.data.recommended.missing > 0 && isAdmin && (
           <div className="flex flex-wrap items-center gap-3 rounded-(--radius-card) border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs text-sky-900">
             <span className="min-w-0 flex-1">
@@ -204,7 +204,7 @@ export function ExpensePolicyPage() {
         {!policy.data ? (
           <Card className="p-6 text-center text-sm text-(--color-text-muted)">{policy.error ? `Yuklab bo'lmadi: ${policy.error}` : 'Yuklanmoqda…'}</Card>
         ) : (
-          <CategoryBoard data={policy.data} amounts={amounts.data?.rows ?? null} range={{ from, to }} isAdmin={isAdmin} saving={saving} onSave={(inc, exc) => void save(inc, exc)} />
+          <CategoryBoard data={policy.data} amounts={amounts.data?.rows ?? null} range={{ from, to }} isAdmin={isAdmin} saving={saving} onSave={(inc, exc, pay) => void save(inc, exc, pay)} />
         )}
 
         {/* ── Markaz xarajati: ikki guruh ── */}

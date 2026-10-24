@@ -56,6 +56,8 @@ export interface CreateExpensePayload {
   regionCode?: number;
   /** Hudud ichidagi tuman ('' — tumansiz) */
   districtId?: string;
+  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA ('' — yo'q) */
+  segment?: string;
   description?: string;
   paymentMethod?: PaymentMethod;
   documentNo?: string;

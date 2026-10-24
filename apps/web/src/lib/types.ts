@@ -106,6 +106,8 @@ export interface Expense {
   regionCode: number | null;
   /** Hudud ichidagi tuman */
   districtId?: string | null;
+  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA (bo'lsa — hudud va bo'lim bo'sh) */
+  segment?: string | null;
 
   description: string | null;
   paymentMethod: PaymentMethod;
@@ -141,6 +143,11 @@ export interface Income {
   paidTiyin: string;
   categoryCode: string;
   departmentId: string | null;
+  /** Hudud kodi: 0 — Markaz, boshqa — hudud */
+  regionCode?: number | null;
+  districtId?: string | null;
+  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA */
+  segment?: string | null;
   clientName: string | null;
   description: string | null;
   contractNo: string | null;
@@ -151,6 +158,8 @@ export interface Income {
   createdAt: string;
   category: CategoryRef;
   department: DepartmentRef | null;
+  region?: { code: number; name: string } | null;
+  district?: { id: string; name: string } | null;
   createdBy?: UserRef;
 }
 

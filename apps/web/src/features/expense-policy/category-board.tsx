@@ -4,60 +4,78 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { IconChevronRight, IconSearch } from '@/components/ui/icons';
 import { formatDate, formatSum, tiyinToSum } from '@/lib/format';
+import { SEGMENTS, segmentLabel } from '@/lib/segments';
 import { cn } from '@/lib/utils';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { CategoryAmount, PolicyCategory, PolicyData } from './api';
 
 // ═══════════════════════════════════════════════════════════
-// Xarajatlar siyosati › Moddalar: har bir xarajat moddasi kim hisobidan — Markaz yoki Hudud.
-//  • Ro'yxat dasturdagi xarajat moddalaridan (Sozlamalar › Moddalar) o'zi shakllanadi — yangi modda qo'shilsa, shu yerda paydo bo'ladi;
-//    Markazga o'tkazilgan ota moddaga keyin qo'shilgan ichki modda ham avtomatik Markaz hisobida bo'ladi.
-//  • Tepada ikki tugma: belgilangan moddalarni bir bosishda Markazga yoki Hududga o'tkazish; har qatorda ham shu ikki tugma.
-//  • «Markaz» — modda qaysi hududda yozilgan bo'lsa ham Markaz xarajati; «Hudud» — qayerda yozilgan bo'lsa, o'sha yerda qoladi.
-//  • Har qatorda davrdagi summa: hududlarda va Markazda yozilgani — o'tkazish nimani o'zgartirishi darhol ko'rinadi.
+// Xarajatlar siyosati › Moddalar: har bir xarajat moddasi KIM HISOBIDAN.
+//  • «Yozilgan joyida» — qayerda yozilgan bo'lsa (hudud, Markaz, yo'nalish), o'sha yerda qoladi;
+//  • «Markaz» — qayerda yozilgan bo'lsa ham Markaz xarajati;
+//  • Yo'nalish (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) — qayerda yozilgan bo'lsa ham o'sha yo'nalish xarajati.
+//  • Ota moddaga berilgan tanlov ichki moddalarga ham o'tadi; ichki moddada alohida tanlash mumkin (eng yaqini qaror qiladi).
+//  • Ro'yxat dasturdagi xarajat moddalaridan o'zi shakllanadi; har qatorda davrdagi summa — o'tkazish nimani o'zgartirishi darhol ko'rinadi.
 // ═══════════════════════════════════════════════════════════
 
-type State = 'center' | 'region' | 'mixed';
-type View = 'all' | 'center' | 'region' | 'used';
+/** 'region' — yozilgan joyida, 'center' — Markaz, yoki yo'nalish kodi */
+type Payer = string;
+type State = Payer | 'mixed';
+type View = 'all' | 'region' | 'center' | 'segment' | 'used';
+
+const REGION = 'region';
+const CENTER = 'center';
 
 interface Amt {
   region: number;
-  center: number;
-  none: number;
+  other: number;
   count: number;
 }
-const ZERO: Amt = { region: 0, center: 0, none: 0, count: 0 };
-const addAmt = (a: Amt, b: Amt): Amt => ({ region: a.region + b.region, center: a.center + b.center, none: a.none + b.none, count: a.count + b.count });
+const ZERO: Amt = { region: 0, other: 0, count: 0 };
+const addAmt = (a: Amt, b: Amt): Amt => ({ region: a.region + b.region, other: a.other + b.other, count: a.count + b.count });
 
 function som(tiyin: number): string {
   return tiyin ? formatSum(tiyinToSum(Math.round(tiyin))) : '—';
 }
 
-const CENTER_CLS = 'bg-brand-600 text-white';
-const REGION_CLS = 'bg-emerald-600 text-white';
+/** To'lovchi tanlovlari (tartib bilan) */
+const PAYERS: { code: Payer; label: string; short: string }[] = [
+  { code: REGION, label: 'Yozilgan joyida', short: 'Joyida' },
+  { code: CENTER, label: 'Markaz hisobidan', short: 'Markaz' },
+  ...SEGMENTS.map((s) => ({ code: s.code as Payer, label: `${s.label} hisobidan`, short: s.label })),
+];
 
-/** Bir qatordagi «Markaz | Hudud» tugmalari */
-function Toggle({ state, disabled, onChange, small }: { state: State; disabled?: boolean; onChange: (toCenter: boolean) => void; small?: boolean }) {
-  const btn = (on: boolean, label: string, cls: string, toCenter: boolean) => (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onChange(toCenter)}
-      aria-pressed={on}
-      className={cn(
-        'rounded-[calc(var(--radius-control)-2px)] font-semibold transition-colors disabled:cursor-not-allowed',
-        small ? 'px-2.5 py-1 text-[11px]' : 'px-3 py-1.5 text-xs',
-        on ? cls : 'text-(--color-text-muted) hover:bg-white hover:text-heading',
-      )}
-    >
-      {label}
-    </button>
-  );
+const payerName = (p: Payer) => (p === REGION ? 'Yozilgan joyida' : p === CENTER ? 'Markaz' : segmentLabel(p));
+
+/** Rang: joyida — yashil, Markaz — ko'k, yo'nalishlar — binafsha */
+function payerTone(p: State): string {
+  if (p === 'mixed') return 'border-amber-300 bg-amber-50 text-amber-900';
+  if (p === REGION) return 'border-emerald-300 bg-emerald-50 text-emerald-800';
+  if (p === CENTER) return 'border-brand-300 bg-brand-50 text-brand-800';
+  return 'border-violet-300 bg-violet-50 text-violet-800';
+}
+
+/** Qatordagi to'lovchi tanlovi */
+function PayerSelect({ state, disabled, onChange, label }: { state: State; disabled?: boolean; onChange: (p: Payer) => void; label: string }) {
   return (
-    <div className={cn('inline-flex gap-0.5 rounded-(--radius-control) bg-(--color-surface-sunken) p-0.5', state === 'mixed' && 'ring-1 ring-amber-300')} title={state === 'mixed' ? "Aralash: ichki moddalarning bir qismi Markazda, bir qismi hududda" : undefined}>
-      {btn(state === 'center', 'Markaz', CENTER_CLS, true)}
-      {btn(state === 'region', 'Hudud', REGION_CLS, false)}
-    </div>
+    <select
+      value={state === 'mixed' ? '' : state}
+      disabled={disabled}
+      aria-label={`${label} — kim hisobidan`}
+      onChange={(e) => e.target.value && onChange(e.target.value)}
+      className={cn('h-8 w-full rounded-(--radius-control) border px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-70', payerTone(state))}
+    >
+      {state === 'mixed' && (
+        <option value="" disabled>
+          Aralash
+        </option>
+      )}
+      {PAYERS.map((p) => (
+        <option key={p.code} value={p.code}>
+          {p.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -74,7 +92,7 @@ export function CategoryBoard({
   range: { from: string; to: string };
   isAdmin: boolean;
   saving: boolean;
-  onSave: (include: string[], exclude: string[]) => void;
+  onSave: (include: string[], exclude: string[], payers: Record<string, string>) => void;
 }) {
   const cats = data.categories;
   const byCode = useMemo(() => new Map(cats.map((c) => [c.code, c])), [cats]);
@@ -87,14 +105,21 @@ export function CategoryBoard({
     return m;
   }, [cats, byCode]);
 
-  /** Saqlangan holat: Markaz hisobidagi moddalar */
-  const initial = useMemo(() => new Set(cats.filter((c) => c.selected || c.inherited || c.locked).map((c) => c.code)), [cats]);
-  const [eff, setEff] = useState<Set<string>>(initial);
+  /** Saqlangan holat: har modda kim hisobidan (server hisoblagan) */
+  const initial = useMemo(() => {
+    const m = new Map<string, Payer>();
+    for (const c of cats) m.set(c.code, c.locked ? CENTER : (c.payer ?? (c.selected || c.inherited ? CENTER : REGION)));
+    return m;
+  }, [cats]);
+  const [eff, setEff] = useState<Map<string, Payer>>(initial);
   useEffect(() => setEff(initial), [initial]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState<Payer>(CENTER);
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [q, setQ] = useState('');
   const [view, setView] = useState<View>('all');
+
+  const payerOf = (code: string): Payer => eff.get(code) ?? REGION;
 
   // Modda va uning barcha ichki moddalari
   const subtree = useMemo(() => {
@@ -109,63 +134,84 @@ export function CategoryBoard({
     return (code: string) => walk(code, 0);
   }, [children]);
 
-  // Summalar (ota moddada — ichkilari bilan)
+  // Summalar (ota moddada — ichkilari bilan): hududlarda yozilgan va boshqa joylarda (Markaz, yo'nalishlar, ko'rsatilmagan)
   const own = useMemo(() => {
     const m = new Map<string, Amt>();
-    for (const a of amounts ?? []) m.set(a.code, { region: Number(a.regionTiyin), center: Number(a.centerTiyin), none: Number(a.noneTiyin), count: a.count });
+    for (const a of amounts ?? []) m.set(a.code, { region: Number(a.regionTiyin), other: Number(a.centerTiyin) + Number(a.noneTiyin) + Number(a.segmentTiyin ?? 0), count: a.count });
     return m;
   }, [amounts]);
   const total = (code: string): Amt => subtree(code).reduce((acc, c) => addAmt(acc, own.get(c) ?? ZERO), ZERO);
 
   const stateOf = (code: string): State => {
-    const list = subtree(code);
-    const n = list.filter((c) => eff.has(c)).length;
-    return n === list.length ? 'center' : n === 0 ? 'region' : 'mixed';
+    const set = new Set(subtree(code).map(payerOf));
+    return set.size === 1 ? [...set][0]! : 'mixed';
   };
 
-  const setNodes = (codes: string[], toCenter: boolean) => {
-    const next = new Set(eff);
+  const setNodes = (codes: string[], payer: Payer) => {
+    const next = new Map(eff);
     for (const code of codes)
       for (const c of subtree(code)) {
         if (byCode.get(c)?.locked) continue;
-        if (toCenter) next.add(c);
-        else next.delete(c);
+        next.set(c, payer);
       }
     setEff(next);
   };
 
-  /** Saqlash uchun: eng yaqin belgi qaror qiladi — faqat ota-onasidan farq qiladigan moddalar yoziladi */
-  const compress = (): { include: string[]; exclude: string[] } => {
+  /**
+   * Saqlash uchun siqish: eng yaqin belgi qaror qiladi — faqat ota-onasidan farq qiladigan moddalar yoziladi.
+   * include — boshqa hisobga o'tadiganlar (Markaz yoki yo'nalish), exclude — ota modda o'tgan bo'lsa ham joyida qoladiganlar,
+   * payers — include ichidagi yo'nalish hisobidagilar.
+   */
+  const compress = (): { include: string[]; exclude: string[]; payers: Record<string, string> } => {
     const include: string[] = [];
     const exclude: string[] = [];
-    const walk = (list: PolicyCategory[], inherited: boolean) => {
+    const payers: Record<string, string> = {};
+    const walk = (list: PolicyCategory[], inherited: Payer) => {
       for (const c of list) {
-        const on = eff.has(c.code);
-        if (!c.locked && on !== inherited) (on ? include : exclude).push(c.code);
-        walk(children.get(c.code) ?? [], c.locked ? inherited : on);
+        const p = payerOf(c.code);
+        if (!c.locked && p !== inherited) {
+          if (p === REGION) exclude.push(c.code);
+          else {
+            include.push(c.code);
+            if (p !== CENTER) payers[c.code] = p;
+          }
+        }
+        walk(children.get(c.code) ?? [], c.locked ? inherited : p);
       }
     };
-    walk(children.get(null) ?? [], false);
-    return { include, exclude };
+    walk(children.get(null) ?? [], REGION);
+    return { include, exclude, payers };
   };
 
-  const changed = cats.filter((c) => eff.has(c.code) !== initial.has(c.code));
+  const changed = cats.filter((c) => payerOf(c.code) !== initial.get(c.code));
 
-  // Umumiy ta'sir: hududlarda yozilgan xarajatdan qancha Markazga o'tadi
-  let toCenter = 0;
+  // Ta'sir: hududlarda yozilgan xarajatdan qanchasi boshqa hisobga o'tadi (kimga)
+  let moved = 0;
   let stays = 0;
-  let toCenterSaved = 0;
+  let movedSaved = 0;
+  const byPayer = new Map<Payer, number>();
   for (const [code, a] of own) {
-    if (eff.has(code)) toCenter += a.region;
-    else stays += a.region;
-    if (initial.has(code)) toCenterSaved += a.region;
+    const p = payerOf(code);
+    if (p !== REGION) {
+      moved += a.region;
+      byPayer.set(p, (byPayer.get(p) ?? 0) + a.region);
+    } else stays += a.region;
+    if ((initial.get(code) ?? REGION) !== REGION) movedSaved += a.region;
   }
-  const delta = toCenter - toCenterSaved;
+  const delta = moved - movedSaved;
 
   const term = q.trim().toLowerCase();
   const matches = (c: PolicyCategory): boolean => {
     const st = stateOf(c.code);
-    const okView = view === 'all' || (view === 'center' ? st !== 'region' : view === 'region' ? st !== 'center' : total(c.code).count > 0);
+    const okView =
+      view === 'all' ||
+      (view === 'used'
+        ? total(c.code).count > 0
+        : view === 'region'
+          ? st === REGION || st === 'mixed'
+          : view === 'center'
+            ? st === CENTER || st === 'mixed'
+            : st === 'mixed' || (st !== REGION && st !== CENTER));
     const okTerm = !term || c.label.toLowerCase().includes(term) || c.code.toLowerCase().includes(term);
     return (okView && okTerm) || (children.get(c.code) ?? []).some(matches);
   };
@@ -177,6 +223,19 @@ export function CategoryBoard({
     setPicked(next);
   };
 
+  const resultText = (st: State, a: Amt, excludedUnderParent: boolean): ReactNode => {
+    if (st === 'mixed') return <span className="text-amber-800">Aralash — ichki moddalarga qarang</span>;
+    if (st === REGION) return <span className="text-emerald-700">{excludedUnderParent ? 'Yozilgan joyida qoladi (ota modda boshqa hisobda bo‘lsa ham)' : 'Yozilgan joyida qoladi'}</span>;
+    const who = st === CENTER ? 'Markaz' : segmentLabel(st);
+    return a.region ? (
+      <span className={st === CENTER ? 'text-brand-700' : 'text-violet-700'}>
+        Hududlardagi <b className="money">{som(a.region)}</b> → {who} xarajati
+      </span>
+    ) : (
+      <span className={st === CENTER ? 'text-brand-700' : 'text-violet-700'}>{who} hisobidan</span>
+    );
+  };
+
   const rows: ReactNode[] = [];
   const walk = (parent: string | null, depth: number) => {
     for (const c of children.get(parent) ?? []) {
@@ -186,7 +245,7 @@ export function CategoryBoard({
       const st = stateOf(c.code);
       const a = total(c.code);
       const lockedHere = c.locked || subtree(c.code).every((x) => byCode.get(x)?.locked);
-      const excludedUnderCenter = !eff.has(c.code) && c.parentCode && eff.has(c.parentCode);
+      const excludedUnderParent = payerOf(c.code) === REGION && Boolean(c.parentCode) && payerOf(c.parentCode!) !== REGION;
       rows.push(
         <tr key={c.code} className={cn('border-t border-(--color-line)', picked.has(c.code) && 'bg-brand-50/60', !c.isActive && 'opacity-60', depth === 0 && !picked.has(c.code) && 'bg-white')}>
           <td className="w-10 px-3 py-2">
@@ -197,7 +256,14 @@ export function CategoryBoard({
               {kids ? (
                 <button
                   type="button"
-                  onClick={() => setClosed((s) => { const n = new Set(s); if (n.has(c.code)) n.delete(c.code); else n.add(c.code); return n; })}
+                  onClick={() =>
+                    setClosed((s) => {
+                      const n = new Set(s);
+                      if (n.has(c.code)) n.delete(c.code);
+                      else n.add(c.code);
+                      return n;
+                    })
+                  }
                   className="flex size-6 shrink-0 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50"
                   aria-expanded={isOpen}
                 >
@@ -211,37 +277,21 @@ export function CategoryBoard({
               </span>
               {kids && <span className="shrink-0 text-[11px] text-(--color-text-faint)">{subtree(c.code).length - 1}</span>}
               {!c.isActive && <span className="shrink-0 rounded bg-(--color-surface-sunken) px-1.5 text-[10px] text-(--color-text-muted)">nofaol</span>}
-              {eff.has(c.code) !== initial.has(c.code) && <span className="shrink-0 rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800">o&apos;zgardi</span>}
+              {payerOf(c.code) !== initial.get(c.code) && <span className="shrink-0 rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800">o&apos;zgardi</span>}
             </div>
           </td>
           <td className="money px-2 py-2 text-right whitespace-nowrap">{som(a.region)}</td>
-          <td className="money px-2 py-2 text-right whitespace-nowrap text-(--color-text-muted)">{som(a.center + a.none)}</td>
-          <td className="px-2 py-2 text-center">
+          <td className="money px-2 py-2 text-right whitespace-nowrap text-(--color-text-muted)">{som(a.other)}</td>
+          <td className="w-52 px-2 py-2">
             {lockedHere ? (
               <span className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800" title={c.lockedReason}>
                 Markaz · qulflangan
               </span>
             ) : (
-              <Toggle state={st} disabled={!isAdmin} small={depth > 0} onChange={(v) => setNodes([c.code], v)} />
+              <PayerSelect state={st} disabled={!isAdmin} label={c.label} onChange={(p) => setNodes([c.code], p)} />
             )}
           </td>
-          <td className="px-3 py-2 text-xs">
-            {lockedHere ? (
-              <span className="text-(--color-text-muted)">{c.lockedReason ?? 'Har doim Markaz hisobidan'}</span>
-            ) : st === 'mixed' ? (
-              <span className="text-amber-800">Aralash — ichki moddalarga qarang</span>
-            ) : st === 'center' ? (
-              a.region ? (
-                <span className="text-brand-700">
-                  Hududlardagi <b className="money">{som(a.region)}</b> → Markaz xarajati
-                </span>
-              ) : (
-                <span className="text-brand-700">Markaz hisobidan</span>
-              )
-            ) : (
-              <span className="text-emerald-700">{excludedUnderCenter ? 'Hududda qoladi (ota modda Markazda bo‘lsa ham)' : 'Yozilgan joyida qoladi'}</span>
-            )}
-          </td>
+          <td className="px-3 py-2 text-xs">{lockedHere ? <span className="text-(--color-text-muted)">{c.lockedReason ?? 'Har doim Markaz hisobidan'}</span> : resultText(st, a, excludedUnderParent)}</td>
         </tr>,
       );
       if (kids && isOpen) walk(c.code, depth + 1);
@@ -250,22 +300,22 @@ export function CategoryBoard({
   walk(null, 0);
 
   const pickedList = [...picked];
-  const counts = { center: cats.filter((c) => eff.has(c.code)).length, region: cats.filter((c) => !eff.has(c.code)).length };
+  const counts = new Map<Payer, number>();
+  for (const c of cats) counts.set(payerOf(c.code), (counts.get(payerOf(c.code)) ?? 0) + 1);
 
   return (
     <Card className="overflow-hidden">
       <div className="space-y-3 border-b border-(--color-line) px-5 py-4">
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-base font-bold text-heading">Xarajat moddalari — kim hisobidan</p>
-            <p className="mt-0.5 text-xs text-(--color-text-muted)">
-              Ro&apos;yxat dasturdagi barcha xarajat moddalaridan o&apos;zi shakllanadi. <b className="text-brand-700">Markaz</b> — qaysi hududda yozilgan bo&apos;lsa ham Markaz xarajati;{' '}
-              <b className="text-emerald-700">Hudud</b> — yozilgan joyida qoladi. Summalar: {formatDate(range.from)} — {formatDate(range.to)}.
-            </p>
-          </div>
+        <div className="min-w-0">
+          <p className="text-base font-bold text-heading">Xarajat moddalari — kim hisobidan</p>
+          <p className="mt-0.5 text-xs text-(--color-text-muted)">
+            Ro&apos;yxat dasturdagi barcha xarajat moddalaridan o&apos;zi shakllanadi. <b className="text-emerald-700">Yozilgan joyida</b> — qayerda yozilgan bo&apos;lsa, o&apos;sha yerda qoladi;{' '}
+            <b className="text-brand-700">Markaz</b> yoki <b className="text-violet-700">yo&apos;nalish</b> (Tax free, Marksheyder, Fermer xo&apos;jaligi, Buxgalteriya xizmatlari) — qayerda yozilgan bo&apos;lsa ham shu hisobga o&apos;tadi.
+            Summalar: {formatDate(range.from)} — {formatDate(range.to)}.
+          </p>
         </div>
 
-        {/* Tepadagi ikki tugma: belgilanganlarni o'tkazish */}
+        {/* Belgilanganlarni bir bosishda o'tkazish */}
         <div className="flex flex-wrap items-center gap-2 rounded-(--radius-card) border border-(--color-line) bg-(--color-surface-muted) px-3 py-2.5">
           <span className="text-sm text-(--color-text-muted)">
             {picked.size ? (
@@ -276,44 +326,55 @@ export function CategoryBoard({
               'Moddalarni belgilang va o‘tkazing:'
             )}
           </span>
-          <Button
-            size="sm"
-            className="ml-auto"
-            disabled={!isAdmin || !picked.size}
-            onClick={() => {
-              setNodes(pickedList, true);
-              setPicked(new Set());
-            }}
-          >
-            → Markazga o&apos;tkazish
-          </Button>
-          <button
-            type="button"
-            disabled={!isAdmin || !picked.size}
-            onClick={() => {
-              setNodes(pickedList, false);
-              setPicked(new Set());
-            }}
-            className="h-8 rounded-(--radius-control) bg-emerald-600 px-3 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            → Hududga o&apos;tkazish
-          </button>
-          {picked.size > 0 && (
-            <button type="button" onClick={() => setPicked(new Set())} className="text-xs font-semibold text-(--color-text-muted) hover:text-heading">
-              Bekor qilish
-            </button>
-          )}
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <select
+              value={bulk}
+              onChange={(e) => setBulk(e.target.value)}
+              disabled={!isAdmin}
+              aria-label="Kim hisobiga o'tkazish"
+              className={cn('h-8 rounded-(--radius-control) border px-2 text-sm font-semibold', payerTone(bulk))}
+            >
+              {PAYERS.map((p) => (
+                <option key={p.code} value={p.code}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              disabled={!isAdmin || !picked.size}
+              onClick={() => {
+                setNodes(pickedList, bulk);
+                setPicked(new Set());
+              }}
+            >
+              → O&apos;tkazish
+            </Button>
+            {picked.size > 0 && (
+              <button type="button" onClick={() => setPicked(new Set())} className="text-xs font-semibold text-(--color-text-muted) hover:text-heading">
+                Bekor qilish
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Ta'sir */}
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="rounded-lg border border-brand-200 bg-brand-50/50 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">Hududlardan Markazga o&apos;tadi</p>
-            <p className="money text-lg font-bold text-heading">{som(toCenter)}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">Hududlardan boshqa hisobga o&apos;tadi</p>
+            <p className="money text-lg font-bold text-heading">{som(moved)}</p>
             {delta !== 0 && (
               <p className={cn('money text-xs font-semibold', delta > 0 ? 'text-brand-700' : 'text-emerald-700')}>
                 saqlanganga nisbatan {delta > 0 ? '+' : '−'}
                 {som(Math.abs(delta))}
+              </p>
+            )}
+            {[...byPayer.entries()].filter(([, v]) => v).length > 0 && (
+              <p className="mt-0.5 text-[11px] text-(--color-text-muted)">
+                {[...byPayer.entries()]
+                  .filter(([, v]) => v)
+                  .map(([p, v]) => `${payerName(p)}: ${som(v)}`)
+                  .join(' · ')}
               </p>
             )}
           </div>
@@ -322,23 +383,23 @@ export function CategoryBoard({
             <p className="money text-lg font-bold text-heading">{som(stays)}</p>
           </div>
           <div className="rounded-lg border border-(--color-line) bg-white px-3 py-2 text-xs text-(--color-text-muted)">
-            <p>
-              Markaz hisobida: <b className="text-heading">{counts.center}</b> ta modda
-            </p>
-            <p>
-              Hududda: <b className="text-heading">{counts.region}</b> ta modda
-            </p>
+            {PAYERS.filter((p) => counts.get(p.code)).map((p) => (
+              <p key={p.code}>
+                {payerName(p.code)}: <b className="text-heading">{counts.get(p.code)}</b> ta modda
+              </p>
+            ))}
             {!amounts && <p className="text-(--color-text-faint)">Summalar yuklanmoqda…</p>}
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex gap-0.5 rounded-(--radius-control) bg-(--color-surface-sunken) p-0.5 text-xs font-medium">
+          <div className="inline-flex flex-wrap gap-0.5 rounded-(--radius-control) bg-(--color-surface-sunken) p-0.5 text-xs font-medium">
             {(
               [
                 ['all', 'Hammasi'],
+                ['region', 'Yozilgan joyida'],
                 ['center', 'Markaz'],
-                ['region', 'Hudud'],
+                ['segment', "Yo'nalishlar"],
                 ['used', 'Davrda xarajati bor'],
               ] as const
             ).map(([k, l]) => (
@@ -362,7 +423,7 @@ export function CategoryBoard({
       </div>
 
       <div className="max-h-[640px] overflow-auto">
-        <table className="w-full min-w-[920px] text-sm">
+        <table className="w-full min-w-[980px] text-sm">
           <thead className="sticky top-0 z-10 bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
             <tr>
               <th className="w-10 px-3 py-2 text-left">
@@ -379,10 +440,10 @@ export function CategoryBoard({
               <th className="w-36 px-2 py-2 text-right font-semibold" title="Hududlarda yozilgan xarajat (davrda)">
                 Hududlarda yozilgan
               </th>
-              <th className="w-36 px-2 py-2 text-right font-semibold" title="Markazda yozilgan xarajat (davrda)">
-                Markazda yozilgan
+              <th className="w-36 px-2 py-2 text-right font-semibold" title="Markazda, yo'nalishlarda yoki joyi ko'rsatilmagan holda yozilgan (davrda)">
+                Boshqa joylarda
               </th>
-              <th className="w-44 px-2 py-2 text-center font-semibold">Kim hisobidan</th>
+              <th className="w-52 px-2 py-2 text-left font-semibold">Kim hisobidan</th>
               <th className="px-3 py-2 text-left font-semibold">Natija</th>
             </tr>
           </thead>
@@ -405,7 +466,7 @@ export function CategoryBoard({
           <span className="text-xs text-(--color-text-muted)">
             {changed.length ? (
               <>
-                <b className="text-amber-800">{changed.length} ta modda o&apos;zgardi</b> — saqlansa, Solishtirma, Markaz xarajati va hisobotlar shu bo&apos;yicha qayta hisoblanadi
+                <b className="text-amber-800">{changed.length} ta modda o&apos;zgardi</b> — saqlansa, Solishtirma, Markaz va yo&apos;nalishlar xarajati hamda hisobotlar shu bo&apos;yicha qayta hisoblanadi
               </>
             ) : (
               "O'zgarish yo'q"
@@ -418,8 +479,8 @@ export function CategoryBoard({
             loading={saving}
             disabled={!changed.length}
             onClick={() => {
-              const { include, exclude } = compress();
-              onSave(include, exclude);
+              const { include, exclude, payers } = compress();
+              onSave(include, exclude, payers);
             }}
           >
             Saqlash

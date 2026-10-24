@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ASSET_GROUP_CODES, expandCategories, readPolicy } from '../expense-policy/policy.util';
+import { ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
 import { NO_DEPARTMENT, type CenterDetailResult, type CenterEmployeeRow, type DepartmentDetailResult, type DepartmentRow } from './center.types';
 import type { DrillBase, MoneyPart } from './districts.types';
 import { bounds, compareRange, parseDay, trendMonths } from './structure.engine';
@@ -165,12 +165,12 @@ export class CenterService {
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true } }),
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
       this.prisma.income.findMany({
-        where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere, OR: [{ regionCode: CENTRAL_REGION }, { regionCode: null, departmentId: { not: null } }] },
+        where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere, OR: [{ regionCode: CENTRAL_REGION, segment: null }, { regionCode: null, departmentId: { not: null }, segment: null }] },
         select: { date: true, amountTiyin: true, categoryCode: true, departmentId: true },
       }),
       this.prisma.expense.findMany({
         where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere },
-        select: { date: true, period: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, payrollBatchId: true },
+        select: { date: true, period: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, payrollBatchId: true, segment: true },
       }),
       this.prisma.employee.findMany({
         where: { regionCode: CENTRAL_REGION },
@@ -178,7 +178,8 @@ export class CenterService {
       }),
       readPolicy(this.prisma),
     ]);
-    const centerCategories = expandCategories(policy.centerCategories, expenseCategories);
+    // Siyosat: Markaz hisobidagi moddalar; yo'nalishlar (Tax free …) hisobidagilari Markazga kirmaydi
+    const routing = policyRouting(policy, expenseCategories);
     const regionName = new Map(regions.map((r) => [r.code, r.name]));
     const categoryLabel = new Map(expenseCategories.map((c) => [c.code, c.label]));
     const categoryParent = new Map(expenseCategories.map((c) => [c.code, c.parentCode]));
@@ -265,8 +266,10 @@ export class CenterService {
     const curPeriods = new Set<string>();
     const prevPeriods = new Set<string>();
     for (const row of expenses) {
-      const byPolicy = centerCategories.has(row.categoryCode);
-      const isCenter = row.regionCode === CENTRAL_REGION || (row.regionCode === null && row.departmentId !== null);
+      const moved = routing.moved.has(row.categoryCode);
+      if (moved && routing.payerKey(row.categoryCode) !== 'center') continue;
+      const byPolicy = moved;
+      const isCenter = !row.segment && (row.regionCode === CENTRAL_REGION || (row.regionCode === null && row.departmentId !== null));
       if (!byPolicy && !isCenter) continue;
       const isCurrent = inCurrent(row.date);
       const isPrevious = inPrevious(row.date);

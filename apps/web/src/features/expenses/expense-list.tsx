@@ -3,6 +3,7 @@
 import { SourceActions } from '@/components/shared/source-actions';
 import { useMonthChange, usePeriod } from '@/lib/period';
 import { regionsApi } from '@/features/employees/api';
+import { placeText } from '@/lib/segments';
 import { Mark } from '@/features/reactions/mark';
 import { categoryMark, counterpartyMark, recordMark } from '@/features/reactions/marks';
 import { downloadExpensesExcel, expensesApi, type ExpenseFilters, type SortField, type SortOrder } from '@/features/expenses/api';
@@ -450,7 +451,7 @@ export function ExpenseList({ section }: { section: SectionValue }) {
                       Kategoriya
                     </SortableTh>
 
-                    <Th className="w-48">Markaz / Hudud</Th>
+                    <Th className="w-48">Qayerga tegishli</Th>
                     <Th>Tavsif</Th>
                     <Th className="w-28">Holat</Th>
 
@@ -503,11 +504,7 @@ export function ExpenseList({ section }: { section: SectionValue }) {
                         </Td>
 
                         <Td className="text-(--color-text-muted)">
-                          {expense.regionCode === 0 || (expense.regionCode === null && expense.department)
-                            ? `Markaz${expense.department ? ` › ${expense.department.name}` : ''}`
-                            : expense.region
-                              ? `${expense.region.name}${expense.district ? ` › ${expense.district.name}` : ''}`
-                              : <span className="text-(--color-warn)">Biriktirilmagan</span>}
+                          {placeText(expense) ?? <span className="text-(--color-warn)">Biriktirilmagan</span>}
                         </Td>
 
                         <Td className="max-w-xs truncate text-(--color-text-muted)">

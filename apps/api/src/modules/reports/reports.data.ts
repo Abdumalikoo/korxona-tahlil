@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { loadCenterCategories } from '../expense-policy/policy.util';
+import { loadPolicyRouting } from '../expense-policy/policy.util';
+import { SEGMENTS, segmentKey, unitKeyOf as commonUnitKeyOf } from '../../common/segments/segments';
 import { PrismaService } from '../prisma/prisma.service';
 import { uzDate } from './reports.format';
 
@@ -102,11 +103,8 @@ export function monthsOf(range: Range): string[] {
   return out;
 }
 
-export function unitKeyOf(regionCode: number | null, departmentId: string | null): string {
-  if (regionCode !== null) return regionCode === 0 ? 'center' : `r:${regionCode}`;
-  if (departmentId) return 'center';
-  return 'none';
-}
+/** Yozuv birligi: yo'nalish → "s:KOD", Markaz → "center", hudud → "r:N", aks holda — "none" (yagona qoida: common/segments) */
+export const unitKeyOf = commonUnitKeyOf;
 
 @Injectable()
 export class ReportData {
@@ -134,6 +132,8 @@ export class ReportData {
       ['none', 'Hududga biriktirilmagan'],
     ]);
     for (const r of regions) if (r.code !== 0) units.set(`r:${r.code}`, r.name);
+    // Yo'nalishlar (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari)
+    for (const s of SEGMENTS) units.set(segmentKey(s.code), s.label);
     return {
       units,
       expenseCategory: new Map(cats.map((c) => [c.code, { label: c.label, parent: c.parentCode }])),
@@ -155,18 +155,18 @@ export class ReportData {
     const end = new Date(Math.max(...ranges.map((r) => dayStart(r.to).getTime())) + DAY);
     const where = { deletedAt: null, date: { gte: start, lt: end } };
     const [incomes, expenses] = await Promise.all([
-      this.prisma.income.findMany({ where, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, section: true } }),
-      this.prisma.expense.findMany({ where, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, section: true } }),
+      this.prisma.income.findMany({ where, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, section: true, segment: true } }),
+      this.prisma.expense.findMany({ where, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, section: true, segment: true } }),
     ]);
-    // Xarajatlar siyosati: Markaz hisobidagi moddalar qayerga yozilgan bo'lsa ham — Markaz xarajati (Solishtirmadagidek)
-    const centerCats = await loadCenterCategories(this.prisma).catch(() => new Set<string>());
+    // Xarajatlar siyosati: moddalar qayerga yozilgan bo'lsa ham — Markaz yoki yo'nalish xarajati (Solishtirmadagidek)
+    const routing = await loadPolicyRouting(this.prisma).catch(() => ({ moved: new Set<string>(), payerKey: () => 'center' }));
     const map = (r: (typeof incomes)[number], expense = false): Row => ({
       date: r.date,
       month: isoOf(r.date).slice(0, 7),
       amount: Number(r.amountTiyin) / 100,
       tiyin: r.amountTiyin,
       categoryCode: r.categoryCode,
-      unit: expense && centerCats.has(r.categoryCode) ? 'center' : unitKeyOf(r.regionCode, r.departmentId),
+      unit: expense && routing.moved.has(r.categoryCode) ? routing.payerKey(r.categoryCode) : unitKeyOf(r.regionCode, r.departmentId, r.segment),
       source: String(r.source),
       section: String(r.section),
     });

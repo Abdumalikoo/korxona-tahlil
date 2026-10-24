@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Income, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveEntryPlace, resolveEntryPlaceUpdate } from '../../common/segments/place';
 import { AuditService } from '../audit/audit.service';
 import type { CreateIncomeDto } from './dto/create-income.dto';
 import type { QueryIncomeDto } from './dto/query-income.dto';
@@ -145,6 +146,7 @@ export class IncomesService {
   async create(dto: CreateIncomeDto, userId: string): Promise<Income> {
     await this.assertCategory(dto.categoryCode);
     if (dto.departmentId) await this.assertDepartment(dto.departmentId);
+    const place = await resolveEntryPlace(this.prisma, { regionCode: dto.regionCode ?? null, districtId: dto.districtId || null, departmentId: dto.departmentId || null, segment: dto.segment || null }, 'daromad');
 
     const amount = BigInt(dto.amountTiyin);
     const { paidTiyin, paymentStatus } = this.resolvePayment(
@@ -161,7 +163,10 @@ export class IncomesService {
         paidTiyin,
         paymentStatus,
         categoryCode: dto.categoryCode,
-        departmentId: dto.departmentId ?? null,
+        departmentId: place.departmentId,
+        regionCode: place.regionCode,
+        districtId: place.districtId,
+        segment: place.segment,
         clientName: dto.clientName ?? null,
         description: dto.description ?? null,
         contractNo: dto.contractNo ?? null,
@@ -173,6 +178,8 @@ export class IncomesService {
       include: {
         category: { select: { code: true, label: true } },
         department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
+        district: { select: { id: true, name: true } },
       },
     });
   }
@@ -191,6 +198,8 @@ export class IncomesService {
         include: {
           category: { select: { code: true, label: true } },
           department: { select: { id: true, code: true, name: true } },
+          region: { select: { code: true, name: true } },
+          district: { select: { id: true, name: true } },
           createdBy: { select: { id: true, fullName: true } },
         },
       }),
@@ -225,6 +234,8 @@ export class IncomesService {
       include: {
         category: { select: { code: true, label: true } },
         department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
+        district: { select: { id: true, name: true } },
         createdBy: { select: { id: true, fullName: true } },
       },
     });
@@ -280,10 +291,14 @@ export class IncomesService {
     }
 
     if (dto.categoryCode) data.category = { connect: { code: dto.categoryCode } };
-    if (dto.departmentId !== undefined) {
-      data.department = dto.departmentId
-        ? { connect: { id: dto.departmentId } }
-        : { disconnect: true };
+    // Qayerga tegishli: Markaz / hudud (tuman) / yo'nalish
+    const cur = existing as unknown as { regionCode: number | null; districtId: string | null; departmentId: string | null; segment: string | null };
+    const place = await resolveEntryPlaceUpdate(this.prisma, { regionCode: cur.regionCode ?? null, districtId: cur.districtId ?? null, departmentId: cur.departmentId ?? null, segment: cur.segment ?? null }, dto, 'daromad');
+    if (place) {
+      data.department = place.departmentId ? { connect: { id: place.departmentId } } : { disconnect: true };
+      data.region = place.regionCode !== null ? { connect: { code: place.regionCode } } : { disconnect: true };
+      data.district = place.districtId ? { connect: { id: place.districtId } } : { disconnect: true };
+      data.segment = place.segment;
     }
     if (dto.clientName !== undefined) data.clientName = dto.clientName;
     if (dto.description !== undefined) data.description = dto.description;
@@ -296,6 +311,8 @@ export class IncomesService {
       include: {
         category: { select: { code: true, label: true } },
         department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
+        district: { select: { id: true, name: true } },
       },
     });
   }
@@ -585,6 +602,8 @@ export class IncomesService {
       include: {
         category: { select: { code: true, label: true } },
         department: { select: { id: true, code: true, name: true } },
+        region: { select: { code: true, name: true } },
+        district: { select: { id: true, name: true } },
       },
     });
 

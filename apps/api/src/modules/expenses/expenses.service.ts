@@ -1,3 +1,4 @@
+import { resolveEntryPlace, resolveEntryPlaceUpdate } from '../../common/segments/place';
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import type { Prisma, Expense } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -95,34 +96,6 @@ export class ExpensesService {
     }
   }
 
-  /**
-   * Xarajat qayerga tegishli: Markaz (hudud kodi 0, ixtiyoriy bo'lim) yoki hudud (kod, ixtiyoriy tuman).
-   * Solishtirma shu maydonlar bo'yicha taqsimlaydi: hudud kodi 0 yoki bo'lim — Markaz, hudud kodi — o'sha hudud,
-   * tuman — o'sha tuman. Hech biri bo'lmasa — «Hududga biriktirilmagan» (eski yozuvlar uchun saqlanadi).
-   */
-  private async resolvePlace(input: { regionCode: number | null; districtId: string | null; departmentId: string | null }): Promise<{ regionCode: number | null; districtId: string | null; departmentId: string | null }> {
-    let { regionCode } = input;
-    const { districtId, departmentId } = input;
-    if (districtId) {
-      const district = await this.prisma.district.findUnique({ where: { id: districtId }, select: { regionCode: true, isActive: true, name: true } });
-      if (!district) throw new BadRequestException("Tuman topilmadi");
-      if (regionCode !== null && regionCode !== district.regionCode) throw new BadRequestException(`"${district.name}" tanlangan hududga tegishli emas`);
-      regionCode = district.regionCode;
-    }
-    if (regionCode === null) return { regionCode: null, districtId: null, departmentId };
-    const region = await this.prisma.region.findUnique({ where: { code: regionCode }, select: { isActive: true, name: true } });
-    if (!region) throw new BadRequestException("Hudud topilmadi");
-    if (regionCode === 0) {
-      // Markaz: tuman bo'lmaydi, bo'lim — ixtiyoriy
-      if (districtId) throw new BadRequestException("Markaz xarajatida tuman tanlanmaydi");
-      return { regionCode: 0, districtId: null, departmentId };
-    }
-    if (!region.isActive) throw new BadRequestException(`"${region.name}" hududi faol emas`);
-    // Hudud: Markaz bo'limi tanlanmaydi (aks holda Solishtirmada Markazga tushib qoladi)
-    if (departmentId) throw new BadRequestException("Hudud xarajatida Markaz bo'limi tanlanmaydi — bo'limni olib tashlang yoki «Markaz»ni tanlang");
-    return { regionCode, districtId: districtId ?? null, departmentId: null };
-  }
-
   /** Filtrlardan Prisma where shartini quradi */
   private async buildWhere(query: QueryExpenseDto): Promise<Prisma.ExpenseWhereInput> {
     const where: Prisma.ExpenseWhereInput = { deletedAt: null };
@@ -214,7 +187,7 @@ export class ExpensesService {
     if (dto.departmentId) {
       await this.assertDepartmentExists(dto.departmentId);
     }
-    const place = await this.resolvePlace({ regionCode: dto.regionCode ?? null, districtId: dto.districtId || null, departmentId: dto.departmentId || null });
+    const place = await resolveEntryPlace(this.prisma, { regionCode: dto.regionCode ?? null, districtId: dto.districtId || null, departmentId: dto.departmentId || null, segment: dto.segment || null }, 'xarajat');
 
     // QQS umumiy summadan oshmasligi kerak
     if (dto.vatTiyin !== undefined && dto.vatTiyin > dto.amountTiyin) {
@@ -230,6 +203,7 @@ export class ExpensesService {
         departmentId: place.departmentId,
         regionCode: place.regionCode,
         districtId: place.districtId,
+        segment: place.segment,
         description: dto.description ?? null,
         paymentMethod: dto.paymentMethod ?? "BANK",
         documentNo: dto.documentNo ?? null,
@@ -357,7 +331,7 @@ export class ExpensesService {
     // Ombor kirimidan yozilgan xarajat: summa, sana va modda faqat Ombor hujjati orqali o'zgaradi
     if (
       (current as { source?: string }).source === "WAREHOUSE" &&
-      (dto.amountTiyin !== undefined || dto.date !== undefined || dto.categoryCode !== undefined || dto.departmentId !== undefined || dto.regionCode !== undefined || dto.districtId !== undefined)
+      (dto.amountTiyin !== undefined || dto.date !== undefined || dto.categoryCode !== undefined || dto.departmentId !== undefined || dto.regionCode !== undefined || dto.districtId !== undefined || dto.segment !== undefined)
     ) {
       throw new BadRequestException(WAREHOUSE_LOCKED);
     }
@@ -385,19 +359,14 @@ export class ExpensesService {
       data.category = { connect: { code: dto.categoryCode } };
       data.categoryOverridden = true;
     }
-    // Qayerga tegishli: hudud/tuman/bo'lim birgalikda tekshiriladi (yuborilmaganlari — joriy qiymat)
-    if (dto.departmentId !== undefined || dto.regionCode !== undefined || dto.districtId !== undefined) {
-      const cur = current as unknown as { regionCode: number | null; districtId: string | null; departmentId: string | null };
-      const regionChanged = dto.regionCode !== undefined && dto.regionCode !== cur.regionCode;
-      const place = await this.resolvePlace({
-        regionCode: dto.regionCode !== undefined ? dto.regionCode : cur.regionCode,
-        // Hudud almashsa — eski tuman o'z-o'zidan olib tashlanadi (boshqa hududniki bo'lib qolmasin)
-        districtId: dto.districtId !== undefined ? dto.districtId || null : regionChanged ? null : cur.districtId,
-        departmentId: dto.departmentId !== undefined ? dto.departmentId || null : dto.regionCode !== undefined && dto.regionCode !== 0 && dto.regionCode !== null ? null : cur.departmentId,
-      });
+    // Qayerga tegishli: Markaz / hudud (tuman) / yo'nalish — birgalikda tekshiriladi (yuborilmaganlari — joriy qiymat)
+    const cur = current as unknown as { regionCode: number | null; districtId: string | null; departmentId: string | null; segment: string | null };
+    const place = await resolveEntryPlaceUpdate(this.prisma, { regionCode: cur.regionCode, districtId: cur.districtId ?? null, departmentId: cur.departmentId, segment: cur.segment ?? null }, dto, 'xarajat');
+    if (place) {
       data.department = place.departmentId ? { connect: { id: place.departmentId } } : { disconnect: true };
       data.region = place.regionCode !== null ? { connect: { code: place.regionCode } } : { disconnect: true };
       data.district = place.districtId ? { connect: { id: place.districtId } } : { disconnect: true };
+      data.segment = place.segment;
     }
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.paymentMethod !== undefined) data.paymentMethod = dto.paymentMethod;

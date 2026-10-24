@@ -161,7 +161,7 @@ export function RegionCard({
       open
       onClose={onClose}
       title={u.name}
-      description={`${u.kind === 'center' ? 'Markaz' : u.kind === 'region' ? 'Hudud' : 'Biriktirilmagan yozuvlar'} kartasi · ${u.headcount} xodim (Xodimlar bo'limidan)`}
+      description={`${u.kind === 'center' ? 'Markaz' : u.kind === 'region' ? 'Hudud' : u.kind === 'segment' ? "Yo'nalish" : 'Biriktirilmagan yozuvlar'} kartasi${u.kind === 'segment' ? '' : ` · ${u.headcount} xodim (Xodimlar bo'limidan)`}`}
       footer={
         <div className="flex w-full justify-end">
           <Button variant="secondary" size="sm" onClick={onClose}>

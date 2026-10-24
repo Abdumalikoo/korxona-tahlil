@@ -33,6 +33,23 @@ export class UpdateIncomeDto {
   @IsString()
   departmentId?: string | null;
 
+  /** 0 — Markaz, boshqa kod — hudud; null — biriktirilmagan */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  regionCode?: number | null;
+
+  @IsOptional()
+  @IsString()
+  districtId?: string | null;
+
+  /** Yo'nalish; null yoki '' — olib tashlanadi */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  segment?: string | null;
+
+
   @IsOptional()
   @IsString()
   @MaxLength(200)

@@ -3,7 +3,7 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { ExpensePolicyService } from './expense-policy.service';
 
-/** Xarajatlar siyosati: qaysi moddalar Markaz hisobidan (hudud xodimlari uchun bo'lsa ham) */
+/** Xarajatlar siyosati: qaysi moddalar kim hisobidan — Markaz yoki yo'nalish (Tax free, Marksheyder …), qayerda yozilgan bo'lsa ham */
 @Controller('expense-policy')
 export class ExpensePolicyController {
   constructor(private readonly policy: ExpensePolicyService) {}
@@ -27,8 +27,8 @@ export class ExpensePolicyController {
 
   @Patch()
   @Roles(UserRole.ADMIN)
-  async save(@Body() body: { centerCategories?: unknown; excludeCategories?: unknown }, @CurrentUser('id') userId: string) {
-    return { data: await this.policy.save(body?.centerCategories, userId, body?.excludeCategories) };
+  async save(@Body() body: { centerCategories?: unknown; excludeCategories?: unknown; payers?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.policy.save(body?.centerCategories, userId, body?.excludeCategories, body?.payers) };
   }
 
   /** Ish haqi tarkibidan Markazga o'tadigan komponentlar (bayram, choraklik …) — saqlanadi va hamma oylar qayta hisoblanadi */

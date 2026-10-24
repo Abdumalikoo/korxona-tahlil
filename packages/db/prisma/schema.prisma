@@ -181,6 +181,8 @@ model Expense {
   departmentId String?
   /// Hudud kodi - ish haqi va hududiy xarajatlar uchun
   regionCode   Int?
+  /// Yo'nalish (Markaz va hududlardan tashqari): TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA - bo'lsa, hudud va bo'lim bo'sh
+  segment      String?
 
   description   String?
   paymentMethod PaymentMethod @default(BANK)
@@ -225,6 +227,7 @@ model Expense {
   @@index([importBatchId])
   @@index([paymentStatus])
   @@index([regionCode, period])
+  @@index([segment, period])
   @@index([section, period])
   @@map("expenses")
   @@index([districtId, period])
@@ -257,6 +260,8 @@ model Income {
   departmentId String?
   /// Hudud kodi - hududiy daromadlar uchun
   regionCode  Int?
+  /// Yo'nalish (Markaz va hududlardan tashqari): TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA - bo'lsa, hudud va bo'lim bo'sh
+  segment      String?
   /// Xizmat korsatilgan soni
   quantity    Int?
 
@@ -287,6 +292,7 @@ model Income {
   @@index([departmentId, period])
   @@index([paymentStatus])
   @@index([regionCode, period])
+  @@index([segment, period])
   @@index([section, period])
   @@map("incomes")
   @@index([districtId, period])

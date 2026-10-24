@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ASSET_CHARGE_CATEGORY, ASSET_GROUP_CODES, expandCategories, readPolicy } from '../expense-policy/policy.util';
+import { SEGMENTS, segmentKey, segmentLabel, segmentOfKey, unitKeyOf } from '../../common/segments/segments';
+import { ASSET_CHARGE_CATEGORY, ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
 import { bounds, compareRange, parseDay, trendMonths } from './structure.engine';
 import type { RegionUnit, RegionsResult, UnitKind, UnitPart } from './regions.types';
 import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } from './structure.types';
@@ -20,8 +21,10 @@ export interface SohaSink {
   income: Map<string, Map<string, SohaCell>>;
   /** Xarajat: modda kodi → birlik kaliti → summa (Xarajatlar siyosati moddalari — Markazda, Solishtirmadagidek) */
   expense: Map<string, Map<string, SohaCell>>;
-  /** Markaz hisobiga o'tkazilgan (siyosat) moddalar kodlari */
+  /** Siyosat bo'yicha boshqa hisobga o'tkazilgan moddalar kodlari */
   policyCodes: Set<string>;
+  /** Siyosatdagi modda kim hisobidan: "center" yoki "s:KOD" */
+  payerOf?: (code: string) => string;
   incomeLabels: Map<string, string>;
   categories: { code: string; label: string; parentCode: string | null }[];
 }
@@ -116,12 +119,6 @@ function fmtPct(value: number): string {
   return `${value.toFixed(1).replace('.', ',')}%`;
 }
 
-/** Yozuvning birligi: hudud kodi bo'lsa — hudud (0 — Markaz), markaz bo'limi bo'lsa — Markaz, aks holda — biriktirilmagan */
-function unitKeyOf(regionCode: number | null, departmentId: string | null): string {
-  if (regionCode !== null) return regionCode === 0 ? 'center' : `r:${regionCode}`;
-  if (departmentId) return 'center';
-  return 'none';
-}
 
 /**
  * Solishtirma: har bir hudud va Markaz uchun
@@ -192,20 +189,23 @@ export class RegionsService {
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
       this.prisma.income.findMany({
         where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere },
-        select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true },
+        select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true },
       }),
       this.prisma.expense.findMany({
         where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere },
-        select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true },
+        select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, segment: true },
       }),
       // Xodimlar bo'limi: hudud bo'yicha xodimlar soni
       this.prisma.employee.findMany({ select: { regionCode: true, hiredAt: true, firedAt: true, isActive: true } }),
       readPolicy(this.prisma),
     ]);
     // Xarajatlar siyosati: shu moddalar qayerda yozilgan bo'lsa ham — Markaz xarajati (hududlar uchun)
-    const centerCategories = expandCategories(policy.centerCategories, expenseCategories);
+    // Xarajatlar siyosati: moddalar qayerda yozilgan bo'lsa ham — Markaz yoki yo'nalish (Tax free …) hisobidan
+    const routing = policyRouting(policy, expenseCategories);
+    const centerCategories = routing.moved;
     if (soha) {
       soha.policyCodes = new Set(centerCategories);
+      soha.payerOf = (code: string) => routing.payerKey(code);
       soha.incomeLabels = new Map(incomeCategories.map((c) => [c.code, c.label]));
       soha.categories = expenseCategories.map((c) => ({ code: c.code, label: c.label, parentCode: c.parentCode }));
     }
@@ -241,6 +241,8 @@ export class RegionsService {
     });
     // Barcha faol hududlar (ma'lumoti bo'lmasa ham ro'yxatda turadi)
     units.set('center', make('center', 0, regionName.get(0) ?? 'Markaz', 'center'));
+    // Yo'nalishlar (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) — har doim ro'yxatda
+    for (const seg of SEGMENTS) units.set(segmentKey(seg.code), make(segmentKey(seg.code), null, seg.label, 'segment'));
     for (const region of regions) {
       if (region.code === 0 || !region.isActive) continue;
       units.set(`r:${region.code}`, make(`r:${region.code}`, region.code, region.name, 'region'));
@@ -249,6 +251,7 @@ export class RegionsService {
       let acc = units.get(key);
       if (!acc) {
         if (key === 'none') acc = make('none', null, 'Hududga biriktirilmagan', 'unassigned');
+        else if (segmentOfKey(key)) acc = make(key, null, segmentLabel(segmentOfKey(key)!), 'segment');
         else {
           const code = Number(key.slice(2));
           acc = make(key, code, regionName.get(code) ?? `Hudud ${code}`, 'region');
@@ -275,7 +278,7 @@ export class RegionsService {
 
     const incomeLabel = new Map(incomeCategories.map((c) => [c.code, c.label]));
     for (const row of incomes) {
-      const acc = unit(unitKeyOf(row.regionCode, row.departmentId));
+      const acc = unit(unitKeyOf(row.regionCode, row.departmentId, row.segment));
       const isCurrent = inCurrent(row.date);
       const isPrevious = inPrevious(row.date);
       if (isCurrent) {
@@ -297,7 +300,8 @@ export class RegionsService {
     const categoryParent = new Map(expenseCategories.map((c) => [c.code, c.parentCode]));
     for (const row of expenses) {
       const byPolicy = centerCategories.has(row.categoryCode);
-      const acc = byPolicy ? unit('center') : unit(unitKeyOf(row.regionCode, row.departmentId));
+      const payer = byPolicy ? routing.payerKey(row.categoryCode) : null;
+      const acc = payer ? unit(payer) : unit(unitKeyOf(row.regionCode, row.departmentId, row.segment));
       const isCurrent = inCurrent(row.date);
       const isPrevious = inPrevious(row.date);
       if (isCurrent) {
@@ -310,7 +314,7 @@ export class RegionsService {
       if (isAssetCharge) {
         if (isCurrent) acc.centerAssets += row.amountTiyin;
         if (isPrevious) acc.previousCenterAssets += row.amountTiyin;
-      } else if (byPolicy) {
+      } else if (byPolicy && payer === 'center') {
         const beneficiary = row.regionCode && row.regionCode !== 0 ? row.regionCode : null;
         if (isCurrent) {
           acc.centerRegional += row.amountTiyin;
@@ -323,7 +327,7 @@ export class RegionsService {
           if (row.categoryCode === ASSET_CHARGE_CATEGORY.code) addPart(acc.expenseParts, 'ASSET', 'Asosiy vositalar sarfi', row.amountTiyin, isCurrent, isPrevious);
           else addPart(acc.expenseParts, 'ASSET_X', "Asosiy vositalar (xarajatga o'tkazilgan)", row.amountTiyin, isCurrent, isPrevious);
         } else if (byPolicy) {
-          addPart(acc.expenseParts, `h:${row.categoryCode}`, `Hududlar uchun: ${categoryLabel.get(row.categoryCode) ?? row.categoryCode}`, row.amountTiyin, isCurrent, isPrevious);
+          addPart(acc.expenseParts, `h:${row.categoryCode}`, `${payer === 'center' ? 'Hududlar uchun' : 'Siyosat bo‘yicha'}: ${categoryLabel.get(row.categoryCode) ?? row.categoryCode}`, row.amountTiyin, isCurrent, isPrevious);
         } else if (row.source === 'PAYROLL') {
           if (isCurrent) acc.payroll += row.amountTiyin;
           if (isPrevious) acc.previousPayroll += row.amountTiyin;
@@ -368,7 +372,7 @@ export class RegionsService {
       return head;
     };
 
-    const kindOrder: Record<UnitKind, number> = { region: 0, center: 1, unassigned: 2 };
+    const kindOrder: Record<UnitKind, number> = { region: 0, center: 1, segment: 2, unassigned: 3 };
     const list: RegionUnit[] = [...units.values()]
       .filter((u) => u.kind !== 'unassigned' || u.income !== 0n || u.expense !== 0n || u.previousIncome !== 0n || u.previousExpense !== 0n)
       .map((u) => ({
@@ -376,6 +380,7 @@ export class RegionsService {
         code: u.code,
         name: u.name,
         kind: u.kind,
+        ...(u.kind === 'segment' ? { segment: segmentOfKey(u.key) ?? undefined } : {}),
         incomeTiyin: u.income.toString(),
         previousIncomeTiyin: u.previousIncome.toString(),
         expenseTiyin: u.expense.toString(),
@@ -408,6 +413,7 @@ export class RegionsService {
       }))
       .sort((a, b) => {
         if (a.kind !== b.kind) return kindOrder[a.kind] - kindOrder[b.kind];
+        if (a.kind === 'segment') return SEGMENTS.findIndex((x) => segmentKey(x.code) === a.key) - SEGMENTS.findIndex((x) => segmentKey(x.code) === b.key);
         const pa = BigInt(a.incomeTiyin) - BigInt(a.expenseTiyin);
         const pb = BigInt(b.incomeTiyin) - BigInt(b.expenseTiyin);
         return pb > pa ? 1 : pb < pa ? -1 : 0;
@@ -497,6 +503,16 @@ export class RegionsService {
         const allPayroll = units.reduce((s, u) => s + BigInt(u.payrollTiyin), 0n);
         if (allExpense > 0n && allPayroll > 0n) notes.push(`Ish haqi barcha xarajatlarning ${fmtPct((Number(allPayroll) / Number(allExpense)) * 100)} ini tashkil qiladi.`);
       }
+    }
+
+    // Yo'nalishlar (Tax free, Marksheyder …): ma'lumoti borlari — qisqa natija
+    const segs = units.filter((u) => u.kind === 'segment' && (u.incomeTiyin !== '0' || u.expenseTiyin !== '0'));
+    if (segs.length > 0) {
+      notes.push(
+        `Yo'nalishlar: ${segs
+          .map((u) => `${u.name} — daromad ${fmt(BigInt(u.incomeTiyin))}, xarajat ${fmt(BigInt(u.expenseTiyin))}, ${profit(u) < 0n ? 'zarar' : 'natija'} ${fmt(profit(u) < 0n ? -profit(u) : profit(u))}`)
+          .join('; ')}.`,
+      );
     }
 
     if (unassigned) {

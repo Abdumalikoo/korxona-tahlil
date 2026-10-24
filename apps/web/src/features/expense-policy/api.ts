@@ -16,6 +16,8 @@ export interface PolicyCategory {
   locked?: boolean;
   /** Nima uchun bu yerda o'zgartirib bo'lmaydi */
   lockedReason?: string;
+  /** Amaldagi to'lovchi: 'region' — yozilgan joyida, 'center' — Markaz yoki yo'nalish kodi (TAX_FREE …) */
+  payer?: string;
 }
 
 /** Modda bo'yicha davrdagi xarajat — qayerda yozilgani */
@@ -24,6 +26,8 @@ export interface CategoryAmount {
   regionTiyin: string;
   centerTiyin: string;
   noneTiyin: string;
+  /** Yo'nalishlarda (Tax free, Marksheyder …) yozilgan */
+  segmentTiyin?: string;
   count: number;
 }
 
@@ -48,6 +52,10 @@ export interface PolicyData {
   centerCategories: string[];
   /** Markazga o'tgan ota moddaning hududda qoladigan ichki moddalari */
   excludeCategories?: string[];
+  /** Belgilangan modda → yo'nalish (yo'q bo'lsa — Markaz) */
+  payers?: Record<string, string>;
+  /** To'lovchi tanlovlari: Markaz + yo'nalishlar */
+  payerOptions?: { code: string; label: string }[];
   recommended: { parent: { code: string; label: string }; items: { code: string; label: string }[]; missing: number };
   payrollComponents?: PayrollComponentOption[];
 }
@@ -77,7 +85,8 @@ export interface CenterSummary {
 
 export const policyApi = {
   get: () => api.get<ApiResponse<PolicyData>>('/expense-policy'),
-  save: (centerCategories: string[], excludeCategories: string[] = []) => api.patch<ApiResponse<PolicyData>>('/expense-policy', { centerCategories, excludeCategories }),
+  save: (centerCategories: string[], excludeCategories: string[] = [], payers: Record<string, string> = {}) =>
+    api.patch<ApiResponse<PolicyData>>('/expense-policy', { centerCategories, excludeCategories, payers }),
   amounts: (from: string, to: string) => api.get<ApiResponse<{ range: { from: string; to: string }; rows: CategoryAmount[] }>>('/expense-policy/amounts', { params: { from, to } }),
   seed: () => api.post<ApiResponse<{ created: number; policy: PolicyData }>>('/expense-policy/seed', {}),
   summary: (from: string, to: string) => api.get<ApiResponse<CenterSummary>>('/expense-policy/summary', { params: { from, to } }),

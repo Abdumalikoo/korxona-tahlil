@@ -63,5 +63,5 @@ export const mln = (v: number) => Math.round((v / 1e6) * 10) / 10;
 
 /** Birliklar tartibi: hududlar (nomi bo'yicha), Markaz, biriktirilmagan */
 export function unitOrder(key: string): number {
-  return key.startsWith('r:') ? 0 : key === 'center' ? 1 : 2;
+  return key.startsWith('r:') ? 0 : key === 'center' ? 1 : key.startsWith('s:') ? 2 : 3;
 }

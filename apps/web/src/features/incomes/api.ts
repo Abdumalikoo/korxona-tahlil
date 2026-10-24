@@ -42,6 +42,12 @@ export interface CreateIncomePayload {
   paidTiyin?: number;
   categoryCode: string;
   departmentId?: string;
+  /** 0 — Markaz, boshqa kod — hudud */
+  regionCode?: number;
+  /** Hudud ichidagi tuman ('' — tumansiz) */
+  districtId?: string;
+  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA ('' — yo'q) */
+  segment?: string;
   clientName?: string;
   description?: string;
   contractNo?: string;

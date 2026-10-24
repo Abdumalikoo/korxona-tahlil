@@ -46,6 +46,13 @@ export class CreateExpenseDto {
   @IsString()
   districtId?: string;
 
+  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA (bo'lsa — hudud va bo'lim bo'lmaydi) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  segment?: string;
+
+
 
   @IsOptional()
   @IsString()

@@ -1,4 +1,5 @@
 import type { PrismaService } from '../prisma/prisma.service';
+import { isSegment, segmentKey } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar siyosati — qaysi moddalar MARKAZ hisobidan (hudud xodimlari uchun bo'lsa ham).
@@ -59,12 +60,17 @@ export interface PolicyValue {
   excludedCategories: string[];
   /** Ish haqi tarkibidan Markazga o'tadigan komponentlar kodi */
   payrollComponents: string[];
+  /**
+   * Belgilangan modda kim hisobidan: yo'nalish kodi (TAX_FREE, MARKSHEYDER …). Ro'yxatda yo'q bo'lsa — Markaz.
+   * Ota moddaga berilgan to'lovchi ichki moddalarga ham o'tadi (ichki moddada o'zi berilmagan bo'lsa).
+   */
+  payers: Record<string, string>;
 }
 
 /** Bazadan siyosat (yo'q bo'lsa — standart) */
 export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
-  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown }>;
+  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown; payers: unknown }>;
   const chosen = Array.isArray(v.centerCategories) ? v.centerCategories.filter((c): c is string => typeof c === 'string') : [];
   const excluded = Array.isArray(v.excludeCategories) ? v.excludeCategories.filter((c): c is string => typeof c === 'string' && !ALWAYS_CENTER.includes(c)) : [];
   const payrollComponents = Array.isArray(v.payrollComponents)
@@ -81,11 +87,22 @@ export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
     chosenCategories: chosen,
     excludedCategories: excluded,
     payrollComponents,
+    payers: cleanPayers(v.payers, chosen),
   };
 }
 
+/** To'lovchilar: faqat belgilangan (Markazga o'tadigan) moddalar va ma'lum yo'nalishlar; har doim Markazdagilar — o'zgarmaydi */
+function cleanPayers(raw: unknown, chosen: string[]): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [code, seg] of Object.entries(raw as Record<string, unknown>)) {
+    if (chosen.includes(code) && !ALWAYS_CENTER.includes(code) && isSegment(seg)) out[code] = seg;
+  }
+  return out;
+}
+
 /** Siyosatni yozadi (boshqa maydonlar saqlanadi) */
-export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[] }): Promise<void> {
+export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[]; payers?: Record<string, string> }): Promise<void> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
   const prev = (row?.value ?? {}) as Record<string, unknown>;
   const value = {
@@ -93,6 +110,7 @@ export async function writePolicy(prisma: PrismaService, patch: { centerCategori
     ...(patch.centerCategories ? { centerCategories: patch.centerCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
     ...(patch.excludeCategories ? { excludeCategories: patch.excludeCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
     ...(patch.payrollComponents ? { payrollComponents: patch.payrollComponents } : {}),
+    ...(patch.payers ? { payers: patch.payers } : {}),
   };
   await prisma.setting.upsert({ where: { key: POLICY_KEY }, create: { key: POLICY_KEY, value }, update: { value } });
 }
@@ -162,4 +180,45 @@ export async function loadCenterCategories(prisma: PrismaService, categories?: {
 /** Ish haqi komponenti qaysi Markaz moddasiga yoziladi */
 export function payrollCenterCategory(componentCode: string): string {
   return PAYROLL_CENTER_CATEGORY[componentCode]?.code ?? PAYROLL_CENTER_OTHER.code;
+}
+
+/**
+ * Siyosat bo'yicha xarajat yo'nalishi: qaysi moddalar yozilgan joyidan olinadi (moved) va kim hisobiga o'tadi.
+ * payerKey(modda) — "center" yoki yo'nalish birligi ("s:TAX_FREE"); faqat moved ichidagi moddalar uchun ma'noli.
+ * Qoida: moddadan boshlab ota-onalari bo'ylab yuqoriga — birinchi belgilangan (o'zi yoki ota modda) to'lovchini belgilaydi.
+ */
+export interface PolicyRouting {
+  moved: Set<string>;
+  payerKey: (code: string) => string;
+}
+
+export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'payers'>, categories: { code: string; parentCode: string | null }[]): PolicyRouting {
+  const moved = expandCategories(policy.centerCategories, categories);
+  const parent = new Map(categories.map((c) => [c.code, c.parentCode]));
+  const include = new Set(policy.centerCategories.filter((c) => !c.startsWith('!')));
+  const payers = policy.payers ?? {};
+  const memo = new Map<string, string>();
+  const payerKey = (code: string): string => {
+    const hit = memo.get(code);
+    if (hit) return hit;
+    let cur: string | null = code;
+    let out = 'center';
+    for (let depth = 0; cur && depth <= 20; depth += 1) {
+      if (include.has(cur) || payers[cur]) {
+        out = payers[cur] ? segmentKey(payers[cur]!) : 'center';
+        break;
+      }
+      cur = parent.get(cur) ?? null;
+    }
+    memo.set(code, out);
+    return out;
+  };
+  return { moved, payerKey };
+}
+
+/** Siyosat yo'nalishi (bazadan) */
+export async function loadPolicyRouting(prisma: PrismaService, categories?: { code: string; parentCode: string | null }[]): Promise<PolicyRouting> {
+  const policy = await readPolicy(prisma);
+  const cats = categories ?? (await prisma.category.findMany({ select: { code: true, parentCode: true } }));
+  return policyRouting(policy, cats);
 }

@@ -4,8 +4,8 @@ import type { CompareMode, DateRange, SectionFilter } from './structure.types';
 // Solishtirma: hududlar va Markaz — daromad va xarajat
 // ═══════════════════════════════════════════════════════════
 
-/** region — hudud, center — Markaz, unassigned — hech qaysi hududga biriktirilmagan */
-export type UnitKind = 'region' | 'center' | 'unassigned';
+/** region — hudud, center — Markaz, segment — yo'nalish (Tax free, Marksheyder …), unassigned — hech qaysi hududga biriktirilmagan */
+export type UnitKind = 'region' | 'center' | 'segment' | 'unassigned';
 
 export interface UnitPart {
   key: string;
@@ -21,6 +21,8 @@ export interface RegionUnit {
   code: number | null;
   name: string;
   kind: UnitKind;
+  /** Yo'nalish kodi (kind = segment) */
+  segment?: string;
 
   incomeTiyin: string;
   previousIncomeTiyin: string;

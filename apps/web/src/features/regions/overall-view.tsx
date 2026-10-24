@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { useBrief } from '@/lib/view-mode';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, type ReactNode } from 'react';
-import { regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
+import { KIND_LABEL, KIND_ORDER, regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
 import { centerCover } from './center-cover';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { Bridge, EXPENSE_BAR } from './regions-charts';
@@ -41,6 +41,8 @@ const CENTER_SOFT = '#ebe7f7';
 /** Hududlar rangi */
 const REGIONS_COLOR = RAMP[2]!;
 const UNASSIGNED_COLOR = '#9ca3af';
+/** Yo'nalishlar ranglari (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) */
+const SEGMENT_COLORS = ['#b45309', '#0f766e', '#4d7c0f', '#be185d'];
 
 type Group = 'PAYROLL' | 'LEASE' | 'VEHICLE' | 'ASSET' | 'REGIONAL' | 'OTHER';
 const GROUPS: { key: Group; label: string; short: string; color: string }[] = [
@@ -163,7 +165,9 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
   const unassigned = all.find((s) => s.unit.kind === 'unassigned' && (s.income !== 0 || s.expense !== 0)) ?? null;
   const regions = all.filter((s) => s.unit.kind === 'region');
   const activeRegions = regions.filter((s) => s.income !== 0 || s.expense !== 0);
-  const units = [...(center ? [center] : []), ...activeRegions, ...(unassigned ? [unassigned] : [])];
+  /** Yo'nalishlar (Tax free, Marksheyder …) — ma'lumoti borlari; hududlar ko'rsatkichlariga kirmaydi, korxona jamisiga kiradi */
+  const segments = all.filter((s) => s.unit.kind === 'segment' && (s.income !== 0 || s.expense !== 0));
+  const units = [...(center ? [center] : []), ...activeRegions, ...segments, ...(unassigned ? [unassigned] : [])];
 
   const total = {
     income: sum(units, (s) => s.income),
@@ -189,6 +193,7 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
   byProfit.forEach((s, i) => colorOf.set(s.unit.key, RAMP[Math.min(RAMP.length - 2, Math.round((i * (RAMP.length - 2)) / Math.max(1, byProfit.length - 1)))]!));
   if (center) colorOf.set(center.unit.key, CENTER_COLOR);
   if (unassigned) colorOf.set(unassigned.unit.key, UNASSIGNED_COLOR);
+  segments.forEach((s, i) => colorOf.set(s.unit.key, SEGMENT_COLORS[i % SEGMENT_COLORS.length]!));
 
   const rows: Row[] = units.map((s) => ({
     s,
@@ -204,6 +209,8 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
     if (s.unit.kind === 'center') router.push('/solishtirma/markaz');
     else if (s.unit.kind === 'region' && s.unit.code !== null) router.push(`/solishtirma?r=${s.unit.code}`);
     else if (s.unit.kind === 'unassigned') setUnOpen(true);
+    // Yo'nalish — Solishtirma jadvalida karta (tarkibi) ochiladi
+    else if (s.unit.kind === 'segment') router.push('/solishtirma');
   };
 
   const cover = centerCover(
@@ -647,8 +654,8 @@ function Matrix({
   };
   const sorted = [...rows].sort((a, b) => {
     if (pinCenter) {
-      const ra = a.s.unit.kind === 'center' ? 0 : a.s.unit.kind === 'unassigned' ? 2 : 1;
-      const rb = b.s.unit.kind === 'center' ? 0 : b.s.unit.kind === 'unassigned' ? 2 : 1;
+      const ra = KIND_ORDER[a.s.unit.kind];
+      const rb = KIND_ORDER[b.s.unit.kind];
       if (ra !== rb) return ra - rb;
     }
     const va = value(a, sort.key);
@@ -1001,7 +1008,7 @@ function ShareRibbon({ title, rows, value, total, onOpen, count = false }: { tit
   const items = rows.map((r) => ({ r, v: Math.max(0, value(r)) })).filter((x) => x.v > 0);
   const base = items.reduce((a, x) => a + x.v, 0);
   // Markaz birinchi, so'ng hududlar rang tartibida (foydasi kattadan — to'qdan ochga), oxirida biriktirilmagan
-  const rank = (r: Row) => (r.s.unit.kind === 'center' ? -Infinity : r.s.unit.kind === 'unassigned' ? Infinity : -r.s.profit);
+  const rank = (r: Row) => (r.s.unit.kind === 'center' ? -Infinity : r.s.unit.kind === 'unassigned' ? Infinity : r.s.unit.kind === 'segment' ? 1e15 - r.s.profit : -r.s.profit);
   items.sort((a, b) => rank(a.r) - rank(b.r));
   const center = rows.find((r) => r.s.unit.kind === 'center');
   const centerShare = center && base > 0 ? (Math.max(0, value(center)) / base) * 100 : null;
@@ -1056,7 +1063,7 @@ function CsvButton({ data }: { data: RegionsResult }) {
         const m = mixOf(s.unit);
         return [
           s.unit.name,
-          s.unit.kind === 'center' ? 'Markaz' : s.unit.kind === 'unassigned' ? 'Biriktirilmagan' : 'Hudud',
+          KIND_LABEL[s.unit.kind],
           csvSom(s.income),
           ...GROUPS.map((g) => csvSom(m[g.key])),
           csvSom(s.expense),

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { expensesApi, type CreateExpensePayload } from '@/features/expenses/api';
-import { EMPTY_PLACE, PlacePicker, placeError, placePayload, type PlaceValue } from '@/features/expenses/place-picker';
+import { EMPTY_PLACE, PlacePicker, placeCreatePayload, placeError, restorePlace, type PlaceValue } from '@/components/shared/place-picker';
 import { referencesApi } from '@/features/shared/references';
 import { errorMessage } from '@/lib/error-message';
 import { recallForm, rememberForm } from '@/lib/form-memory';
@@ -123,11 +123,8 @@ export default function NewExpensePage() {
   useEffect(() => {
     const last = recallForm<Remembered>('expense');
     const place: PlaceValue | null =
-      last.place && (last.place.kind === 'CENTER' || last.place.kind === 'REGION')
-        ? { ...EMPTY_PLACE, ...last.place }
-        : typeof last.departmentId === 'string' && last.departmentId
-          ? { kind: 'CENTER', departmentId: last.departmentId, regionCode: '', districtId: '' }
-          : null;
+      restorePlace(last.place) ??
+      (typeof last.departmentId === 'string' && last.departmentId ? { ...EMPTY_PLACE, kind: 'CENTER', departmentId: last.departmentId } : null);
     setForm((state) => ({
       ...state,
       ...(place ? { place } : {}),
@@ -205,14 +202,11 @@ export default function NewExpensePage() {
   }
 
   function buildPayload(): CreateExpensePayload {
-    const place = placePayload(form.place);
     return {
       date: form.date,
       amountTiyin: sumToTiyin(form.amount ?? 0),
       categoryCode: form.categoryCode,
-      ...(place ? { regionCode: place.regionCode } : {}),
-      ...(place?.departmentId ? { departmentId: place.departmentId } : {}),
-      ...(place?.districtId ? { districtId: place.districtId } : {}),
+      ...placeCreatePayload(form.place),
       ...(form.description.trim() ? { description: form.description.trim() } : {}),
       paymentMethod: form.paymentMethod,
       ...(form.documentNo.trim() ? { documentNo: form.documentNo.trim() } : {}),
@@ -286,7 +280,7 @@ export default function NewExpensePage() {
     <>
       <PageHeader
         title={section === 'BOSHQA' ? 'Yangi xarajat · Boshqa' : 'Yangi xarajat · Doimiy'}
-        description="Avval Markaz yoki Hududni tanlang, keyin xarajatni kiriting"
+        description="Avval qayerga tegishli ekanini tanlang (Markaz, Hudud yoki yo‘nalish), keyin xarajatni kiriting"
         actions={
           <Link href={backHref} className={buttonClass('ghost', 'sm')}>
             Bekor qilish
@@ -300,7 +294,7 @@ export default function NewExpensePage() {
             <CardBody className="space-y-6">
               {/* ─────────── 1. Qayerga tegishli ─────────── */}
               <section className="space-y-3">
-                <StepTitle n={1} title="Qayerga tegishli" hint="Markaz yoki Hudud — majburiy" />
+                <StepTitle n={1} title="Qayerga tegishli" hint="Markaz, Hudud yoki yo‘nalish — majburiy" />
                 <PlacePicker
                   value={form.place}
                   onChange={(place) => update('place', place)}

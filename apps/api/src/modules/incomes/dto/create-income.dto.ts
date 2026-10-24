@@ -33,6 +33,24 @@ export class CreateIncomeDto {
 
   departmentId?: string;
 
+  /** Qayerga tegishli: 0 — Markaz, boshqa kod — hudud (bo'lim faqat Markazda, tuman faqat hududda) */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  regionCode?: number;
+
+  /** Hudud ichidagi tuman (ixtiyoriy) */
+  @IsOptional()
+  @IsString()
+  districtId?: string;
+
+  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA (bo'lsa — hudud va bo'lim bo'lmaydi) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  segment?: string;
+
+
   @IsOptional()
   @IsString()
   @MaxLength(200)

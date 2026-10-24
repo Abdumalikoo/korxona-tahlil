@@ -10,6 +10,7 @@ import { moveMessage, otherSection, SECTION_LABELS, sectionsApi, type SectionVal
 import { SectionTabs } from '@/features/sections/section-tabs';
 import { referencesApi } from '@/features/shared/references';
 import { useAuth } from '@/lib/auth-context';
+import { placeText } from '@/lib/segments';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -392,7 +393,7 @@ export function IncomeList({ section }: { section: SectionValue }) {
                     <Th className="w-28">Sana</Th>
                     <Th>Xizmat turi</Th>
                     <Th>Mijoz</Th>
-                    <Th className="w-44">Bo&apos;lim / Hudud</Th>
+                    <Th className="w-44">Qayerga tegishli</Th>
                     <Th className="w-28">Holat</Th>
                     <Th align="right" className="w-40">
                       Summa
@@ -444,7 +445,7 @@ export function IncomeList({ section }: { section: SectionValue }) {
                         </Td>
 
                         <Td className="text-(--color-text-muted)">
-                          {income.department?.name ?? income.region?.name ?? 'Umumkorxona'}
+                          {placeText(income) ?? <span className="text-(--color-warn)">Biriktirilmagan</span>}
                         </Td>
 
                         <Td>

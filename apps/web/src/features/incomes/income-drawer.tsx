@@ -14,6 +14,7 @@ import {
 } from '@/lib/format';
 import { useEffect, useRef, useState } from 'react';
 import { incomesApi } from './api';
+import { EMPTY_PLACE, PlacePicker, placeCreatePayload, placeError, placeOf, placePayload, restorePlace, type PlaceValue } from '@/components/shared/place-picker';
 
 import { MoneyInput } from '@/components/shared/money-input';
 import { QuickServiceDialog } from '@/components/shared/quick-service-dialog';
@@ -50,6 +51,8 @@ const paymentStatuses: { value: PaymentStatus; label: string }[] = [
 interface IncomeDrawerProps {
   income: Income | null;
   creating: boolean;
+  /** Qaysi bo'limdan ochildi (Doimiy / Boshqa) — yangi yozuv shu bo'limga tushadi */
+  section?: 'DOIMIY' | 'BOSHQA';
   categories: IncomeCategory[];
   departments: Department[];
   onClose: () => void;
@@ -65,7 +68,8 @@ interface FormState {
   paid: number | null;
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
-  departmentId: string;
+  /** Qayerga tegishli: Markaz (bo'lim), Hudud (tuman) yoki yo'nalish */
+  place: PlaceValue;
   clientName: string;
   contractNo: string;
   description: string;
@@ -79,7 +83,7 @@ function emptyForm(): FormState {
     paid: null,
     paymentStatus: 'PAID',
     paymentMethod: 'BANK',
-    departmentId: '',
+    place: EMPTY_PLACE,
     clientName: '',
     contractNo: '',
     description: '',
@@ -88,14 +92,18 @@ function emptyForm(): FormState {
 
 /** Yangi daromadda oldingi safardagi tanlovlar qoladi */
 const MEMORY = 'income';
-type Remembered = Pick<FormState, 'categoryCode' | 'departmentId' | 'paymentMethod'>;
+type Remembered = Pick<FormState, 'categoryCode' | 'paymentMethod' | 'place'> & { departmentId?: string };
 
 function newForm(): FormState {
   const last = recallForm<Remembered>(MEMORY);
   return {
     ...emptyForm(),
     ...(typeof last.categoryCode === 'string' ? { categoryCode: last.categoryCode } : {}),
-    ...(typeof last.departmentId === 'string' ? { departmentId: last.departmentId } : {}),
+    ...(restorePlace(last.place)
+      ? { place: restorePlace(last.place)! }
+      : typeof last.departmentId === 'string' && last.departmentId
+        ? { place: { ...EMPTY_PLACE, kind: 'CENTER' as const, departmentId: last.departmentId } }
+        : {}),
     ...(last.paymentMethod ? { paymentMethod: last.paymentMethod } : {}),
   };
 }
@@ -109,6 +117,7 @@ function toDateInput(iso: string | null): string {
 export function IncomeDrawer({
   income,
   creating,
+  section,
   categories,
   departments,
   onClose,
@@ -141,7 +150,7 @@ export function IncomeDrawer({
         paid: tiyinToSum(income.paidTiyin).toNumber(),
         paymentStatus: income.paymentStatus,
         paymentMethod: income.paymentMethod,
-        departmentId: income.departmentId ?? '',
+        place: placeOf(income),
         clientName: income.clientName ?? '',
         contractNo: income.contractNo ?? '',
         description: income.description ?? '',
@@ -198,6 +207,11 @@ export function IncomeDrawer({
     if (!form.date) found.date = 'Sanani tanlang';
     if (!form.categoryCode) found.categoryCode = 'Xizmat turini tanlang';
     if (form.amount === null || form.amount <= 0) found.amount = 'Summani kiriting';
+    // Yangi daromadda — majburiy; eski (biriktirilmagan) yozuvda tanlansa tekshiriladi
+    if (!isEditing || form.place.kind) {
+      const where = placeError(form.place);
+      if (where) found.place = where;
+    }
 
     if (form.paymentStatus === 'PARTIAL') {
       if (form.paid === null || form.paid <= 0) {
@@ -222,7 +236,8 @@ export function IncomeDrawer({
       amountTiyin: sumToTiyin(form.amount ?? 0),
       paidTiyin: sumToTiyin(form.paid ?? 0),
       categoryCode: form.categoryCode,
-      departmentId: form.departmentId || undefined,
+      ...(income ? (placePayload(form.place) ?? {}) : placeCreatePayload(form.place)),
+      ...(!income && section ? { section } : {}),
       clientName: form.clientName.trim() || undefined,
       contractNo: form.contractNo.trim() || undefined,
       description: form.description.trim() || undefined,
@@ -236,12 +251,12 @@ export function IncomeDrawer({
         onSaved("O'zgarishlar saqlandi");
       } else {
         await incomesApi.create(payload);
-        rememberForm<Remembered>(MEMORY, { categoryCode: form.categoryCode, departmentId: form.departmentId, paymentMethod: form.paymentMethod });
+        rememberForm<Remembered>(MEMORY, { categoryCode: form.categoryCode, place: form.place, paymentMethod: form.paymentMethod });
         onSaved("Daromad qo'shildi");
         if (next) {
           // Ketma-ket kiritish: sana, xizmat turi, bo'lim va to'lov usuli qoladi
           setAdded((a) => ({ count: (a?.count ?? 0) + 1, last: formatTiyin(payload.amountTiyin) }));
-          setForm((state) => ({ ...emptyForm(), date: state.date, categoryCode: state.categoryCode, departmentId: state.departmentId, paymentMethod: state.paymentMethod }));
+          setForm((state) => ({ ...emptyForm(), date: state.date, categoryCode: state.categoryCode, place: state.place, paymentMethod: state.paymentMethod }));
           setTimeout(() => amountBox.current?.querySelector('input')?.focus(), 30);
           return;
         }
@@ -275,11 +290,6 @@ export function IncomeDrawer({
   const categoryOptions = [
     { value: '', label: 'Tanlang' },
     ...categories.map((item) => ({ value: item.code, label: item.label })),
-  ];
-
-  const departmentOptions = [
-    { value: '', label: 'Umumkorxona' },
-    ...departments.map((item) => ({ value: item.id, label: item.name })),
   ];
 
   const readOnly = !isAdmin;
@@ -374,6 +384,23 @@ export function IncomeDrawer({
             </div>
           )}
 
+          {/* ─────── Qayerga tegishli ─────── */}
+
+          <PlacePicker
+            value={form.place}
+            onChange={(place) => update('place', place)}
+            departments={departments}
+            error={errors.place}
+            disabled={saving || readOnly}
+            compact
+            noun="daromad"
+          />
+          {isEditing && !form.place.kind && (
+            <p className="-mt-2 text-xs text-(--color-warn)">
+              Bu yozuv hech qayerga biriktirilmagan — Solishtirmada «Hududga biriktirilmagan»da turibdi. Markaz, Hudud yoki yo‘nalishni tanlab saqlang.
+            </p>
+          )}
+
           {/* ─────── Asosiy maydonlar ─────── */}
 
           <Input
@@ -423,14 +450,6 @@ export function IncomeDrawer({
               disabled={saving || readOnly}
             />
           </div>
-
-          <Select
-            label="Bo&apos;lim"
-            options={departmentOptions}
-            value={form.departmentId}
-            onChange={(event) => update('departmentId', event.target.value)}
-            disabled={saving || readOnly}
-          />
 
           {/* ─────── Qo'shimcha ─────── */}
 

@@ -27,7 +27,7 @@ import { useBrief } from '@/lib/view-mode';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { Mark } from '@/features/reactions/mark';
-import { regionsApi, statsOf, unitMark, type RegionsResult, type UnitStats } from './api';
+import { KIND_LABEL, regionsApi, statsOf, unitMark, type RegionsResult, type UnitStats } from './api';
 import { DistrictDrill, DrillBreadcrumb, EmployeeDrill, RegionDrill, type Crumb } from './drill';
 import { CenterDepartmentDrill, CenterDrill } from './center-drill';
 import { UNASSIGNED_KEY } from './drill-api';
@@ -146,7 +146,9 @@ function UnitRow({
           </span>
         </span>
         {u.kind !== 'region' && (
-          <span className="text-xs text-(--color-text-faint)">{u.kind === 'center' ? "Markaz bo'limlari va xodimlari" : "hudud belgilanmagan yozuvlar · ichini ko'rish ›"}</span>
+          <span className="text-xs text-(--color-text-faint)">
+            {u.kind === 'center' ? "Markaz bo'limlari va xodimlari" : u.kind === 'segment' ? "yo'nalish · tarkibini ko'rish ›" : "hudud belgilanmagan yozuvlar · ichini ko'rish ›"}
+          </span>
         )}
       </td>
       <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
@@ -418,6 +420,8 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
   const activeRegions = regions.filter((s) => s.income !== 0 || s.expense !== 0);
   const center = all.find((s) => s.unit.kind === 'center') ?? null;
   const unassigned = all.find((s) => s.unit.kind === 'unassigned') ?? null;
+  /** Yo'nalishlar (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) — hududlar reytingiga kirmaydi */
+  const segments = all.filter((s) => s.unit.kind === 'segment');
   const withCenter = center ? [...activeRegions, center] : activeRegions;
 
   const sorted = useMemo(() => {
@@ -462,9 +466,9 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
       `solishtirma-hududlar-${data.range.from}_${data.range.to}`,
       ['Hudud', 'Turi', "Daromad, so'm", "Xarajat, so'm", "shundan ish haqi, so'm", "Foyda, so'm", 'Rentabellik, %', `${data.compareLabel}: foyda, so'm`, "Foyda farqi, so'm", "Xodimlar (o'rtacha)", "Bir xodimga daromad, so'm", 'Zarar oylari (12 oy)'],
       [
-        ...[...byProfit, ...regions.filter((s) => s.income === 0 && s.expense === 0), ...(center ? [center] : []), ...(unassigned ? [unassigned] : [])].map((s) => [
+        ...[...byProfit, ...regions.filter((s) => s.income === 0 && s.expense === 0), ...(center ? [center] : []), ...segments, ...(unassigned ? [unassigned] : [])].map((s) => [
           s.unit.name,
-          s.unit.kind === 'center' ? 'Markaz' : s.unit.kind === 'unassigned' ? 'Biriktirilmagan' : 'Hudud',
+          KIND_LABEL[s.unit.kind],
           csvSom(s.income),
           csvSom(s.expense),
           csvSom(s.payroll),
@@ -673,6 +677,9 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
               </tbody>
               <tbody className="divide-y divide-(--color-line) border-t border-(--color-line)">
                 {center && <UnitRow s={center} rank={null} onOpen={open} strong section={data.section} months={data.months} brief={brief} />}
+                {segments.map((s) => (
+                  <UnitRow key={s.unit.key} s={s} rank={null} onOpen={open} strong section={data.section} months={data.months} brief={brief} />
+                ))}
                 {unassigned && <UnitRow s={unassigned} rank={null} onOpen={open} strong section={data.section} months={data.months} brief={brief} />}
               </tbody>
               <tbody>
@@ -740,13 +747,14 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
               <p className="text-[11px] text-(--color-text-muted)">Markazni qoplash</p>
             </>
           }
-          howTo="Yuqoridan pastga o'qiladi: hududlarning jami foydasidan Markaz xarajati ayriladi (Markaz daromadi qo'shiladi), keyin hech qaysi hududga biriktirilmagan yozuvlar. Oxirgi qator — korxonaning umumiy natijasi."
+          howTo="Yuqoridan pastga o'qiladi: hududlarning jami foydasidan Markaz xarajati ayriladi (Markaz daromadi qo'shiladi), so'ng yo'nalishlar (Tax free, Marksheyder …) natijasi, keyin hech qaysi hududga biriktirilmagan yozuvlar. Oxirgi qator — korxonaning umumiy natijasi."
         >
           <Bridge
             steps={[
               { label: 'Hududlar foydasi', value: rProfit, total: true, hint: `${activeRegions.length} ta hudud` },
               ...(center && center.income !== 0 ? [{ label: 'Markaz daromadi', value: center.income }] : []),
               ...(center ? [{ label: 'Markaz xarajati', value: -center.expense, hint: `ish haqi ${compact(center.payroll)}` }] : []),
+              ...segments.filter((s) => s.income !== 0 || s.expense !== 0).map((s) => ({ label: `${s.unit.name} natijasi`, value: s.profit, hint: "yo'nalish" })),
               ...(unassigned && unassigned.income !== 0 ? [{ label: 'Biriktirilmagan daromad', value: unassigned.income }] : []),
               ...(unassigned && unassigned.expense !== 0 ? [{ label: 'Biriktirilmagan xarajat', value: -unassigned.expense }] : []),
               { label: 'Korxona natijasi', value: totalIncome - totalExpense, total: true },

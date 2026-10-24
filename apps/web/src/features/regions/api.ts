@@ -7,7 +7,8 @@ import type { ItemFilter, ItemKind, MarkItem } from '@/features/reactions/api';
 // Solishtirma: hududlar va Markaz — backend bilan bir xil turlar
 // ═══════════════════════════════════════════════════════════
 
-export type UnitKind = 'region' | 'center' | 'unassigned';
+/** segment — yo'nalish (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) */
+export type UnitKind = 'region' | 'center' | 'segment' | 'unassigned';
 
 export interface UnitPart {
   key: string;
@@ -21,6 +22,8 @@ export interface RegionUnit {
   code: number | null;
   name: string;
   kind: UnitKind;
+  /** Yo'nalish kodi (kind = segment) */
+  segment?: string;
   incomeTiyin: string;
   previousIncomeTiyin: string;
   expenseTiyin: string;
@@ -219,8 +222,12 @@ export function statsOf(unit: RegionUnit): UnitStats {
 export const KIND_LABEL: Record<UnitKind, string> = {
   region: 'Hudud',
   center: 'Markaz',
+  segment: "Yo'nalish",
   unassigned: 'Biriktirilmagan',
 };
+
+/** Ro'yxatdagi tartib: Markaz, hududlar, yo'nalishlar, biriktirilmagan */
+export const KIND_ORDER: Record<UnitKind, number> = { center: 0, region: 1, segment: 2, unassigned: 3 };
 
 // ═══════════════════════════════════════════════════════════
 // Munosabat belgilari: hudud, uning daromadi/xarajati va tarkibidagi moddalar

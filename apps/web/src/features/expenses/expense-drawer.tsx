@@ -15,7 +15,7 @@ import {
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { expensesApi, type UpdateExpensePayload } from './api';
-import { PlacePicker, placeError, placeOf, placePayload, type PlaceValue } from './place-picker';
+import { PlacePicker, placeError, placeOf, placePayload, type PlaceValue } from '@/components/shared/place-picker';
 
 import { CategoryPicker } from '@/components/shared/category-picker';
 import { MoneyInput } from '@/components/shared/money-input';
@@ -169,7 +169,7 @@ export function ExpenseDrawer({
       date: form.date,
       amountTiyin: sumToTiyin(form.amount ?? 0),
       categoryCode: form.categoryCode,
-      ...(place ? { regionCode: place.regionCode, departmentId: place.departmentId, districtId: place.districtId } : {}),
+      ...(place ?? {}),
       description: form.description.trim(),
       paymentMethod: form.paymentMethod,
       documentNo: form.documentNo.trim(),
@@ -373,10 +373,11 @@ export function ExpenseDrawer({
             departments={departments}
             error={errors.place}
             disabled={saving || readOnly || fromWarehouse}
+            compact
           />
           {!form.place.kind && (
             <p className="-mt-2 text-xs text-(--color-warn)">
-              Bu yozuv hech qayerga biriktirilmagan — Solishtirmada «Hududga biriktirilmagan»da turibdi. Markaz yoki Hududni tanlab saqlang.
+              Bu yozuv hech qayerga biriktirilmagan — Solishtirmada «Hududga biriktirilmagan»da turibdi. Markaz, Hudud yoki yo‘nalishni tanlab saqlang.
             </p>
           )}
 

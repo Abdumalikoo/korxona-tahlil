@@ -49,7 +49,7 @@ export class IncomesReport {
   private async load(range: Range, unit: string): Promise<IncomeRow[]> {
     const rows = await this.prisma.income.findMany({
       where: { deletedAt: null, date: { gte: dayStart(range.from), lt: new Date(dayStart(range.to).getTime() + DAY) } },
-      select: { date: true, amountTiyin: true, paidTiyin: true, categoryCode: true, regionCode: true, departmentId: true, clientName: true, quantity: true, paymentStatus: true, description: true },
+      select: { date: true, amountTiyin: true, paidTiyin: true, categoryCode: true, regionCode: true, departmentId: true, clientName: true, quantity: true, paymentStatus: true, description: true, segment: true },
     });
     return rows
       .map((r) => ({
@@ -58,7 +58,7 @@ export class IncomesReport {
         amount: Number(r.amountTiyin) / 100,
         paid: Number(r.paidTiyin) / 100,
         category: r.categoryCode,
-        unit: unitKeyOf(r.regionCode, r.departmentId),
+        unit: unitKeyOf(r.regionCode, r.departmentId, r.segment),
         client: r.clientName?.trim() || null,
         quantity: r.quantity,
         status: String(r.paymentStatus),

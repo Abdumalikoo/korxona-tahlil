@@ -7,6 +7,7 @@ import type { DistrictDetailResult, RegionDistrictsResult } from '../structure/d
 import { RegionsService, type SohaCell, type SohaSink } from '../structure/regions.service';
 import type { RegionUnit, RegionsResult } from '../structure/regions.types';
 import { UnassignedService, type UnassignedResult } from '../structure/unassigned.service';
+import { segmentLabel } from '../../common/segments/segments';
 import { fmtPct, fmtSom, periodLabel, periodShort, safeFile, uzDate } from './reports.format';
 import type { Cell, Column, ReportDoc, ReportParams, ReportSection, TableBlock } from './reports.types';
 
@@ -389,13 +390,18 @@ export class SolishtirmaReport {
         const fact = drill?.districts.reduce((s, d) => s + BigInt(d.factTiyin), 0n);
         t.add(0, u.name, 'Hudud', { ...base, quantity: drill?.totals.quantity ?? null, plan: drill ? plan : undefined, fact: drill ? fact : undefined });
         this.incomeGroup(t, 1, soha.income, u.key, svcLabel);
-        this.expenseGroup(t, 1, soha.expense, u.key, catLabel, catParent, soha.policyCodes);
+        this.expenseGroup(t, 1, soha.expense, u.key, catLabel, catParent, soha);
         if (drill) {
           t.add(1, 'Tumanlar', 'Guruh', { income: drill.totals.incomeTiyin, expense: drill.totals.expenseTiyin, previousIncome: drill.totals.previousIncomeTiyin, previousExpense: drill.totals.previousExpenseTiyin, quantity: drill.totals.quantity });
           for (const d of drill.details) this.districtNode(t, 2, d);
         } else {
           t.add(1, "Tumanlar — ma'lumot o'qilmadi (Tekshiruv varag'iga qarang)", 'Xato', {});
         }
+      } else if (u.kind === 'segment') {
+        // Yo'nalish (Tax free, Marksheyder …): daromad — xizmat turlari, xarajat — moddalar
+        t.add(0, u.name, "Yo'nalish", base);
+        this.incomeGroup(t, 1, soha.income, u.key, svcLabel);
+        this.expenseGroup(t, 1, soha.expense, u.key, catLabel, catParent, soha);
       } else if (u.kind === 'center') {
         t.add(0, u.name, 'Markaz', base);
         if (center) this.centerNode(t, 1, center);
@@ -456,7 +462,8 @@ export class SolishtirmaReport {
   }
 
   /** Xarajat guruhi: modda guruhlari → moddalar (barchasi) */
-  private expenseGroup(t: Tree, level: number, map: Map<string, Map<string, SohaCell>>, unitKey: string, catLabel: Map<string, string>, catParent: Map<string, string | null>, policy: Set<string>): void {
+  private expenseGroup(t: Tree, level: number, map: Map<string, Map<string, SohaCell>>, unitKey: string, catLabel: Map<string, string>, catParent: Map<string, string | null>, soha: SohaSink): void {
+    const policy = soha.policyCodes;
     const roots = new Map<string, { amount: bigint; previous: bigint; items: { code: string; c: SohaCell }[] }>();
     for (const [code, byUnit] of map) {
       const c = byUnit.get(unitKey);
@@ -473,7 +480,7 @@ export class SolishtirmaReport {
     t.add(level, 'Xarajat — moddalar', 'Guruh', { expense: all.amount, previousExpense: all.previous });
     for (const [root, g] of [...roots.entries()].sort(byAmount(([, g]) => g.amount))) {
       const single = g.items.length === 1 && g.items[0]!.code === root;
-      const mark = (code: string) => (policy.has(code) ? ' (Markaz hisobidan)' : '');
+      const mark = (code: string) => (policy.has(code) ? ` (${payerText(soha, code)})` : '');
       t.add(level + 1, `${catLabel.get(root) ?? root}${single ? mark(root) : ''}`, 'Modda guruhi', { expense: g.amount, previousExpense: g.previous });
       if (single) continue;
       for (const x of g.items.sort(byAmount((x) => x.c.amount))) t.add(level + 2, `${catLabel.get(x.code) ?? x.code}${mark(x.code)}`, 'Modda', { expense: x.c.amount, previousExpense: x.c.previous });
@@ -602,7 +609,7 @@ export class SolishtirmaReport {
         const districts = drills.get(unit)?.details ?? [];
         const per = districts.map((d) => ({ d, s: d.services.find((s) => s.code === x.code) })).filter((y) => y.s && (y.s.amountTiyin !== '0' || y.s.previousTiyin !== '0'));
         const qty = per.length ? per.reduce((a, y) => a + y.s!.quantity, 0) : null;
-        push(2, unitName.get(unit) ?? unit, unit === 'center' ? 'Markaz' : unit === 'none' ? 'Biriktirilmagan' : 'Hudud', c.amount, c.previous, incAll.amount, x.s.amount, c.count, qty, 'up');
+        push(2, unitName.get(unit) ?? unit, kindOfKey(unit), c.amount, c.previous, incAll.amount, x.s.amount, c.count, qty, 'up');
         for (const y of per.sort(byAmount((y) => BigInt(y.s!.amountTiyin)))) {
           push(3, y.d.district.name, 'Tuman', BigInt(y.s!.amountTiyin), BigInt(y.s!.previousTiyin), incAll.amount, c.amount, null, y.s!.quantity, 'up');
         }
@@ -624,10 +631,10 @@ export class SolishtirmaReport {
     }
     const expAll = [...roots.values()].reduce((a, g) => ({ amount: a.amount + g.amount, previous: a.previous + g.previous, count: a.count + g.count }), { amount: 0n, previous: 0n, count: 0 });
     push(0, 'XARAJAT — jami', 'Bo\'lim', expAll.amount, expAll.previous, expAll.amount, expAll.amount, expAll.count, null, 'down');
-    const mark = (code: string) => (soha.policyCodes.has(code) ? ' (Markaz hisobidan)' : '');
+    const mark = (code: string) => (soha.policyCodes.has(code) ? ` (${payerText(soha, code)})` : '');
     const unitsOf = (level: number, m: Map<string, SohaCell>, parent: bigint) => {
       for (const [unit, c] of [...m.entries()].filter(([, c]) => c.amount !== 0n || c.previous !== 0n).sort((a, b) => order(a[0]) - order(b[0]))) {
-        push(level, unitName.get(unit) ?? unit, unit === 'center' ? 'Markaz' : unit === 'none' ? 'Biriktirilmagan' : 'Hudud', c.amount, c.previous, expAll.amount, parent, c.count, null, 'down');
+        push(level, unitName.get(unit) ?? unit, kindOfKey(unit), c.amount, c.previous, expAll.amount, parent, c.count, null, 'down');
       }
     };
     for (const [root, g] of [...roots.entries()].sort(byAmount(([, g]) => g.amount))) {
@@ -683,8 +690,8 @@ export class SolishtirmaReport {
     return {
       type: 'table',
       title: "Xarajat (so'm): qator — modda, ustun — hudud (siyosat moddalari Markazda)",
-      columns: [{ label: 'Modda guruhi', width: 2.2 }, { label: 'Modda', width: 2.6 }, { label: 'Markaz hisobidan', width: 0.9 }, { label: 'Jami', format: 'money' }, { label: "O'tgan davr", format: 'money' }, { label: "O'zgarish", format: 'signedPct', toneBy: 'down' }, ...units.map((k) => ({ label: unitName.get(k) ?? k, format: 'money' as const }))],
-      rows: list.map((x) => [catLabel.get(x.root) ?? x.root, catLabel.get(x.code) ?? x.code, soha.policyCodes.has(x.code) ? 'ha' : '', som(x.s.amount), som(x.s.previous), changePct(x.s.amount, x.s.previous), ...units.map((k) => som(x.m.get(k)?.amount ?? 0n))]),
+      columns: [{ label: 'Modda guruhi', width: 2.2 }, { label: 'Modda', width: 2.6 }, { label: 'Siyosat: kim hisobidan', width: 1.4 }, { label: 'Jami', format: 'money' }, { label: "O'tgan davr", format: 'money' }, { label: "O'zgarish", format: 'signedPct', toneBy: 'down' }, ...units.map((k) => ({ label: unitName.get(k) ?? k, format: 'money' as const }))],
+      rows: list.map((x) => [catLabel.get(x.root) ?? x.root, catLabel.get(x.code) ?? x.code, soha.policyCodes.has(x.code) ? payerText(soha, x.code) : '', som(x.s.amount), som(x.s.previous), changePct(x.s.amount, x.s.previous), ...units.map((k) => som(x.m.get(k)?.amount ?? 0n))]),
       total: ['JAMI', '', '', som(list.reduce((a, x) => a + x.s.amount, 0n)), som(list.reduce((a, x) => a + x.s.previous, 0n)), changePct(list.reduce((a, x) => a + x.s.amount, 0n), list.reduce((a, x) => a + x.s.previous, 0n)), ...units.map((k) => som(list.reduce((a, x) => a + (x.m.get(k)?.amount ?? 0n), 0n)))],
       freeze: true,
       filter: true,
@@ -694,7 +701,7 @@ export class SolishtirmaReport {
   // ─────────── 5. Hududlar jadvali ───────────
 
   private unitsFlat(R: RegionsResult): TableBlock {
-    const kind = (u: RegionUnit) => (u.kind === 'region' ? 'Hudud' : u.kind === 'center' ? 'Markaz' : 'Biriktirilmagan');
+    const kind = (u: RegionUnit) => kindOfKey(u.key);
     return {
       type: 'table',
       columns: [
@@ -1165,6 +1172,17 @@ export class SolishtirmaReport {
       ],
     };
   }
+}
+
+/** Birlik kalitining turi (jadvaldagi «Daraja» ustuni) */
+function kindOfKey(key: string): string {
+  return key === 'center' ? 'Markaz' : key === 'none' ? 'Biriktirilmagan' : key.startsWith('s:') ? "Yo'nalish" : 'Hudud';
+}
+
+/** Siyosatdagi modda kim hisobidan — matn */
+function payerText(soha: SohaSink, code: string): string {
+  const key = soha.payerOf?.(code) ?? 'center';
+  return key === 'center' ? 'Markaz hisobidan' : `${segmentLabel(key.slice(2))} hisobidan`;
 }
 
 function changeText(cur: bigint, prev: bigint, label: string): string {

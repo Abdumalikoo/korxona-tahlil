@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { loadCenterCategories } from '../expense-policy/policy.util';
+import { loadPolicyRouting } from '../expense-policy/policy.util';
 import { Prisma } from '@prisma/client';
 import { EconData } from '../econ/econ.data';
 import { EconService } from '../econ/econ.service';
@@ -56,6 +56,7 @@ interface SumRow {
   section?: string;
   source?: string | null;
   categoryCode?: string | null;
+  segment?: string | null;
   total: bigint | string | number | null;
 }
 
@@ -87,10 +88,10 @@ export class ReconcileService {
     const category = table === 'expenses' ? Prisma.sql`"categoryCode"` : Prisma.sql`NULL::text`;
     return this.prisma.$queryRaw<SumRow[]>(Prisma.sql`
       SELECT to_char("date" + interval '5 hours', 'YYYY-MM') AS month, "regionCode", "departmentId", "section"::text AS section,
-             ${source} AS source, ${category} AS "categoryCode", SUM("amountTiyin")::bigint AS total
+             ${source} AS source, ${category} AS "categoryCode", "segment", SUM("amountTiyin")::bigint AS total
       FROM ${t}
       WHERE "deletedAt" IS NULL AND "date" >= ${start} AND "date" < ${end}
-      GROUP BY 1, 2, 3, 4, 5, 6`);
+      GROUP BY 1, 2, 3, 4, 5, 6, 7`);
   }
 
   async run(from?: string, to?: string): Promise<ReconcileResult> {
@@ -112,9 +113,9 @@ export class ReconcileService {
     const [incRows, expRows] = await Promise.all([this.sql('incomes', start, end), this.sql('expenses', start, end)]);
     const sum = (rows: SumRow[], pred: (r: SumRow) => boolean = () => true) => rows.filter(pred).reduce((s, r) => s + big(r.total), 0n);
     // Xarajatlar siyosati: Markaz hisobidagi moddalar (bayram, choraklik, asosiy vositalar sarfi …) — Markazga
-    const centerCats = await loadCenterCategories(this.prisma).catch(() => new Set<string>());
-    const isCenterCat = (r: SumRow) => Boolean(r.categoryCode && centerCats.has(r.categoryCode));
-    const unitOf = (r: SumRow) => (isCenterCat(r) ? 'center' : unitKeyOf(r.regionCode ?? null, r.departmentId ?? null));
+    const routing = await loadPolicyRouting(this.prisma).catch(() => ({ moved: new Set<string>(), payerKey: () => 'center' }));
+    const isCenterCat = (r: SumRow) => Boolean(r.categoryCode && routing.moved.has(r.categoryCode));
+    const unitOf = (r: SumRow) => (isCenterCat(r) ? routing.payerKey(r.categoryCode!) : unitKeyOf(r.regionCode ?? null, r.departmentId ?? null, r.segment ?? null));
     const I = sum(incRows);
     const E = sum(expRows);
     const units = [...new Set([...incRows, ...expRows].map(unitOf))];
