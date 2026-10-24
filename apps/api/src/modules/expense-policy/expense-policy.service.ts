@@ -4,7 +4,7 @@ import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { bounds, parseDay, trendMonths } from '../structure/structure.engine';
 import { SEGMENTS, isSegment, segmentLabel } from '../../common/segments/segments';
-import { ALWAYS_CENTER, ASSET_GROUP_CODES, ensureCenterCategories, expandCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, POLICY_KEY, policyRouting, readPolicy, writePolicy } from './policy.util';
+import { ALWAYS_CENTER, ASSET_GROUP_CODES, ensureCenterCategories, expandCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, POLICY_KEY, policyRouting, readPolicy, ruleLookup, writePolicy } from './policy.util';
 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
@@ -299,6 +299,12 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     // Markaz hisobidagi moddalar (yo'nalishlar hisobidagilari — Markazga kirmaydi)
     const routing = policyRouting(policy, cats);
     const center = new Set([...routing.moved].filter((c) => routing.payerKey(c) === 'center'));
+    // Bo'limlar qoidalari bilan Markaz hisobiga o'tadigan moddalar (boshqa bo'limlarda yozilgan)
+    const fromUnits = new Set<string>();
+    for (const rules of Object.values(policy.unitRules)) {
+      const rule = ruleLookup(rules, cats);
+      for (const c of cats) if (rule(c.code) === 'CENTER') fromUnits.add(c.code);
+    }
     const label = new Map(cats.map((c) => [c.code, c.label]));
     const parent = new Map(cats.map((c) => [c.code, c.parentCode]));
     const regionName = new Map(regions.map((r) => [r.code, r.name]));
@@ -307,9 +313,13 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
       where: {
         deletedAt: null,
         date: { gte: start, lt: end },
-        OR: [{ regionCode: 0, segment: null }, { regionCode: null, departmentId: { not: null }, segment: null }, ...(center.size ? [{ categoryCode: { in: [...center] } }] : [])],
+        OR: [
+          { regionCode: 0, segment: null },
+          { regionCode: null, departmentId: { not: null }, segment: null },
+          ...(center.size || fromUnits.size ? [{ categoryCode: { in: [...new Set([...center, ...fromUnits])] } }] : []),
+        ],
       },
-      select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true },
+      select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, segment: true },
     });
 
     let own = 0n;
@@ -327,15 +337,18 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
       m.set(key, p);
     };
     for (const r of rows) {
-      // Yo'nalish hisobidagi moddalar Markaz xarajatiga kirmaydi
-      if (routing.moved.has(r.categoryCode) && routing.payerKey(r.categoryCode) !== 'center') continue;
+      // Boshqa bo'lim hisobidagilari Markaz xarajatiga kirmaydi; boshqa bo'limdan qoida bilan kelgani — Markazning o'zi
+      const routed = routing.route(r);
+      if (routed && routed.key !== 'center') continue;
+      const isCenterRow = !r.segment && (r.regionCode === 0 || (r.regionCode === null && r.departmentId !== null));
+      if (!routed && !isCenterRow) continue;
       const top = parent.get(r.categoryCode) ?? r.categoryCode;
       const mi = monthIndex.get(monthOf(r.date));
       if (ASSET_GROUP_CODES.includes(r.categoryCode)) {
         // 2-guruh: asosiy vositalar sarfi va xarajatga o'tkazilganlar
         assets += r.amountTiyin;
         if (mi !== undefined) assetsTrend[mi]! += r.amountTiyin;
-      } else if (center.has(r.categoryCode)) {
+      } else if (routed?.origin === 'global') {
         regional += r.amountTiyin;
         // Siyosat guruhida — aniq modda nomi (bayram puli, komandirovka …)
         add(regParts, r.categoryCode, label.get(r.categoryCode) ?? r.categoryCode, r.amountTiyin);

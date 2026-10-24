@@ -299,8 +299,10 @@ export class RegionsService {
     const categoryLabel = new Map(expenseCategories.map((c) => [c.code, c.label]));
     const categoryParent = new Map(expenseCategories.map((c) => [c.code, c.parentCode]));
     for (const row of expenses) {
-      const byPolicy = centerCategories.has(row.categoryCode);
-      const payer = byPolicy ? routing.payerKey(row.categoryCode) : null;
+      // Siyosat: bo'lim qoidasi (shu bo'limda yozilgan modda boshqa bo'lim hisobiga), so'ng umumiy siyosat
+      const routed = routing.route(row);
+      const byPolicy = routed !== null;
+      const payer = routed?.key ?? null;
       const acc = payer ? unit(payer) : unit(unitKeyOf(row.regionCode, row.departmentId, row.segment));
       const isCurrent = inCurrent(row.date);
       const isPrevious = inPrevious(row.date);
@@ -314,7 +316,7 @@ export class RegionsService {
       if (isAssetCharge) {
         if (isCurrent) acc.centerAssets += row.amountTiyin;
         if (isPrevious) acc.previousCenterAssets += row.amountTiyin;
-      } else if (byPolicy && payer === 'center') {
+      } else if (byPolicy && payer === 'center' && routed?.origin === 'global') {
         const beneficiary = row.regionCode && row.regionCode !== 0 ? row.regionCode : null;
         if (isCurrent) {
           acc.centerRegional += row.amountTiyin;
@@ -327,7 +329,7 @@ export class RegionsService {
           if (row.categoryCode === ASSET_CHARGE_CATEGORY.code) addPart(acc.expenseParts, 'ASSET', 'Asosiy vositalar sarfi', row.amountTiyin, isCurrent, isPrevious);
           else addPart(acc.expenseParts, 'ASSET_X', "Asosiy vositalar (xarajatga o'tkazilgan)", row.amountTiyin, isCurrent, isPrevious);
         } else if (byPolicy) {
-          addPart(acc.expenseParts, `h:${row.categoryCode}`, `${payer === 'center' ? 'Hududlar uchun' : 'Siyosat bo‘yicha'}: ${categoryLabel.get(row.categoryCode) ?? row.categoryCode}`, row.amountTiyin, isCurrent, isPrevious);
+          addPart(acc.expenseParts, `h:${row.categoryCode}`, `${routed?.origin === 'unit' ? 'Boshqa bo‘limdan' : payer === 'center' ? 'Hududlar uchun' : 'Siyosat bo‘yicha'}: ${categoryLabel.get(row.categoryCode) ?? row.categoryCode}`, row.amountTiyin, isCurrent, isPrevious);
         } else if (row.source === 'PAYROLL') {
           if (isCurrent) acc.payroll += row.amountTiyin;
           if (isPrevious) acc.previousPayroll += row.amountTiyin;

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { expandCategories, readPolicy } from '../expense-policy/policy.util';
+import { loadCenterCategories } from '../expense-policy/policy.util';
 import {
   UNASSIGNED_KEY,
   type DistrictDetailResult,
@@ -208,8 +208,8 @@ export class DistrictsService {
     ]);
 
     // Xarajatlar siyosati: Markaz hisobidagi moddalar viloyat/tuman xarajatiga kirmaydi (Solishtirma bilan bir xil)
-    const policy = await readPolicy(this.prisma);
-    const centerCategories = expandCategories(policy.centerCategories, expenseCats.map((c) => ({ code: c.code, parentCode: c.parentCode })));
+    // Umumiy siyosat va Hududlar bo'limi qoidalari: boshqa bo'lim hisobidagi moddalar tuman xarajatiga kirmaydi
+    const centerCategories = await loadCenterCategories(this.prisma, expenseCats.map((c) => ({ code: c.code, parentCode: c.parentCode })));
     if (centerCategories.size) {
       for (let i = expenses.length - 1; i >= 0; i--) if (centerCategories.has(expenses[i]!.categoryCode)) expenses.splice(i, 1);
     }

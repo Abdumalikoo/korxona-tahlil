@@ -15,10 +15,11 @@ export interface UnitTab {
   /**
    * Tayyor sahifa: payroll — ish haqi (shablon, vedomost, bo'lim xodimlari); composition — ish haqi tarkibi;
    * lease — ijara va kommunal (filiallar kesimida, oylar oralig'i); bank — bank xarajatlari (ko'chirma shaklida);
-   * entries — qo'lda kiritish jadvali (entryKind: ASSET — asosiy vositalar, AD — reklama, OTHER — boshqa).
+   * entries — qo'lda kiritish jadvali (entryKind: ASSET — asosiy vositalar, AD — reklama, OTHER — boshqa);
+   * policy — bo'lim xarajatlari siyosati (modda qaysi bo'lim hisobida) — har 6 bo'limda.
    * Bo'lmasa — hali tugma.
    */
-  view?: 'payroll' | 'composition' | 'lease' | 'bank' | 'entries';
+  view?: 'payroll' | 'composition' | 'lease' | 'bank' | 'entries' | 'policy';
   entryKind?: EntryKindCode;
 }
 
@@ -36,7 +37,10 @@ const EXPENSE: Record<string, UnitTab[]> = {
 
 const BY_KIND: Record<EntryKind, Record<string, UnitTab[]>> = { expense: EXPENSE, income: {} };
 
-/** Bo'limning tuzilmalari (bo'lmasa — bo'sh ro'yxat) */
+/** Har bo'lim xarajatlarida — oxirgi tugma */
+const POLICY_TAB: UnitTab = { slug: 'siyosat', label: 'Xarajatlar siyosati', view: 'policy' };
+
+/** Bo'limning tuzilmalari (xarajatlarda — oxirida «Xarajatlar siyosati») */
 export function unitTabs(kind: EntryKind, unitCode: string): UnitTab[] {
-  return BY_KIND[kind][unitCode] ?? [];
+  return [...(BY_KIND[kind][unitCode] ?? []), ...(kind === 'expense' ? [POLICY_TAB] : [])];
 }

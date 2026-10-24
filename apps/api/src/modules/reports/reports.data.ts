@@ -159,14 +159,15 @@ export class ReportData {
       this.prisma.expense.findMany({ where, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, section: true, segment: true } }),
     ]);
     // Xarajatlar siyosati: moddalar qayerga yozilgan bo'lsa ham — Markaz yoki yo'nalish xarajati (Solishtirmadagidek)
-    const routing = await loadPolicyRouting(this.prisma).catch(() => ({ moved: new Set<string>(), payerKey: () => 'center' }));
+    // Bo'limlar qoidalari (bo'lim xarajatlari siyosati) ham — Solishtirmadagidek
+    const routing = await loadPolicyRouting(this.prisma).catch(() => null);
     const map = (r: (typeof incomes)[number], expense = false): Row => ({
       date: r.date,
       month: isoOf(r.date).slice(0, 7),
       amount: Number(r.amountTiyin) / 100,
       tiyin: r.amountTiyin,
       categoryCode: r.categoryCode,
-      unit: expense && routing.moved.has(r.categoryCode) ? routing.payerKey(r.categoryCode) : unitKeyOf(r.regionCode, r.departmentId, r.segment),
+      unit: (expense && routing ? routing.route(r)?.key : undefined) ?? unitKeyOf(r.regionCode, r.departmentId, r.segment),
       source: String(r.source),
       section: String(r.section),
     });

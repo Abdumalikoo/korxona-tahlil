@@ -1,5 +1,5 @@
 import type { PrismaService } from '../prisma/prisma.service';
-import { isSegment, segmentKey } from '../../common/segments/segments';
+import { ENTRY_UNIT_CODES, entryUnitOf, isSegment, segmentKey } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar siyosati — qaysi moddalar MARKAZ hisobidan (hudud xodimlari uchun bo'lsa ham).
@@ -65,12 +65,51 @@ export interface PolicyValue {
    * Ota moddaga berilgan to'lovchi ichki moddalarga ham o'tadi (ichki moddada o'zi berilmagan bo'lsa).
    */
   payers: Record<string, string>;
+  /**
+   * Bo'limlar siyosati: shu bo'limda (manba) yozilgan xarajat moddasi qaysi bo'lim hisobiga o'tadi.
+   * { TAX_FREE: { INTERNET: 'CENTER', REKLAMA: 'MARKSHEYDER' }, CENTER: { X: 'TAX_FREE' } }.
+   * Maqsad manbaning o'zi bo'lsa — «shu bo'limda qoladi» (umumiy siyosatdan istisno). Ota moddaga berilgan qoida ichkilariga ham.
+   * Bo'lim qoidasi umumiy siyosatdan ustun. Yozuvlar joyida qoladi — faqat hisobot va tahlilda hisobga olinadi.
+   */
+  unitRules: UnitRules;
+}
+
+export type UnitRules = Record<string, Record<string, string>>;
+
+/** Bo'limlar qoidalarini tozalash: manba — 6 bo'limdan biri; maqsad — Markaz yoki yo'nalish (Hududlar — faqat o'zida qolish) */
+export function cleanUnitRules(raw: unknown): UnitRules {
+  const out: UnitRules = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [source, map] of Object.entries(raw as Record<string, unknown>)) {
+    if (!ENTRY_UNIT_CODES.includes(source) || !map || typeof map !== 'object' || Array.isArray(map)) continue;
+    const rules: Record<string, string> = {};
+    for (const [code, target] of Object.entries(map as Record<string, unknown>)) {
+      if (!code || code.length > 64 || typeof target !== 'string' || !ENTRY_UNIT_CODES.includes(target)) continue;
+      if (target === 'REGION' && source !== 'REGION') continue;
+      rules[code] = target;
+    }
+    if (Object.keys(rules).length) out[source] = rules;
+  }
+  return out;
+}
+
+/** Bo'lim kodi → Solishtirma birligi kaliti (Markaz — "center", yo'nalish — "s:KOD") */
+export function unitTargetKey(target: string): string {
+  return target === 'CENTER' ? 'center' : segmentKey(target);
+}
+
+/** Birlik kaliti → bo'lim kodi */
+export function unitOfKey(key: string): string | null {
+  if (key === 'center') return 'CENTER';
+  if (key.startsWith('s:')) return key.slice(2);
+  if (key.startsWith('r:')) return 'REGION';
+  return null;
 }
 
 /** Bazadan siyosat (yo'q bo'lsa — standart) */
 export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
-  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown; payers: unknown }>;
+  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown; payers: unknown; unitRules: unknown }>;
   const chosen = Array.isArray(v.centerCategories) ? v.centerCategories.filter((c): c is string => typeof c === 'string') : [];
   const excluded = Array.isArray(v.excludeCategories) ? v.excludeCategories.filter((c): c is string => typeof c === 'string' && !ALWAYS_CENTER.includes(c)) : [];
   const payrollComponents = Array.isArray(v.payrollComponents)
@@ -88,6 +127,7 @@ export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
     excludedCategories: excluded,
     payrollComponents,
     payers: cleanPayers(v.payers, chosen),
+    unitRules: cleanUnitRules(v.unitRules),
   };
 }
 
@@ -102,7 +142,7 @@ function cleanPayers(raw: unknown, chosen: string[]): Record<string, string> {
 }
 
 /** Siyosatni yozadi (boshqa maydonlar saqlanadi) */
-export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[]; payers?: Record<string, string> }): Promise<void> {
+export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[]; payers?: Record<string, string>; unitRules?: UnitRules }): Promise<void> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
   const prev = (row?.value ?? {}) as Record<string, unknown>;
   const value = {
@@ -111,6 +151,7 @@ export async function writePolicy(prisma: PrismaService, patch: { centerCategori
     ...(patch.excludeCategories ? { excludeCategories: patch.excludeCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
     ...(patch.payrollComponents ? { payrollComponents: patch.payrollComponents } : {}),
     ...(patch.payers ? { payers: patch.payers } : {}),
+    ...(patch.unitRules ? { unitRules: patch.unitRules } : {}),
   };
   await prisma.setting.upsert({ where: { key: POLICY_KEY }, create: { key: POLICY_KEY, value }, update: { value } });
 }
@@ -174,7 +215,39 @@ export function expandCategories(codes: string[], categories: { code: string; pa
 export async function loadCenterCategories(prisma: PrismaService, categories?: { code: string; parentCode: string | null }[]): Promise<Set<string>> {
   const policy = await readPolicy(prisma);
   const cats = categories ?? (await prisma.category.findMany({ select: { code: true, parentCode: true } }));
-  return expandCategories(policy.centerCategories, cats);
+  const out = expandCategories(policy.centerCategories, cats);
+  // Hududlar bo'limi qoidalari: boshqa bo'limga o'tadiganlari qo'shiladi, «Hududda qoladi» — chiqariladi
+  const regionRules = policy.unitRules.REGION;
+  if (regionRules) {
+    const rule = ruleLookup(regionRules, cats);
+    for (const c of cats) {
+      const t = rule(c.code);
+      if (t === 'REGION') out.delete(c.code);
+      else if (t) out.add(c.code);
+    }
+    for (const [code, t] of Object.entries(regionRules)) if (t !== 'REGION') out.add(code);
+  }
+  return out;
+}
+
+/** Bo'lim qoidasi: moddadan ota-onalari bo'ylab — birinchi qoida (yo'q bo'lsa — undefined) */
+export function ruleLookup(rules: Record<string, string>, categories: { code: string; parentCode: string | null }[]): (code: string) => string | undefined {
+  const parent = new Map(categories.map((c) => [c.code, c.parentCode]));
+  const memo = new Map<string, string | undefined>();
+  return (code: string) => {
+    if (memo.has(code)) return memo.get(code);
+    let cur: string | null = code;
+    let out: string | undefined;
+    for (let depth = 0; cur && depth <= 20; depth += 1) {
+      if (rules[cur]) {
+        out = rules[cur];
+        break;
+      }
+      cur = parent.get(cur) ?? null;
+    }
+    memo.set(code, out);
+    return out;
+  };
 }
 
 /** Ish haqi komponenti qaysi Markaz moddasiga yoziladi */
@@ -190,9 +263,14 @@ export function payrollCenterCategory(componentCode: string): string {
 export interface PolicyRouting {
   moved: Set<string>;
   payerKey: (code: string) => string;
+  /**
+   * Yozuv kim hisobida (bo'lim qoidasi, so'ng umumiy siyosat): birlik kaliti va sababi; joyida qolsa — null.
+   * Bo'lim qoidasi «shu bo'limda qoladi» bo'lsa — umumiy siyosat ham qo'llanmaydi.
+   */
+  route: (row: { categoryCode: string | null; regionCode: number | null; departmentId: string | null; segment?: string | null }) => { key: string; origin: 'unit' | 'global' } | null;
 }
 
-export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'payers'>, categories: { code: string; parentCode: string | null }[]): PolicyRouting {
+export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'payers'> & { unitRules?: UnitRules }, categories: { code: string; parentCode: string | null }[]): PolicyRouting {
   const moved = expandCategories(policy.centerCategories, categories);
   const parent = new Map(categories.map((c) => [c.code, c.parentCode]));
   const include = new Set(policy.centerCategories.filter((c) => !c.startsWith('!')));
@@ -213,7 +291,17 @@ export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'pa
     memo.set(code, out);
     return out;
   };
-  return { moved, payerKey };
+  const lookups = new Map<string, (code: string) => string | undefined>();
+  for (const [source, rules] of Object.entries(policy.unitRules ?? {})) lookups.set(source, ruleLookup(rules, categories));
+  const route: PolicyRouting['route'] = (row) => {
+    const code = row.categoryCode;
+    if (!code) return null;
+    const source = entryUnitOf({ regionCode: row.regionCode, departmentId: row.departmentId, segment: row.segment ?? null });
+    const target = source ? lookups.get(source)?.(code) : undefined;
+    if (target !== undefined) return target === source ? null : { key: unitTargetKey(target), origin: 'unit' };
+    return moved.has(code) ? { key: payerKey(code), origin: 'global' } : null;
+  };
+  return { moved, payerKey, route };
 }
 
 /** Siyosat yo'nalishi (bazadan) */

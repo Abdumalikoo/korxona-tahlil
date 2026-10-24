@@ -14,6 +14,7 @@ import { UnitBankView } from '@/features/unit-bank/unit-bank-view';
 import { UnitEntriesView } from '@/features/unit-entries/unit-entries-view';
 import { UnitLeaseView } from '@/features/unit-lease/unit-lease-view';
 import { UnitPayrollView } from '@/features/unit-payroll/unit-payroll-view';
+import { UnitPolicyView } from '@/features/unit-policy/unit-policy-view';
 import { UnitCategories } from './unit-categories';
 import { unitTabs } from './structure';
 import type { EntryKind } from './api';
@@ -101,6 +102,8 @@ function ExpenseUnit({ unit, tab }: { unit: EntryUnit; tab?: string }) {
           <UnitLeaseView unit={unit} />
         ) : current?.view === 'bank' ? (
           <UnitBankView unit={unit} />
+        ) : current?.view === 'policy' ? (
+          <UnitPolicyView unit={unit} />
         ) : current?.view === 'entries' && current.entryKind ? (
           <UnitEntriesView key={current.entryKind} unit={unit} kind={current.entryKind} />
         ) : current ? (

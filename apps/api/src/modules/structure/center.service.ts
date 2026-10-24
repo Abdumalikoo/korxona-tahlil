@@ -266,10 +266,12 @@ export class CenterService {
     const curPeriods = new Set<string>();
     const prevPeriods = new Set<string>();
     for (const row of expenses) {
-      const moved = routing.moved.has(row.categoryCode);
-      if (moved && routing.payerKey(row.categoryCode) !== 'center') continue;
-      const byPolicy = moved;
-      const isCenter = !row.segment && (row.regionCode === CENTRAL_REGION || (row.regionCode === null && row.departmentId !== null));
+      // Siyosat: bo'lim qoidasi, so'ng umumiy siyosat — boshqa bo'lim hisobidagilari Markazga kirmaydi
+      const routed = routing.route(row);
+      if (routed && routed.key !== 'center') continue;
+      // «Hududlar uchun» — umumiy siyosat bo'yicha; boshqa bo'limdan bo'lim qoidasi bilan kelgani — Markazning o'z xarajati
+      const byPolicy = routed?.origin === 'global';
+      const isCenter = Boolean(routed) || (!row.segment && (row.regionCode === CENTRAL_REGION || (row.regionCode === null && row.departmentId !== null)));
       if (!byPolicy && !isCenter) continue;
       const isCurrent = inCurrent(row.date);
       const isPrevious = inPrevious(row.date);

@@ -144,3 +144,24 @@ Manzil: Xarajatlar › Tax free › Asosiy vositalar / Reklama xarajatlari / Bos
 - **Boshqa imkoniyatlar:** oylar oralig'i bo'yicha ko'rish, qidirish, oylar kesimida jami, Excel'ga yuklab olish.
 - **Saqlash joyi:** `settings` jadvali, `unit.entries.<BO'LIM>.<ASSET|AD|OTHER>`. Migratsiya kerak emas.
 - **API:** `/api/unit-entries/:unit/:kind/` ostida: GET `?from=&to=`, POST `save {rows}`, POST `delete {ids}`, GET `template`, GET `export?from=&to=`, POST `parse` (fayl).
+
+## Har bo'lim › Xarajatlar siyosati (modda boshqa bo'lim hisobiga)
+
+Manzil: Xarajatlar › <bo'lim> › Xarajatlar siyosati. Bu sahifa 6 bo'limning hammasida bor: Markaz, Hududlar, Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari.
+
+- **Nima qiladi:** shu bo'limda yozilgan xarajat moddasi qaysi bo'lim hisobida hisoblanishini belgilaydi. Masalan, Tax free'dagi «Internet» Markaz hisobiga, «Reklama» esa Marksheyder hisobiga o'tishi mumkin.
+- **Variantlar:** «Umumiy siyosat bo'yicha» (qoida yo'q), «Shu bo'limda qoladi» (umumiy siyosatdan istisno) yoki «<bo'lim> hisobiga». Hududlar maqsad bo'la olmaydi, chunki aniq hudud yo'q. Hududlar bo'limida faqat «Hududda qoladi» varianti bor.
+- **Guruhlar:** guruhga berilgan qoida ichidagi moddalarga ham o'tadi. Ichki moddaning o'z qoidasi bo'lsa, o'shanisi ustun.
+- **Ustuvorlik:** avval bo'lim qoidasi, keyin umumiy siyosat (Xarajatlar › Xarajatlar siyosati).
+- **Yozuvlar:** joyida qoladi, bazada hech narsa o'zgarmaydi. Qoida Solishtirma, tumanlar, hisobotlar, Markaz xarajati (siyosat xulosasi) va Nazorat (reconcile) natijalarida qo'llanadi. Qoida olib tashlansa, hammasi avvalgidek bo'ladi.
+- **Sahifa:**
+  - davrda yozilgan summa;
+  - boshqa bo'limlar hisobiga o'tgani (qaysi bo'limga qancha);
+  - boshqa bo'limlardan kelgani;
+  - bo'lim hisobidagi xarajat;
+  - modda daraxti: summa, kim hisobida va sababi (bo'lim qoidasi, guruh qoidasi, umumiy siyosat yoki yozilgan joyida);
+  - bir nechta moddani belgilab, bitta qoidani birdaniga qo'llash.
+
+  O'zgarishlar «Saqlash» bosilishidan oldin ham jami summalarda ko'rinadi.
+- **Saqlash joyi:** `settings` jadvali, `expense.policy` kalitidagi `unitRules` maydoni: `{ TAX_FREE: { INTERNET: 'CENTER' } }`. Migratsiya kerak emas. Umumiy siyosat saqlanganda bo'lim qoidalari o'chmaydi.
+- **API:** GET `/api/expense-policy/unit/:unit?from=YYYY-MM&to=YYYY-MM`, PATCH `/api/expense-policy/unit/:unit { rules }` (to'liq ro'yxat yuboriladi).

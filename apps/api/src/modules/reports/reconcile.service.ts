@@ -113,12 +113,17 @@ export class ReconcileService {
     const [incRows, expRows] = await Promise.all([this.sql('incomes', start, end), this.sql('expenses', start, end)]);
     const sum = (rows: SumRow[], pred: (r: SumRow) => boolean = () => true) => rows.filter(pred).reduce((s, r) => s + big(r.total), 0n);
     // Xarajatlar siyosati: Markaz hisobidagi moddalar (bayram, choraklik, asosiy vositalar sarfi …) — Markazga
-    const routing = await loadPolicyRouting(this.prisma).catch(() => ({ moved: new Set<string>(), payerKey: () => 'center' }));
-    const isCenterCat = (r: SumRow) => Boolean(r.categoryCode && routing.moved.has(r.categoryCode));
-    const unitOf = (r: SumRow) => (isCenterCat(r) ? routing.payerKey(r.categoryCode!) : unitKeyOf(r.regionCode ?? null, r.departmentId ?? null, r.segment ?? null));
+    // Bo'limlar qoidalari (shu bo'limda yozilgan modda — boshqa bo'lim hisobiga) ham
+    const routing = await loadPolicyRouting(this.prisma).catch(() => null);
+    const routedOf = (r: SumRow) =>
+      routing && r.categoryCode ? routing.route({ categoryCode: r.categoryCode, regionCode: r.regionCode ?? null, departmentId: r.departmentId ?? null, segment: r.segment ?? null }) : null;
+    const isCenterCat = (r: SumRow) => routedOf(r) !== null;
+    const placeOf = (r: SumRow) => unitKeyOf(r.regionCode ?? null, r.departmentId ?? null, r.segment ?? null);
+    /** Xarajat — siyosat bo'yicha birlik; daromad — yozilgan joyi */
+    const unitOf = (r: SumRow) => routedOf(r)?.key ?? placeOf(r);
     const I = sum(incRows);
     const E = sum(expRows);
-    const units = [...new Set([...incRows, ...expRows].map(unitOf))];
+    const units = [...new Set([...incRows.map(placeOf), ...expRows.map(unitOf)])];
     const labels = await this.data.labels();
     const uname = (k: string) => labels.units.get(k) ?? k;
     const receivable = await this.prisma.$queryRaw<{ total: bigint | string | null }[]>(Prisma.sql`
@@ -135,7 +140,7 @@ export class ReconcileService {
       add('Hisobotlar', 'Xarajat (jami)', E, t(expenses));
       add('Hisobotlar', "Ish haqi (Xarajatlardan)", sum(expRows, (r) => r.source === 'PAYROLL'), t(expenses.filter((r) => r.source === 'PAYROLL')));
       for (const u of units) {
-        add('Hisobotlar', `Daromad — ${uname(u)}`, sum(incRows, (r) => unitOf(r) === u), t(incomes.filter((r) => r.unit === u)));
+        add('Hisobotlar', `Daromad — ${uname(u)}`, sum(incRows, (r) => placeOf(r) === u), t(incomes.filter((r) => r.unit === u)));
         add('Hisobotlar', `Xarajat — ${uname(u)}`, sum(expRows, (r) => unitOf(r) === u), t(expenses.filter((r) => r.unit === u)));
       }
     });
@@ -178,7 +183,7 @@ export class ReconcileService {
       for (const u of res.units) {
         si += big(u.incomeTiyin);
         se += big(u.expenseTiyin);
-        add('Solishtirma', `${u.name}: daromad`, sum(incRows, (r) => unitOf(r) === u.key), big(u.incomeTiyin));
+        add('Solishtirma', `${u.name}: daromad`, sum(incRows, (r) => placeOf(r) === u.key), big(u.incomeTiyin));
         add('Solishtirma', `${u.name}: xarajat`, sum(expRows, (r) => unitOf(r) === u.key), big(u.expenseTiyin));
         add('Solishtirma', `${u.name}: ish haqi`, sum(expRows, (r) => unitOf(r) === u.key && r.source === 'PAYROLL' && !isCenterCat(r)), big(u.payrollTiyin));
         add('Solishtirma', `${u.name}: xodimlar soni`, BigInt(heads.get(u.key) ?? 0), BigInt(u.headcount), 'soni (tiyin emas)');
