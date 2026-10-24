@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { SerializeWritesInterceptor } from './common/interceptors/serialize-writes.interceptor';
+import { PersonalDataGuard } from './modules/security/personal-data.guard';
+import { PersonalMaskInterceptor } from './modules/security/personal-mask.interceptor';
+import { SecurityModule } from './modules/security/security.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -117,6 +121,7 @@ import { RateLimitGuard } from './common/security/rate-limit';
     BackupModule,
     HrSheetsModule,
     SourceChatModule,
+    SecurityModule,
   ],
   providers: [
     // Kirish sahifalarida urinishlar tezligini cheklash (@RateLimit)
@@ -125,6 +130,11 @@ import { RateLimitGuard } from './common/security/rate-limit';
     { provide: APP_GUARD, useClass: RolesGuard },
     // Ishchi rollar (Omborchi …) — faqat o'z bo'limlari
     { provide: APP_GUARD, useClass: AccessGuard },
+    // Kuzatuvchi — shaxsiy ma'lumotlar yopiq (@Personal), JwtAuthGuard'dan keyin
+    { provide: APP_GUARD, useClass: PersonalDataGuard },
+    { provide: APP_INTERCEPTOR, useClass: PersonalMaskInterceptor },
+    // Bir bo'lim ichidagi yozuvlar navbat bilan — bir vaqtdagi o'zgarishlar bir-birini o'chirmasin
+    { provide: APP_INTERCEPTOR, useClass: SerializeWritesInterceptor },
   ],
 })
 export class AppModule {}

@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
 import { ensurePayrollPartCategories, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
 import { hrPeople, hrUnitStaff } from '../hr-sheets/hr-sheets.store';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Bo'lim (yo'nalish) ish haqi — masalan, Xarajatlar › Tax free › Ish haqi.
@@ -709,6 +710,7 @@ export class UnitPayrollService {
   private async loadBook(file: Express.Multer.File | undefined): Promise<ExcelJS.Workbook> {
     if (!file?.buffer) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

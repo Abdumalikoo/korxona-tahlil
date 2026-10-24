@@ -438,13 +438,16 @@ Eski bitta tarix birinchi ochilganda «Avvalgi suhbat» bo'lib ko'chadi. Migrats
 
 ### Chat kodi
 
-Manzil: Sozlamalar › Chat kodi (`/sozlamalar/chat-kodi`). Standart kod — **8020**.
+Manzil: Sozlamalar › Chat kodi (`/sozlamalar/chat-kodi`).
+
+**Standart kod hammaga ma'lum**, shuning uchun u bilan chatga kirib, saqlab yoki yangi suhbat ochib bo'lmaydi. U faqat yangi kod o'rnatish uchun ishlaydi. Chat birinchi ochilganda «Chat kodini o'rnating» oynasi chiqadi: standart kod va yangi kod ikki marta kiritiladi, keyin chat darhol ochiladi.
 
 - **Qayerda so'raladi** (sozlanadi):
   - **Chatga kirish** — qulf ekrani. Kod to'g'ri bo'lsa, belgilangan muddat (15 daqiqadan 1 kungacha, standart 2 soat) shu brauzer oynasida qayta so'ralmaydi.
   - **Saqlash** — ☆ «Saqlash» va Excel'ga yuklab olish, har safar.
   - **Yangi suhbat** — «Yangi suhbat» tugmasi yoki suhbatsiz birinchi savol, har safar.
-- **O'zgartirish:** kod (4–8 raqam), qayerda so'ralishi va kirish muddati faqat joriy kod bilan saqlanadi. Kod almashtirilsa, chatga yangi kod bilan qayta kiriladi.
+- **O'zgartirish:** kod, qayerda so'ralishi va kirish muddati faqat joriy kod bilan saqlanadi. Kod almashtirilsa, chatga yangi kod bilan qayta kiriladi.
+- **Yangi kod:** 6–8 raqam. Bir xil raqamlar (777777) va ketma-ketlik (123456, 654321) qabul qilinmaydi. Avval qo'yilgan 4–5 xonali kod ishlayveradi, lekin almashtirganda yangisi kamida 6 raqam bo'ladi.
 - **Himoya:**
   - bazada faqat xesh saqlanadi (scrypt + tuz);
   - kod logga va audit jurnaliga yozilmaydi;
@@ -455,3 +458,67 @@ Manzil: Sozlamalar › Chat kodi (`/sozlamalar/chat-kodi`). Standart kod — **8
   - `pin/status`, `pin/unlock`, `pin` (`GET` / `PUT`);
   - kirish ruxsati `X-Chat-Token` sarlavhasida yuboriladi;
   - saqlash va yangi suhbat kodi `code` maydonida yoki `X-Chat-Code` sarlavhasida yuboriladi.
+
+## Xavfsizlik — 1-bosqich
+
+Audit natijasidagi 1-bosqich tuzatishlari. Baza tuzilmasi o'zgarmadi (migratsiya yo'q).
+
+**Kirish va sessiyalar** (`modules/auth`):
+- **Parol bilan kirish:** 5 marta xato parol — hisob 15 daqiqaga yopiladi, to'g'ri parol ham o'tmaydi. Muddat tugagach yoki to'g'ri kirilgach hisob tozalanadi. Har xato urinish tarixga yoziladi (parolning o'zi yozilmaydi).
+- **Parol almashtirilganda:** boshqa qurilma va oynalardagi hamma sessiyalar yopiladi. Joriy oyna yangi token bilan ishlashda davom etadi.
+- **«Chiqish»:** serverda ham sessiya yopiladi (`POST /api/auth/logout`). Token boshqa joyda saqlanib qolgan bo'lsa ham ishlamaydi. Bu shu foydalanuvchining hamma qurilmalaridan chiqaradi.
+
+**Standart parol va kodlar.** Ular hammaga ma'lum, shuning uchun:
+- **O'chirish paroli:** standart parol bilan ko'p yozuvni o'chirib bo'lmaydi. Avval Sozlamalar › Xavfsizlik'da yangi parol (6–32 belgi, oddiy ketma-ketlik emas) qo'yiladi.
+- **Chat kodi:** yuqoridagi «Chat kodi» bo'limiga qarang.
+- Administrator har sahifa tepasida sariq ogohlantirish ko'radi. U ikkalasi almashtirilganda yo'qoladi; «Keyinroq» bosilsa, shu oyna yopilguncha yashiriladi.
+
+**Kuzatuvchi va shaxsiy ma'lumotlar** (Sozlamalar › Xavfsizlik):
+- **Standart bo'yicha kuzatuvchiga yopiq:**
+  - xodimlar ro'yxati, kartasi va Excel'i;
+  - xodim ko'chishlari;
+  - bo'lim va umumiy vedomost qatorlari (xodim bo'yicha), qo'shimcha xodimlar;
+  - ish haqi tarkibi (oy ko'rinishi, xodim tarixi, Excel);
+  - hududlar xodimlari va ish haqi;
+  - oy natijalari (xodim bo'yicha);
+  - xodimning tahlil kartasi.
+- **Tuman va Markaz bo'limi tahlili ochiq**, lekin JShShIR yashiriladi (oxirgi 4 raqami qoladi), pasport, telefon va manzil olib tashlanadi.
+- Umumiy summalar, hisobotlar va statistika (xodimlar soni, viloyatlar bo'yicha) ochiq.
+- Administrator «Kuzatuvchiga ochish» tugmasi bilan hammasini ochishi mumkin. O'zgarish 30 soniyada kuchga kiradi va tarixga yoziladi.
+- Administrator va ishchi rollarga (Hududchi va boshqalar) ta'sir qilmaydi.
+- Kodda belgilash: `@Personal()` (yopiq), `@Personal('mask')` (yashirilgan), `@Personal(false)` (sinf belgisini bekor qilish).
+- Sozlama `settings.security.viewerPersonal` da saqlanadi. API: `GET /api/security/status`, `PATCH /api/security/viewer-personal`.
+
+**Bir vaqtdagi o'zgarishlar.**
+- Bir bo'lim ichidagi yozuvchi so'rovlar (POST, PUT, PATCH, DELETE) navbat bilan bajariladi. Ikki kishi bir vaqtda saqlasa, birining o'zgarishi boshqasinikini o'chirmaydi.
+- O'qish (GET) va boshqa bo'limlar kutmaydi.
+- Xarajatlar siyosati yozuvi qaysi bo'limdan yozilmasin, alohida navbatda turadi.
+- Navbatda 2 daqiqadan ko'p kutilsa — «band, qayta urinib ko'ring» xabari chiqadi.
+- Navbat bitta API jarayoni ichida ishlaydi (hozirgi o'rnatish shunday). Bir nechta nusxa ishga tushirilsa, Postgres advisory lock'ga o'tish kerak (2-bosqich).
+- Kod: `common/locks.ts`, `common/interceptors/serialize-writes.interceptor.ts`.
+
+**Excel yuklashda «ZIP bomba» himoyasi** (`common/files/xlsx-guard.ts`):
+- `.xlsx` ichi siqilgan arxiv. Kichik fayl ochilganda gigabaytlab bo'lib, serverni to'xtatishi mumkin.
+- Har bir yuklashdan oldin (24 joy) fayl tekshiriladi:
+  - ochilgandagi umumiy hajm 150 MB dan oshmasin; yozilgan hajm emas, haqiqiy ochib ko'rib tekshiriladi;
+  - ichki qismlar 5 000 tadan oshmasin;
+  - ZIP64, shifrlangan va noma'lum formatlar rad etiladi;
+  - eski `.xls` va parolli fayl uchun aniq xabar chiqadi.
+- Oddiy hisobot fayllari (ichida 0,2–3 MB) bu chegaralarga yaqinlashmaydi ham.
+
+**Web xavfsizlik sarlavhalari** (`apps/web/next.config.ts`):
+- `Content-Security-Policy`: skript va ma'lumot faqat o'z serveri va API'dan olinadi; tizimni boshqa sayt ichiga (iframe) joylab bo'lmaydi.
+- `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy` (kamera — faqat o'zi, imzo sahifasi uchun).
+- API manzili `NEXT_PUBLIC_API_URL` dan olinadi. Mahalliy tarmoqdagi boshqa kompyuterlardan 3001-portga ulanish ham ruxsat etilgan.
+
+**Boshqa tuzatishlar:**
+- Chat kodi tokenining imzo kaliti endi birinchi ishlatilganda o'qiladi. Avval `.env` yuklanmasdan o'qilib, har ishga tushishda tasodifiy bo'lib qolardi.
+
+**Testlar:** `test/t-security.js`. Unda:
+- parol bilan kirishda bloklash;
+- chiqish va parol almashganda tokenlar bekor bo'lishi;
+- ZIP bomba (yolg'on sarlavha bilan ham) va 24 yuklash joyining hammasida tekshiruv borligi;
+- 30 ta parallel o'zgarish yo'qolmasligi;
+- kuzatuvchi uchun yopiq va yashirilgan marshrutlar.
+
+`t-chat-pin`, `t-bulkdel-pass` va `t-unit-moves` yangi qoidalarga moslandi.

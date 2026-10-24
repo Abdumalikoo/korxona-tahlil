@@ -14,6 +14,9 @@ const BCRYPT_ROUNDS = 12;
 export const MAX_PIN_ATTEMPTS = 5;
 export const PIN_LOCK_MINUTES = 15;
 /** Ishchi rollar sessiyasi — 12 soat (umumiy kompyuterda qolib ketmasin) */
+/** Login + parol: shuncha xatodan keyin hisob vaqtincha yopiladi */
+export const MAX_PASSWORD_ATTEMPTS = 5;
+export const PASSWORD_LOCK_MINUTES = 15;
 const WORKER_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 
 const BAD_CODE = 'ID kod yoki PIN noto‘g‘ri';
@@ -70,17 +73,48 @@ export class AuthService {
       throw new UnauthorizedException('Login yoki parol noto‘g‘ri');
     }
 
+    const now = new Date();
+    if (user.lockedUntil && user.lockedUntil > now) {
+      // Yopiq hisob: parol to'g'ri bo'lsa ham kirmaydi (vaqt bo'yicha farq bilinmasin — bcrypt baribir ishlaydi)
+      await bcrypt.compare(password, DUMMY_HASH);
+      const minutes = Math.max(1, Math.ceil((user.lockedUntil.getTime() - now.getTime()) / 60_000));
+      throw new UnauthorizedException(`Ko‘p marta xato parol kiritildi. ${minutes} daqiqadan keyin qayta urinib ko‘ring`);
+    }
+
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
+      // Atomik oshirish — parallel so'rovlar ham hisoblanadi
+      const bumped = await this.prisma.user.update({ where: { id: user.id }, data: { failedAttempts: { increment: 1 } }, select: { failedAttempts: true } });
+      const attempts = bumped.failedAttempts;
+      const lock = attempts >= MAX_PASSWORD_ATTEMPTS;
+      if (lock) {
+        await this.prisma.user.update({ where: { id: user.id }, data: { failedAttempts: 0, lockedUntil: new Date(now.getTime() + PASSWORD_LOCK_MINUTES * 60_000) } });
+      }
+      await this.audit
+        .log({
+          userId: user.id,
+          action: 'LOGIN',
+          entity: 'user',
+          entityId: user.id,
+          summary: lock ? `${user.username}: ${MAX_PASSWORD_ATTEMPTS} marta xato parol — ${PASSWORD_LOCK_MINUTES} daqiqaga yopildi` : `${user.username}: xato parol (${attempts}/${MAX_PASSWORD_ATTEMPTS})`,
+        })
+        .catch(() => null);
+      if (lock) throw new UnauthorizedException(`${MAX_PASSWORD_ATTEMPTS} marta xato parol kiritildi. Hisob ${PASSWORD_LOCK_MINUTES} daqiqaga yopildi`);
       throw new UnauthorizedException('Login yoki parol noto‘g‘ri');
     }
 
-    await this.prisma.user.update({
+    // Parallel urinishlar orasida yopilgan bo'lishi mumkin
+    const fresh = await this.prisma.user.findUnique({ where: { id: user.id }, select: { lockedUntil: true } });
+    if (fresh?.lockedUntil && fresh.lockedUntil > new Date()) {
+      throw new UnauthorizedException(`Ko‘p marta xato parol kiritildi. Hisob ${PASSWORD_LOCK_MINUTES} daqiqagacha yopilgan`);
+    }
+
+    const updated = await this.prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: { lastLoginAt: now, failedAttempts: 0, lockedUntil: null },
     });
 
-    return this.issue(user);
+    return this.issue(updated);
   }
 
   /** ID kod + PIN (ishchi rollar). 5 marta xato — 15 daqiqaga yopiladi. */
@@ -156,7 +190,7 @@ export class AuthService {
     userId: string,
     currentPassword: string,
     newPassword: string,
-  ): Promise<void> {
+  ): Promise<LoginResult> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new UnauthorizedException('Foydalanuvchi topilmadi');
@@ -174,10 +208,19 @@ export class AuthService {
       throw new BadRequestException('Yangi parol eskisidan farq qilishi kerak');
     }
 
-    await this.prisma.user.update({
+    // Parol o'zgardi — boshqa qurilmalardagi eski tokenlar yaroqsiz; joriy oyna uchun yangi token
+    const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: await this.hashPassword(newPassword) },
+      data: { passwordHash: await this.hashPassword(newPassword), tokenVersion: { increment: 1 }, failedAttempts: 0, lockedUntil: null },
     });
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'user', entityId: userId, summary: `${user.username}: parol o'zgartirildi, boshqa sessiyalar yopildi` }).catch(() => null);
+    return this.issue(updated);
+  }
+
+  /** Chiqish: shu foydalanuvchining barcha tokenlari yaroqsiz bo'ladi (barcha qurilmalarda) */
+  async logout(userId: string): Promise<void> {
+    await this.prisma.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } }).catch(() => null);
+    await this.audit.log({ userId, action: 'LOGIN', entity: 'user', entityId: userId, summary: 'Tizimdan chiqdi (barcha sessiyalar yopildi)' }).catch(() => null);
   }
 
   /**

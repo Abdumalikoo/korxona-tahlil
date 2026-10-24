@@ -141,6 +141,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // e'tiborsiz
     }
+    // Serverda ham yopiladi: token boshqa joyda saqlanib qolgan bo'lsa ham yaroqsiz bo'ladi.
+    // Javob kutilmaydi (1,5 soniya) — tarmoq yo'q bo'lsa ham foydalanuvchi chiqadi.
+    if (getToken()) {
+      const done = api.post('/auth/logout').catch(() => null);
+      void Promise.race([done, new Promise((r) => setTimeout(r, 1500))]).finally(() => {
+        clearToken();
+        setUser(null);
+        window.location.href = '/kirish';
+      });
+      return;
+    }
     clearToken();
     setUser(null);
     // To'liq qayta yuklash - barcha holat tozalanadi

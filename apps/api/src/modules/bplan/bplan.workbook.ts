@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { ADM, BAL, CENTER_REV, colName as CL, COST, FACT_LINES, FIN, GROUPS, HOM, OPX, PAY, REG_COLS, REGIONS, S, TAX, UO_REG, type Facts, type Mode } from './bplan.model';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Choraklik ijro — to'liq formulali Excel.
@@ -85,6 +86,7 @@ export interface BuildOptions {
 
 export async function buildWorkbook(source: Buffer, o: BuildOptions): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
+  await assertSafeXlsx(source);
   await wb.xlsx.load(source as unknown as ExcelJS.Buffer);
   for (const n of Object.values(S)) if (!wb.getWorksheet(n)) throw new Error(`«${n}» варағи топилмади`);
   const original = wb.worksheets.map((w) => w.name);

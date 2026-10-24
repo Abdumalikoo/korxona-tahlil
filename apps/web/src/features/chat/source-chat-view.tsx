@@ -10,8 +10,8 @@ import { formatDateTime } from '@/lib/format';
 import { unitByCode } from '@/lib/segments';
 import { cn } from '@/lib/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chatPinApi, cleanMsg, exportSaved, exportThread, isLocked, needsCode, setChatToken, sourceChatApi, type ChatAnswer, type ChatContext, type ChatPinRequire, type ChatThread, type SavedAnswer } from './api';
-import { ChatLock, CodeDialog } from './pin-pad';
+import { chatPinApi, cleanMsg, exportSaved, exportThread, isLocked, needsCode, needsSetup, setChatToken, sourceChatApi, type ChatAnswer, type ChatContext, type ChatPinRequire, type ChatThread, type SavedAnswer } from './api';
+import { ChatLock, ChatSetup, CodeDialog } from './pin-pad';
 import { ChatBlocks } from './blocks';
 
 // ═══════════════════════════════════════════════════════════
@@ -132,6 +132,8 @@ export function SourceChatView() {
   const [toast, setToast] = useState<ToastState>(null);
   const [pinReq, setPinReq] = useState<ChatPinRequire | null>(null);
   const [locked, setLocked] = useState(false);
+  /** Standart kod turibdi — avval o'z kodini o'rnatish */
+  const [setup, setSetup] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
   const [codeAsk, setCodeAsk] = useState<CodeAsk>(null);
@@ -182,6 +184,12 @@ export function SourceChatView() {
         const st = (await chatPinApi.status()).data;
         if (!alive) return;
         setPinReq(st.require);
+        if (st.mustSetCode) {
+          setChatToken(null);
+          setSetup(true);
+          return;
+        }
+        setSetup(false);
         if (!st.unlocked) {
           setChatToken(null);
           setLocked(true);
@@ -205,7 +213,13 @@ export function SourceChatView() {
 
   /** Server «qulflangan» desa — qulf ekrani */
   const lockIfNeeded = (err: unknown): boolean => {
-    if (!isLocked(errorMessage(err, ''))) return false;
+    const m = errorMessage(err, '');
+    if (needsSetup(m)) {
+      setChatToken(null);
+      setSetup(true);
+      return true;
+    }
+    if (!isLocked(m)) return false;
     setChatToken(null);
     setLocked(true);
     return true;
@@ -221,6 +235,26 @@ export function SourceChatView() {
       setBootKey((k) => k + 1);
     } catch (err) {
       setLockError(msgOf(err, "Kod noto'g'ri"));
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  /** Birinchi sozlash: standart kod → o'z kodi, keyin darhol kirish */
+  async function firstSetup(current: string, next: string) {
+    setUnlocking(true);
+    setLockError(null);
+    try {
+      await chatPinApi.update({ currentCode: current, newCode: next });
+      if (pinReq?.use !== false) {
+        const r = (await chatPinApi.unlock(next)).data;
+        setChatToken(r.token);
+      }
+      setSetup(false);
+      setLoading(true);
+      setBootKey((k) => k + 1);
+    } catch (err) {
+      setLockError(msgOf(err, "Kodni o'rnatib bo'lmadi"));
     } finally {
       setUnlocking(false);
     }
@@ -471,6 +505,7 @@ export function SourceChatView() {
     ] as [string, string | null][]
   ).filter((x): x is [string, string] => Boolean(x[1]));
 
+  if (setup) return <ChatSetup onSubmit={(c, n) => void firstSetup(c, n)} busy={unlocking} error={lockError} />;
   if (locked) return <ChatLock onUnlock={(c) => void unlock(c)} busy={unlocking} error={lockError} />;
 
   return (

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { cellRaw, excelDate } from '../regional-data/rd.util';
 import { KIND_ORDER, KINDS, MAX_ROWS, PERIOD_RE, SAMPLE_MARK, SERVICE_CODE, type Col, type ImportKind, type KindDef } from './hp.const';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Excel faylni o'qish va tekshirish (bazaga hech narsa yozilmaydi).
@@ -349,6 +350,7 @@ export async function readWorkbook(buffer: Buffer, fileName: string, wanted: Imp
   if (buffer.length < 100 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) throw new BadRequestException('Fayl Excel (.xlsx) formatida emas');
   if (buffer.includes(Buffer.from('vbaProject.bin'))) throw new BadRequestException('Faylda makros bor — qabul qilinmaydi. Makrossiz .xlsx sifatida saqlang');
   const wb = new ExcelJS.Workbook();
+  await assertSafeXlsx(buffer);
   try {
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   } catch {

@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { AuditService } from '../audit/audit.service';
 import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Xodimlar reja / tushum fayli (bir nechta oy, bitta faylda).
@@ -410,6 +411,7 @@ export class PlanFactService {
     const selected = parseMonths(monthsInput);
 
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

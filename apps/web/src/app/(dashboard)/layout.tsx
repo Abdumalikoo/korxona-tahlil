@@ -12,6 +12,7 @@ import { PinSetupScreen } from '@/features/auth/pin';
 import { LoadingState } from '@/components/ui/states';
 import { ReactionBar } from '@/features/reactions/reaction-bar';
 import { ReactionSelectProvider } from '@/features/reactions/select-context';
+import { SecurityBanner } from '@/features/security/security-banner';
 import { useAuth } from '@/lib/auth-context';
 import { PeriodProvider } from '@/lib/period';
 import { ViewModeProvider } from '@/lib/view-mode';
@@ -98,9 +99,12 @@ function Shell({ menuOpen, onMenu, closeMenu, children }: { menuOpen: boolean; o
             <Suspense fallback={null}>
               <SectionBar />
             </Suspense>
+            {/* Administrator: standart parol/kod almashtirilmagan bo'lsa — ogohlantirish */}
+            <SecurityBanner />
             {/* Sahifa haqida qisqa tushuntirish: nima ko'rsatadi, ma'lumot qayerdan */}
             <PageIntro />
             <Suspense fallback={<LoadingState />}>{children}</Suspense>
+            {/* Sahifa pastida: «Qisqa» rejim izohi va sahifa haqida tushuntirish — asosiy raqamlar tepada */}
             <div id="page-bottom-slot" className="no-print px-4 pt-2 empty:hidden md:px-6" />
             <PageIntro placement="bottom" />
           </div>

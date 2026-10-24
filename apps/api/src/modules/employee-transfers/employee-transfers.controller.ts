@@ -1,6 +1,8 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { EmployeeTransfersService } from './employee-transfers.service';
+import { Personal } from '../../common/decorators';
 
+@Personal()
 @Controller('employee-transfers')
 export class EmployeeTransfersController {
   constructor(private readonly transfers: EmployeeTransfersService) {}

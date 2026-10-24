@@ -15,7 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { ResultsService, type EmploymentKind, type ResultRow } from './results.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -59,6 +59,7 @@ export class ResultsController {
   }
 
   /** Oy natijalari Excel'da — hudud filtri bilan */
+  @Personal()
   @Get('export')
   async exportExcel(
     @Query('period') period: string,
@@ -138,6 +139,7 @@ export class ResultsController {
   }
 
   /** Oy natijalari */
+  @Personal()
   @Get()
   async list(@Query('period') period: string, @Query('regionCode') regionCode?: string) {
     const data = await this.results.findResults(period, this.parseRegion(regionCode));

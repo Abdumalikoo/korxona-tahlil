@@ -13,6 +13,7 @@ import {
   type CashValues,
 } from './cashbook.calc';
 import { SEED_ACCOUNTS } from './cashbook.seed';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Buxgalteriya › Kunlik tushum va qoldiq.
@@ -892,6 +893,7 @@ export class CashbookService {
   async parseImport(buffer: Buffer | undefined): Promise<CashImportResult> {
     if (!buffer || buffer.length === 0) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(buffer);
     try {
       await wb.xlsx.load(buffer as unknown as ArrayBuffer);
     } catch {

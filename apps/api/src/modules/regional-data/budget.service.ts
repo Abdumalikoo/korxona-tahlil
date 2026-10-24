@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertPeriod, CENTRAL_REGION, cellText, monthName, MAX_TIYIN, shiftPeriod, somToTiyin } from './rd.util';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajat rejasi (byudjet): oy × hudud × modda.
@@ -165,6 +166,7 @@ export class BudgetService {
     const period = assertPeriod(periodRaw);
     if (!file?.buffer?.length) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

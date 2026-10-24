@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { regionalEmployees } from './rd.employees';
 import { cellText, cleanText, currentPeriod, excelDate, parseDay, parseTiyin, somToTiyin, todayTashkent, ymd } from './rd.util';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Shtat va maosh: hudud xodimlarining stavkasi (1 / 0,5 …) va lavozim maoshi — amal qilish sanasi bilan.
@@ -166,6 +167,7 @@ export class StaffingService {
   async analyzeImport(file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

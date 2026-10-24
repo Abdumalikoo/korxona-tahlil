@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 const CENTRAL_REGION = 0;
 const TASHKENT_OFFSET_HOURS = 5;
@@ -551,6 +552,7 @@ export class RegionalIncomeService {
     }
 
     const workbook = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
 
     if (workbook.worksheets.length === 0) {

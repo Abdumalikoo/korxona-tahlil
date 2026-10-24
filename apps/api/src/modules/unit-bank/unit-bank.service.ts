@@ -5,6 +5,7 @@ import { entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Yo'nalish bank xarajatlari (Xarajatlar › Tax free › Bank xarajatlari).
@@ -307,6 +308,7 @@ export class UnitBankService implements OnModuleInit {
   async analyze(unit: string, file: Express.Multer.File | undefined) {
     if (!file?.buffer) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

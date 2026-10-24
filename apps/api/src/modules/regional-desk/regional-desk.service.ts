@@ -6,6 +6,7 @@ import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PeriodCloseService } from '../regional-data/period-close.service';
 import { RegionalIncomeService, type ParsedRow } from '../incomes/regional-income.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Hududchi (hududlar bo'limi) ish joyi:
@@ -147,6 +148,7 @@ export class RegionalDeskService {
     };
     try {
       const wb = new ExcelJS.Workbook();
+      await assertSafeXlsx(file.buffer);
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
       const ws = wb.worksheets[0];
       if (ws) {

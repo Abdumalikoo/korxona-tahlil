@@ -5,6 +5,7 @@ import { isXls, readXls, type XlsCell } from '../../common/xls/biff';
 import { PrismaService } from '../prisma/prisma.service';
 import { VEHICLE_GROUPS, type PaymentMethodValue, type VehicleFuelTypeValue } from './vehicles.types';
 import { VehiclesService } from './vehicles.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Yoqilg'i kartasi hisoboti (AZS: «ОТЧЕТ ПО ПРОДАЖАМ») → mashina xarajatlari (benzin).
@@ -220,6 +221,7 @@ export class VehicleFuelImportService {
       }
     }
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

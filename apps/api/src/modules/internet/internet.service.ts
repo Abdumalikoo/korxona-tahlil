@@ -12,6 +12,7 @@ import {
   type ParsedPayment,
   type RegistryRow,
 } from './internet.parse';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Internet to'lovlari: shartnomalar ro'yxati va oylik to'lovlar → xarajat.
@@ -329,6 +330,7 @@ export class InternetService {
   private async readFile(file: Express.Multer.File | undefined): Promise<{ wb: ExcelJS.Workbook; name: string }> {
     if (!file?.buffer?.length) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

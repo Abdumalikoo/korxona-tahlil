@@ -3,6 +3,7 @@ import { Interval } from '@nestjs/schedule';
 import ExcelJS from 'exceljs';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Soliqlar — hamma soliqlar bir joyda (turlarini o'zingiz qo'shasiz).
@@ -632,6 +633,7 @@ export class TaxesService implements OnApplicationBootstrap {
     const period = assertPeriod(periodInput);
     if (!file?.buffer?.length) throw new BadRequestException('Fayl tanlanmagan');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

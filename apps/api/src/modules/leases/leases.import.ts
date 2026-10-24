@@ -19,6 +19,7 @@ import {
     type LeaseInput,
     type LeaseKindValue,
 } from './leases.types';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Ijara — Excel orqali ommaviy kiritish
@@ -406,6 +407,7 @@ export class LeaseImportService {
     if (file.size > MAX_IMPORT_SIZE) throw new BadRequestException('Fayl hajmi 10 MB dan oshmasin');
 
     const workbook = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

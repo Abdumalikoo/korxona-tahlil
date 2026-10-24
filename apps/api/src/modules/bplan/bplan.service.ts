@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { execute, type Execution } from './bplan.compute';
 import { FACT_KEYS, FACT_LINES, GROUPS, gv, readPlanGrid, regionIndex, REGIONS, REQUIRED_SHEETS, S, UO_REG, type Facts, type Grid, type Mode } from './bplan.model';
 import { buildWorkbook, CHECKS } from './bplan.workbook';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Hisobotlar › Choraklik ijro (biznes-reja).
@@ -132,6 +133,7 @@ export class BplanService {
     if (!meta) return null;
     const buffer = Buffer.from(meta.data, 'base64');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(buffer);
     await wb.xlsx.load(buffer as unknown as ExcelJS.Buffer);
     return { grid: readPlanGrid(wb), buffer, meta };
   }
@@ -142,6 +144,7 @@ export class BplanService {
     if (file.size > MAX_FILE) throw new BadRequestException('Fayl 8 MB dan katta');
     if (!/\.xlsx$/i.test(file.originalname ?? '')) throw new BadRequestException('Faqat .xlsx fayl (Excel 2007+)');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);
     } catch {

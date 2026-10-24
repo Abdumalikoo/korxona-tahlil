@@ -5,6 +5,7 @@ import { entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ALL_LEASE_KINDS, LEASE_CONFIG, type LeaseKindDef, type LeaseUnitConfig, type UnitBranch } from './unit-lease.branches';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Yo'nalish doimiy to'lovlari: Tax free › Ijara va kommunal, Fermer xo'jaligi › Ijara va internet.
@@ -372,6 +373,7 @@ export class UnitLeaseService implements OnModuleInit {
   async analyze(unit: string, file: Express.Multer.File | undefined) {
     if (!file?.buffer) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

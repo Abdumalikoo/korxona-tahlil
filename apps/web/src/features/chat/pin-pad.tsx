@@ -78,6 +78,68 @@ export function ChatLock({ onUnlock, busy, error }: { onUnlock: (code: string) =
   );
 }
 
+/** Juda oddiy kod: bir xil yoki ketma-ket raqamlar (serverdagi tekshiruv bilan bir xil) */
+export function weakCode(code: string): boolean {
+  if (/^(\d)\1+$/.test(code)) return true;
+  return '01234567890123456789'.includes(code) || '98765432109876543210'.includes(code);
+}
+
+/**
+ * Birinchi sozlash — standart kod hammaga ma'lum, shuning uchun u bilan chat ishlamaydi.
+ * Standart kod va yangi kod (6–8 raqam, ikki marta) kiritiladi.
+ */
+export function ChatSetup({ onSubmit, busy, error }: { onSubmit: (current: string, next: string) => void; busy?: boolean; error?: string | null }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 8);
+  const local =
+    next.length > 0 && next.length < 6
+      ? 'Yangi kod kamida 6 raqam'
+      : next.length >= 6 && weakCode(next)
+        ? 'Kod juda oddiy — bir xil yoki ketma-ket raqamlar bo‘lmasin'
+        : repeat.length > 0 && repeat !== next
+          ? 'Takror mos kelmadi'
+          : null;
+  const ok = current.length >= 4 && next.length >= 6 && repeat === next && !local;
+  const field = 'h-11 w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white text-center text-lg tracking-[0.35em] focus:border-brand-500 focus:outline-none';
+  return (
+    <div className="flex min-h-[520px] items-center justify-center rounded-(--radius-card) border border-(--color-line) bg-white p-6">
+      <form
+        className="w-full max-w-xs text-center"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (ok) onSubmit(current, next);
+        }}
+      >
+        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-amber-500 text-white shadow">
+          <IconLock className="size-7" />
+        </div>
+        <h2 className="mt-4 text-lg font-bold text-heading">Chat kodini o&apos;rnating</h2>
+        <p className="mt-1 mb-5 text-sm text-(--color-text-muted)">Standart kod hammaga ma&apos;lum, shuning uchun u bilan chat ishlamaydi. Bir marta o&apos;z kodingizni qo&apos;ying.</p>
+        <div className="space-y-2.5 text-left">
+          <label className="block text-xs font-medium text-(--color-text-muted)">
+            Standart (joriy) kod
+            <input autoFocus type="password" inputMode="numeric" autoComplete="off" value={current} onChange={(e) => setCurrent(digits(e.target.value))} className={cn(field, 'mt-1')} placeholder="••••" />
+          </label>
+          <label className="block text-xs font-medium text-(--color-text-muted)">
+            Yangi kod (6–8 raqam)
+            <input type="password" inputMode="numeric" autoComplete="new-password" value={next} onChange={(e) => setNext(digits(e.target.value))} className={cn(field, 'mt-1')} placeholder="••••••" />
+          </label>
+          <label className="block text-xs font-medium text-(--color-text-muted)">
+            Yangi kodni takrorlang
+            <input type="password" inputMode="numeric" autoComplete="new-password" value={repeat} onChange={(e) => setRepeat(digits(e.target.value))} className={cn(field, 'mt-1')} placeholder="••••••" />
+          </label>
+        </div>
+        {(local || error) && <p className="mt-3 text-center text-xs text-(--color-expense)">{local ?? error}</p>}
+        <Button type="submit" className="mt-4 w-full" loading={busy} disabled={!ok}>
+          Saqlash va kirish
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 /** Oyna — saqlash yoki yangi suhbat uchun kod */
 export function CodeDialog({ title, description, onSubmit, onCancel, busy, error }: { title: string; description?: string; onSubmit: (code: string) => void; onCancel: () => void; busy?: boolean; error?: string | null }) {
   useEffect(() => {

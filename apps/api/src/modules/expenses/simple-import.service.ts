@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 const TASHKENT_OFFSET_HOURS = 5;
 
@@ -128,6 +129,7 @@ export class SimpleImportService {
     }
 
     const workbook = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
 
     const sheet = workbook.worksheets[0];

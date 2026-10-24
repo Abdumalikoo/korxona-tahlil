@@ -15,7 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { PayrollService, type MissingRow } from './payroll.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -101,6 +101,7 @@ export class PayrollController {
     return { data };
   }
 
+  @Personal()
   @Post('missing/export')
   async exportMissing(
     @Body() body: { period: string; missing: MissingRow[] },
@@ -121,6 +122,7 @@ export class PayrollController {
     return { data };
   }
 
+  @Personal()
   @Get('expense/:expenseId')
   async expenseDetail(@Param('expenseId') expenseId: string) {
     const data = await this.payroll.expenseDetail(expenseId);
@@ -133,6 +135,7 @@ export class PayrollController {
     return { data };
   }
 
+  @Personal()
   @Get('batches/:batchId')
   async batch(@Param('batchId') batchId: string) {
     const data = await this.payroll.findBatch(batchId);

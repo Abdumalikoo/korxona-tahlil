@@ -58,6 +58,7 @@ import type {
     RegistryInfo,
     RowState,
 } from './salary-composition.types';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Servis
@@ -676,6 +677,7 @@ export class SalaryCompositionService implements OnModuleInit {
     if (!file) throw new BadRequestException('Fayl yuklanmadi');
 
     const workbook = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await workbook.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);
     } catch {

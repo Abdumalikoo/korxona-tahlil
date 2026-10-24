@@ -8,7 +8,8 @@ import { PrismaService } from '../prisma/prisma.service';
 // O'chirish paroli — ko'p yozuvni birdan o'chirishdan oldin so'raladi:
 //   • «Hammasi» (barcha davrlar) tanlanganda;
 //   • 50 tadan ortiq yozuv o'chirilayotganda.
-// Standart parol — 3642 (Sozlamalar › Xavfsizlik'da administrator o'zgartiradi).
+// Standart parol — 3642. U hammaga ma'lum, shuning uchun u bilan o'chirib bo'lmaydi:
+// avval Sozlamalar › Xavfsizlik'da yangi parol (kamida 6 belgi) o'rnatiladi.
 // Bazada faqat xesh (scrypt + tuz) saqlanadi — parolning o'zi hech qayerda yozilmaydi va logga chiqmaydi.
 // Noto'g'ri parol 5 marta kiritilsa — shu foydalanuvchi uchun 5 daqiqa kutish.
 // ═══════════════════════════════════════════════════════════
@@ -60,7 +61,7 @@ export class DeletePasswordService {
   }
 
   /** O'chirishdan oldin: parol to'g'rimi (noto'g'ri bo'lsa — xato) */
-  async verify(password: unknown, userId: string): Promise<void> {
+  async verify(password: unknown, userId: string, allowDefault = false): Promise<void> {
     const now = Date.now();
     const f = this.fails.get(userId);
     if (f && f.until > now) {
@@ -75,6 +76,9 @@ export class DeletePasswordService {
       throw new BadRequestException(count >= MAX_ATTEMPTS ? `Parol noto'g'ri — ${LOCK_MS / 60_000} daqiqa kuting` : `Parol noto'g'ri (${MAX_ATTEMPTS - count} ta urinish qoldi)`);
     }
     this.fails.delete(userId);
+    if (!allowDefault && !(await this.stored())) {
+      throw new ForbiddenException("Standart o'chirish paroli bilan o'chirish yopilgan — avval Sozlamalar › Xavfsizlik'da yangi parol o'rnating");
+    }
   }
 
   /** Sozlamalar: standart parolmi, qachon o'zgargan */
@@ -85,12 +89,14 @@ export class DeletePasswordService {
     return { isDefault: !s, updatedAt: s?.updatedAt ?? null, updatedBy: by, threshold: PASSWORD_THRESHOLD };
   }
 
-  /** Parolni o'zgartirish (administrator): joriy parol va yangisi (4–32 belgi) */
+  /** Parolni o'zgartirish (administrator): joriy parol va yangisi (6–32 belgi) */
   async change(body: { current?: unknown; next?: unknown }, userId: string) {
-    await this.verify(body?.current, userId);
+    await this.verify(body?.current, userId, true);
     const next = typeof body?.next === 'string' ? body.next : '';
-    if (next.length < 4 || next.length > 32) throw new BadRequestException("Yangi parol 4 dan 32 belgigacha bo'lsin");
+    if (next.length < 6 || next.length > 32) throw new BadRequestException("Yangi parol 6 dan 32 belgigacha bo'lsin");
     if (/\s/.test(next)) throw new BadRequestException("Parolda bo'sh joy bo'lmasin");
+    if (next === DEFAULT_PASSWORD || next === body?.current) throw new BadRequestException("Yangi parol standart va joriy paroldan farq qilsin");
+    if (/^(.)\1+$/.test(next) || '0123456789012345678901234567890123456789'.includes(next)) throw new BadRequestException("Parol juda oddiy (bir xil yoki ketma-ket belgilar) — boshqasini tanlang");
     const salt = randomBytes(16);
     const value: Stored = { salt: salt.toString('hex'), hash: (await this.hashOf(next, salt)).toString('hex'), updatedAt: new Date().toISOString(), updatedBy: userId };
     await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value: value as unknown as object }, update: { value: value as unknown as object } });

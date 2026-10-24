@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { PayrollService } from '../payroll/payroll.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ─────── Ustama qoidasi ───────
 const LOW_PERCENT = 80;
@@ -416,6 +417,7 @@ export class ResultsService {
     }
 
     const workbook = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
 
     const sheet = workbook.worksheets[0];

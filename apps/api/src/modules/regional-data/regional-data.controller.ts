@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, Uploaded
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { BudgetService } from './budget.service';
 import { CatalogService, EVENT_KINDS, type EventInput, type TariffInput } from './catalog.service';
 import { PeriodCloseService } from './period-close.service';
@@ -101,6 +101,7 @@ export class RegionalDataController {
   }
 
   // ── Shtat va maosh ──
+  @Personal()
   @Get('staff')
   async staff() {
     return { data: await this.staffing.list() };
@@ -124,6 +125,7 @@ export class RegionalDataController {
     return { data: await this.staffing.commitImport(body?.rows, userId) };
   }
 
+  @Personal()
   @Get('staff/:pinfl')
   async staffHistory(@Param('pinfl') pinfl: string) {
     return { data: await this.staffing.history(pinfl) };

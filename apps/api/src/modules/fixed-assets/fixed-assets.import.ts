@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { cellText, cellValue, parseNumber } from '../salary-composition/salary-composition.excel';
 import { ASSET_MODES, FixedAssetsService, MODE_LABEL, type AssetMode } from './fixed-assets.service';
 import { TASHKENT_MS } from './fixed-assets.util';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Asosiy vositalar — Excel'dan yuklash (xodimlarga berilgan inventar).
@@ -216,6 +217,7 @@ export class FixedAssetImportService {
     if (!file?.buffer?.length) throw new BadRequestException('Fayl tanlanmagan');
     if (file.size > MAX_SIZE) throw new BadRequestException('Fayl hajmi 10 MB dan oshmasin');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

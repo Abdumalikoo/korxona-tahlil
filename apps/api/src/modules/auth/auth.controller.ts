@@ -42,8 +42,17 @@ export class AuthController {
   async changePassword(
     @CurrentUser('id') userId: string,
     @Body() dto: ChangePasswordDto,
-  ): Promise<{ data: { success: true } }> {
-    await this.auth.changePassword(userId, dto.currentPassword, dto.newPassword);
+  ): Promise<{ data: { success: true } & LoginResult }> {
+    // Eski tokenlar yaroqsiz bo'ladi — joriy oyna yangi token bilan davom etadi
+    const result = await this.auth.changePassword(userId, dto.currentPassword, dto.newPassword);
+    return { data: { success: true, ...result } };
+  }
+
+  /** Chiqish — barcha qurilmalardagi sessiyalar yopiladi */
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@CurrentUser('id') userId: string): Promise<{ data: { success: true } }> {
+    await this.auth.logout(userId);
     return { data: { success: true } };
   }
 

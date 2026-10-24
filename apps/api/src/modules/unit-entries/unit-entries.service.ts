@@ -6,6 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { unitBranches } from '../unit-lease/unit-lease.branches';
 import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Yo'nalish xarajatlari — qo'lda kiritish jadvali (Tax free › Asosiy vositalar / Reklama / Boshqa; Fermer › Asosiy vositalar / TMZ / Boshqa).
@@ -433,6 +434,7 @@ export class UnitEntriesService implements OnModuleInit {
   async parseFile(unit: string, kind: EntryKindCode, file: Express.Multer.File | undefined) {
     if (!file?.buffer) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

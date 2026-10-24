@@ -17,7 +17,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { isSegment } from '../../common/segments/segments';
 import { SalaryCompositionService } from './salary-composition.service';
 import { SalaryStructureService } from './salary-composition.structure';
@@ -177,6 +177,7 @@ export class SalaryCompositionController {
   // ═══════════ Ko'rish ═══════════
 
   /** Oy tarkibi: xodimlar, komponentlar, guruhlar, tekshiruv */
+  @Personal()
   @Get('view')
   async view(@Query('period') period: string, @Query('unit') unit?: string) {
     const data = await this.composition.view(period, this.unitOf(unit));
@@ -198,6 +199,7 @@ export class SalaryCompositionController {
   }
 
   /** Bitta xodimning oylar bo'yicha tarkibi */
+  @Personal()
   @Get('employee/:pinfl')
   async employee(
     @Param('pinfl') pinfl: string,
@@ -210,6 +212,7 @@ export class SalaryCompositionController {
   }
 
   /** Saqlangan tarkib Excel'da (Tarkib, Guruhlar, Farqlar) */
+  @Personal()
   @Get('export')
   async exportExcel(@Query('period') period: string, @Res() response: Response, @Query('unit') unit?: string) {
     const { buffer, filename } = await this.composition.exportExcel(period, this.unitOf(unit));

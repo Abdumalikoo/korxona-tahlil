@@ -1,5 +1,6 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { ENTRY_UNIT_CODES, entryUnitOf, isSegment, segmentKey } from '../../common/segments/segments';
+import { runExclusive } from '../../common/locks';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar siyosati — qaysi moddalar MARKAZ hisobidan (hudud xodimlari uchun bo'lsa ham).
@@ -172,18 +173,21 @@ function cleanPayers(raw: unknown, chosen: string[]): Record<string, string> {
 
 /** Siyosatni yozadi (boshqa maydonlar saqlanadi) */
 export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[]; payers?: Record<string, string>; unitRules?: UnitRules; unitPayroll?: UnitRules }): Promise<void> {
-  const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
-  const prev = (row?.value ?? {}) as Record<string, unknown>;
-  const value = {
-    ...prev,
-    ...(patch.centerCategories ? { centerCategories: patch.centerCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
-    ...(patch.excludeCategories ? { excludeCategories: patch.excludeCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
-    ...(patch.payrollComponents ? { payrollComponents: patch.payrollComponents } : {}),
-    ...(patch.payers ? { payers: patch.payers } : {}),
-    ...(patch.unitRules ? { unitRules: patch.unitRules } : {}),
-    ...(patch.unitPayroll ? { unitPayroll: patch.unitPayroll } : {}),
-  };
-  await prisma.setting.upsert({ where: { key: POLICY_KEY }, create: { key: POLICY_KEY, value }, update: { value } });
+  // Siyosat bir nechta bo'limdan yoziladi — bitta yozuvga navbat bilan (o'qish va yozish orasida boshqasi aralashmasin)
+  return runExclusive(`setting:${POLICY_KEY}`, async () => {
+    const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
+    const prev = (row?.value ?? {}) as Record<string, unknown>;
+    const value = {
+      ...prev,
+      ...(patch.centerCategories ? { centerCategories: patch.centerCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
+      ...(patch.excludeCategories ? { excludeCategories: patch.excludeCategories.filter((c) => !ALWAYS_CENTER.includes(c)) } : {}),
+      ...(patch.payrollComponents ? { payrollComponents: patch.payrollComponents } : {}),
+      ...(patch.payers ? { payers: patch.payers } : {}),
+      ...(patch.unitRules ? { unitRules: patch.unitRules } : {}),
+      ...(patch.unitPayroll ? { unitPayroll: patch.unitPayroll } : {}),
+    };
+    await prisma.setting.upsert({ where: { key: POLICY_KEY }, create: { key: POLICY_KEY, value }, update: { value } });
+  });
 }
 
 /** Markaz guruhi moddalari bazada bo'lsin (xarajat yozuvi moddaga bog'langan) */

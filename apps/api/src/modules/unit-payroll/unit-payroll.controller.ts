@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { UnitPayrollService } from './unit-payroll.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -17,12 +17,14 @@ export class UnitPayrollController {
   constructor(private readonly service: UnitPayrollService) {}
 
   /** Bo'lim xodimlari (?period=YYYY-MM — o'sha oydagi tarkib; ko'chishlar bilan) */
+  @Personal()
   @Get(':unit/staff')
   async staff(@Param('unit') unit: string, @Query('period') period?: string) {
     return { data: await this.service.staff(this.service.unitOf(unit), period) };
   }
 
   /** Shu oy saqlangan ish haqi — xodimlar bo'yicha (?period=YYYY-MM) */
+  @Personal()
   @Get(':unit/saved')
   async saved(@Param('unit') unit: string, @Query('period') period: string) {
     return { data: await this.service.saved(this.service.unitOf(unit), period) };
@@ -45,6 +47,7 @@ export class UnitPayrollController {
   }
 
   /** Bo'limlar o'rtasida ko'chishlar: shu bo'limga kelgan / ketgan (?pinfl — bitta xodim) */
+  @Personal()
   @Get(':unit/moves')
   async moves(@Param('unit') unit: string, @Query('pinfl') pinfl?: string) {
     return { data: await this.service.moves({ unit: this.service.unitOf(unit), pinfl: pinfl || undefined }) };
@@ -77,6 +80,7 @@ export class UnitPayrollController {
     return { data: await this.service.setLink(this.service.unitOf(unit), body ?? {}, userId) };
   }
 
+  @Personal()
   @Get(':unit/lookup/:pinfl')
   async lookup(@Param('unit') unit: string, @Param('pinfl') pinfl: string) {
     return { data: await this.service.lookup(this.service.unitOf(unit), pinfl) };
@@ -145,6 +149,7 @@ export class UnitPayrollController {
     return { data: await this.service.batches(this.service.unitOf(unit), period) };
   }
 
+  @Personal()
   @Get(':unit/batches/:id')
   async batch(@Param('unit') unit: string, @Param('id') id: string, @Query('period') period: string) {
     return { data: await this.service.batch(this.service.unitOf(unit), period, id) };

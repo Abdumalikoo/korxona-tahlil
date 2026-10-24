@@ -18,8 +18,9 @@ import { EmployeesExportService } from './employees-export.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { QueryEmployeeDto } from './dto/query-employee.dto';
-import { Roles, CurrentUser } from '../../common/decorators';
+import { CurrentUser, Personal, Roles } from '../../common/decorators';
 
+@Personal()
 @Controller('employees')
 export class EmployeesController {
   constructor(
@@ -29,6 +30,7 @@ export class EmployeesController {
 
   // --------- Statistika (":pinfl" dan oldin) ---------
 
+  @Personal(false)
   @Get('stats')
   async stats() {
     const data = await this.employees.stats();
@@ -57,12 +59,14 @@ export class EmployeesController {
     return { data };
   }
 
+  @Personal(false)
   @Get('by-region')
   async byRegion() {
     const data = await this.employees.byRegion();
     return { data };
   }
 
+  @Personal(false)
   @Get('by-department')
   async byDepartment() {
     const data = await this.employees.byDepartment();

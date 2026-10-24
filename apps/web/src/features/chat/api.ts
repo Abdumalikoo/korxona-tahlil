@@ -96,10 +96,12 @@ const h = (code?: string) => ({ headers: { ...(chatToken() ? { 'X-Chat-Token': c
 /** Server javobi: chat qulflangan (kirish kodi kerak) yoki shu amal uchun kod kerak */
 export const isLocked = (msg: string) => msg.startsWith('CHAT_LOCKED');
 export const needsCode = (msg: string) => msg.startsWith('CHAT_CODE');
-export const cleanMsg = (msg: string) => msg.replace(/^CHAT_(LOCKED|CODE):\s*/, '');
+/** Standart kod turibdi — avval o'z kodini o'rnatish kerak */
+export const needsSetup = (msg: string) => msg.startsWith('CHAT_SETUP');
+export const cleanMsg = (msg: string) => msg.replace(/^CHAT_(LOCKED|CODE|SETUP):\s*/, '');
 
 export const chatPinApi = {
-  status: () => api.get<ApiResponse<{ require: ChatPinRequire; ttlMinutes: number; unlocked: boolean }>>('/source-chat/pin/status', h()),
+  status: () => api.get<ApiResponse<{ require: ChatPinRequire; ttlMinutes: number; unlocked: boolean; mustSetCode?: boolean }>>('/source-chat/pin/status', h()),
   unlock: (code: string) => api.post<ApiResponse<{ token: string; expiresAt: string }>>('/source-chat/pin/unlock', { code }),
   config: () => api.get<ApiResponse<{ require: ChatPinRequire; ttlMinutes: number; isDefault: boolean; updatedAt: string | null }>>('/source-chat/pin'),
   update: (body: { currentCode: string; newCode?: string; require?: Partial<ChatPinRequire>; ttlMinutes?: number }) =>

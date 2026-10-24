@@ -6,7 +6,8 @@ import { PrismaService } from '../prisma/prisma.service';
 
 // ═══════════════════════════════════════════════════════════
 // Chat kodi — Manba chatida ishlash, saqlash va yangi suhbat ochish uchun kod.
-//  • Standart kod — 8020 (Sozlamalar › Chat kodi'da administrator o'zgartiradi, joriy kod bilan).
+//  • Standart kod — 8020. U hammaga ma'lum, shuning uchun u bilan faqat YANGI kod o'rnatish mumkin:
+//    chatga kirish, saqlash va yangi suhbat standart kod bilan ishlamaydi (avval o'z kodingizni qo'ying).
 //  • Qayerda so'raladi — sozlanadi: chatga kirish (ishlash), saqlash (☆ saqlash, Excel), yangi suhbat.
 //  • Kirishda kod to'g'ri bo'lsa — vaqtinchalik ruxsat (token) beriladi: belgilangan daqiqa davomida qayta so'ralmaydi.
 //    Saqlash va yangi suhbat — har safar kod bilan.
@@ -18,9 +19,27 @@ const KEY = 'chat.pin';
 const DEFAULT_CODE = '8020';
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 5 * 60_000;
+/** Kiritilgan kod (eski 4 xonali kodlar ham o'tadi) */
 const CODE_RE = /^\d{4,8}$/;
-/** Token imzosi uchun kalit: muhitdagi maxfiy kalitdan, bo'lmasa — jarayon uchun tasodifiy */
-const SECRET = createHmac('sha256', process.env.JWT_SECRET || randomBytes(32).toString('hex')).update('chat-pin').digest();
+/** Yangi o'rnatiladigan kod — 6–8 raqam */
+const NEW_CODE_RE = /^\d{6,8}$/;
+/** Juda oddiy kodlar (bir xil yoki ketma-ket raqamlar) qabul qilinmaydi */
+function weakCode(code: string): boolean {
+  if (/^(\d)\1+$/.test(code)) return true;
+  const up = '01234567890123456789';
+  const down = '98765432109876543210';
+  return up.includes(code) || down.includes(code);
+}
+/**
+ * Token imzosi uchun kalit — birinchi ishlatilganda o'qiladi (fayl yuklanganda emas):
+ * .env ConfigModule orqali keyinroq yuklanadi, oldinroq o'qilsa kalit har ishga tushishda tasodifiy bo'lib qolardi.
+ * JWT_SECRET bo'lmasa — jarayon uchun tasodifiy (qayta ishga tushganda chat qayta kod so'raydi).
+ */
+let secret: Buffer | null = null;
+function signingKey(): Buffer {
+  if (!secret) secret = createHmac('sha256', process.env.JWT_SECRET || randomBytes(32).toString('hex')).update('chat-pin').digest();
+  return secret;
+}
 
 const scrypt = promisify(scryptCb) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>;
 
@@ -80,7 +99,7 @@ export class ChatPinService {
   }
 
   /** Kodni tekshirish (noto'g'ri bo'lsa — xato, 5 martadan keyin kutish) */
-  async verify(code: unknown, userId: string, what = 'Chat'): Promise<void> {
+  async verify(code: unknown, userId: string, what = 'Chat', allowDefault = false): Promise<void> {
     const now = Date.now();
     const f = this.fails.get(userId);
     if (f && f.until > now) throw new ForbiddenException(`Kod ${MAX_ATTEMPTS} marta noto'g'ri kiritildi — ${Math.ceil((f.until - now) / 60_000)} daqiqadan keyin urinib ko'ring`);
@@ -92,12 +111,16 @@ export class ChatPinService {
       throw new ForbiddenException(count >= MAX_ATTEMPTS ? `Kod noto'g'ri — ${LOCK_MS / 60_000} daqiqa kuting` : `Kod noto'g'ri (${MAX_ATTEMPTS - count} ta urinish qoldi)`);
     }
     this.fails.delete(userId);
+    // Standart kod to'g'ri bo'lsa ham — faqat yangi kod o'rnatish uchun
+    if (!allowDefault && (await this.config()).isDefault) {
+      throw new ForbiddenException("CHAT_SETUP: Standart kod bilan ishlash yopilgan — avval o'z chat kodingizni o'rnating (6–8 raqam)");
+    }
   }
 
   // ─────────── Kirish tokeni ───────────
 
   private sign(userId: string, exp: number): string {
-    return createHmac('sha256', SECRET).update(`${userId}.${exp}`).digest('base64url');
+    return createHmac('sha256', signingKey()).update(`${userId}.${exp}`).digest('base64url');
   }
 
   /** Kod to'g'ri — kirish tokeni (ttl daqiqa) */
@@ -133,18 +156,24 @@ export class ChatPinService {
 
   async status(token: unknown, userId: string) {
     const c = await this.config();
-    return { require: c.require, ttlMinutes: c.ttlMinutes, unlocked: !c.require.use || this.tokenValid(token, userId) };
+    const any = c.require.use || c.require.save || c.require.newChat;
+    return { require: c.require, ttlMinutes: c.ttlMinutes, unlocked: !c.require.use || this.tokenValid(token, userId), mustSetCode: any && c.isDefault };
   }
 
   // ─────────── Sozlamalar ───────────
 
   async update(body: { currentCode?: unknown; newCode?: unknown; require?: unknown; ttlMinutes?: unknown }, userId: string) {
-    await this.verify(body?.currentCode, userId, "Sozlamani o'zgartirish");
     const s = await this.stored();
+    const settingCode = body?.newCode !== undefined && body.newCode !== null && body.newCode !== '';
+    // Standart kod bilan — faqat yangi kod o'rnatiladi (boshqa sozlamalar o'z kodingiz bilan)
+    if (!s.hash && !settingCode) throw new BadRequestException("Avval standart koddan farqli o'z chat kodingizni o'rnating");
+    await this.verify(body?.currentCode, userId, "Sozlamani o'zgartirish", true);
     const next: Stored = { ...s };
     const changes: string[] = [];
     if (body?.newCode !== undefined && body.newCode !== null && body.newCode !== '') {
-      if (typeof body.newCode !== 'string' || !CODE_RE.test(body.newCode)) throw new BadRequestException("Yangi kod 4–8 ta raqam bo'lsin");
+      if (typeof body.newCode !== 'string' || !NEW_CODE_RE.test(body.newCode)) throw new BadRequestException("Yangi kod 6–8 ta raqam bo'lsin");
+      if (body.newCode === DEFAULT_CODE || weakCode(body.newCode)) throw new BadRequestException("Kod juda oddiy (bir xil yoki ketma-ket raqamlar) — boshqasini tanlang");
+      if (body.newCode === body.currentCode) throw new BadRequestException("Yangi kod joriy koddan farq qilsin");
       const salt = randomBytes(16);
       next.salt = salt.toString('hex');
       next.hash = (await scrypt(body.newCode, salt, 32)).toString('hex');

@@ -6,6 +6,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { IconAlert, IconCheck } from '@/components/ui/icons';
 import { LoadingState } from '@/components/ui/states';
 import { chatPinApi, cleanMsg, setChatToken, type ChatPinRequire } from '@/features/chat/api';
+import { weakCode } from '@/features/chat/pin-pad';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/format';
@@ -16,7 +17,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 // Sozlamalar › Chat kodi — Manba chatini himoyalash.
 //  • Qayerda so'raladi: chatga kirish (vaqtinchalik ruxsat bilan), saqlash (☆ va Excel), yangi suhbat (har safar).
 //  • Kirish ruxsati muddati (daqiqa) — shu vaqt ichida kod qayta so'ralmaydi (shu brauzer oynasida).
-//  • Standart kod — 8020. Har o'zgarish joriy kod bilan tasdiqlanadi. Bazada faqat xesh saqlanadi.
+//  • Standart kod hammaga ma'lum: u bilan faqat yangi kod (6–8 raqam) o'rnatiladi, chat esa yopiq turadi.
+//    Har o'zgarish joriy kod bilan tasdiqlanadi. Bazada faqat xesh saqlanadi.
 // ═══════════════════════════════════════════════════════════
 
 const REQ: { key: keyof ChatPinRequire; label: string; hint: string }[] = [
@@ -48,7 +50,18 @@ export default function ChatPinSettingsPage() {
 
   const digits = (v: string) => v.replace(/\D/g, '').slice(0, 8);
   const changingCode = next.length > 0 || repeat.length > 0;
-  const codeBad = changingCode && (next.length < 4 || next !== repeat);
+  const codeProblem = !changingCode
+    ? d?.isDefault
+      ? "Standart kod turibdi — avval yangi kod kiriting"
+      : null
+    : next.length < 6
+      ? "Kamida 6 ta raqam bo'lsin"
+      : weakCode(next)
+        ? 'Kod juda oddiy — bir xil yoki ketma-ket raqamlar bo‘lmasin'
+        : next !== repeat
+          ? 'Yangi kodlar bir xil emas'
+          : null;
+  const codeBad = Boolean(codeProblem);
   const dirty = Boolean(d) && (changingCode || req.use !== d!.require.use || req.save !== d!.require.save || req.newChat !== d!.require.newChat || ttl !== d!.ttlMinutes);
   const canSave = current.length >= 4 && dirty && !codeBad && !busy;
 
@@ -114,9 +127,9 @@ export default function ChatPinSettingsPage() {
                 </label>
                 <p className="rounded-(--radius-control) bg-(--color-surface-muted) px-3 py-2 text-xs text-(--color-text-muted)">
                   {d.isDefault ? (
-                    <>
-                      Hozir <b className="text-heading">standart kod</b> ishlayapti. Xavfsizlik uchun uni o&apos;zgartiring.
-                    </>
+                    <span className="text-(--color-warn)">
+                      Hozir <b>standart kod</b> turibdi — u hammaga ma&apos;lum, shuning uchun chat <b>yopiq</b>. Joriy kod maydoniga standart kodni yozib, yangi kod o&apos;rnating.
+                    </span>
                   ) : (
                     <>
                       Kod o&apos;zgartirilgan: <b className="text-heading">{d.updatedAt ? formatDateTime(d.updatedAt) : '—'}</b>
@@ -135,14 +148,14 @@ export default function ChatPinSettingsPage() {
                   <input type="password" inputMode="numeric" autoComplete="off" value={current} onChange={(e) => setCurrent(digits(e.target.value))} className={input} />
                 </label>
                 <label className="block text-xs font-medium text-(--color-text-muted)">
-                  Yangi kod (4–8 raqam) — o&apos;zgartirmasangiz bo&apos;sh qoldiring
+                  {d?.isDefault ? 'Yangi kod (6–8 raqam) — majburiy' : <>Yangi kod (6–8 raqam) — o&apos;zgartirmasangiz bo&apos;sh qoldiring</>}
                   <input type="password" inputMode="numeric" autoComplete="new-password" value={next} onChange={(e) => setNext(digits(e.target.value))} className={input} />
                 </label>
                 <label className="block text-xs font-medium text-(--color-text-muted)">
                   Yangi kodni takrorlang
                   <input type="password" inputMode="numeric" autoComplete="new-password" value={repeat} onChange={(e) => setRepeat(digits(e.target.value))} className={input} />
                 </label>
-                {codeBad && <p className="text-xs text-(--color-expense)">{next.length < 4 ? "Kamida 4 ta raqam bo'lsin" : 'Yangi kodlar bir xil emas'}</p>}
+                {codeBad && (changingCode || current.length > 0) && <p className="text-xs text-(--color-expense)">{codeProblem}</p>}
                 {error && (
                   <p className="flex items-start gap-2 rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2 text-sm text-(--color-expense)">
                     <IconAlert className="mt-0.5 size-4 shrink-0" />

@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { HR_GROUP_LABELS, HR_SHEET, HR_SHEETS, type HrColumn, type HrGroup, type HrSheetCode, type HrSheetDef } from './hr-sheets.config';
 import { clearHrCache, hrPeople, loadSnapshot, nameIndex, normName, prevKey, rowObject, sheetKey, unitOfPlace, type HrSnapshot } from './hr-sheets.store';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 // ═══════════════════════════════════════════════════════════
 // Xodimlar › Ma'lumotnomalar (10, 16, 37, 51-jadval) va «Miya» — PINFL bo'yicha xodimning hamma ma'lumoti.
@@ -284,6 +285,7 @@ export class HrSheetsService {
     const def = this.sheetOf(code);
     if (!file?.buffer) throw new BadRequestException('Fayl yuklanmadi');
     const wb = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     try {
       await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     } catch {

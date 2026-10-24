@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { ensureCenterCategories, ensurePayrollPartCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, payrollCenterCategory, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaxesService } from '../taxes/taxes.service';
+import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 const CENTRAL_REGION = 0;
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
@@ -379,6 +380,7 @@ export class PayrollService {
     }
 
     const workbook = new ExcelJS.Workbook();
+    await assertSafeXlsx(file.buffer);
     await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
 
     const sheet = workbook.worksheets[0];

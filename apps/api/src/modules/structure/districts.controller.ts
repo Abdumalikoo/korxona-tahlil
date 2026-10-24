@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { CenterService } from './center.service';
 import { DistrictsService } from './districts.service';
+import { Personal } from '../../common/decorators';
 
 /**
  * Solishtirma ichkarisi: Viloyat → Tumanlar → Tuman → Xodim; Markaz → Bo'limlar → Bo'lim → Xodim.
@@ -20,6 +21,7 @@ export class DistrictsController {
   }
 
   /** Markaz bo'limi: xarajat tarkibi va xodimlar. id="-" — bo'limga biriktirilmagan */
+  @Personal('mask')
   @Get('center/department/:id')
   async centerDepartment(
     @Param('id') id: string,
@@ -45,6 +47,7 @@ export class DistrictsController {
   }
 
   /** Tuman: xizmat turlari, xarajat tarkibi, xodimlar. id="-" — tumanga bo'linmagan (?region= kerak) */
+  @Personal('mask')
   @Get('district/:id')
   async district(
     @Param('id') id: string,
@@ -59,6 +62,7 @@ export class DistrictsController {
   }
 
   /** Xodim: oylar bo'yicha ish haqi, reja, fakt va qaysi tumanda ishlagani */
+  @Personal()
   @Get('employee/:pinfl')
   async employee(@Param('pinfl') pinfl: string, @Query('from') from?: string, @Query('to') to?: string) {
     const data = await this.districts.employee(pinfl, { from, to });
