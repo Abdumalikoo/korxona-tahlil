@@ -11,6 +11,21 @@ export interface SegFilter {
   unit: string;
   cats?: string[];
   exact?: boolean;
+  party?: string;
+  month?: string;
+}
+
+/** Ichma-ich daraxt tuguni: tuzilma → xodim / filial / modda → oylar; values — davr oylari bo'yicha */
+export interface DrillNode {
+  key: string;
+  label: string;
+  hint?: string;
+  amountTiyin: string;
+  previousTiyin: string;
+  count: number;
+  values: string[];
+  f?: SegFilter;
+  children?: DrillNode[];
 }
 
 export interface SegPart {
@@ -68,6 +83,7 @@ export interface SegmentView {
   expenseParts: SegPart[];
   incoming: SegFlow[];
   outgoing: SegFlow[];
+  tree: { months: string[]; income: DrillNode[]; expense: DrillNode[] };
 }
 
 export const segmentApi = {

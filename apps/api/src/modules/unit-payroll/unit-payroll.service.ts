@@ -5,6 +5,7 @@ import { entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
+import { ensurePayrollPartCategories, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
 
 // ═══════════════════════════════════════════════════════════
 // Bo'lim (yo'nalish) ish haqi — masalan, Xarajatlar › Tax free › Ish haqi.
@@ -42,6 +43,7 @@ const TASHKENT_OFFSET_HOURS = 5;
 const MAX_ROWS = 5000;
 /** Shablondagi yashirin oy kodlari qatori belgisi */
 const CODE_MARK = 'KOD';
+const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export interface StaffItem {
   pinfl: string;
@@ -784,6 +786,9 @@ export class UnitPayrollService {
       summary: `${label} ish haqi ${period}: ${rows.length} xodim, ${(Number(total) / 100).toLocaleString('uz-UZ')} so'm${result.newStaff ? `, ${result.newStaff} yangi xodim` : ''}${result.replaced ? `, ${result.replaced} ta oldingisi almashtirildi` : ''}`,
     });
 
+    // Ish haqi qismlari (siyosat bo'yicha) — qayta ajratiladi
+    await this.splitComponents(unit, period).catch(() => null);
+
     return {
       success: true as const,
       batchId: result.batchId,
@@ -831,6 +836,115 @@ export class UnitPayrollService {
       return b;
     });
     await this.audit.log({ userId, action: 'DELETE', entity: 'unit_payroll', entityId: `${unit}:${period}:${id}`, summary: `${entryUnitLabel(unit)} ish haqi ${period} bekor qilindi: ${out.fileName}` });
+    await this.splitComponents(unit, period).catch(() => null);
     return { success: true as const, id };
+  }
+
+  // ═══════════ Ish haqi qismlari (Xarajatlar siyosati bo'yicha) ═══════════
+  //
+  // Bo'lim siyosatida «ish haqi qismi → bo'lim» belgilangan bo'lsa (masalan, Tax free: bayram puli → Qo'mita):
+  // shu oy ish haqi tarkibidagi o'sha komponent summasi ish haqi xarajatidan ayriladi va alohida xarajat
+  // (modda «IHQ_<kod>», shu bo'limda) bo'lib yoziladi — Solishtirma va hisobotlarda tanlangan bo'lim hisobida.
+  // Jami o'zgarmaydi. Qayta hisoblash: ish haqi / tarkib saqlanganda yoki bekor qilinganda, siyosat o'zgarganda.
+  // Ajratilgan yozuvlar: settings «unit.payroll.split.<BO'LIM>.<OY>».
+
+  /** Shu bo'limda ish haqi yuklangan oylar */
+  async payrollPeriods(unit: string): Promise<string[]> {
+    const prefix = `unit.payroll.${unit}.`;
+    const rows = await this.prisma.setting.findMany({ where: { key: { startsWith: prefix } }, select: { key: true } });
+    return rows.map((r) => r.key.slice(prefix.length)).filter((p) => PERIOD_RE.test(p)).sort();
+  }
+
+  /** Shu oy uchun ajratish: { parts: komponent → summa, moved: jami ajratilgan } */
+  async splitComponents(unit: string, period: string): Promise<{ parts: Record<string, string>; movedTiyin: string }> {
+    if (!isSegment(unit) || !PERIOD_RE.test(period)) return { parts: {}, movedTiyin: '0' };
+    const splitKey = `unit.payroll.split.${unit}.${period}`;
+    const [policy, batches, compRow, prevSplit] = await Promise.all([
+      readPolicy(this.prisma),
+      this.batchesOf(unit, period),
+      this.prisma.setting.findUnique({ where: { key: `unit.composition.${unit}.${period}` } }),
+      this.prisma.setting.findUnique({ where: { key: splitKey } }),
+    ]);
+    const rules = policy.unitPayroll[unit] ?? {};
+    const committed = batches.filter((b) => b.status === 'COMMITTED' && b.expenseId && BigInt(b.totalTiyin) > 0n).sort((a, b) => (BigInt(b.totalTiyin) > BigInt(a.totalTiyin) ? 1 : -1));
+    const payrollTotal = committed.reduce((s, b) => s + BigInt(b.totalTiyin), 0n);
+
+    // Faol tarkib yuklamasi → komponent summalari (faqat boshqa bo'limga o'tadiganlari)
+    const compList = ((compRow?.value as { batches?: { cancelledAt: string | null; createdAt: string; rows?: { items?: Record<string, string> }[] }[] } | null)?.batches ?? [])
+      .filter((b) => !b.cancelledAt)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const active = compList[0];
+    const moving = Object.entries(rules).filter(([, t]) => t !== unit).map(([c]) => c);
+    const comps = moving.length ? await this.prisma.salaryComponent.findMany({ where: { code: { in: moving } }, select: { code: true, name: true, sign: true } }) : [];
+    const want = new Map<string, bigint>();
+    if (active?.rows) {
+      for (const c of comps) {
+        if (c.sign <= 0) continue;
+        let sum = 0n;
+        for (const r of active.rows) {
+          try {
+            const v = BigInt(r.items?.[c.code] ?? '0');
+            if (v > 0n) sum += v;
+          } catch {
+            /* noto'g'ri qiymat — o'tkaziladi */
+          }
+        }
+        if (sum > 0n) want.set(c.code, sum);
+      }
+    }
+    // Ish haqidan oshmasin (tartib: katta summa birinchi)
+    const parts = new Map<string, bigint>();
+    let left = payrollTotal;
+    for (const [code, v] of [...want.entries()].sort((a, b) => (b[1] > a[1] ? 1 : -1))) {
+      if (left <= 0n) break;
+      const take = v < left ? v : left;
+      parts.set(code, take);
+      left -= take;
+    }
+    const moved = [...parts.values()].reduce((s, v) => s + v, 0n);
+    if (parts.size) await ensurePayrollPartCategories(this.prisma, comps.filter((c) => parts.has(c.code)));
+    const label = entryUnitLabel(unit);
+    const prevIds = ((prevSplit?.value as { expenseIds?: unknown } | null)?.expenseIds as string[] | undefined) ?? [];
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        if (prevIds.length) await tx.expense.updateMany({ where: { id: { in: prevIds }, deletedAt: null }, data: { deletedAt: new Date() } });
+        // Asosiy ish haqi yozuvlari: yuklama summasi − ajratilgan (kattasidan boshlab)
+        let cut = moved;
+        for (const b of committed) {
+          const total = BigInt(b.totalTiyin);
+          const take = cut < total ? cut : total;
+          cut -= take;
+          await tx.expense.updateMany({ where: { id: b.expenseId!, deletedAt: null }, data: { amountTiyin: total - take } });
+        }
+        const ids: string[] = [];
+        const name = new Map(comps.map((c) => [c.code, c.name]));
+        for (const [code, amount] of parts) {
+          const e = await tx.expense.create({
+            data: {
+              date: this.periodEndDate(period),
+              period,
+              amountTiyin: amount,
+              categoryCode: payrollPartCategory(code),
+              segment: unit,
+              regionCode: null,
+              departmentId: null,
+              description: `${name.get(code) ?? code} — ${label} ish haqidan ajratilgan (siyosat bo'yicha: ${entryUnitLabel(rules[code]!)})`.slice(0, 500),
+              paymentMethod: 'BANK',
+              paymentStatus: 'PAID',
+              source: 'IMPORT',
+              section: 'DOIMIY',
+              createdById: committed[0]!.uploadedById,
+            },
+            select: { id: true },
+          });
+          ids.push(e.id);
+        }
+        const value = { expenseIds: ids, parts: Object.fromEntries([...parts].map(([k, v]) => [k, v.toString()])), updatedAt: new Date().toISOString() } as object;
+        await tx.setting.upsert({ where: { key: splitKey }, create: { key: splitKey, value }, update: { value } });
+      },
+      { timeout: 60_000 },
+    );
+    return { parts: Object.fromEntries([...parts].map(([k, v]) => [k, v.toString()])), movedTiyin: moved.toString() };
   }
 }

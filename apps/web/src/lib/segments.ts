@@ -8,6 +8,7 @@ export const SEGMENTS = [
   { code: 'MARKSHEYDER', label: 'Marksheyder', hint: 'Marksheyderlik ishlari' },
   { code: 'FERMER', label: "Fermer xo'jaligi", hint: "Fermer xo'jaligi" },
   { code: 'BUXGALTERIYA', label: 'Buxgalteriya xizmatlari', hint: 'Buxgalteriya xizmatlari' },
+  { code: 'QOMITA', label: "Qo'mita pullarining sarfi", hint: "Qo'mita pullaridan qilingan sarflar" },
 ] as const;
 
 export type SegmentCode = (typeof SEGMENTS)[number]['code'];
@@ -48,6 +49,7 @@ export const ENTRY_UNITS: EntryUnit[] = [
   { code: 'MARKSHEYDER', label: 'Marksheyder', slug: 'marksheyder', hint: 'Marksheyderlik ishlari' },
   { code: 'FERMER', label: "Fermer xo'jaligi", slug: 'fermer', hint: "Fermer xo'jaligi" },
   { code: 'BUXGALTERIYA', label: 'Buxgalteriya xizmatlari', slug: 'buxgalteriya', hint: 'Buxgalteriya xizmatlari' },
+  { code: 'QOMITA', label: "Qo'mita pullarining sarfi", slug: 'qomita', hint: "Qo'mita pullaridan qilingan sarflar" },
 ];
 
 export function unitBySlug(slug: string | null | undefined): EntryUnit | null {

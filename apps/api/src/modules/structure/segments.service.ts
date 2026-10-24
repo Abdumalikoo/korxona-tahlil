@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { SEGMENTS, entryUnitLabel, entryUnitOf, segmentKey, segmentLabel } from '../../common/segments/segments';
 import { policyRouting, readPolicy, unitOfKey } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
-import { bounds, compareRange, parseDay, trendMonths } from './structure.engine';
+import { bounds, compareRange, parseDay, periodsEndingIn, trendMonths } from './structure.engine';
 import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } from './structure.types';
 
 // ═══════════════════════════════════════════════════════════
@@ -22,7 +22,111 @@ export interface SegFilter {
   unit: string;
   cats?: string[];
   exact?: boolean;
+  /** Kontragent / mijoz */
+  party?: string;
+  /** Oy: YYYY-MM */
+  month?: string;
 }
+
+/**
+ * Ichma-ich daraxt tuguni: bo'lim → tuzilma (Ish haqi, Ijara va kommunal, Bank …) → xodim / filial / modda → oylar → yozuvlar.
+ * values — davr oylari bo'yicha (months bilan bir tartibda); f — yozuvlar filtri (bo'lmasa — yozuvlar ro'yxati yo'q, masalan xodim).
+ */
+export interface DrillNode {
+  key: string;
+  label: string;
+  hint?: string;
+  amountTiyin: string;
+  previousTiyin: string;
+  count: number;
+  values: string[];
+  f?: SegFilter;
+  children?: DrillNode[];
+}
+
+class Acc {
+  cur = 0n;
+  prev = 0n;
+  count = 0;
+  values: bigint[];
+  children = new Map<string, Acc>();
+  constructor(
+    public label: string,
+    size: number,
+    public f?: SegFilter,
+    public hint?: string,
+    public order = 0,
+  ) {
+    this.values = new Array<bigint>(size).fill(0n);
+  }
+  child(key: string, label: string, size: number, f?: SegFilter, hint?: string, order = 0): Acc {
+    let c = this.children.get(key);
+    if (!c) {
+      c = new Acc(label, size, f, hint, order);
+      this.children.set(key, c);
+    }
+    return c;
+  }
+  add(v: bigint, cur: boolean, prev: boolean, mi: number | undefined) {
+    if (cur) {
+      this.cur += v;
+      this.count += 1;
+      if (mi !== undefined) this.values[mi]! += v;
+    }
+    if (prev) this.prev += v;
+  }
+  node(key: string): DrillNode {
+    const kids = [...this.children.entries()]
+      .map(([k, c]) => ({ k, c }))
+      .sort((a, b) => a.c.order - b.c.order || (b.c.cur > a.c.cur ? 1 : b.c.cur < a.c.cur ? -1 : a.c.label.localeCompare(b.c.label)))
+      .map(({ k, c }) => c.node(k));
+    return {
+      key,
+      label: this.label,
+      ...(this.hint ? { hint: this.hint } : {}),
+      amountTiyin: this.cur.toString(),
+      previousTiyin: this.prev.toString(),
+      count: this.count,
+      values: this.values.map(String),
+      ...(this.f ? { f: this.f } : {}),
+      ...(kids.length ? { children: kids } : {}),
+    };
+  }
+}
+
+/** Davr ichidagi oylar (YYYY-MM) */
+function monthsIn(range: DateRange): string[] {
+  const out: string[] = [];
+  let y = Number(range.from.slice(0, 4));
+  let m = Number(range.from.slice(5, 7));
+  const end = range.to.slice(0, 7);
+  for (let i = 0; i < 48; i += 1) {
+    const p = `${y}-${String(m).padStart(2, '0')}`;
+    out.push(p);
+    if (p >= end) break;
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return out;
+}
+
+/** Tuzilmalar (bo'lim sahifasidagi tugmalar bilan bir xil nomlar) */
+const TUZILMA = {
+  payroll: { label: 'Ish haqi', order: 1 },
+  parts: { label: 'Ish haqi qismlari', order: 2 },
+  lease: { label: 'Ijara va kommunal', order: 3 },
+  bank: { label: 'Bank xarajatlari', order: 4 },
+  asset: { label: 'Asosiy vositalar', order: 5 },
+  ad: { label: 'Reklama xarajatlari', order: 6 },
+  entries: { label: 'Boshqa xarajatlar', order: 7 },
+  other: { label: 'Boshqa moddalar', order: 8 },
+  in: { label: "Boshqa bo'limlardan (siyosat bo'yicha)", order: 9 },
+} as const;
+const LEASE_CODES = ['LEASE', 'KOMMUNAL'];
+const ENTRY_CODES: Record<string, keyof typeof TUZILMA> = { UNIT_ASSET: 'asset', REKLAMA: 'ad', UNIT_OTHER: 'entries' };
 
 export interface SegPart {
   code: string;
@@ -106,8 +210,8 @@ export class SegmentsService {
     const [cats, incomeCats, incomes, expenses, policy] = await Promise.all([
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true, order: true } }),
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
-      this.prisma.income.findMany({ where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere }, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true } }),
-      this.prisma.expense.findMany({ where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere }, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, source: true } }),
+      this.prisma.income.findMany({ where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere }, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, clientName: true } }),
+      this.prisma.expense.findMany({ where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere }, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, source: true, counterparty: true, description: true } }),
       readPolicy(this.prisma),
     ]);
     const routing = policyRouting(policy, cats);
@@ -133,6 +237,12 @@ export class SegmentsService {
     const expLeaf = new Map<string, { cur: bigint; prev: bigint; count: number }>();
     const flowIn = new Map<string, { unit: string; code: string; cur: bigint; prev: bigint; count: number }>();
     const flowOut = new Map<string, { unit: string; code: string; cur: bigint; prev: bigint; count: number }>();
+    // Ichma-ich daraxt: davr oylari bo'yicha
+    const rMonths = monthsIn(range);
+    const rIndex = new Map(rMonths.map((p, i) => [p, i]));
+    const N = rMonths.length;
+    const incTree = new Acc('Daromad', N, { unit: key });
+    const expTree = new Acc('Xarajat', N);
     const add = (m: Map<string, { cur: bigint; prev: bigint; count: number }>, k: string, v: bigint, c: boolean, p: boolean) => {
       const x = m.get(k) ?? { cur: 0n, prev: 0n, count: 0 };
       if (c) {
@@ -153,7 +263,16 @@ export class SegmentsService {
         incomeCount += 1;
       }
       if (p) prevIncome += r.amountTiyin;
-      if (c || p) add(incParts, r.categoryCode, r.amountTiyin, c, p);
+      if (c || p) {
+        add(incParts, r.categoryCode, r.amountTiyin, c, p);
+        // Daromad: xizmat turi → mijoz
+        const mi = c ? rIndex.get(monthOf(r.date)) : undefined;
+        const party = (r.clientName ?? '').trim();
+        incTree.add(r.amountTiyin, c, p, mi);
+        const cat = incTree.child(`c:${r.categoryCode}`, incLabel.get(r.categoryCode) ?? r.categoryCode, N, { unit: key, cats: [r.categoryCode] });
+        cat.add(r.amountTiyin, c, p, mi);
+        cat.child(`p:${party}`, party || "Mijoz ko'rsatilmagan", N, { unit: key, cats: [r.categoryCode], party }).add(r.amountTiyin, c, p, mi);
+      }
       const i = monthIndex.get(monthOf(r.date));
       if (i !== undefined) trend.income[i]! += r.amountTiyin;
     }
@@ -200,8 +319,86 @@ export class SegmentsService {
       }
       if (p) prevExpense += r.amountTiyin;
       if (writtenHere && (c || p)) add(expLeaf, r.categoryCode, r.amountTiyin, c, p);
+      if (c || p) {
+        // Tuzilma → xodim / filial / to'lov oluvchi / modda
+        const mi = c ? rIndex.get(monthOf(r.date)) : undefined;
+        const code = r.categoryCode;
+        const t = (k: keyof typeof TUZILMA, f?: SegFilter) => expTree.child(k, TUZILMA[k].label, N, f, undefined, TUZILMA[k].order);
+        const party = (r.counterparty ?? '').trim();
+        const path: Acc[] = [];
+        if (!writtenHere) {
+          const from = source ?? 'CENTER';
+          const g = t('in');
+          const u = g.child(`u:${from}`, entryUnitLabel(from), N);
+          path.push(g, u, u.child(`c:${code}`, catLabel.get(code) ?? code, N, { unit: exploreUnit(from), cats: [code], exact: true }));
+        } else if (code === 'PAYROLL_BASE') {
+          path.push(t('payroll', { unit: key, cats: [code], exact: true }));
+        } else if (code.startsWith('IHQ_')) {
+          const g = t('parts');
+          path.push(g, g.child(`c:${code}`, catLabel.get(code) ?? code, N, { unit: key, cats: [code], exact: true }));
+        } else if (LEASE_CODES.includes(code)) {
+          const g = t('lease', { unit: key, cats: LEASE_CODES, exact: true });
+          const b = g.child(`f:${party}`, party || "Filial ko'rsatilmagan", N, { unit: key, cats: LEASE_CODES, exact: true, party });
+          path.push(g, b, b.child(`c:${code}`, catLabel.get(code) ?? code, N, { unit: key, cats: [code], exact: true, party }));
+        } else if (code === 'BANK_XARAJAT') {
+          const g = t('bank', { unit: key, cats: [code], exact: true });
+          path.push(g, g.child(`p:${party}`, party || "Oluvchi ko'rsatilmagan", N, { unit: key, cats: [code], exact: true, party }));
+        } else if (ENTRY_CODES[code]) {
+          const g = t(ENTRY_CODES[code]!, { unit: key, cats: [code], exact: true });
+          const name = (r.description ?? '').split(' — ')[0]?.trim() || '—';
+          path.push(g, g.child(`n:${name}`, name, N, { unit: key, cats: [code], exact: true }));
+        } else {
+          const g = t('other');
+          path.push(g, g.child(`c:${code}`, catLabel.get(code) ?? code, N, { unit: key, cats: [code], exact: true }));
+        }
+        expTree.add(r.amountTiyin, c, p, mi);
+        for (const a of path) a.add(r.amountTiyin, c, p, mi);
+      }
       const i = monthIndex.get(monthOf(r.date));
       if (i !== undefined) trend.expense[i]! += r.amountTiyin;
+    }
+
+    // Ish haqi → xodimlar (bo'lim vedomostlaridan) → oylar
+    const payNode = expTree.children.get('payroll');
+    if (payNode) {
+      const prevMonths = monthsIn(previous);
+      const keys = [...new Set([...rMonths, ...prevMonths])].map((p) => `unit.payroll.${code}.${p}`);
+      const settings = await this.prisma.setting.findMany({ where: { key: { in: keys } }, select: { key: true, value: true } });
+      // Ish haqi oy oxiri sanasi bilan yoziladi — oyi davrga to'liq tushganlari (xarajat bilan bir xil)
+      const curSet = new Set(periodsEndingIn(range));
+      const prevSet = new Set(periodsEndingIn(previous));
+      for (const row of settings) {
+        const p = row.key.slice(`unit.payroll.${code}.`.length);
+        const batches = ((row.value as { batches?: { status: string; rows?: { pinfl: string; fullName: string; amountTiyin: string }[] }[] } | null)?.batches ?? []).filter((b) => b.status === 'COMMITTED');
+        for (const b of batches) {
+          for (const e of b.rows ?? []) {
+            let v = 0n;
+            try {
+              v = BigInt(e.amountTiyin);
+            } catch {
+              continue;
+            }
+            if (v === 0n) continue;
+            const emp = payNode.child(`e:${e.pinfl}`, e.fullName || e.pinfl, N, undefined, e.pinfl);
+            emp.add(v, curSet.has(p), prevSet.has(p), curSet.has(p) ? rIndex.get(p) : undefined);
+          }
+        }
+      }
+      // Vedomost jami va xarajat farqi: ish haqi qismlari boshqa bo'limga ajratilgan bo'lsa
+      if (payNode.children.size) {
+        const sum = [...payNode.children.values()].reduce((a, c) => ({ cur: a.cur + c.cur, prev: a.prev + c.prev }), { cur: 0n, prev: 0n });
+        const dc = payNode.cur - sum.cur;
+        const dp = payNode.prev - sum.prev;
+        if (dc !== 0n || dp !== 0n) {
+          const diff = payNode.child('diff', dc < 0n ? "Ish haqi qismlari boshqa bo'limga ajratilgan" : "Vedomostdan tashqari", N, undefined, undefined, 1e6);
+          diff.cur = dc;
+          diff.prev = dp;
+          rMonths.forEach((_, i) => {
+            const empSum = [...payNode.children.values()].filter((c) => c !== diff).reduce((a, c) => a + c.values[i]!, 0n);
+            diff.values[i] = payNode.values[i]! - empSum;
+          });
+        }
+      }
     }
 
     const sortParts = (a: SegPart, b: SegPart) => (BigInt(b.amountTiyin) > BigInt(a.amountTiyin) ? 1 : BigInt(b.amountTiyin) < BigInt(a.amountTiyin) ? -1 : a.label.localeCompare(b.label));
@@ -291,6 +488,12 @@ export class SegmentsService {
       trend: { income: trend.income.map(String), expense: trend.expense.map(String), result: trend.income.map((v, i) => (v - trend.expense[i]!).toString()) },
       incomeParts,
       expenseParts,
+      /** Ichma-ich daraxt: davr oylari va tugunlar */
+      tree: {
+        months: rMonths,
+        income: incTree.node('income').children ?? [],
+        expense: expTree.node('expense').children ?? [],
+      },
       incoming: flows(flowIn, 'in'),
       outgoing: flows(flowOut, 'out'),
     };

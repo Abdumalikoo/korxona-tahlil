@@ -72,6 +72,34 @@ export interface PolicyValue {
    * Bo'lim qoidasi umumiy siyosatdan ustun. Yozuvlar joyida qoladi — faqat hisobot va tahlilda hisobga olinadi.
    */
   unitRules: UnitRules;
+  /**
+   * Bo'limlar siyosati — ish haqi qismlari (ish haqi tarkibi komponentlari: bayram puli, choraklik, ustama …):
+   * { TAX_FREE: { BAYRAM: 'QOMITA' }, REGION: { CHORAK: 'CENTER' } }. Qism ish haqidan ajratilib, alohida xarajat
+   * (modda «IHQ_<KOD>») bo'lib yoziladi va tanlangan bo'lim hisobiga o'tadi. Maqsad manbaning o'zi — «ish haqi ichida qoladi».
+   */
+  unitPayroll: UnitRules;
+}
+
+/** Ish haqi qismi moddasi: «IHQ_<komponent kodi>» (ota modda — «Ish haqi qismlari») */
+export const PAYROLL_PART_PREFIX = 'IHQ_';
+export const PAYROLL_PART_PARENT = { code: 'IHQ', label: "Ish haqi qismlari (siyosat bo'yicha)" };
+export const payrollPartCategory = (componentCode: string) => `${PAYROLL_PART_PREFIX}${componentCode}`;
+export const payrollPartOf = (categoryCode: string) => (categoryCode.startsWith(PAYROLL_PART_PREFIX) ? categoryCode.slice(PAYROLL_PART_PREFIX.length) : null);
+
+/** Ish haqi qismlari moddalari bazada bo'lsin (yo'q bo'lsa — yaratiladi, borlariga tegilmaydi) */
+export async function ensurePayrollPartCategories(prisma: PrismaService, components: { code: string; name: string }[]): Promise<void> {
+  if (!components.length) return;
+  const need = [PAYROLL_PART_PARENT.code, ...components.map((c) => payrollPartCategory(c.code))];
+  const have = new Set((await prisma.category.findMany({ where: { code: { in: need } }, select: { code: true } })).map((c) => c.code));
+  if (!have.has(PAYROLL_PART_PARENT.code)) {
+    await prisma.category.create({ data: { code: PAYROLL_PART_PARENT.code, label: PAYROLL_PART_PARENT.label, isLeaf: false, isActive: true, order: 820 } }).catch(() => null);
+  }
+  let order = 821;
+  for (const c of components) {
+    const code = payrollPartCategory(c.code);
+    if (!have.has(code)) await prisma.category.create({ data: { code, label: `Ish haqi qismi: ${c.name}`.slice(0, 200), parentCode: PAYROLL_PART_PARENT.code, isLeaf: true, isActive: true, order } }).catch(() => null);
+    order += 1;
+  }
 }
 
 export type UnitRules = Record<string, Record<string, string>>;
@@ -109,7 +137,7 @@ export function unitOfKey(key: string): string | null {
 /** Bazadan siyosat (yo'q bo'lsa — standart) */
 export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
-  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown; payers: unknown; unitRules: unknown }>;
+  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown; payers: unknown; unitRules: unknown; unitPayroll: unknown }>;
   const chosen = Array.isArray(v.centerCategories) ? v.centerCategories.filter((c): c is string => typeof c === 'string') : [];
   const excluded = Array.isArray(v.excludeCategories) ? v.excludeCategories.filter((c): c is string => typeof c === 'string' && !ALWAYS_CENTER.includes(c)) : [];
   const payrollComponents = Array.isArray(v.payrollComponents)
@@ -128,6 +156,7 @@ export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
     payrollComponents,
     payers: cleanPayers(v.payers, chosen),
     unitRules: cleanUnitRules(v.unitRules),
+    unitPayroll: cleanUnitRules(v.unitPayroll),
   };
 }
 
@@ -142,7 +171,7 @@ function cleanPayers(raw: unknown, chosen: string[]): Record<string, string> {
 }
 
 /** Siyosatni yozadi (boshqa maydonlar saqlanadi) */
-export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[]; payers?: Record<string, string>; unitRules?: UnitRules }): Promise<void> {
+export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[]; payers?: Record<string, string>; unitRules?: UnitRules; unitPayroll?: UnitRules }): Promise<void> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
   const prev = (row?.value ?? {}) as Record<string, unknown>;
   const value = {
@@ -152,6 +181,7 @@ export async function writePolicy(prisma: PrismaService, patch: { centerCategori
     ...(patch.payrollComponents ? { payrollComponents: patch.payrollComponents } : {}),
     ...(patch.payers ? { payers: patch.payers } : {}),
     ...(patch.unitRules ? { unitRules: patch.unitRules } : {}),
+    ...(patch.unitPayroll ? { unitPayroll: patch.unitPayroll } : {}),
   };
   await prisma.setting.upsert({ where: { key: POLICY_KEY }, create: { key: POLICY_KEY, value }, update: { value } });
 }
@@ -227,6 +257,8 @@ export async function loadCenterCategories(prisma: PrismaService, categories?: {
     }
     for (const [code, t] of Object.entries(regionRules)) if (t !== 'REGION') out.add(code);
   }
+  // Hududlar ish haqi qismlari: boshqa bo'limga o'tadiganlari hudud xarajatiga kirmaydi
+  for (const [comp, t] of Object.entries(policy.unitPayroll.REGION ?? {})) if (t !== 'REGION') out.add(payrollPartCategory(comp));
   return out;
 }
 
@@ -270,7 +302,7 @@ export interface PolicyRouting {
   route: (row: { categoryCode: string | null; regionCode: number | null; departmentId: string | null; segment?: string | null }) => { key: string; origin: 'unit' | 'global' } | null;
 }
 
-export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'payers'> & { unitRules?: UnitRules }, categories: { code: string; parentCode: string | null }[]): PolicyRouting {
+export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'payers'> & { unitRules?: UnitRules; unitPayroll?: UnitRules }, categories: { code: string; parentCode: string | null }[]): PolicyRouting {
   const moved = expandCategories(policy.centerCategories, categories);
   const parent = new Map(categories.map((c) => [c.code, c.parentCode]));
   const include = new Set(policy.centerCategories.filter((c) => !c.startsWith('!')));
@@ -297,6 +329,12 @@ export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'pa
     const code = row.categoryCode;
     if (!code) return null;
     const source = entryUnitOf({ regionCode: row.regionCode, departmentId: row.departmentId, segment: row.segment ?? null });
+    // Ish haqi qismi (IHQ_<komponent>) — shu bo'limning ish haqi qismlari qoidasi bo'yicha
+    const part = payrollPartOf(code);
+    if (part !== null && source) {
+      const t = policy.unitPayroll?.[source]?.[part];
+      if (t) return t === source ? null : { key: unitTargetKey(t), origin: 'unit' };
+    }
     const target = source ? lookups.get(source)?.(code) : undefined;
     if (target !== undefined) return target === source ? null : { key: unitTargetKey(target), origin: 'unit' };
     return moved.has(code) ? { key: payerKey(code), origin: 'global' } : null;

@@ -1489,6 +1489,8 @@ export class SalaryCompositionService implements OnModuleInit {
       await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
       return n;
     });
+    // Ish haqi qismlari (bo'lim siyosati bo'yicha) — yangi tarkib asosida qayta ajratiladi
+    await this.unitPayroll?.splitComponents(p.unit, p.period).catch(() => null);
 
     return {
       success: true,
@@ -1517,6 +1519,7 @@ export class SalaryCompositionService implements OnModuleInit {
       const value = { batches: list } as object;
       await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
     });
+    await this.unitPayroll?.splitComponents(unit, period).catch(() => null);
     return { success: true, period };
   }
 

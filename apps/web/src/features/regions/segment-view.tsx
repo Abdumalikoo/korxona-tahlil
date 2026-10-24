@@ -13,8 +13,8 @@ import { unitByCode, type EntryUnit } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useState } from 'react';
-import { segmentApi, type SegFlow, type SegmentView, type SegPart } from './segment-api';
+import { useState, type ReactNode } from 'react';
+import { segmentApi, type DrillNode, type SegFlow, type SegmentView } from './segment-api';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Tax free / Marksheyder / Fermer xo'jaligi / Buxgalteriya xizmatlari — Markaz sahifasidagidek:
@@ -124,18 +124,26 @@ function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
         </Card>
       ) : (
         <>
-          <div className="grid gap-4 xl:grid-cols-2">
-            <PartsCard title="Daromad manbalari" hint="Xizmat turlari bo'yicha" parts={d.incomeParts} total={income} kind="income" root={`${ROOT} › Daromad`} compareLabel={d.compareLabel} />
-            <PartsCard
-              title="Xarajat tarkibi"
-              hint={n(t.incomingTiyin) ? `Shu bo'limda yozilganlari; boshqa bo'limlardan kelgani (${short(n(t.incomingTiyin))}) — pastda` : "Guruh ▸ bosilsa — moddalar"}
-              parts={d.expenseParts}
-              total={expense - n(t.incomingTiyin)}
-              kind="expense"
-              root={`${ROOT} › Xarajat`}
-              compareLabel={d.compareLabel}
-            />
-          </div>
+          <TreeCard
+            title="Xarajat — ichma-ich"
+            hint="Tuzilma (Ish haqi, Ijara va kommunal, Bank …) → xodim / filial / to'lov oluvchi / modda → oylar → yozuvlar"
+            nodes={d.tree.expense}
+            months={d.tree.months}
+            total={expense}
+            kind="expense"
+            root={`${ROOT} › Xarajat`}
+            compareLabel={d.compareLabel}
+          />
+          <TreeCard
+            title="Daromad — ichma-ich"
+            hint="Xizmat turi → mijoz → oylar → yozuvlar"
+            nodes={d.tree.income}
+            months={d.tree.months}
+            total={income}
+            kind="income"
+            root={`${ROOT} › Daromad`}
+            compareLabel={d.compareLabel}
+          />
 
           {(d.incoming.length > 0 || d.outgoing.length > 0) && (
             <div className="grid gap-4 xl:grid-cols-2">
@@ -160,71 +168,6 @@ function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
 function fmtRange(r: { from: string; to: string }) {
   const f = (s: string) => `${s.slice(8, 10)}.${s.slice(5, 7)}.${s.slice(0, 4)}`;
   return `${f(r.from)} — ${f(r.to)}`;
-}
-
-function PartsCard({ title, hint, parts, total, kind, root, compareLabel }: { title: string; hint: string; parts: SegPart[]; total: number; kind: 'income' | 'expense'; root: string; compareLabel: string }) {
-  const { open } = useDrill();
-  const [opened, setOpened] = useState<Set<string>>(new Set());
-  const row = (p: SegPart, depth: number) => {
-    const cur = n(p.amountTiyin);
-    const prev = n(p.previousTiyin);
-    const c = change(cur, prev);
-    const good = c === null || c === 0 ? null : c > 0 === (kind === 'income');
-    const isOpen = opened.has(p.code);
-    const share = total ? cur / total : 0;
-    return (
-      <tr key={`${depth}-${p.code}`} className={cn('border-t border-(--color-line)', depth > 0 && 'bg-(--color-surface-sunken)/40')}>
-        <td className="py-2 pr-2" style={{ paddingLeft: `${0.75 + depth * 1.25}rem` }}>
-          <div className="flex items-center gap-1.5">
-            {p.children?.length ? (
-              <button type="button" onClick={() => setOpened((s) => { const x = new Set(s); if (x.has(p.code)) x.delete(p.code); else x.add(p.code); return x; })} className="flex size-5 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50" aria-expanded={isOpen}>
-                <IconChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
-              </button>
-            ) : (
-              <span className="size-5" />
-            )}
-            <span className={cn('text-heading', p.children?.length && 'font-semibold')}>{p.label}</span>
-            {p.children?.length ? <span className="text-xs text-(--color-text-faint)">{p.children.length}</span> : null}
-          </div>
-          <div className="ml-6 mt-1 h-1 rounded bg-(--color-surface-sunken)">
-            <div className={cn('h-1 rounded', kind === 'income' ? 'bg-(--color-income)' : 'bg-brand-500')} style={{ width: `${Math.max(0, Math.min(100, share * 100))}%` }} />
-          </div>
-        </td>
-        <td className="px-2 py-2 text-right">
-          <button type="button" disabled={!cur} onClick={() => open({ kind, f: p.f, title: `${root} › ${p.label}`, expected: cur })} className="money text-heading hover:text-brand-700 hover:underline disabled:text-(--color-text-faint) disabled:no-underline">
-            {cur ? som(cur) : '—'}
-          </button>
-          <span className="block text-[11px] text-(--color-text-faint)">{pct(total ? cur / total : null)} · {p.count} ta</span>
-        </td>
-        <td className="px-2 py-2 text-right text-xs">
-          <span className="money text-(--color-text-muted)">{prev ? short(prev) : '—'}</span>
-          <span className={cn('money block font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{c === null ? (cur ? 'yangi' : '—') : pctSigned(c)}</span>
-        </td>
-      </tr>
-    );
-  };
-  return (
-    <Card className="overflow-hidden">
-      <div className="border-b border-(--color-line) px-4 py-3">
-        <p className="text-sm font-semibold text-heading">{title}</p>
-        <p className="text-xs text-(--color-text-muted)">{hint}</p>
-      </div>
-      {parts.length ? (
-        <table className="w-full text-sm">
-          <thead className="bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
-            <tr>
-              <th className="px-3 py-2 text-left font-semibold">{kind === 'income' ? 'Xizmat turi' : 'Modda'}</th>
-              <th className="w-40 px-2 py-2 text-right font-semibold">Joriy davr</th>
-              <th className="w-28 px-2 py-2 text-right font-semibold">{compareLabel}</th>
-            </tr>
-          </thead>
-          <tbody>{parts.flatMap((p) => [row(p, 0), ...(opened.has(p.code) ? (p.children ?? []).map((c) => row(c, 1)) : [])])}</tbody>
-        </table>
-      ) : (
-        <p className="px-4 py-8 text-center text-sm text-(--color-text-muted)">Bu davrda yo&apos;q</p>
-      )}
-    </Card>
-  );
 }
 
 function FlowCard({ title, hint, flows, dir, root }: { title: string; hint: string; flows: SegFlow[]; dir: 'in' | 'out'; root: string }) {
@@ -324,4 +267,156 @@ function TrendCard({ d }: { d: SegmentView }) {
 export function segmentUnit(code: string | null | undefined): EntryUnit | null {
   const u = unitByCode(code);
   return u && u.code !== 'CENTER' && u.code !== 'REGION' ? u : null;
+}
+
+/** Ichma-ich jadval: ▸ — ichiga; summa — yozuvlar; «Oylar kesimida» — har oy ustuni (katak bosilsa — o'sha oy yozuvlari) */
+function TreeCard({ title, hint, nodes, months, total, kind, root, compareLabel }: { title: string; hint: string; nodes: DrillNode[]; months: string[]; total: number; kind: 'income' | 'expense'; root: string; compareLabel: string }) {
+  const { open } = useDrill();
+  const [opened, setOpened] = useState<Set<string>>(new Set());
+  const [byMonth, setByMonth] = useState(false);
+  const toggle = (id: string) => setOpened((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
+  const drill = (node: DrillNode, path: string[], month?: string, value?: number) =>
+    node.f && open({ kind, f: { ...node.f, ...(month ? { month } : {}) }, title: [root, ...path, ...(month ? [monthLabel(month)] : [])].join(' › '), expected: value });
+  const many = months.length > 1;
+
+  const rows: ReactNode[] = [];
+  const walk = (list: DrillNode[], depth: number, parentId: string, path: string[]) => {
+    for (const nd of list) {
+      const id = `${parentId}/${nd.key}`;
+      const cur = n(nd.amountTiyin);
+      const prev = n(nd.previousTiyin);
+      const c = change(cur, prev);
+      const good = c === null || c === 0 ? null : c > 0 === (kind === 'income');
+      const kids = nd.children ?? [];
+      // Eng pastki tugun — ichida oylar (bir nechta oy bo'lsa)
+      const monthKids = !kids.length && many ? months.map((m, i) => ({ m, v: n(nd.values[i] ?? '0') })).filter((x) => x.v !== 0) : [];
+      const expandable = kids.length > 0 || monthKids.length > 1;
+      const isOpen = opened.has(id);
+      const p = [...path, nd.label];
+      rows.push(
+        <tr key={id} className={cn('border-t border-(--color-line)', depth === 0 ? 'bg-white font-medium' : depth === 1 ? 'bg-(--color-surface-sunken)/30' : 'bg-(--color-surface-sunken)/60')}>
+          <td className="py-1.5 pr-2" style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}>
+            <div className="flex items-center gap-1.5">
+              {expandable ? (
+                <button type="button" onClick={() => toggle(id)} className="flex size-5 shrink-0 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50" aria-expanded={isOpen}>
+                  <IconChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
+                </button>
+              ) : (
+                <span className="size-5 shrink-0" />
+              )}
+              <span className={cn('text-heading', depth === 0 && 'font-semibold')} title={nd.hint}>
+                {nd.label}
+              </span>
+              {kids.length > 0 && <span className="text-xs text-(--color-text-faint)">{kids.length}</span>}
+            </div>
+            {depth === 0 && total > 0 && (
+              <div className="ml-6 mt-1 h-1 max-w-56 rounded bg-(--color-surface-sunken)">
+                <div className={cn('h-1 rounded', kind === 'income' ? 'bg-(--color-income)' : 'bg-brand-500')} style={{ width: `${Math.max(0, Math.min(100, (cur / total) * 100))}%` }} />
+              </div>
+            )}
+          </td>
+          <td className="px-2 py-1.5 text-right whitespace-nowrap">
+            {nd.f && cur ? (
+              <button type="button" onClick={() => drill(nd, p, undefined, cur)} className="money text-heading hover:text-brand-700 hover:underline">
+                {som(cur)}
+              </button>
+            ) : (
+              <span className={cn('money', cur < 0 ? 'text-(--color-expense)' : cur ? 'text-heading' : 'text-(--color-text-faint)')}>{cur ? som(cur) : '—'}</span>
+            )}
+            <span className="block text-[10.5px] text-(--color-text-faint)">
+              {total ? pct(cur / total) : ''}
+              {nd.count ? ` · ${nd.count} ta` : ''}
+            </span>
+          </td>
+          {!byMonth && (
+            <td className="px-2 py-1.5 text-right text-xs whitespace-nowrap">
+              <span className="money text-(--color-text-muted)">{prev ? short(prev) : '—'}</span>
+              <span className={cn('money block font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{c === null ? (cur ? 'yangi' : '—') : pctSigned(c)}</span>
+            </td>
+          )}
+          {byMonth &&
+            months.map((m, i) => {
+              const v = n(nd.values[i] ?? '0');
+              return (
+                <td key={m} className="px-1.5 py-1.5 text-right text-xs whitespace-nowrap">
+                  {v && nd.f ? (
+                    <button type="button" onClick={() => drill(nd, p, m, v)} className="money text-heading hover:text-brand-700 hover:underline">
+                      {short(v)}
+                    </button>
+                  ) : (
+                    <span className={cn('money', v < 0 ? 'text-(--color-expense)' : v ? 'text-heading' : 'text-(--color-text-faint)')}>{v ? short(v) : '·'}</span>
+                  )}
+                </td>
+              );
+            })}
+        </tr>,
+      );
+      if (!isOpen) continue;
+      if (kids.length) walk(kids, depth + 1, id, p);
+      else
+        for (const { m, v } of monthKids)
+          rows.push(
+            <tr key={`${id}@${m}`} className="border-t border-(--color-line) bg-brand-50/30 text-xs">
+              <td className="py-1 pr-2 text-(--color-text-muted)" style={{ paddingLeft: `${0.5 + (depth + 1) * 1.25 + 1.6}rem` }}>
+                {monthLabel(m)}
+              </td>
+              <td className="px-2 py-1 text-right">
+                {nd.f ? (
+                  <button type="button" onClick={() => drill(nd, p, m, v)} className="money text-heading hover:text-brand-700 hover:underline">
+                    {som(v)}
+                  </button>
+                ) : (
+                  <span className="money text-heading">{som(v)}</span>
+                )}
+              </td>
+              {!byMonth && <td />}
+              {byMonth && months.map((x) => <td key={x} />)}
+            </tr>,
+          );
+    }
+  };
+  walk(nodes, 0, '', []);
+  const allIds = (list: DrillNode[], parentId: string): string[] => list.flatMap((nd) => [`${parentId}/${nd.key}`, ...allIds(nd.children ?? [], `${parentId}/${nd.key}`)]);
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-heading">{title}</p>
+          <p className="text-xs text-(--color-text-muted)">{hint}</p>
+        </div>
+        <button type="button" onClick={() => setOpened(opened.size ? new Set() : new Set(allIds(nodes, '')))} className="h-8 rounded-(--radius-control) border border-(--color-line) px-2.5 text-xs font-medium text-heading hover:bg-brand-50">
+          {opened.size ? 'Hammasini yopish' : 'Hammasini ochish'}
+        </button>
+        {many && (
+          <label className="flex items-center gap-2 text-xs font-medium text-(--color-text-muted)">
+            <input type="checkbox" checked={byMonth} onChange={(e) => setByMonth(e.target.checked)} />
+            Oylar kesimida
+          </label>
+        )}
+      </div>
+      {nodes.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
+              <tr>
+                <th className="px-3 py-2 text-left font-semibold">Nomi</th>
+                <th className="w-40 px-2 py-2 text-right font-semibold">Joriy davr</th>
+                {!byMonth && <th className="w-28 px-2 py-2 text-right font-semibold">{compareLabel}</th>}
+                {byMonth &&
+                  months.map((m) => (
+                    <th key={m} className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">
+                      {monthLabel(m).split(' ')[0]?.slice(0, 3)} {m.slice(2, 4)}
+                    </th>
+                  ))}
+              </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="px-4 py-8 text-center text-sm text-(--color-text-muted)">Bu davrda yo&apos;q</p>
+      )}
+    </Card>
+  );
 }

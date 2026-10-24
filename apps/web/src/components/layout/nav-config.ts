@@ -198,6 +198,7 @@ export const MENU: NavItem[] = [
       { label: 'Marksheyder', href: '/solishtirma/marksheyder', description: "Marksheyder: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
       { label: "Fermer xo'jaligi", href: '/solishtirma/fermer', description: "Fermer xo'jaligi: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
       { label: 'Buxgalteriya xizmatlari', href: '/solishtirma/buxgalteriya', description: "Buxgalteriya xizmatlari: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
+      { label: "Qo'mita pullarining sarfi", href: '/solishtirma/qomita', description: "Qo'mita pullaridan qilingan sarflar: Xarajatlar siyosati bo'yicha boshqa bo'limlardan o'tganlari" },
       { label: "O'zgarishlar", href: '/solishtirma/ozgarishlar', description: "Oy bo'yicha xodimlar: oylik hisoblanganlar, ishga olingan, bo'shagan, ishlamagan, ko'chgan" },
     ],
   },

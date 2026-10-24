@@ -15,7 +15,7 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { unitPolicyApi, type UnitPolicyCategory } from './api';
+import { unitPolicyApi, type UnitPolicyCategory, type UnitPolicyPayrollPart } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › <bo'lim> › Xarajatlar siyosati — shu bo'limda yozilgan xarajat moddasi qaysi bo'lim hisobida.
@@ -52,11 +52,17 @@ export function UnitPolicyView({ unit }: { unit: EntryUnit }) {
   const [bulk, setBulk] = useState('');
   const [search, setSearch] = useState('');
   const [onlyRules, setOnlyRules] = useState(false);
+  /** used — shu bo'limdagi moddalar; all — korxonaning hamma moddalari */
+  const [scope, setScope] = useState<'used' | 'all'>('used');
+  const savedPay = useMemo(() => Object.fromEntries((data?.payrollParts ?? []).filter((p) => p.rule).map((p) => [p.code, p.rule!])) as Record<string, string>, [data]);
+  const [payDraft, setPayDraft] = useState<Record<string, string> | null>(null);
+  const payRules = payDraft ?? savedPay;
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
 
   useEffect(() => {
     setDraft(null);
+    setPayDraft(null);
     setChecked(new Set());
   }, [unit.code]);
 
@@ -79,34 +85,59 @@ export function UnitPolicyView({ unit }: { unit: EntryUnit }) {
     }
     return undefined;
   }
-  function effective(c: UnitPolicyCategory): { target: string; origin: UnitPolicyCategory['effective']['origin'] } {
-    if (rules[c.code]) return { target: rules[c.code]!, origin: 'unit' };
-    const fromGroup = inherited(c.code);
-    if (fromGroup) return { target: fromGroup, origin: 'parent' };
+  function effectiveWith(c: UnitPolicyCategory, rs: Record<string, string>): { target: string; origin: UnitPolicyCategory['effective']['origin'] } {
+    if (rs[c.code]) return { target: rs[c.code]!, origin: 'unit' };
+    let p = parent.get(c.code) ?? null;
+    for (let d = 0; p && d < 20; d += 1) {
+      if (rs[p]) return { target: rs[p]!, origin: 'parent' };
+      p = parent.get(p) ?? null;
+    }
     return { target: c.globalTarget, origin: c.globalTarget !== unit.code ? 'global' : 'none' };
   }
+  const effective = (c: UnitPolicyCategory) => effectiveWith(c, rules);
   const dest = (t: string) => (t === unit.code ? stayLabel.toLowerCase() : `→ ${unitName(t)}`);
 
-  const dirty = draft !== null && JSON.stringify(Object.entries(draft).sort()) !== JSON.stringify(Object.entries(saved).sort());
+  const sameMap = (a: Record<string, string>, b: Record<string, string>) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
+  const catDirty = draft !== null && !sameMap(draft, saved);
+  const payDirty = payDraft !== null && !sameMap(payDraft, savedPay);
+  const dirty = catDirty || payDirty;
 
-  // Jami — qoralama bo'yicha darhol
+  // Jami — saqlangan holat (serverdan) + moddalar qoralamasi farqi (darhol); ish haqi qismlari — saqlangach qayta hisoblanadi
   const preview = useMemo(() => {
-    let written = 0n;
-    let out = 0n;
-    const outBy = new Map<string, bigint>();
-    for (const c of cats) {
-      const t = big(c.totalTiyin);
-      written += t;
-      const e = effective(c);
-      if (e.target !== unit.code && t > 0n) {
-        out += t;
-        outBy.set(e.target, (outBy.get(e.target) ?? 0n) + t);
+    const t = data?.totals;
+    const written = big(t?.writtenTiyin ?? '0');
+    let out = big(t?.movedOutTiyin ?? '0');
+    const outBy = new Map<string, bigint>((t?.outBy ?? []).map((o) => [o.unit, big(o.totalTiyin)]));
+    if (catDirty) {
+      for (const c of cats) {
+        const v = big(c.totalTiyin);
+        if (!v) continue;
+        const a = effectiveWith(c, saved).target;
+        const b = effectiveWith(c, rules).target;
+        if (a === b) continue;
+        if (a !== unit.code) {
+          out -= v;
+          outBy.set(a, (outBy.get(a) ?? 0n) - v);
+        }
+        if (b !== unit.code) {
+          out += v;
+          outBy.set(b, (outBy.get(b) ?? 0n) + v);
+        }
       }
     }
-    const incoming = big(data?.totals.incomingTiyin ?? '0');
-    return { written, out, stays: written - out, incoming, result: written - out + incoming, outBy: [...outBy.entries()].sort((a, b) => (b[1] > a[1] ? 1 : -1)) };
+    const incoming = big(t?.incomingTiyin ?? '0');
+    return { written, out, stays: written - out, incoming, result: written - out + incoming, outBy: [...outBy.entries()].filter(([, v]) => v > 0n).sort((a, b) => (b[1] > a[1] ? 1 : -1)) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cats, rules, data, unit.code]);
+  }, [cats, rules, saved, data, unit.code, catDirty]);
+
+  function setPayRule(code: string, target: string) {
+    setPayDraft((d) => {
+      const next = { ...(d ?? savedPay) };
+      if (target) next[code] = target;
+      else delete next[code];
+      return next;
+    });
+  }
 
   function setRule(code: string, target: string) {
     setDraft((d) => {
@@ -134,10 +165,11 @@ export function UnitPolicyView({ unit }: { unit: EntryUnit }) {
   async function handleSave() {
     setSaving(true);
     try {
-      const r = await unitPolicyApi.save(unit.code, rules);
+      const r = await unitPolicyApi.save(unit.code, rules, payRules);
       setDraft(null);
+      setPayDraft(null);
       res.reload();
-      setToast({ message: `Saqlandi: ${r.data.changed} ta o'zgarish — hisobotlarda darhol kuchga kirdi` });
+      setToast({ message: `Saqlandi: ${r.data.changed} ta o'zgarish${r.data.recomputedPeriods ? ` — ish haqi ${r.data.recomputedPeriods} oy uchun qayta ajratildi` : ''}; hisobotlarda darhol kuchga kirdi` });
     } catch (err) {
       setToast({ message: errorMessage(err, "Saqlab bo'lmadi"), tone: 'error' });
     } finally {
@@ -148,7 +180,9 @@ export function UnitPolicyView({ unit }: { unit: EntryUnit }) {
   // Ko'rinadigan qatorlar (daraxt tartibida); qidiruv — mos modda va uning guruhlari
   const q = norm(search);
   const match = (c: UnitPolicyCategory): boolean =>
-    (!q || norm(c.label).includes(q) || norm(c.code).includes(q)) && (!onlyRules || Boolean(rules[c.code]) || effective(c).target !== unit.code);
+    (!q || norm(c.label).includes(q) || norm(c.code).includes(q)) &&
+    (scope === 'all' || c.used || Boolean(rules[c.code])) &&
+    (!onlyRules || Boolean(rules[c.code]) || effective(c).target !== unit.code);
   const visible = new Set<string>();
   for (const c of cats) {
     if (!match(c)) continue;
@@ -233,7 +267,19 @@ export function UnitPolicyView({ unit }: { unit: EntryUnit }) {
               <p className="text-sm font-semibold text-heading">Moddalar</p>
               <Badge tone="brand">{Object.keys(rules).length} ta qoida</Badge>
               {res.loading && <IconSpinner className="size-4 text-brand-600" />}
-              <label className="ml-auto flex items-center gap-2 text-sm text-(--color-text-muted)">
+              <div className="ml-auto flex rounded-(--radius-control) border border-(--color-line-strong) bg-white p-0.5 text-xs font-medium">
+                {(
+                  [
+                    ['used', `Shu bo'limdagilar · ${cats.filter((c) => c.used).length}`],
+                    ['all', `Hamma moddalar · ${cats.length}`],
+                  ] as const
+                ).map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setScope(k)} className={cn('rounded px-2.5 py-1', scope === k ? 'bg-brand-600 text-white' : 'text-(--color-text-muted) hover:text-heading')}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 text-sm text-(--color-text-muted)">
                 <input type="checkbox" checked={onlyRules} onChange={(e) => setOnlyRules(e.target.checked)} />
                 Faqat o&apos;tadiganlar
               </label>
@@ -353,6 +399,18 @@ export function UnitPolicyView({ unit }: { unit: EntryUnit }) {
             )}
           </Card>
 
+          {/* Ish haqi qismlari */}
+          <PayrollPartsCard
+            unit={unit}
+            parts={data.payrollParts ?? []}
+            rules={payRules}
+            saved={savedPay}
+            targets={targets}
+            isAdmin={isAdmin}
+            rangeText={rangeText}
+            onChange={setPayRule}
+          />
+
           {/* Boshqa bo'limlardan kelganlar */}
           <Card className="overflow-hidden">
             <div className="border-b border-(--color-line) px-4 py-3">
@@ -398,5 +456,105 @@ export function UnitPolicyView({ unit }: { unit: EntryUnit }) {
       )}
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
     </div>
+  );
+}
+
+/** Ish haqi qismlari: komponent → kim hisobida (saqlanganda ish haqidan ajratilib, alohida xarajat bo'ladi) */
+function PayrollPartsCard({
+  unit,
+  parts,
+  rules,
+  saved,
+  targets,
+  isAdmin,
+  rangeText,
+  onChange,
+}: {
+  unit: EntryUnit;
+  parts: UnitPolicyPayrollPart[];
+  rules: Record<string, string>;
+  saved: Record<string, string>;
+  targets: { code: string; label: string }[];
+  isAdmin: boolean;
+  rangeText: string;
+  onChange: (code: string, target: string) => void;
+}) {
+  const [all, setAll] = useState(false);
+  const stay = unit.code === 'REGION' ? 'Hududda qoladi (ish haqi ichida)' : "Ish haqi ichida qoladi";
+  const list = all ? parts : parts.filter((p) => big(p.totalTiyin) > 0n || rules[p.code] || big(p.splitTiyin) > 0n);
+  const sel = 'h-9 w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm text-heading disabled:bg-(--color-surface-sunken) disabled:text-(--color-text-muted)';
+  const movedCount = Object.values(rules).filter((t) => t !== unit.code).length;
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-heading">Ish haqi qismlari</p>
+          <p className="text-xs text-(--color-text-muted)">
+            Ish haqi tarkibidagi qism (bayram puli, choraklik, ustama …) boshqa bo&apos;lim hisobiga o&apos;tkazilsa — saqlanganda ish haqidan ajratilib, alohida xarajat bo&apos;lib
+            yoziladi (jami o&apos;zgarmaydi). Summalar — «Ish haqi tarkibi»dan, {rangeText}.
+          </p>
+        </div>
+        <Badge tone="brand">{movedCount} ta o&apos;tadi</Badge>
+        <label className="flex items-center gap-2 text-sm text-(--color-text-muted)">
+          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />
+          Hamma komponentlar
+        </label>
+      </div>
+      {!list.length ? (
+        <p className="px-4 py-8 text-center text-sm text-(--color-text-muted)">
+          {parts.length ? "Bu davrda ish haqi tarkibi yuklanmagan — «Hamma komponentlar» bilan qoida oldindan belgilanadi" : 'Ish haqi komponentlari hali yo‘q'}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-(--color-surface-sunken) text-left text-xs font-semibold text-(--color-text-muted)">
+                <th className="px-3 py-2">Komponent</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Hisoblangan</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Ajratilgan</th>
+                <th className="px-3 py-2">Kim hisobida</th>
+                <th className="w-72 px-3 py-2">Qoida</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((p) => {
+                const rule = rules[p.code];
+                const target = rule ?? p.globalTarget ?? unit.code;
+                const moved = target !== unit.code;
+                const changed = (rules[p.code] ?? '') !== (saved[p.code] ?? '');
+                return (
+                  <tr key={p.code} className={cn('border-t border-(--color-line)', changed ? 'bg-amber-50/70' : 'hover:bg-brand-50/30')}>
+                    <td className="px-3 py-2">
+                      <span className="text-heading">{p.name}</span>
+                      <span className="ml-1.5 text-xs text-(--color-text-faint)">{p.group}</span>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{big(p.totalTiyin) > 0n ? formatTiyin(p.totalTiyin) : <span className="text-(--color-text-faint)">—</span>}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{big(p.splitTiyin) > 0n ? formatTiyin(p.splitTiyin) : <span className="text-(--color-text-faint)">—</span>}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={moved ? 'brand' : 'neutral'}>{moved ? `→ ${unitName(target)}` : 'Ish haqi ichida'}</Badge>
+                        <span className="text-xs text-(--color-text-faint)">{rule ? "Bo'lim qoidasi" : p.globalTarget ? 'Umumiy siyosat' : ''}</span>
+                        {changed && <span className="text-xs text-(--color-warn)">saqlangach qayta ajratiladi</span>}
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <select value={rule ?? ''} disabled={!isAdmin} onChange={(e) => onChange(p.code, e.target.value)} className={cn(sel, rule && 'border-brand-400 font-medium')}>
+                        <option value="">{p.globalTarget ? `Umumiy siyosat bo‘yicha (→ ${unitName(p.globalTarget)})` : stay}</option>
+                        {p.globalTarget && <option value={unit.code}>{stay}</option>}
+                        {targets.map((t) => (
+                          <option key={t.code} value={t.code}>
+                            {t.label} hisobiga
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }

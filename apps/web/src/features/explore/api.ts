@@ -257,6 +257,7 @@ export const UNIT_COLOR: Record<string, string> = {
   's:MARKSHEYDER': SERIES[3]!,
   's:FERMER': SERIES[4]!,
   's:BUXGALTERIYA': SERIES[5]!,
+  's:QOMITA': '#8a6d3b',
   none: OTHER,
 };
 

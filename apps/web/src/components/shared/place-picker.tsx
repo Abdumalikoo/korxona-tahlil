@@ -117,6 +117,11 @@ const ICONS: Record<'REGION' | SegmentCode, ReactNode> = {
       <path d="M5 19 13 11" />
     </>,
   ),
+  QOMITA: svg(
+    <>
+      <path d="M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 21h18M12 3 3 8h18z" />
+    </>,
+  ),
   BUXGALTERIYA: svg(
     <>
       <rect x="5" y="3" width="14" height="18" rx="2" />

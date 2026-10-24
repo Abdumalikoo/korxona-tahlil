@@ -200,3 +200,35 @@ Solishtirma menyusida Markazdan keyin 4 ta yangi sahifa bor: `/solishtirma/tax-f
 - **Hisob:** Solishtirmadagi bilan bir xil. Jami summalar Solishtirma jadvalidagi yo'nalish qatoriga teng.
 - **Bog'lanish:** Solishtirma jadvalida (Hududlar va Umumiy) yo'nalish qatori bosilsa, uning sahifasi ochiladi.
 - **API:** GET `/api/structure/regions/segment/:code?from&to&section&compare`.
+
+## Qo'mita pullarining sarfi (7-bo'lim)
+
+Yangi bo'lim: kodi `QOMITA`, nomi «Qo'mita pullarining sarfi», manzili `qomita`. U boshqa yo'nalishlar kabi hamma joyda chiqadi: Xarajatlar va Daromadlar bo'limlari, kiritish, Solishtirma (`/solishtirma/qomita`), Bosh sahifa jadvallari va siyosatlarda maqsad sifatida. Unga xarajatlar Xarajatlar siyosati orqali boshqa bo'limlardan o'tkaziladi. O'tkazish tartibi keyin alohida aniqlashtiriladi.
+
+## Bo'lim siyosati: hamma moddalar va ish haqi qismlari
+
+- **Moddalar:** «Shu bo'limdagilar» (ro'yxatda, yozilgan yoki qoidasi bor) va «Hamma moddalar» (korxonaning hamma faol moddalari) almashtirgichi bor. Har moddani istalgan bo'lim hisobiga, jumladan Qo'mitaga o'tkazish mumkin.
+- **Ish haqi qismlari:** ish haqi tarkibidagi komponentlar (bayram puli, choraklik, ustama …), har biri uchun «Ish haqi ichida qoladi» yoki «<bo'lim> hisobiga». Davrda hisoblangan va ajratilgan summalar ko'rsatiladi.
+- **Qanday ishlaydi:** saqlanganda komponent summasi ish haqidan ayriladi va alohida xarajat bo'lib yoziladi. Uning moddasi `IHQ_<kod>`, ota moddasi «Ish haqi qismlari». Bu xarajat yozilgan bo'limda turadi, lekin hisobotlarda tanlangan bo'lim hisobida ko'rinadi. Jami summa o'zgarmaydi. Qoida olib tashlansa, summa ish haqiga qaytadi.
+  - **Yo'nalishlar** (Tax free …): bo'limning ish haqi vedomosti va bo'lim «Ish haqi tarkibi» ishlatiladi. Qayta ajratish quyidagi hollarda bajariladi: ish haqi yoki tarkib saqlanganda, bekor qilinganda va siyosat o'zgarganda. Ajratilganlar `settings` jadvalida, `unit.payroll.split.<BO'LIM>.<OY>` kalitida saqlanadi.
+  - **Markaz va Hududlar:** umumiy ish haqi va umumiy «Ish haqi tarkibi» ishlatiladi. Qayta guruhlash (regroup) avvalgidek ishlaydi:
+    - umumiy siyosatdagi komponentlar (hudud xodimining bayram va choraklik pullari) Markaz moddasiga (HM_…) o'tadi;
+    - bo'lim qoidasi bo'lsa, `IHQ_<kod>` moddasiga o'tadi;
+    - «Hududda qoladi» deb belgilangani ajratilmaydi.
+- **Saqlash joyi:** `settings` jadvalidagi `expense.policy` kaliti: `unitRules` (moddalar) va `unitPayroll` (ish haqi qismlari). Migratsiya kerak emas.
+- **Umumiy siyosat sahifasi:** tepasida 7 bo'lim siyosatiga havolalar bor.
+
+## Solishtirma › yo'nalish: ichma-ich daraxt
+
+Har bir yo'nalish sahifasida (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari, Qo'mita) ikkita ichma-ich jadval bor:
+
+- **Xarajat:** tuzilma → xodim / filial / to'lov oluvchi / modda → oylar → yozuvlar.
+  - Tuzilmalar: Ish haqi, Ish haqi qismlari, Ijara va kommunal, Bank xarajatlari, Asosiy vositalar, Reklama, Boshqa xarajatlar, Boshqa moddalar, Boshqa bo'limlardan (siyosat bo'yicha).
+  - Ish haqi ichida bo'lim vedomostidagi xodimlar ko'rinadi. Agar qismlar boshqa bo'limga ajratilgan bo'lsa, farqi alohida qatorda chiqadi.
+  - Ijara va kommunal ichida filiallar, ularning ichida «Ijara» va «Kommunal».
+- **Daromad:** xizmat turi → mijoz → oylar → yozuvlar.
+- **Boshqaruv:**
+  - «Oylar kesimida» belgilansa, har oy alohida ustun bo'ladi;
+  - «Hammasini ochish» tugmasi bor;
+  - summa yoki oy katagi bosilsa, aynan o'sha yozuvlar ochiladi.
+- **Markaz va Hududlar:** ularning ichma-ich tizimi avvalgidek ishlaydi: Markaz → bo'lim → xodim → oylar; viloyat → tuman → xodim → oylar.

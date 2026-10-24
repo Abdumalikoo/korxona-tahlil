@@ -18,10 +18,10 @@ export class ExpensePolicyController {
     return { data: await this.units.view(this.units.unitOf(unit), from, to) };
   }
 
-  /** Bo'lim qoidalari: { rules: { MODDA: 'CENTER' | 'TAX_FREE' | … } } — to'liq ro'yxat */
+  /** Bo'lim qoidalari: { rules: { MODDA: bo'lim }, payroll?: { KOMPONENT: bo'lim } } — to'liq ro'yxat */
   @Patch('unit/:unit')
   @Roles(UserRole.ADMIN)
-  async unitSave(@Param('unit') unit: string, @Body() body: { rules?: unknown }, @CurrentUser('id') userId: string) {
+  async unitSave(@Param('unit') unit: string, @Body() body: { rules?: unknown; payroll?: unknown }, @CurrentUser('id') userId: string) {
     return { data: await this.units.save(this.units.unitOf(unit), body, userId) };
   }
 

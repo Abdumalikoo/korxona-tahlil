@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import { createHash } from 'node:crypto';
-import { ensureCenterCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, payrollCenterCategory, readPolicy } from '../expense-policy/policy.util';
+import { ensureCenterCategories, ensurePayrollPartCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, payrollCenterCategory, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaxesService } from '../taxes/taxes.service';
 
@@ -714,13 +714,23 @@ export class PayrollService {
   // ═══════════ Markaz hisobidagi ish haqi qismi ═══════════
 
   /**
-   * Shu oy ish haqi tarkibidan (faol yuklama) Markazga o'tadigan komponentlar: xodim → modda → summa.
-   * Komponentlar xarajatlar siyosatida belgilanadi (standart: bayram va choraklik pullar).
+   * Shu oy ish haqi tarkibidan (faol yuklama) ajratiladigan qismlar: xodim → modda → summa.
+   *  • Hudud xodimi: umumiy siyosatdagi komponentlar (standart: bayram, choraklik) — Markaz moddalari (HM_…);
+   *    Hududlar bo'limi siyosatidagi «ish haqi qismlari» — «IHQ_<kod>» moddasi (tanlangan bo'lim hisobiga);
+   *    «Hududda qoladi» deb belgilangani — ajratilmaydi.
+   *  • Markaz xodimi: Markaz bo'limi siyosatidagi «ish haqi qismlari» — «IHQ_<kod>».
    */
-  async centerShares(period: string): Promise<Map<string, CenterParts>> {
-    const out = new Map<string, CenterParts>();
+  async componentShares(period: string): Promise<{ region: Map<string, CenterParts>; center: Map<string, CenterParts> }> {
+    const out = { region: new Map<string, CenterParts>(), center: new Map<string, CenterParts>() };
     const policy = await readPolicy(this.prisma);
-    if (!policy.payrollComponents.length) return out;
+    const regionRules = policy.unitPayroll.REGION ?? {};
+    const centerRules = policy.unitPayroll.CENTER ?? {};
+    const regionCat = new Map<string, string>();
+    for (const c of policy.payrollComponents) if (!regionRules[c]) regionCat.set(c, payrollCenterCategory(c));
+    for (const [c, t] of Object.entries(regionRules)) if (t !== 'REGION') regionCat.set(c, payrollPartCategory(c));
+    const centerCat = new Map<string, string>();
+    for (const [c, t] of Object.entries(centerRules)) if (t !== 'CENTER') centerCat.set(c, payrollPartCategory(c));
+    if (!regionCat.size && !centerCat.size) return out;
     const batch = await this.prisma.salaryCompositionBatch.findFirst({
       where: { period, cancelledAt: null },
       orderBy: { createdAt: 'desc' },
@@ -728,24 +738,39 @@ export class PayrollService {
     });
     if (!batch) return out;
     const components = await this.prisma.salaryComponent.findMany({
-      where: { code: { in: policy.payrollComponents } },
-      select: { code: true, sign: true },
+      where: { code: { in: [...new Set([...regionCat.keys(), ...centerCat.keys()])] } },
+      select: { code: true, name: true, sign: true },
     });
-    // Ayiriladigan (jarima) komponent Markazga o'tmaydi
-    const codes = components.filter((c) => c.sign > 0).map((c) => c.code);
-    if (!codes.length) return out;
+    // Ayiriladigan (jarima) komponent ajratilmaydi
+    const positive = new Set(components.filter((c) => c.sign > 0).map((c) => c.code));
+    if (!positive.size) return out;
+    const parts = components.filter((c) => c.sign > 0 && [...regionCat.values(), ...centerCat.values()].includes(payrollPartCategory(c.code)));
+    if (parts.length) await ensurePayrollPartCategories(this.prisma, parts);
     const items = await this.prisma.salaryCompositionItem.findMany({
-      where: { batchId: batch.id, componentCode: { in: codes } },
+      where: { batchId: batch.id, componentCode: { in: [...positive] } },
       select: { componentCode: true, amountTiyin: true, row: { select: { employeePinfl: true } } },
     });
+    const put = (map: Map<string, CenterParts>, pinfl: string, code: string, v: bigint) => {
+      const p = map.get(pinfl) ?? new Map<string, bigint>();
+      p.set(code, (p.get(code) ?? 0n) + v);
+      map.set(pinfl, p);
+    };
     for (const item of items) {
       if (item.amountTiyin <= 0n) continue;
       const pinfl = item.row.employeePinfl;
-      const parts = out.get(pinfl) ?? new Map<string, bigint>();
-      const code = payrollCenterCategory(item.componentCode);
-      parts.set(code, (parts.get(code) ?? 0n) + item.amountTiyin);
-      out.set(pinfl, parts);
+      const rc = regionCat.get(item.componentCode);
+      if (rc) put(out.region, pinfl, rc, item.amountTiyin);
+      const cc = centerCat.get(item.componentCode);
+      if (cc) put(out.center, pinfl, cc, item.amountTiyin);
     }
+    return out;
+  }
+
+  /** Hudud xodimlari uchun ajratiladigan qismlar (eski nom — xarajat tafsiloti uchun ham) */
+  async centerShares(period: string): Promise<Map<string, CenterParts>> {
+    const shares = await this.componentShares(period);
+    const out = new Map(shares.region);
+    for (const [pinfl, parts] of shares.center) if (!out.has(pinfl)) out.set(pinfl, parts);
     return out;
   }
 
@@ -785,7 +810,7 @@ export class PayrollService {
         },
       }),
       this.loadLocations(period),
-      this.centerShares(period),
+      this.componentShares(period),
     ]);
 
     const report: RegroupReport = { period, batches: batches.length, changedBatches: 0, moved: [], centerTiyin: 0n, centerEmployees: 0 };
@@ -818,9 +843,14 @@ export class PayrollService {
           }
         }
 
-        // Faqat hudud ish haqi guruhidagi xodim (Markaz va umumiy shartnoma — o'zgarmaydi)
+        // Hudud xodimi — hudud qismlari; Markaz xodimi — Markaz siyosatidagi qismlar; shartnoma — o'zgarmaydi
         const isRegion = after.regionCode !== null && after.regionCode !== CENTRAL_REGION;
-        const parts = isRegion ? capCenterParts(full, shares.get(entry.employeePinfl)) : new Map<string, bigint>();
+        const isCenter = after.regionCode === CENTRAL_REGION;
+        const parts = isRegion
+          ? capCenterParts(full, shares.region.get(entry.employeePinfl))
+          : isCenter
+            ? capCenterParts(full, shares.center.get(entry.employeePinfl))
+            : new Map<string, bigint>();
         let center = 0n;
         for (const v of parts.values()) center += v;
         if (center > 0n) centerPins.add(entry.employeePinfl);
@@ -921,7 +951,7 @@ export class PayrollService {
                   categoryCode: row.categoryCode,
                   departmentId: null,
                   regionCode: row.regionCode,
-                  description: `${categoryLabels.get(row.categoryCode) ?? row.categoryCode} \u2014 ${row.regionName} xodimlari (${row.count} xodim) \u00b7 Markaz hisobidan, ish haqi tarkibidan`.slice(0, 500),
+                  description: `${categoryLabels.get(row.categoryCode) ?? row.categoryCode} \u2014 ${row.regionName} xodimlari (${row.count} xodim) \u00b7 ish haqi tarkibidan ajratilgan (siyosat bo'yicha)`.slice(0, 500),
                   paymentMethod: 'BANK' as const,
                   paymentStatus: 'PAID' as const,
                   source: 'PAYROLL' as const,

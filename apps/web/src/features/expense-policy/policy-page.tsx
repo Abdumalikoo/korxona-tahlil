@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatPeriodShort } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
+import { ENTRY_UNITS } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
@@ -170,8 +171,23 @@ export function ExpensePolicyPage() {
 
   return (
     <>
-      <PageHeader title="Xarajatlar siyosati" description="Har bir xarajat moddasi kim hisobidan: yozilgan joyida, Markaz yoki yo'nalish (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari)" />
+      <PageHeader title="Xarajatlar siyosati" description="Har bir xarajat moddasi kim hisobidan: yozilgan joyida, Markaz yoki yo'nalish (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari, Qo'mita pullarining sarfi)" />
       <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-6">
+        {/* Har bo'limning o'z siyosati: moddalar va ish haqi qismlari — boshqa bo'lim (masalan, Qo'mita) hisobiga */}
+        <Card className="border-l-4 border-l-brand-500 p-4">
+          <p className="text-sm font-semibold text-heading">Bo&apos;limlar siyosati</p>
+          <p className="mt-1 text-xs text-(--color-text-muted)">
+            Bu sahifa — umumiy qoidalar. Har bo&apos;limda alohida: shu bo&apos;limda yozilgan hamma moddalar va ish haqi qismlari (bayram puli, choraklik, ustama …) qaysi
+            bo&apos;lim hisobida — Markaz, yo&apos;nalishlar yoki Qo&apos;mita pullarining sarfi. Bo&apos;lim qoidasi umumiy qoidadan ustun.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {ENTRY_UNITS.map((u) => (
+              <Link key={u.code} href={`/xarajatlar/bolim/${u.slug}/siyosat`} className="rounded-full border border-(--color-line) bg-white px-3 py-1.5 text-xs font-medium text-heading hover:border-brand-300 hover:bg-brand-50">
+                {u.label} ›
+              </Link>
+            ))}
+          </div>
+        </Card>
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-(--color-text-muted)">

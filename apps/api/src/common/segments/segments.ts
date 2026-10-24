@@ -11,6 +11,8 @@ export const SEGMENTS = [
   { code: 'MARKSHEYDER', label: 'Marksheyder' },
   { code: 'FERMER', label: "Fermer xo'jaligi" },
   { code: 'BUXGALTERIYA', label: 'Buxgalteriya xizmatlari' },
+  /** Qo'mita pullaridan qilingan sarflar — Xarajatlar siyosati orqali boshqa bo'limlardan o'tkaziladi */
+  { code: 'QOMITA', label: "Qo'mita pullarining sarfi" },
 ] as const;
 
 export type SegmentCode = (typeof SEGMENTS)[number]['code'];
