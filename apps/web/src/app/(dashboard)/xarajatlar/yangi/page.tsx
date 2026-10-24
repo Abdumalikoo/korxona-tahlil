@@ -185,7 +185,7 @@ export default function NewExpensePage() {
   /** Tanlangan bo'lim (Markaz, Hududlar, yo'nalish) moddalari — bo'lim ro'yxati bo'lmasa, umumiy (hammasi) */
   const currentUnit = lockedUnit?.code ?? entryUnitOf({ segment: form.place.segment || null, regionCode: form.place.kind === 'CENTER' ? 0 : form.place.kind === 'REGION' ? 1 : null, departmentId: null });
   // Har bo'lim alohida: faqat shu bo'lim moddalari (joy tanlanmaguncha — bo'sh)
-  const unitList = currentUnit ? unitLists.lists.get(currentUnit) : undefined;
+  const unitList = currentUnit && unitLists.lists.get(currentUnit)?.length ? unitLists.lists.get(currentUnit) : undefined;
   const unitCategories = unitOnly(categories.data?.data ?? [], unitList);
   const unitInfo = unitByCode(currentUnit);
 
@@ -524,7 +524,8 @@ export default function NewExpensePage() {
             update('categoryCode', created.code);
             setToast({ message: unitInfo ? `Modda qo'shildi — «${unitInfo.label}» bo'limiga` : 'Kategoriya qoshildi', tone: 'success' });
           };
-          if (currentUnit) {
+          // Bo'limda ro'yxat bo'lsagina (cheklangan bo'lsa) — yangi modda shu ro'yxatga ham qo'shiladi
+          if (currentUnit && unitList) {
             void unitCategoriesApi
               .set('expense', currentUnit, [...(unitLists.lists.get(currentUnit) ?? []), created.code])
               .then(() => unitLists.reload())

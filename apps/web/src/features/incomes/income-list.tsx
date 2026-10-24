@@ -90,7 +90,7 @@ export function IncomeList({ section, unit = null }: { section: SectionValue; un
   const categories = useAsync(() => referencesApi.incomeCategories(), []);
   /** Bo'lim sahifasida — filtrda faqat shu bo'lim xizmat turlari */
   const unitLists = useUnitCategories('income');
-  const unitCodes = unit ? new Set(unitLists.lists.get(unit.code) ?? []) : null;
+  const unitCodes = unit && unitLists.lists.get(unit.code)?.length ? new Set(unitLists.lists.get(unit.code)) : null;
 
   const list = useAsync(
     () => incomesApi.list(filters),

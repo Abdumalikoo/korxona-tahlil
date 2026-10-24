@@ -71,7 +71,8 @@ export function entryUnitOf(r: { segment?: string | null; regionCode?: number | 
  * Ro'yxat hali yuklanmagan bo'lsa (undefined) — bo'sh (noto'g'ri modda ko'rinmasin).
  */
 export function unitOnly<T extends { code: string }>(items: T[], list: string[] | null | undefined): T[] {
-  if (!list) return [];
+  // Ro'yxat berilmagan yoki bo'sh — cheklov yo'q (hamma moddalar)
+  if (!list || !list.length) return items;
   const set = new Set(list);
   return items.filter((c) => set.has(c.code));
 }

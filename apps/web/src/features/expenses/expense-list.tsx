@@ -108,7 +108,7 @@ export function ExpenseList({ section, unit = null }: { section: SectionValue; u
   const categoryLeaves = useAsync(() => referencesApi.expenseLeaves(), []);
   /** Bo'lim sahifasida — filtrda faqat shu bo'lim moddalari guruhlari */
   const unitLists = useUnitCategories('expense');
-  const unitCodes = unit ? new Set(unitLists.lists.get(unit.code) ?? []) : null;
+  const unitCodes = unit && unitLists.lists.get(unit.code)?.length ? new Set(unitLists.lists.get(unit.code)) : null;
 
   const list = useAsync(
     () => expensesApi.list(filters),

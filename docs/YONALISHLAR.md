@@ -51,35 +51,23 @@ Saqlash: `settings` jadvalidagi `expense.policy` yozuviga yangi `payers` maydoni
 - Yo'nalishlarda xodimlar soni yo'q, chunki xodimlar faqat hudud yoki Markazga biriktiriladi.
 - Eski yozuvlar avtomatik ko'chirilmaydi. Masalan, Markazdagi «Marksheyderlik» bo'limi yozuvlarini tahrirlash oynasi orqali qo'lda o'tkazish mumkin.
 
-## Bo'lim sahifalari (daromad va xarajat alohida yuritiladi)
+## Bo'lim sahifalari
 
-Chap menyuda «Daromadlar» yoki «Xarajatlar» ochilganda, ostida 6 ta bo'lim chiqadi. Har birining o'z sahifasi bor:
+Chap menyuda «Daromadlar» yoki «Xarajatlar» ochilganda, ostida 6 ta bo'lim chiqadi: `markaz`, `hududlar`, `tax-free`, `marksheyder`, `fermer`, `buxgalteriya`. Bo'limlar o'rtasida faqat chap menyu orqali o'tiladi; sahifa tepasida bo'limlar qatori yo'q.
 
-- manzillar: `/daromadlar/bolim/<slug>` va `/xarajatlar/bolim/<slug>`;
-- slug'lar: `markaz`, `hududlar`, `tax-free`, `marksheyder`, `fermer`, `buxgalteriya`.
+### Xarajatlar › bo'lim
 
-Har bir bo'lim sahifasida:
+Har bo'lim umumiy Xarajatlar sahifasi kabi tuzilgan: sarlavha ostida o'z tarkibiy tuzilmalari qatori (yorliqlar). Har bo'limning tuzilmalari alohida va `apps/web/src/features/units/structure.ts` faylida yoziladi.
 
-- **Doimiy / Boshqa** — faqat shu bo'lim yozuvlari ko'rinadi. Ro'yxatning `unit` filtri qidiruv, Excel'ga yuklab olish, jamilar va filtr bo'yicha o'chirishga ham ta'sir qiladi.
-- **Yangi xarajat / daromad** — yozuv joyi shu bo'limga qulflanadi. Markazda bo'lim, Hududlarda viloyat va tuman tanlanadi.
-- **Moddalar / Xizmat turlari** — shu bo'limning o'z ro'yxati. Har bir bo'lim alohida hudud:
-  - boshida ro'yxat **bo'sh**, umumiy ro'yxatdan hech narsa meros qilinmaydi;
-  - xarajatda avval guruh yaratiladi («+ Yangi guruh»), keyin guruh ichiga moddalar birma-bir qo'shiladi («+ Modda»); daromadda xizmat turlari to'g'ridan-to'g'ri qo'shiladi;
-  - «Mavjudlardan tanlash» — boshqa bo'limda bor moddani shu bo'limga ham qo'shadi (masalan, ikki bo'limda bir xil «Ish haqi»);
-  - «Olib tashlash» moddani faqat shu bo'lim ro'yxatidan chiqaradi: modda va eski yozuvlar o'chmaydi;
-  - kiritishda faqat shu bo'lim ro'yxatidagi moddalar chiqadi, server ham boshqasini qabul qilmaydi. Tekshiruv aniq kod bo'yicha: guruh qo'shilgani uning ichki moddalarini avtomatik ochmaydi.
+- Manzil: `/xarajatlar/bolim/<bo'lim>/<tuzilma>`; bo'limning o'zi ochilganda tuzilmalar tugmalari chiqadi.
+- **Tax free**: Ish haqi · Ish haqi tarkibi · Ijara va kommunal · Asosiy vositalar · Bank xarajatlari · Reklama xarajatlari · Boshqa xarajatlar.
+- Hozircha faqat tugmalar. Har bir tuzilmaning yuklash tartibi va shabloni keyin birma-bir qo'shiladi.
+- Qolgan bo'limlarda tuzilmalar ro'yxati berilmaguncha «hali belgilanmagan» yozuvi chiqadi.
 
-**Muhim:** Markaz va Hududlar ham bo'sh boshlanadi. Ularga qo'lda yangi xarajat yoki daromad kiritishdan oldin moddalarni qo'shish kerak. Avtomatik manbalar (ish haqi, ijara, Excel import va h.k.) bu cheklovga bog'liq emas. Eski yozuvlarni tahrirlashda tekshiruv faqat modda yoki joy o'zgarganda ishlaydi.
+### Daromadlar › bo'lim
 
-Bo'lim ro'yxatlari `settings` jadvalidagi `unit.categories` yozuvida saqlanadi, migratsiya kerak emas. API:
+Doimiy / Boshqa / Xizmat turlari — faqat shu bo'lim yozuvlari. Excel'dan yuklash va «oy bo'yicha o'chirish» bu sahifada yo'q.
 
-- `GET /api/unit-categories?kind=expense|income` — bo'limlar ro'yxatlari (`codes` har doim massiv);
-- `PATCH /api/unit-categories` — ro'yxatni saqlaydi. Tanasi: `{ kind, unit, codes }`. Faqat administrator;
-- `POST /api/unit-categories/item` — yangi guruh / modda / xizmat turi yaratib, shu bo'lim ro'yxatiga qo'shadi. Tanasi: `{ kind, unit, label, parentCode? }`. Bir bo'limda bir xil nom ikki marta bo'lmaydi. Faqat administrator.
+### Bo'lim moddalari ro'yxati
 
-Bo'lim sahifalarida Excel'dan yuklash va «oy bo'yicha o'chirish» tugmalari yo'q:
-
-- Excel'dan yuklangan yozuvlarda joy bo'lmaydi. Ular umumiy «Doimiy / Boshqa» sahifalaridan yuklanadi.
-- Oy bo'yicha o'chirish boshqa bo'limlarning yozuvlariga ham tegishi mumkin edi.
-
-Tanlab o'chirish va filtr bo'yicha o'chirish esa ishlaydi.
+`settings` jadvalidagi `unit.categories` yozuvi. Ro'yxat bo'sh bo'lsa — cheklov yo'q. To'ldirilgan bo'lsa — qo'lda kiritishda faqat undagi moddalar qabul qilinadi. API: `GET/PATCH /api/unit-categories`, `POST /api/unit-categories/item`.

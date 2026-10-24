@@ -312,7 +312,7 @@ export function IncomeDrawer({
   // Bo'lim xizmat turlari: tanlangan bo'lim ro'yxati (bo'lmasa — umumiy, hammasi); joriy tanlov doim ro'yxatda
   const currentUnit = unit ?? unitOfPlace(form.place);
   // Har bo'lim alohida: faqat shu bo'lim xizmat turlari; tahrirlashda joriy tanlov ham ro'yxatda turadi
-  const unitList = currentUnit ? unitLists.lists.get(currentUnit) : undefined;
+  const unitList = currentUnit && unitLists.lists.get(currentUnit)?.length ? unitLists.lists.get(currentUnit) : undefined;
   const unitCategories = unitOnly(categories, unitList);
   const unitInfo = unitByCode(currentUnit);
   const shown = unitCategories.some((c) => c.code === form.categoryCode) ? unitCategories : [...unitCategories, ...categories.filter((c) => c.code === form.categoryCode)];
@@ -593,7 +593,7 @@ export function IncomeDrawer({
             onCategoriesChanged?.();
             update('categoryCode', category.code);
           };
-          if (target) {
+          if (target && unitList) {
             void unitCategoriesApi
               .set('income', target, [...(unitLists.lists.get(target) ?? []), category.code])
               .then(() => unitLists.reload())

@@ -4,9 +4,8 @@ import { ENTRY_UNIT_CODES, entryUnitLabel } from './segments';
 // ═══════════════════════════════════════════════════════════
 // Har bir kiritish bo'limi (Markaz, Hududlar, Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) —
 // ALOHIDA hudud: o'z xarajat moddalari va o'z daromad turlari bilan. Umumiy ro'yxatdan meros yo'q.
-//  • Bo'lim boshida bo'sh — moddalar shu bo'limning «Moddalar» yorlig'ida birma-bir qo'shiladi
-//    (yangisi yaratiladi yoki mavjudidan tanlanadi).
-//  • Kiritishda (qo'lda) faqat shu bo'lim ro'yxatidagi moddalar qabul qilinadi.
+//  • Ro'yxat bo'sh bo'lsa — cheklov yo'q (kiritish to'xtamaydi).
+//  • Ro'yxat to'ldirilgan bo'lsa — kiritishda (qo'lda) faqat undagi moddalar qabul qilinadi.
 //  • Avtomatik yozuvlar (ish haqi, ijara, ombor, soliqlar, fayldan yuklash) bu tekshiruvdan o'tmaydi.
 // Saqlanadi: settings jadvali, kalit «unit.categories» — bazaga migratsiya kerak emas.
 // ═══════════════════════════════════════════════════════════
@@ -56,11 +55,9 @@ interface CategoryDb extends SettingDb {
 export async function assertUnitCategory(db: CategoryDb, kind: EntryKind, unit: string | null, code: string): Promise<void> {
   if (!unit) return;
   const list = unitList(await readUnitCategories(db), kind, unit);
-  if (list.includes(code)) return;
+  // Bo'sh ro'yxat — cheklov yo'q; ro'yxat to'ldirilgan bo'lsagina faqat undagi moddalar
+  if (!list.length || list.includes(code)) return;
   const where = `${kind === 'expense' ? 'Xarajatlar' : 'Daromadlar'} › ${entryUnitLabel(unit)} › ${kind === 'expense' ? 'Moddalar' : 'Xizmat turlari'}`;
-  if (!list.length) {
-    throw new BadRequestException(`«${entryUnitLabel(unit)}» bo'limida hali ${kind === 'expense' ? 'xarajat moddasi' : 'daromad turi'} yo'q — avval qo'shing: ${where}`);
-  }
   const label = (kind === 'expense' ? await db.category.findUnique({ where: { code }, select: { label: true } }) : await db.incomeCategory.findUnique({ where: { code }, select: { label: true } }))?.label ?? code;
   throw new BadRequestException(`«${label}» — «${entryUnitLabel(unit)}» bo'limining ro'yxatida yo'q. Qo'shish: ${where}`);
 }
