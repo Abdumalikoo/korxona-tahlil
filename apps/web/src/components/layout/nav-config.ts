@@ -251,6 +251,7 @@ export const MENU: NavItem[] = [
       { label: 'Xarajat moddalari', href: '/sozlamalar/xarajat' },
       { label: 'Ish haqi komponentlari', href: '/sozlamalar/komponentlar' },
       { label: 'Savat', href: '/sozlamalar/savat' },
+      { label: 'Xavfsizlik', href: '/sozlamalar/xavfsizlik', description: "O'chirish paroli: «Hammasi» yoki 50 tadan ortiq yozuv o'chirilganda so'raladi" },
       { label: 'Tarix', href: '/sozlamalar/tarix' },
       { label: 'Tekshiruv', href: '/sozlamalar/tekshiruv' },
       { label: 'Zaxira', href: '/sozlamalar/zaxira' },

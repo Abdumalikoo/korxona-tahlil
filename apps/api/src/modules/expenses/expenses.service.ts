@@ -525,6 +525,11 @@ export class ExpensesService {
       throw new BadRequestException("Bu xarid asosiy vosita sifatida balansga olingan (xarajatga oylik sarfi o'tadi). Xarajat qilib qoldirish: Xarajatlar › Asosiy vositalar");
     }
 
+    // Mashinalar xarajati: Mashinalar bo'limidagi yozuvi ham qaytadi
+    if (expense.source === "VEHICLE") {
+      await this.prisma.vehicleRecord.updateMany({ where: { expenseId: id, deletedAt: { not: null } }, data: { deletedAt: null } });
+    }
+
     return this.prisma.expense.update({
       where: { id },
       data: { deletedAt: null },

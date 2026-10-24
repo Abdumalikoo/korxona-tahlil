@@ -1,5 +1,6 @@
 'use client';
 
+import { DeleteDataButton } from '@/components/shared/delete-data';
 import { SourceActions } from '@/components/shared/source-actions';
 import { usePeriod } from '@/lib/period';
 import { currentPeriod, formatCompact, formatPercent, formatPeriod, formatPeriodShort, formatTiyin, shiftPeriod } from '@/lib/format';
@@ -79,6 +80,19 @@ export function SectionLanding({ kind }: { kind: SectionKind }) {
         <SourceActions
           add={nav.newHref ? { label: `Yangi ${word}`, href: `${nav.newHref}${nav.newHref.includes('?') ? '&' : '?'}section=DOIMIY` } : undefined}
           note="Yozuvlarni ko'rish va tahrirlash — «Doimiy» yoki «Boshqa» yorlig'ida."
+          extra={
+            <DeleteDataButton
+              size="sm"
+              target={isExpense ? 'EXPENSE' : 'INCOME'}
+              defaultMode="all"
+              label="Hammasini o'chirish"
+              place={`${nav.title} › hammasi`}
+              onDone={() => {
+                overview.reload();
+                trend.reload();
+              }}
+            />
+          }
           deleteData={{
             target: isExpense ? 'EXPENSE' : 'INCOME',
             month: period,

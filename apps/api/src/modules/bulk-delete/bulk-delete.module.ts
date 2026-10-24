@@ -6,10 +6,12 @@ import { SalaryCompositionModule } from '../salary-composition/salary-compositio
 import { RegionalDataModule } from '../regional-data/regional-data.module';
 import { BulkDeleteController } from './bulk-delete.controller';
 import { BulkDeleteService } from './bulk-delete.service';
+import { DeletePasswordService } from './delete-password.service';
 
 @Module({
   imports: [PayrollModule, RegionalDataModule, LeasesModule, SalaryCompositionModule, CashbookModule],
   controllers: [BulkDeleteController],
-  providers: [BulkDeleteService],
+  providers: [BulkDeleteService, DeletePasswordService],
+  exports: [DeletePasswordService],
 })
 export class BulkDeleteModule {}

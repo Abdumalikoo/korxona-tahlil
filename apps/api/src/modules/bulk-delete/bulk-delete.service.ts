@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { CashbookService } from '../cashbook/cashbook.service';
 import { CenterIncomeService } from '../cashbook/center-income.service';
+import { DeletePasswordService, PASSWORD_THRESHOLD } from './delete-password.service';
 import { FixedAssetsService } from '../fixed-assets/fixed-assets.service';
 import { LeaseMonthsService } from '../leases/leases.months';
 import { PayrollService } from '../payroll/payroll.service';
@@ -25,7 +26,11 @@ import { SalaryCompositionService } from '../salary-composition/salary-compositi
 //   • Ish haqi tarkibi — shu oy(lar) tarkib yuklamasi bekor qilinadi (bayram, choraklik ajratmasi ham qaytadi).
 //   • Kunlik tushum (Markaz tushumi) — kun(lar) ma'lumotnomasi o'chadi, keyingi kunlar va Markaz daromadi qayta hisoblanadi.
 //   • Asosiy vositalar — qo'lda kiritilgan va xarajatdan olingan vositalar (sarfi bilan); ombordagisi — Ombor orqali.
-//   • Boshqa hujjatdan kelgan xarajatlar (Ombor kirimi, Ijara, Mashinalar, Ish haqi) bu yerda o'chirilmaydi —
+//   • Mashinalar xarajatlari — shu yerda o'chiriladi: Mashinalar bo'limidagi yozuvi ham birga o'chadi
+//     (savatdan tiklansa — yozuv ham qaytadi).
+//   • «Hammasi» — daromad/xarajatning barcha davrlari (sahifa doirasida).
+//   • Parol: «Hammasi» yoki 50 tadan ortiq yozuv o'chirilsa — o'chirish paroli so'raladi (Sozlamalar › Xavfsizlik).
+//   • Boshqa hujjatdan kelgan xarajatlar (Ombor kirimi, Ijara, Ish haqi) bu yerda o'chirilmaydi —
 //     ular o'z hujjati orqali bekor qilinadi (aks holda qoldiq va hisoblar buziladi); ko'rib chiqishda alohida ko'rsatiladi.
 //   • Yopilgan oy (Hududchi › Oyni yopish) — hudud ma'lumoti o'zgartirilmaydi.
 //   • Hududchi faqat hududlar ma'lumotini o'chiradi (Markaznikini emas).
@@ -42,7 +47,9 @@ const TARGETS: DeleteTarget[] = ['INCOME', 'EXPENSE', 'PAYROLL', 'RESULTS', 'LEA
 const MONTHLY: DeleteTarget[] = ['PAYROLL', 'RESULTS', 'LEASE', 'COMPOSITION'];
 /** Faqat administrator */
 const ADMIN_ONLY: DeleteTarget[] = ['LEASE', 'COMPOSITION', 'CASHBOOK', 'ASSET', 'TAX'];
-export type DeleteMode = 'ids' | 'day' | 'month' | 'range';
+export type DeleteMode = 'ids' | 'day' | 'month' | 'range' | 'all';
+/** «Hammasi» (barcha davrlar) — faqat daromad va xarajat */
+const ALL_TARGETS: DeleteTarget[] = ['INCOME', 'EXPENSE'];
 
 export interface DeleteScope {
   /** Faqat hududlar (Markaz kodi 0 dan tashqari) */
@@ -64,6 +71,8 @@ export interface DeleteRequest {
   from?: string;
   to?: string;
   scope?: DeleteScope;
+  /** O'chirish paroli («Hammasi» yoki 50 tadan ortiq yozuv) */
+  password?: string;
 }
 
 export interface Actor {
@@ -98,6 +107,8 @@ export interface DeletePreview {
   /** O'chirish mumkinmi (count > 0, yopilgan oy yo'q) */
   allowed: boolean;
   reason: string | null;
+  /** O'chirishdan oldin parol so'raladi */
+  needsPassword?: boolean;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -116,7 +127,6 @@ const LOCKED_EXPENSE: Record<string, string> = {
   PAYROLL: "Ish haqi vedomostini bekor qiling (shu oynada «Ish haqi vedomostlari» turi yoki Ish haqi bo'limi)",
   WAREHOUSE: 'Ombor › Hujjatlar — kirim hujjatini bekor qiling (qoldiq ham qaytadi)',
   LEASE: "Xarajatlar › Ijara — oy hisobini bekor qiling",
-  VEHICLE: 'Mashinalar — yozuvning o\'zini o\'chiring',
   ASSET: "Xarajatlar › Asosiy vositalar — vositani hisobdan chiqaring yoki xarajat qilib qoldiring (sarf o'zi qayta hisoblanadi)",
   TAX: "Xarajatlar › Soliqlar — o'sha sahifadagi «O'chirish» (ish haqidan foizli soliq o'zi hisoblanadi)",
 };
@@ -182,6 +192,7 @@ export class BulkDeleteService {
     private readonly cashbook: CashbookService,
     private readonly centerIncome: CenterIncomeService,
     private readonly assets: FixedAssetsService,
+    private readonly passwords: DeletePasswordService,
   ) {}
 
   // ─────────── So'rovni tekshirish ───────────
@@ -190,7 +201,8 @@ export class BulkDeleteService {
     const target = raw?.target;
     const mode = raw?.mode;
     if (!TARGETS.includes(target)) throw new BadRequestException("Nimani o'chirish noto'g'ri");
-    if (!['ids', 'day', 'month', 'range'].includes(mode)) throw new BadRequestException("Tanlash usuli noto'g'ri");
+    if (!['ids', 'day', 'month', 'range', 'all'].includes(mode)) throw new BadRequestException("Tanlash usuli noto'g'ri");
+    if (mode === 'all' && !ALL_TARGETS.includes(target)) throw new BadRequestException("«Hammasi» faqat daromad va xarajat uchun");
     if (actor.role !== 'ADMIN' && actor.role !== 'HUDUDCHI') throw new ForbiddenException("O'chirish huquqi yo'q");
     if (ADMIN_ONLY.includes(target) && actor.role !== 'ADMIN') throw new ForbiddenException("Bu ma'lumotni faqat administrator o'chiradi");
     const s = raw.scope ?? {};
@@ -216,7 +228,7 @@ export class BulkDeleteService {
     } else if (mode === 'month') {
       if (!raw.month || !ISO_MONTH.test(raw.month)) throw new BadRequestException('Oyni tanlang');
       req.month = raw.month;
-    } else {
+    } else if (mode === 'range') {
       if (!validDay(raw.from) || !validDay(raw.to)) throw new BadRequestException("Sana oralig'ini to'liq tanlang");
       if (raw.from > raw.to) throw new BadRequestException('Boshlanish sanasi tugash sanasidan keyin');
       if ((dayStart(raw.to).getTime() - dayStart(raw.from).getTime()) / DAY_MS > MAX_DAYS) throw new BadRequestException('Oraliq 3 yildan oshmasin');
@@ -230,6 +242,7 @@ export class BulkDeleteService {
     if (req.mode === 'ids') return `${req.ids!.length} ta belgilangan`;
     if (req.mode === 'day') return dmy(req.day!);
     if (req.mode === 'month') return monthName(req.month!);
+    if (req.mode === 'all') return 'Barcha davrlar';
     return `${dmy(req.from!)} — ${dmy(req.to!)}`;
   }
 
@@ -284,6 +297,11 @@ export class BulkDeleteService {
 
   async preview(raw: DeleteRequest, actor: Actor): Promise<DeletePreview> {
     const req = this.normalize(raw, actor);
+    const p = await this.previewOf(req, actor);
+    return { ...p, needsPassword: p.allowed && (req.mode === 'all' || p.count > PASSWORD_THRESHOLD) };
+  }
+
+  private async previewOf(req: DeleteRequest & { scope: DeleteScope }, actor: Actor): Promise<DeletePreview> {
     if (req.target === 'INCOME' || req.target === 'EXPENSE') return this.previewMoney(req);
     if (req.target === 'PAYROLL') return this.previewPayroll(req, actor);
     if (req.target === 'LEASE') return this.previewLease(req);
@@ -633,11 +651,19 @@ export class BulkDeleteService {
     const req = this.normalize(raw, actor);
     const p = await this.preview(req, actor);
     if (!p.allowed) throw new BadRequestException(p.reason ?? "O'chirib bo'lmaydi");
+    if (p.needsPassword) await this.passwords.verify(raw?.password, actor.id);
     let count = 0;
     if (req.target === 'INCOME' || req.target === 'EXPENSE') {
       const rows = await this.moneyRows(req);
       const ids = rows.filter((r) => !(req.target === 'EXPENSE' ? r.source in LOCKED_EXPENSE : r.source in LOCKED_INCOME)).map((r) => r.id);
       const data = { deletedAt: new Date() };
+      if (req.target === 'EXPENSE') {
+        // Mashinalar: yozuvi ham o'chadi (savatdan tiklansa — qaytadi); import kaliti bo'shatiladi — qayta yuklash mumkin
+        const vehicleIds = rows.filter((r) => r.source === 'VEHICLE').map((r) => r.id);
+        for (let i = 0; i < vehicleIds.length; i += 1000) {
+          await this.prisma.vehicleRecord.updateMany({ where: { expenseId: { in: vehicleIds.slice(i, i + 1000) }, deletedAt: null }, data: { deletedAt: data.deletedAt, importKey: null } });
+        }
+      }
       const res =
         req.target === 'INCOME'
           ? await this.prisma.income.updateMany({ where: { id: { in: ids }, deletedAt: null }, data })

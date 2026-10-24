@@ -12,7 +12,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Yagona «O'chirish» tugmasi — hamma bo'lim va rollarda bir xil ko'rinish va bir xil tartib:
-//   Nimani: belgilangan qatorlar · bitta kun · bitta oy · sana oralig'i.
+//   Nimani: belgilangan qatorlar · bitta kun · bitta oy · sana oralig'i · hammasi (daromad/xarajat — barcha davrlar).
+//   «Hammasi» yoki 50 tadan ortiq yozuv — o'chirish paroli so'raladi (Sozlamalar › Xavfsizlik).
 //   Avval ko'rib chiqish (nechta yozuv, qancha summa, qaysi oy/hudud/manba) → «Tushundim» → o'chirish.
 //   Daromad/xarajat savatga tushadi (15 kun tiklanadi); vedomost va natijalar — bekor qilinadi.
 // Backend: /api/bulk-delete/preview, /api/bulk-delete/execute (administrator va Hududchi).
@@ -21,7 +22,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 export type DeleteTarget = 'INCOME' | 'EXPENSE' | 'PAYROLL' | 'RESULTS' | 'LEASE' | 'COMPOSITION' | 'CASHBOOK' | 'ASSET' | 'TAX';
 /** Faqat administrator o'chiradi */
 const ADMIN_ONLY: DeleteTarget[] = ['LEASE', 'COMPOSITION', 'CASHBOOK', 'ASSET', 'TAX'];
-type Mode = 'ids' | 'day' | 'month' | 'range';
+type Mode = 'ids' | 'day' | 'month' | 'range' | 'all';
+/** «Hammasi» (barcha davrlar) — faqat daromad va xarajat */
+const ALL_TARGETS: DeleteTarget[] = ['INCOME', 'EXPENSE'];
 
 export interface DeleteScope {
   regional?: boolean;
@@ -52,6 +55,8 @@ interface Preview {
   restorable: boolean;
   allowed: boolean;
   reason: string | null;
+  /** O'chirishdan oldin parol so'raladi («Hammasi» yoki 50 tadan ortiq) */
+  needsPassword?: boolean;
 }
 
 interface Body {
@@ -63,6 +68,7 @@ interface Body {
   from?: string;
   to?: string;
   scope?: DeleteScope;
+  password?: string;
 }
 
 const deleteApi = {
@@ -120,6 +126,8 @@ export interface DeleteDataProps {
   month?: string;
   /** Tugma matni (standart: «O'chirish») */
   label?: string;
+  /** Oyna ochilganda tanlangan usul (masalan «Hammasini o'chirish» tugmasi — 'all') */
+  defaultMode?: Mode;
   /** Sahifa nomi — oynada ko'rinadi: «Daromadlar › Doimiy» */
   place?: string;
   /** O'chirilgandan keyin (ro'yxatni yangilash, belgilashni tozalash) */
@@ -148,7 +156,7 @@ export function DeleteDataButton(props: DeleteDataProps) {
   );
 }
 
-function DeleteDataDialog({ target, scope, selectedIds, place, month: givenMonth, onDone, onClose }: DeleteDataProps & { onClose: () => void }) {
+function DeleteDataDialog({ target, scope, selectedIds, place, month: givenMonth, defaultMode, onDone, onClose }: DeleteDataProps & { onClose: () => void }) {
   const { month: periodMonth } = usePeriod();
   const pageMonth = givenMonth ?? periodMonth;
   const monthly = target === 'PAYROLL' || target === 'RESULTS' || target === 'LEASE' || target === 'COMPOSITION';
@@ -158,8 +166,12 @@ function DeleteDataDialog({ target, scope, selectedIds, place, month: givenMonth
     ...(monthly ? [] : [{ key: 'day' as const, label: 'Kun' }]),
     { key: 'month', label: 'Oy' },
     { key: 'range', label: 'Sana oralig\'i' },
+    ...(ALL_TARGETS.includes(target) ? [{ key: 'all' as const, label: 'Hammasi' }] : []),
   ];
-  const [mode, setMode] = useState<Mode>(hasIds ? 'ids' : 'month');
+  const [mode, setMode] = useState<Mode>(defaultMode && modes.some((m) => m.key === defaultMode) ? defaultMode : hasIds ? 'ids' : 'month');
+  const [password, setPassword] = useState('');
+  /** O'chirish xatosi (masalan, parol noto'g'ri) — ko'rib chiqish natijasi ekranda qoladi */
+  const [runError, setRunError] = useState<string | null>(null);
   const [day, setDay] = useState(todayIso());
   const [month, setMonth] = useState(pageMonth || todayIso().slice(0, 7));
   const [from, setFrom] = useState(`${(pageMonth || todayIso()).slice(0, 7)}-01`);
@@ -188,6 +200,8 @@ function DeleteDataDialog({ target, scope, selectedIds, place, month: givenMonth
   useEffect(() => {
     const my = ++seq.current;
     setAgree(false);
+    setPassword('');
+    setRunError(null);
     setError(null);
     setLoading(true);
     const t = setTimeout(() => {
@@ -212,13 +226,13 @@ function DeleteDataDialog({ target, scope, selectedIds, place, month: givenMonth
 
   const run = async () => {
     setBusy(true);
-    setError(null);
+    setRunError(null);
     try {
-      const r = await deleteApi.execute(body);
+      const r = await deleteApi.execute(preview?.needsPassword ? { ...body, password } : body);
       setDone(r.data);
       onDone?.({ count: r.data.count });
     } catch (e) {
-      setError(errorMessage(e));
+      setRunError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -283,8 +297,13 @@ function DeleteDataDialog({ target, scope, selectedIds, place, month: givenMonth
 
               {/* 2. Sana / oy */}
               <div>
-                <p className="mb-1.5 text-xs font-semibold text-(--color-text-muted)">2. {mode === 'ids' ? 'Belgilangan qatorlar' : mode === 'day' ? 'Qaysi kun' : mode === 'month' ? 'Qaysi oy' : 'Qaysi oraliq'}</p>
+                <p className="mb-1.5 text-xs font-semibold text-(--color-text-muted)">2. {mode === 'ids' ? 'Belgilangan qatorlar' : mode === 'day' ? 'Qaysi kun' : mode === 'month' ? 'Qaysi oy' : mode === 'all' ? 'Barcha davrlar' : 'Qaysi oraliq'}</p>
                 {mode === 'ids' && <p className="text-sm text-heading">Jadvalda belgilangan {selectedIds!.length} ta qator.</p>}
+                {mode === 'all' && (
+                  <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-900">
+                    {place ? <b>{place}</b> : 'Shu bo\'lim'}dagi <b>hamma {w.one} yozuvlari</b> — barcha oylar va yillar. O&apos;chirishdan oldin parol so&apos;raladi.
+                  </p>
+                )}
                 {mode === 'day' && <input type="date" className={input} value={day} max={todayIso()} onChange={(e) => setDay(e.target.value)} />}
                 {mode === 'month' && (
                   <div className="inline-flex items-center gap-1 rounded-xl border border-(--color-line) bg-white p-1">
@@ -377,13 +396,43 @@ function DeleteDataDialog({ target, scope, selectedIds, place, month: givenMonth
                   </span>
                 </label>
               )}
+
+              {preview?.allowed && preview.needsPassword && agree && (
+                <div className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-3">
+                  <label className="block text-sm font-semibold text-heading" htmlFor="delete-password">
+                    O&apos;chirish paroli
+                  </label>
+                  <p className="mb-2 text-xs text-(--color-text-muted)">
+                    {mode === 'all' ? '«Hammasi» tanlangan' : `${preview.count} ta yozuv (50 tadan ortiq)`} — davom etish uchun parolni kiriting. Parolni administrator Sozlamalar › Xavfsizlik bo&apos;limida o&apos;zgartiradi.
+                  </p>
+                  <input
+                    id="delete-password"
+                    type="password"
+                    autoComplete="off"
+                    autoFocus
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && password && !busy) void run();
+                    }}
+                    maxLength={64}
+                    className="h-10 w-full max-w-xs rounded-lg border border-(--color-line-strong) bg-white px-3 text-sm tracking-widest focus:border-red-500 focus:outline-none"
+                  />
+                </div>
+              )}
+              {runError && (
+                <p className="flex items-start gap-2 rounded-lg bg-(--color-expense-soft) px-3 py-2 text-sm text-(--color-expense)">
+                  <IconAlert className="mt-0.5 size-4 shrink-0" />
+                  {runError}
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-(--color-line) bg-(--color-surface-muted) px-5 py-3">
               <Button variant="secondary" onClick={onClose} disabled={busy}>
                 Bekor qilish
               </Button>
-              <Button variant="danger" onClick={() => void run()} loading={busy} disabled={!preview?.allowed || !agree || loading}>
+              <Button variant="danger" onClick={() => void run()} loading={busy} disabled={!preview?.allowed || !agree || loading || (Boolean(preview?.needsPassword) && !password)}>
                 <IconTrash className="size-4" />
                 {preview?.allowed ? `${preview.count} ${w.unit}ni o'chirish` : "O'chirish"}
               </Button>
