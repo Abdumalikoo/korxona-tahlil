@@ -1,5 +1,6 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { HR_SHEET, HR_SHEETS, HR_UNIT_PATTERNS, isWorking, type HrSheetCode } from './hr-sheets.config';
+import { openSnapshot } from './hr-sheets.crypto';
 
 // ═══════════════════════════════════════════════════════════
 // Ma'lumotnomalar ombori («miya» uchun umumiy o'qish).
@@ -9,6 +10,7 @@ import { HR_SHEET, HR_SHEETS, HR_UNIT_PATTERNS, isWorking, type HrSheetCode } fr
 //    va tuzilma nomidan aniqlangan bo'lim (Fermer, Tax free, Marksheyder …). 37-jadvalda PINFL yo'q —
 //    F.I.Sh. bo'yicha bog'lanadi (bitta odamga to'g'ri kelsa).
 //  • Natija 60 soniya xotirada turadi; yuklash / qaytarishda tozalanadi.
+//  • Shaxsiy maydonlar bazada shifrlangan bo'lishi mumkin (hr-sheets.crypto.ts) — loadSnapshot ochib beradi.
 // ═══════════════════════════════════════════════════════════
 
 export interface HrSnapshot {
@@ -54,8 +56,23 @@ export function readSnapshot(raw: unknown): HrSnapshot | null {
   return v as HrSnapshot;
 }
 
-export async function loadSnapshot(prisma: PrismaService, code: string, prev = false): Promise<HrSnapshot | null> {
-  return readSnapshot((await prisma.setting.findUnique({ where: { key: prev ? prevKey(code) : sheetKey(code) } }))?.value ?? null);
+/** Ochilgan (shifrdan) nusxalar — 60 soniya; yuklash / qaytarish / shifrlashda tozalanadi */
+const opened = new Map<string, { at: number; snap: HrSnapshot }>();
+
+/**
+ * Saqlangan jadval. Shaxsiy maydonlar (pasport, telefon, manzil …) bazada shifrlangan bo'lishi mumkin —
+ * decrypt=true (standart) bo'lsa ochiladi. «Miya» umumiy ro'yxati (hrPeople) ularni ishlatmaydi — ochmaydi.
+ */
+export async function loadSnapshot(prisma: PrismaService, code: string, prev = false, decrypt = true): Promise<HrSnapshot | null> {
+  const key = prev ? prevKey(code) : sheetKey(code);
+  const s = readSnapshot((await prisma.setting.findUnique({ where: { key } }))?.value ?? null);
+  if (!s || !decrypt) return s;
+  const ck = `${key}:${s.batchId}`;
+  const hit = opened.get(ck);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.snap;
+  const { snap } = openSnapshot(s);
+  opened.set(ck, { at: Date.now(), snap });
+  return snap;
 }
 
 /** Qatorni kalit → qiymat ko'rinishiga */
@@ -78,6 +95,7 @@ const TTL_MS = 60_000;
 
 export function clearHrCache(): void {
   cache = null;
+  opened.clear();
 }
 
 /** Hamma ma'lumotnomalardan birlashtirilgan odamlar (PINFL → odam) */
@@ -85,7 +103,7 @@ export async function hrPeople(prisma: PrismaService): Promise<Map<string, HrPer
   if (cache && Date.now() - cache.at < TTL_MS) return cache.people;
   const snaps = new Map<HrSheetCode, HrSnapshot>();
   for (const def of HR_SHEETS) {
-    const s = await loadSnapshot(prisma, def.code).catch(() => null);
+    const s = await loadSnapshot(prisma, def.code, false, false).catch(() => null);
     if (s) snaps.set(def.code, s);
   }
   const people = new Map<string, HrPerson>();

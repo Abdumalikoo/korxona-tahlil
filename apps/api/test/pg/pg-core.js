@@ -151,4 +151,27 @@ run('pg-core', async (prisma) => {
   })));
   assert.strictEqual((await prisma.setting.findUnique({ where: { key: 'pg.counter' } })).value.n, 25);
   console.log('  ✓ navbat: 25 parallel o\'qib-yozish — 25');
+
+  // ── 9. Ma'lumotnomalarni shifrlash — haqiqiy bazada tranzaksiya bilan ──
+  const cr = D('modules/hr-sheets/hr-sheets.crypto');
+  const hrRows = Array.from({ length: 300 }, (_, i) => [`3010190002${String(i).padStart(4, '0')}`, `SINOV ${i}`, `AA${String(1000000 + i)}`, `+998 90 000 ${String(i).padStart(4, '0')}`]);
+  const snap = { code: 'J16', batchId: 'b1', fileName: '16.xlsx', uploadedAt: new Date().toISOString(), uploadedBy: 'Sinov', uploadedById: 'adm', cols: ['pinfl', 'fio', 'pasportRaqam', 'telefon'], rows: hrRows };
+  await prisma.setting.create({ data: { key: 'hr.sheet.J16', value: snap } });
+  const prevKey = process.env.APP_ENCRYPTION_KEY;
+  process.env.APP_ENCRYPTION_KEY = 'pg-hr-sinov-kaliti-0123456789-abcdefghijk';
+  try {
+    const r1 = await cr.sealAllHr(prisma);
+    assert.strictEqual(r1.sealed, 600);
+    const stored = JSON.stringify((await prisma.setting.findUnique({ where: { key: 'hr.sheet.J16' } })).value);
+    assert.ok(!stored.includes('AA1000005') && stored.includes('SINOV 5') && stored.includes('30101900020005'));
+    const st = await cr.hrCryptoStatus(prisma);
+    assert.deepStrictEqual([st.sealed, st.plain, st.unreadable], [600, 0, 0]);
+    const r2 = await cr.unsealAllHr(prisma);
+    assert.strictEqual(r2.opened, 600);
+    assert.deepStrictEqual((await prisma.setting.findUnique({ where: { key: 'hr.sheet.J16' } })).value.rows, hrRows, 'asl holat aynan tiklandi');
+  } finally {
+    if (prevKey === undefined) delete process.env.APP_ENCRYPTION_KEY;
+    else process.env.APP_ENCRYPTION_KEY = prevKey;
+  }
+  console.log("  ✓ ma'lumotnomalar: 600 ta shaxsiy qiymat bazada shifrlandi va aynan qaytarildi");
 });

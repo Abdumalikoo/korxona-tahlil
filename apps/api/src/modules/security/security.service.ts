@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { secretBoxReady } from '../../common/crypto/secret-box';
 import { AuditService } from '../audit/audit.service';
+import { BackupService } from '../backup/backup.service';
+import { DeletePasswordService } from '../bulk-delete/delete-password.service';
+import { hrCryptoStatus, sealAllHr, unsealAllHr, type HrCryptoStatus } from '../hr-sheets/hr-sheets.crypto';
+import { clearHrCache } from '../hr-sheets/hr-sheets.store';
 import { PrismaService } from '../prisma/prisma.service';
 
 // ═══════════════════════════════════════════════════════════
@@ -22,6 +26,10 @@ export interface SecurityStatus {
   backupMirror: boolean;
   /** Bazadagi maxfiy qiymatlar shifrlanadimi (APP_ENCRYPTION_KEY) */
   secretsEncrypted: boolean;
+  /** Ma'lumotnomalarda hali ochiq shaxsiy qiymatlar soni */
+  hrPlain: number;
+  /** Shifrlangan, lekin kalit yo'qligi sababli ochib bo'lmaydiganlar */
+  hrLocked: number;
   /** Almashtirilishi kerak bo'lgan standart qiymatlar (ekranda ogohlantirish uchun) */
   warnings: string[];
 }
@@ -33,7 +41,49 @@ export class SecurityService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly backup: BackupService,
+    private readonly passwords: DeletePasswordService,
   ) {}
+
+  // ─────────── Ma'lumotnomalardagi shaxsiy maydonlar (pasport, telefon, manzil …) ───────────
+
+  hrCrypto(): Promise<HrCryptoStatus> {
+    return hrCryptoStatus(this.prisma);
+  }
+
+  /** Avval zaxira olinadi (olinmasa — to'xtaydi), keyin hammasi shifrlanadi */
+  async sealHr(userId: string): Promise<HrCryptoStatus & { done: number; backup: string }> {
+    if (!secretBoxReady()) throw new BadRequestException("Serverda APP_ENCRYPTION_KEY sozlanmagan (kamida 32 belgi) — .env ga qo'shib, API'ni qayta ishga tushiring");
+    let backupName: string;
+    try {
+      backupName = (await this.backup.create()).name;
+    } catch (e) {
+      throw new BadRequestException(`Shifrlashdan oldin zaxira olib bo'lmadi — hech narsa o'zgartirilmadi. ${(e as Error).message}`.slice(0, 400));
+    }
+    const r = await sealAllHr(this.prisma);
+    clearHrCache();
+    await this.audit
+      .log({ userId, action: 'UPDATE', entity: 'security', entityId: 'hr-seal', summary: `Ma'lumotnomalardagi shaxsiy maydonlar shifrlandi: ${r.sealed} ta qiymat (${r.sheets} ta nusxa). Oldin zaxira: ${backupName}` })
+      .catch(() => null);
+    return { ...(await this.hrCrypto()), done: r.sealed, backup: backupName };
+  }
+
+  /** Orqaga qaytarish (ochiq holga) — o'chirish paroli bilan */
+  async unsealHr(password: unknown, userId: string): Promise<HrCryptoStatus & { done: number }> {
+    await this.passwords.verify(password, userId);
+    if (!secretBoxReady()) throw new BadRequestException("Serverda APP_ENCRYPTION_KEY sozlanmagan — ochib bo'lmaydi");
+    let r: { opened: number; sheets: number };
+    try {
+      r = await unsealAllHr(this.prisma);
+    } catch (e) {
+      throw new BadRequestException(`Ochib bo'lmadi — hech narsa o'zgartirilmadi: ${(e as Error).message}`);
+    }
+    clearHrCache();
+    await this.audit
+      .log({ userId, action: 'UPDATE', entity: 'security', entityId: 'hr-unseal', summary: `Ma'lumotnomalardagi shaxsiy maydonlar shifrdan chiqarildi: ${r.opened} ta qiymat` })
+      .catch(() => null);
+    return { ...(await this.hrCrypto()), done: r.opened };
+  }
 
   /** Kuzatuvchiga shaxsiy ma'lumotlar ochiqmi (30 soniya keshlanadi) */
   async viewerPersonal(): Promise<boolean> {
@@ -73,7 +123,12 @@ export class SecurityService {
     const secretsEncrypted = secretBoxReady();
     if (!backupEncrypted) warnings.push("Zaxira shifrlanmagan — serverdagi .env ga BACKUP_ENCRYPTION_KEY qo'shing (kamida 16 belgi)");
     if (!backupMirror) warnings.push("Zaxira faqat bitta joyda — .env ga BACKUP_MIRROR_DIR (boshqa disk yoki tarmoq papkasi) qo'shing");
-    if (!secretsEncrypted) warnings.push("Bazadagi maxfiy kalitlar (Telegram bot) shifrlanmagan — .env ga APP_ENCRYPTION_KEY qo'shing (kamida 32 belgi)");
-    return { viewerPersonal: await this.viewerPersonal(), deletePasswordDefault, chatCodeDefault, backupEncrypted, backupMirror, secretsEncrypted, warnings };
+    if (!secretsEncrypted) warnings.push("Bazadagi maxfiy ma'lumotlar (pasport, telefon, Telegram bot kaliti) shifrlanmagan — .env ga APP_ENCRYPTION_KEY qo'shing (kamida 32 belgi)");
+    const hr = await hrCryptoStatus(this.prisma, false).catch(() => null);
+    const hrPlain = hr?.plain ?? 0;
+    const hrLocked = hr && !hr.ready ? hr.sealed : 0;
+    if (secretsEncrypted && hrPlain > 0) warnings.push(`Ma'lumotnomalarda ${hrPlain} ta shaxsiy qiymat hali ochiq — Sozlamalar › Xavfsizlik › «Hozir shifrlash»`);
+    if (hrLocked > 0) warnings.push(`Ma'lumotnomalardagi ${hrLocked} ta shifrlangan qiymatni ochib bo'lmaydi — serverda APP_ENCRYPTION_KEY yo'q`);
+    return { viewerPersonal: await this.viewerPersonal(), deletePasswordDefault, chatCodeDefault, backupEncrypted, backupMirror, secretsEncrypted, hrPlain, hrLocked, warnings };
   }
 }

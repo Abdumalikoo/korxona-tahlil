@@ -612,3 +612,33 @@ Sozlamalar › Zaxira. Serverdagi `.env`:
   - vaqtinchalik PostgreSQL bilan hamma testlar;
   - `pnpm audit` (faqat ogohlantirish).
 - **Yangi testlar:** `t-backup-crypto`, `t-common-helpers`, `t-setting-shape`, `pg/pg-core`, `pg/pg-backup`.
+
+## Xavfsizlik — 2b-1: xodimlarning shaxsiy ma'lumotlarini shifrlash
+
+Sozlamalar › Xavfsizlik › «Xodimlarning shaxsiy ma'lumotlari bazada». Baza tuzilmasi o'zgarmadi.
+
+**Qaysi maydonlar** (ma'lumotnomalar, `settings` «hr.sheet.<KOD>» va «.prev»):
+- 10-jadval: yashash manzili;
+- 16-jadval: pasport seriyasi, raqami, kim bergan, sanasi, amal muddati; telefon; e-pochta; IP; diplom raqami.
+
+Shifrlanmaydi: F.I.Sh., JShShIR, lavozim, tuzilma, jins, yosh, ma'lumoti. Qidiruv, «Miya» va chat ular bilan ishlaydi. Xodimlar jadvali, ish haqi va xarajatlarga tegilmaydi.
+
+**Qanday ishlaydi** (`modules/hr-sheets/hr-sheets.crypto.ts`):
+- **Kalit:** `APP_ENCRYPTION_KEY` (kamida 32 belgi), AES-256-GCM, har qiymatga alohida iv. Bazada ko'rinishi `enc:v1:…`.
+- **Yangi yuklangan jadval:** kalit bo'lsa, darhol shifrlab saqlanadi.
+- **Avval yuklanganlari:** «Hozir shifrlash» tugmasi bilan.
+  - Avval bazaning zaxirasi olinadi. Olinmasa, hech narsa o'zgarmaydi.
+  - Har qiymat shifrlangach, darhol qayta ochib tekshiriladi.
+  - Hammasi bitta tranzaksiyada yoziladi.
+- **O'qish:** qiymatlar o'qishda ochiladi. Xodim kartasi, eksport va chatda hammasi avvalgidek ko'rinadi. Ro'yxatda ular avvalgidek yashirin.
+- **Tezlik:** ochilgan nusxa 60 soniya xotirada turadi. Haqiqiy fayllarda (12 864 qiymat) shifrlash 0,3 soniya, xodim kartasi birinchi marta 0,1 soniya, keyin 0,01 soniya.
+- **Kalit yo'q yoki boshqa bo'lsa:** tizim ishlayveradi, shifrlangan maydon o'rnida «[shifrlangan — kalit yo'q]» yoziladi. Administrator ogohlantirish ko'radi.
+- **Orqaga qaytarish:** «Shifrdan chiqarish» o'chirish paroli bilan bajariladi (standart parol bilan emas) va qiymatlarni ochiq holga qaytaradi. Kalit to'g'ri bo'lmasa, hech narsa yozilmaydi.
+- Har amal tarixga yoziladi. Qiymatlarning o'zi tarixga yozilmaydi.
+- **Kalit yo'qolsa:** shifrlangan maydonlarni ochib bo'lmaydi. Ularni asl Excel fayllarni qayta yuklab tiklash mumkin. Kalit nusxasini server tashqarisida saqlang.
+
+**API:** `GET /api/security/hr-crypto`, `POST /api/security/hr-crypto/seal`, `POST /api/security/hr-crypto/unseal` (`password`).
+
+**Testlar:**
+- `t-hr-crypto` — yangi yuklash, eski ma'lumotni shifrlash, zaxira olinmasa to'xtash, qaytarish, kalitsiz va boshqa kalit holatlari, eksport, orqaga qaytarish;
+- `pg/pg-core` — haqiqiy bazada 600 qiymat shifrlanib, aynan qaytariladi.

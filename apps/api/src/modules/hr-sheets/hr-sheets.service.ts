@@ -8,6 +8,7 @@ import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { HR_GROUP_LABELS, HR_SHEET, HR_SHEETS, type HrColumn, type HrGroup, type HrSheetCode, type HrSheetDef } from './hr-sheets.config';
 import { clearHrCache, hrPeople, loadSnapshot, nameIndex, normName, prevKey, rowObject, sheetKey, unitOfPlace, type HrSnapshot } from './hr-sheets.store';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { sealSnapshot } from './hr-sheets.crypto';
 
 // ═══════════════════════════════════════════════════════════
 // Xodimlar › Ma'lumotnomalar (10, 16, 37, 51-jadval) va «Miya» — PINFL bo'yicha xodimning hamma ma'lumoti.
@@ -482,7 +483,8 @@ export class HrSheetsService {
     const cur = await this.prisma.setting.findUnique({ where: { key: sheetKey(def.code) } });
     await this.prisma.$transaction(async (tx) => {
       if (cur) await tx.setting.upsert({ where: { key: prevKey(def.code) }, create: { key: prevKey(def.code), value: cur.value as object }, update: { value: cur.value as object } });
-      const value = snap as unknown as object;
+      // Kalit bo'lsa — pasport, telefon, manzil … bazaga shifrlangan holda yoziladi
+      const value = sealSnapshot(snap) as unknown as object;
       await tx.setting.upsert({ where: { key: sheetKey(def.code) }, create: { key: sheetKey(def.code), value }, update: { value } });
     });
     this.pending.delete(p.token);

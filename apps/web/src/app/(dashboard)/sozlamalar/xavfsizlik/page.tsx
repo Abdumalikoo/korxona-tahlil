@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { IconAlert, IconCheck } from '@/components/ui/icons';
 import { LoadingState } from '@/components/ui/states';
+import { HrCryptoCard } from '@/features/security/hr-crypto-card';
 import { api, type ApiResponse } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
@@ -203,6 +204,8 @@ export default function SecuritySettingsPage() {
               </CardBody>
             </Card>
 
+            <HrCryptoCard onChanged={sec.reload} />
+
             <Card className="lg:col-span-2">
               <CardHeader title="Server sozlamalari" description="Serverdagi .env faylida; o'zgartirgach API qayta ishga tushiriladi. Kalitlarning o'zi bu yerda ko'rsatilmaydi" />
               <CardBody>
@@ -210,7 +213,7 @@ export default function SecuritySettingsPage() {
                   {[
                     { ok: sec.data?.data?.backupEncrypted, title: 'Zaxirani shifrlash', env: 'BACKUP_ENCRYPTION_KEY', hint: "kamida 16 belgi. Kalit yo'qolsa zaxirani ochib bo'lmaydi — nusxasini server tashqarisida saqlang" },
                     { ok: sec.data?.data?.backupMirror, title: 'Zaxira ikkinchi joyda', env: 'BACKUP_MIRROR_DIR', hint: 'boshqa disk yoki tarmoq papkasi yo‘li' },
-                    { ok: sec.data?.data?.secretsEncrypted, title: 'Bazadagi maxfiy kalitlarni shifrlash', env: 'APP_ENCRYPTION_KEY', hint: 'kamida 32 belgi; Telegram bot kaliti shifrlab saqlanadi' },
+                    { ok: sec.data?.data?.secretsEncrypted, title: "Bazadagi maxfiy ma'lumotlarni shifrlash", env: 'APP_ENCRYPTION_KEY', hint: 'kamida 32 belgi; pasport, telefon, manzil va Telegram bot kaliti shifrlab saqlanadi' },
                   ].map((r) => (
                     <li key={r.env} className="flex items-start gap-3 py-2.5">
                       <span className={r.ok ? 'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-(--color-income-soft) text-(--color-income)' : 'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-(--color-warn-soft) text-(--color-warn)'}>
