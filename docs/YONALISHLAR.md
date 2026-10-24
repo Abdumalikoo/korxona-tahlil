@@ -61,6 +61,7 @@ Har bo'lim umumiy Xarajatlar sahifasi kabi tuzilgan: sarlavha ostida o'z tarkibi
 
 - Manzil: `/xarajatlar/bolim/<bo'lim>/<tuzilma>`; bo'limning o'zi ochilganda tuzilmalar tugmalari chiqadi.
 - **Tax free**: Ish haqi · Ish haqi tarkibi · Ijara va kommunal · Asosiy vositalar · Bank xarajatlari · Reklama xarajatlari · Boshqa xarajatlar.
+- **Fermer xo'jaligi**: Ish haqi · Ish haqi tarkibi · Ijara va internet · Asosiy vositalar · TMZ · Boshqa xarajatlar. Ish haqi va Ish haqi tarkibi oldingi shablon tizimida (xodimlar — faqat Fermer xodimlari); Ijara va internet — Tax free'dagi Ijara va kommunal kabi; Asosiy vositalar, TMZ va Boshqa xarajatlar — qo'lda kiritish jadvali.
 - **Marksheyder**: Ish haqi · Ish haqi tarkibi · Xizmat safari · Asosiy vositalar · Mashina xarajatlari · Boshqa xarajatlar. Ish haqi va Ish haqi tarkibi Tax free'dagidek ishlaydi (xodimlar — faqat Marksheyder xodimlari); qolganlari hozircha tugma.
 - Har bir bo'limda oxirgi yorliq — **Xarajatlar siyosati** (avtomatik qo'shiladi).
 - Shabloni berilmagan tuzilmalar hozircha faqat tugma. Har bir tuzilmaning yuklash tartibi va shabloni keyin birma-bir qo'shiladi.
@@ -117,7 +118,19 @@ Manzil: Xarajatlar › Tax free › Ijara va kommunal. To'lovlar 13 ta filial ke
 - **Saqlash:** har bir filial, oy va tur bo'yicha summa 0 dan katta bo'lsa, alohida xarajat yoziladi. Yo'nalish — Tax free, modda — «Ijara» (`LEASE`) yoki «Kommunal to'lovlar» (`KOMMUNAL`; yo'q bo'lsa avtomatik yaratiladi), kontragent — filial nomi. Oy qayta saqlansa, oldingi xarajatlari savatga tushadi.
 - **Bekor qilish:** shu yuklash bilan turgan oylarning ma'lumoti o'chadi, xarajatlari savatga tushadi. Undan oldingi yuklash qaytmaydi.
 - **Saqlash joyi:** `settings` jadvali, `unit.lease.TAX_FREE`. Migratsiya kerak emas.
-- **API:** `/api/unit-lease/:unit/` ostida `branches`, `template?from=&to=`, `analyze`, `commit`, `data?from=&to=`, `batches`, `batches/:id/cancel`.
+- **API:** `/api/unit-lease/:unit/` ostida `branches` (GET; POST — joylarni saqlash), `template?from=&to=`, `analyze`, `commit`, `data?from=&to=`, `batches`, `batches/:id/cancel`.
+
+## Fermer xo'jaligi › Ijara va internet
+
+Manzil: Xarajatlar › Fermer xo'jaligi › Ijara va internet. Tax free › Ijara va kommunal bilan bir xil tizim (oylar oralig'i, shablon, yuklash, saqlanadigan oylarni belgilash, almashtirish, bekor qilish), farqlari:
+
+- **Turlar:** har oy uchun «Ijara» (`LEASE`) va «Internet» (`INTERNET` — «Internet xizmatlari»; yo'q bo'lsa avtomatik yaratiladi). Bo'limlar bo'yicha turlar `unit-lease.branches.ts` dagi `LEASE_CONFIG`da.
+- **Joylar:** ro'yxat qat'iy emas — sahifadagi «Joylar» kartasida tahrirlanadi (nomini o'zgartirish, qo'shish, tartibini almashtirish, o'chirish). Boshida bitta joy — «Fermer xo'jaligi». Kodlar (FX01, FX02 …) o'zgarmaydi va qayta berilmaydi: nomi o'zgarsa summalar o'sha joyda qoladi. Summasi saqlangan joyni o'chirib bo'lmaydi (qaysi oylarda borligi aytiladi). Saqlash joyi — `settings`, `unit.lease.branches.FERMER`.
+- **Solishtirma daraxtida:** «Ijara va internet» → joy → Ijara / Internet.
+
+## Fermer xo'jaligi › TMZ
+
+Qo'lda kiritish jadvali (Asosiy vositalar kabi): sana, nomi, kontragent, hujjat №, soni × narxi = summa, izoh. Modda — «TMZ (tovar-moddiy zaxiralar)» (`UNIT_TMZ`, avtomatik yaratiladi). Saqlash joyi — `unit.entries.FERMER.TMZ`. Solishtirma daraxtida alohida «TMZ» tuzilmasi.
 
 ## Tax free › Bank xarajatlari
 

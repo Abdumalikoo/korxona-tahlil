@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { SEGMENTS, entryUnitLabel, entryUnitOf, segmentKey, segmentLabel } from '../../common/segments/segments';
 import { policyRouting, readPolicy, unitOfKey } from '../expense-policy/policy.util';
+import { LEASE_CONFIG } from '../unit-lease/unit-lease.branches';
 import { PrismaService } from '../prisma/prisma.service';
 import { bounds, compareRange, parseDay, periodsEndingIn, trendMonths } from './structure.engine';
 import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } from './structure.types';
@@ -121,12 +122,14 @@ const TUZILMA = {
   bank: { label: 'Bank xarajatlari', order: 4 },
   asset: { label: 'Asosiy vositalar', order: 5 },
   ad: { label: 'Reklama xarajatlari', order: 6 },
+  tmz: { label: 'TMZ', order: 6.5 },
   entries: { label: 'Boshqa xarajatlar', order: 7 },
   other: { label: 'Boshqa moddalar', order: 8 },
   in: { label: "Boshqa bo'limlardan (siyosat bo'yicha)", order: 9 },
 } as const;
-const LEASE_CODES = ['LEASE', 'KOMMUNAL'];
-const ENTRY_CODES: Record<string, keyof typeof TUZILMA> = { UNIT_ASSET: 'asset', REKLAMA: 'ad', UNIT_OTHER: 'entries' };
+/** Doimiy to'lovlar moddalari — bo'lim bo'yicha (Tax free: Ijara + Kommunal; Fermer: Ijara + Internet) */
+const leaseCodesOf = (segment: string): string[] => LEASE_CONFIG[segment]?.kinds.map((k) => k.category) ?? ['LEASE', 'KOMMUNAL'];
+const ENTRY_CODES: Record<string, keyof typeof TUZILMA> = { UNIT_ASSET: 'asset', REKLAMA: 'ad', UNIT_TMZ: 'tmz', UNIT_OTHER: 'entries' };
 
 export interface SegPart {
   code: string;
@@ -206,6 +209,8 @@ export class SegmentsService {
     const inPrev = (d: Date) => d >= prev.start && d < prev.end;
     const sectionWhere = section !== 'ALL' ? { section } : {};
     const key = segmentKey(code);
+    const code0 = code; // ichki tsiklda «code» — modda kodi
+    const LEASE_CODES = leaseCodesOf(code);
 
     const [cats, incomeCats, incomes, expenses, policy] = await Promise.all([
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true, order: true } }),
@@ -323,7 +328,8 @@ export class SegmentsService {
         // Tuzilma → xodim / filial / to'lov oluvchi / modda
         const mi = c ? rIndex.get(monthOf(r.date)) : undefined;
         const code = r.categoryCode;
-        const t = (k: keyof typeof TUZILMA, f?: SegFilter) => expTree.child(k, TUZILMA[k].label, N, f, undefined, TUZILMA[k].order);
+        const t = (k: keyof typeof TUZILMA, f?: SegFilter) =>
+          expTree.child(k, k === 'lease' ? (LEASE_CONFIG[code0]?.title ?? TUZILMA.lease.label) : TUZILMA[k].label, N, f, undefined, TUZILMA[k].order);
         const party = (r.counterparty ?? '').trim();
         const path: Acc[] = [];
         if (!writtenHere) {

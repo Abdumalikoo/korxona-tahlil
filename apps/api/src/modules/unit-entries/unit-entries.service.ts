@@ -8,12 +8,12 @@ import { unitBranches } from '../unit-lease/unit-lease.branches';
 import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
 
 // ═══════════════════════════════════════════════════════════
-// Yo'nalish xarajatlari — qo'lda kiritish jadvali (Xarajatlar › Tax free › Asosiy vositalar / Reklama / Boshqa).
+// Yo'nalish xarajatlari — qo'lda kiritish jadvali (Tax free › Asosiy vositalar / Reklama / Boshqa; Fermer › Asosiy vositalar / TMZ / Boshqa).
 //
 //  • Jadvalda to'g'ridan-to'g'ri yoziladi: qator qo'shish, tahrirlash, o'chirish; Excel'dan nusxa olib qo'yish;
 //    shablon (Filial — ro'yxatdan tanlanadi) → to'ldirib yuklash; Excel'ga yuklab olish.
 //  • Har qator — bitta xarajat yozuvi (yo'nalish, o'z moddasi). Qator o'zgarsa — xarajat ham; o'chirilsa — savatga.
-//  • Asosiy vositalarda: soni × narxi = summa (summa qo'lda ham yozilishi mumkin).
+//  • Asosiy vositalar va TMZda: soni × narxi = summa (summa qo'lda ham yozilishi mumkin).
 //  • Qator tafsiloti (filial, soni, narxi, izoh) `settings`da («unit.entries.<BO'LIM>.<TUR>») — migratsiya kerak emas.
 //  • Xarajatlar bo'limida o'chirilgan yozuv bu jadvalda ko'rinmaydi (savatdan tiklansa — qaytadi).
 // ═══════════════════════════════════════════════════════════
@@ -25,6 +25,7 @@ export const ENTRY_KINDS = {
   ASSET: { label: 'Asosiy vositalar', category: 'UNIT_ASSET', categoryLabel: 'Asosiy vositalar (xarid)', qty: true },
   AD: { label: 'Reklama xarajatlari', category: 'REKLAMA', categoryLabel: 'Reklama xarajatlari', qty: false },
   OTHER: { label: 'Boshqa xarajatlar', category: 'UNIT_OTHER', categoryLabel: 'Boshqa xarajatlar', qty: false },
+  TMZ: { label: 'TMZ', category: 'UNIT_TMZ', categoryLabel: 'TMZ (tovar-moddiy zaxiralar)', qty: true },
 } as const;
 export type EntryKindCode = keyof typeof ENTRY_KINDS;
 
@@ -131,7 +132,7 @@ export class UnitEntriesService implements OnModuleInit {
 
   kindOf(raw: unknown): EntryKindCode {
     if (typeof raw === 'string' && raw in ENTRY_KINDS) return raw as EntryKindCode;
-    throw new BadRequestException("Tur noto'g'ri (ASSET, AD, OTHER)");
+    throw new BadRequestException("Tur noto'g'ri (ASSET, AD, OTHER, TMZ)");
   }
 
   private key(unit: string, kind: EntryKindCode) {

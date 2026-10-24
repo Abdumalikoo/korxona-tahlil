@@ -9,7 +9,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /**
- * Yo'nalish ijara va kommunal to'lovlari (filiallar kesimida): /api/unit-lease/:unit/…
+ * Yo'nalish doimiy to'lovlari — Tax free: ijara va kommunal, Fermer: ijara va internet (filiallar/joylar kesimida): /api/unit-lease/:unit/…
  * Shablon oylar oralig'i uchun (from–to), yuklangan fayldagi hamma oylar o'qiladi.
  */
 @Controller('unit-lease')
@@ -17,8 +17,16 @@ export class UnitLeaseController {
   constructor(private readonly service: UnitLeaseService) {}
 
   @Get(':unit/branches')
-  branches(@Param('unit') unit: string) {
-    return { data: this.service.branches(this.service.unitOf(unit)) };
+  async branches(@Param('unit') unit: string) {
+    return { data: await this.service.branches(this.service.unitOf(unit)) };
+  }
+
+  /** Joylar ro'yxatini saqlash (Fermer xo'jaligi …; Tax free filiallari qat'iy) */
+  @Roles(UserRole.ADMIN)
+  @Post(':unit/branches')
+  @HttpCode(HttpStatus.OK)
+  async saveBranches(@Param('unit') unit: string, @Body() body: { branches?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.saveBranches(this.service.unitOf(unit), body, userId) };
   }
 
   @Get(':unit/template')

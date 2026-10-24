@@ -1,12 +1,32 @@
 import { api, getToken, type ApiResponse } from '@/lib/api';
 
 // ═══════════════════════════════════════════════════════════
-// Yo'nalish ijara va kommunal to'lovlari (filiallar kesimida): /api/unit-lease/:unit/…
+// Yo'nalish doimiy to'lovlari (filiallar/joylar kesimida): /api/unit-lease/:unit/…
+//   Tax free — Ijara va kommunal; Fermer xo'jaligi — Ijara va internet (joylar sahifada tahrirlanadi).
 // ═══════════════════════════════════════════════════════════
 
-export interface LeaseCell {
-  ijaraTiyin: string;
-  kommunalTiyin: string;
+/** Katak: turning maydoni (ijaraTiyin, kommunalTiyin, internetTiyin …) → tiyin */
+export type LeaseCell = Record<string, string>;
+
+/** To'lov turi (shablon ustuni) */
+export interface LeaseKindInfo {
+  key: string;
+  label: string;
+  /** Katakdagi maydon nomi */
+  field: string;
+}
+
+export interface LeaseMeta {
+  title: string;
+  branchLabel: string;
+  kinds: LeaseKindInfo[];
+}
+
+export interface LeaseBranches extends LeaseMeta {
+  unit: string;
+  label: string;
+  editable: boolean;
+  branches: LeaseBranch[];
 }
 
 export interface LeaseBranch {
@@ -18,14 +38,12 @@ export interface LeaseBranch {
 export interface LeaseAnalyzeMonth {
   period: string;
   label: string;
-  ijaraTiyin: string;
-  kommunalTiyin: string;
   totalTiyin: string;
   empty: boolean;
   saved: { fileName: string; savedAt: string; totalTiyin: string } | null;
 }
 
-export interface LeaseAnalyzeResult {
+export interface LeaseAnalyzeResult extends LeaseMeta {
   unit: string;
   label: string;
   fileName: string;
@@ -38,10 +56,11 @@ export interface LeaseAnalyzeResult {
   totalTiyin: string;
 }
 
-export interface LeaseData {
+export interface LeaseData extends LeaseMeta {
   unit: string;
   label: string;
-  months: { period: string; label: string; saved: { fileName: string; savedAt: string; uploadedBy: string } | null; ijaraTiyin: string; kommunalTiyin: string }[];
+  editable: boolean;
+  months: { period: string; label: string; saved: { fileName: string; savedAt: string; uploadedBy: string } | null }[];
   branches: (LeaseBranch & { cells: Record<string, LeaseCell | null> })[];
 }
 
@@ -89,7 +108,10 @@ async function readError(response: Response, fallback: string): Promise<string> 
 export const unitLeaseApi = {
   data: (unit: string, from: string, to: string) => api.get<ApiResponse<LeaseData>>(`/unit-lease/${enc(unit)}/data`, { params: { from, to } }),
   batches: (unit: string) => api.get<ApiResponse<LeaseBatch[]>>(`/unit-lease/${enc(unit)}/batches`),
-  commit: (unit: string, body: { fileName: string; months: string[]; rows: { branch: string; period: string; ijaraTiyin: string; kommunalTiyin: string }[] }) =>
+  branches: (unit: string) => api.get<ApiResponse<LeaseBranches>>(`/unit-lease/${enc(unit)}/branches`),
+  saveBranches: (unit: string, branches: { code?: string; name: string }[]) =>
+    api.post<ApiResponse<{ branches: LeaseBranch[] }>>(`/unit-lease/${enc(unit)}/branches`, { branches }),
+  commit: (unit: string, body: { fileName: string; months: string[]; rows: ({ branch: string; period: string } & LeaseCell)[] }) =>
     api.post<ApiResponse<LeaseCommitResult>>(`/unit-lease/${enc(unit)}/commit`, body),
   cancel: (unit: string, id: string) => api.post<ApiResponse<{ success: true; clearedMonths: string[] }>>(`/unit-lease/${enc(unit)}/batches/${enc(id)}/cancel`),
 };
@@ -100,7 +122,7 @@ export async function downloadLeaseTemplate(unit: string, from: string, to: stri
   if (!response.ok) throw new Error(await readError(response, "Shablonni yuklab bo'lmadi"));
   const disposition = response.headers.get('Content-Disposition') ?? '';
   const match = /filename="?([^";]+)"?/.exec(disposition);
-  const filename = match?.[1] ? decodeURIComponent(match[1]) : `Ijara-kommunal-${from}_${to}.xlsx`;
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : `Ijara-${unit}-${from}_${to}.xlsx`;
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement('a');
   link.href = url;

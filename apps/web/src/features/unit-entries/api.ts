@@ -4,8 +4,8 @@ import { api, ApiError, getToken, type ApiResponse } from '@/lib/api';
 // Yo'nalish xarajatlari — qo'lda kiritish jadvali: /api/unit-entries/:unit/:kind/…
 // ═══════════════════════════════════════════════════════════
 
-/** ASSET — asosiy vositalar, AD — reklama, OTHER — boshqa xarajatlar */
-export type EntryKindCode = 'ASSET' | 'AD' | 'OTHER';
+/** ASSET — asosiy vositalar, AD — reklama, OTHER — boshqa xarajatlar, TMZ — tovar-moddiy zaxiralar */
+export type EntryKindCode = 'ASSET' | 'AD' | 'OTHER' | 'TMZ';
 
 export interface EntryRow {
   id: string;

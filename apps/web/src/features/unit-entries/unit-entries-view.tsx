@@ -56,6 +56,7 @@ const KIND_TEXT: Record<EntryKindCode, { item: string; placeholder: string }> = 
   ASSET: { item: 'asosiy vosita', placeholder: 'Masalan: Noutbuk HP ProBook' },
   AD: { item: 'reklama xarajati', placeholder: 'Masalan: Instagram reklama (aprel)' },
   OTHER: { item: 'xarajat', placeholder: 'Masalan: Kantselyariya tovarlari' },
+  TMZ: { item: 'TMZ', placeholder: "Masalan: O'g'it (ammiakli selitra), qop" },
 };
 
 const EMPTY: Values = { date: '', name: '', branch: '', counterparty: '', docNo: '', qty: '', price: '', amount: '', note: '' };
@@ -203,7 +204,7 @@ export function UnitEntriesView({ unit, kind }: { unit: EntryUnit; kind: EntryKi
   const { from, to, error: rangeError, text: rangeText } = range;
   const list = useAsync(() => (rangeError ? Promise.resolve(null) : unitEntriesApi.list(unit.code, kind, from, to)), [unit.code, kind, from, to, rangeError]);
   const data = list.data?.data ?? null;
-  const withQty = data?.qty ?? kind === 'ASSET';
+  const withQty = data?.qty ?? (kind === 'ASSET' || kind === 'TMZ');
   const branches = data?.branches ?? [];
   const text = KIND_TEXT[kind];
 
@@ -537,7 +538,7 @@ export function UnitEntriesView({ unit, kind }: { unit: EntryUnit; kind: EntryKi
           <>
             Katakka to&apos;g&apos;ridan-to&apos;g&apos;ri yozing — <b>Enter</b> pastga o&apos;tadi. Excel&apos;dan nusxa olib (<b>Ctrl+C</b>) istalgan katakka qo&apos;ying (
             <b>Ctrl+V</b>) — qatorlar o&apos;zi to&apos;ladi.{withQty && <> Summa bo&apos;sh qolsa — <b>Soni × Narxi</b>.</>} Har qator — Xarajatlarda alohida yozuv ({unit.label} ·{' '}
-            {data?.label ?? ''}).
+            {data?.label ?? text.item}).$
           </>
         }
       />
@@ -598,7 +599,7 @@ export function UnitEntriesView({ unit, kind }: { unit: EntryUnit; kind: EntryKi
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Qidirish: nomi, kontragent, filial…"
+                placeholder={branches.length ? 'Qidirish: nomi, kontragent, filial…' : 'Qidirish: nomi, kontragent, izoh…'}
                 className="h-9 w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white pl-8 pr-2 text-sm"
               />
             </label>
