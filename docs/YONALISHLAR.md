@@ -178,3 +178,25 @@ Bosh sahifa › Daromad / Xarajat / Tahlil (ichma-ich jadvallar) va Modellar sah
 - **Biriktirilmagan:** faqat hudud, bo'lim yoki yo'nalish ko'rsatilmagan yozuvlar shu yerda qoladi.
 - **Modellar:** yo'nalish alohida birlik (`segment`) bo'ladi. Hududlar uchun reja va ustama xarajat taqsimotida yo'nalish yozuvlari hisobga olinmaydi. Siyosat bo'yicha Markaz hisobiga o'tganlari esa Markaz xarajatiga qo'shiladi.
 - **Filtr:** `unit = s:TAX_FREE`, `s:MARKSHEYDER` … bitta yo'nalish uchun, `segments` hamma yo'nalishlar uchun.
+
+## Solishtirma › Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari
+
+Solishtirma menyusida Markazdan keyin 4 ta yangi sahifa bor: `/solishtirma/tax-free`, `/solishtirma/marksheyder`, `/solishtirma/fermer`, `/solishtirma/buxgalteriya`. Har biri o'z bo'limi bo'yicha alohida ma'lumot beradi:
+
+- **Ko'rsatkichlar:**
+  - daromad: korxona jamidagi ulushi bilan;
+  - xarajat: ish haqi alohida, siyosat bo'yicha kelgan va o'tgan summa bilan;
+  - natija (foyda yoki zarar);
+  - rentabellik.
+
+  Hammasi o'tgan davr yoki o'tgan yil bilan taqqoslanadi. Bo'lim filtri: Hammasi, Doimiy yoki Boshqa.
+- **Daromad manbalari:** xizmat turlari bo'yicha, ulushi va o'zgarishi bilan.
+- **Xarajat tarkibi:** guruh → modda. Unda shu bo'limda yozilgan va shu bo'lim hisobida qolgan xarajatlar ko'rinadi.
+- **Siyosat oqimlari:**
+  - «Boshqa bo'limlardan shu bo'lim hisobiga» — xarajatga qo'shiladi;
+  - «Shu bo'limdan boshqa bo'lim hisobiga» — xarajatga kirmaydi.
+- **So'nggi 12 oy:** daromad va xarajat ustunlari, har oyning natijasi.
+- **Ichma-ich ko'rish:** istalgan summa bosilsa, o'sha summani tashkil qilgan yozuvlar ochiladi (Bosh sahifadagi bilan bir xil panel).
+- **Hisob:** Solishtirmadagi bilan bir xil. Jami summalar Solishtirma jadvalidagi yo'nalish qatoriga teng.
+- **Bog'lanish:** Solishtirma jadvalida (Hududlar va Umumiy) yo'nalish qatori bosilsa, uning sahifasi ochiladi.
+- **API:** GET `/api/structure/regions/segment/:code?from&to&section&compare`.

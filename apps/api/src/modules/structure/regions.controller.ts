@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ChangesService } from './changes.service';
 import { RegionsService } from './regions.service';
+import { SegmentsService } from './segments.service';
 import { UnassignedService } from './unassigned.service';
 
 /** Solishtirma: hududlar va Markaz — daromad va xarajat; xodimlar o'zgarishi */
@@ -10,7 +11,14 @@ export class RegionsController {
     private readonly regions: RegionsService,
     private readonly changes: ChangesService,
     private readonly unassigned: UnassignedService,
+    private readonly segments: SegmentsService,
   ) {}
+
+  /** Yo'nalish (Tax free, Marksheyder …): daromad manbalari, xarajat tarkibi, natija, siyosat oqimlari (?from&to&section&compare) */
+  @Get('segment/:code')
+  async segment(@Param('code') code: string, @Query('from') from?: string, @Query('to') to?: string, @Query('section') section?: string, @Query('compare') compare?: string) {
+    return { data: await this.segments.view(code, { from, to, section, compare }) };
+  }
 
   /** ?from&to&section=ALL|DOIMIY|BOSHQA&compare=prev|yoy */
   @Get()

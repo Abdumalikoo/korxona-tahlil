@@ -14,6 +14,7 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useBrief } from '@/lib/view-mode';
 import { useRouter } from 'next/navigation';
+import { unitByCode } from '@/lib/segments';
 import { useMemo, useState, type ReactNode } from 'react';
 import { KIND_LABEL, KIND_ORDER, regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
 import { centerCover } from './center-cover';
@@ -209,8 +210,8 @@ function Body({ data, brief }: { data: RegionsResult; brief: boolean }) {
     if (s.unit.kind === 'center') router.push('/solishtirma/markaz');
     else if (s.unit.kind === 'region' && s.unit.code !== null) router.push(`/solishtirma?r=${s.unit.code}`);
     else if (s.unit.kind === 'unassigned') setUnOpen(true);
-    // Yo'nalish — Solishtirma jadvalida karta (tarkibi) ochiladi
-    else if (s.unit.kind === 'segment') router.push('/solishtirma');
+    // Yo'nalish — o'z sahifasi: Solishtirma › Tax free …
+    else if (s.unit.kind === 'segment') router.push(s.unit.segment && unitByCode(s.unit.segment) ? `/solishtirma/${unitByCode(s.unit.segment)!.slug}` : '/solishtirma');
   };
 
   const cover = centerCover(

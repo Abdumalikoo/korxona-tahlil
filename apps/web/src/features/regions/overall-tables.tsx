@@ -152,7 +152,7 @@ export function UnitDetail({ s, fmt, onOpen }: { s: UnitStats; fmt: Fmt; onOpen:
           </span>
         )}
         <button type="button" onClick={onOpen} className="ml-auto font-semibold text-brand-700 hover:underline">
-          {s.unit.kind === 'center' ? 'Markaz sahifasini ochish ›' : s.unit.kind === 'unassigned' ? "Biriktirilmagan yozuvlarni ko'rish ›" : s.unit.kind === 'segment' ? "Solishtirmada ko'rish ›" : 'Hudud sahifasini ochish ›'}
+          {s.unit.kind === 'center' ? 'Markaz sahifasini ochish ›' : s.unit.kind === 'unassigned' ? "Biriktirilmagan yozuvlarni ko'rish ›" : s.unit.kind === 'segment' ? "Bo'lim sahifasini ochish ›" : 'Hudud sahifasini ochish ›'}
         </button>
       </div>
     </div>

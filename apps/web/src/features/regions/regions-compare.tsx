@@ -24,6 +24,7 @@ import { calcChange, calcDiff, calcDivide, calcMargin, calcResult, calcShare, ca
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useBrief } from '@/lib/view-mode';
+import { unitByCode } from '@/lib/segments';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { Mark } from '@/features/reactions/mark';
@@ -147,7 +148,7 @@ function UnitRow({
         </span>
         {u.kind !== 'region' && (
           <span className="text-xs text-(--color-text-faint)">
-            {u.kind === 'center' ? "Markaz bo'limlari va xodimlari" : u.kind === 'segment' ? "yo'nalish · tarkibini ko'rish ›" : "hudud belgilanmagan yozuvlar · ichini ko'rish ›"}
+            {u.kind === 'center' ? "Markaz bo'limlari va xodimlari" : u.kind === 'segment' ? "yo'nalish · sahifasini ochish ›" : "hudud belgilanmagan yozuvlar · ichini ko'rish ›"}
           </span>
         )}
       </td>
@@ -403,6 +404,7 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
   const [query, setQuery] = useState('');
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [unOpen, setUnOpen] = useState(false);
+  const router = useRouter();
 
   /** Viloyat bosilsa — ichiga (tumanlar); Markaz va biriktirilmagan — karta */
   const open = (key: string) => {
@@ -412,6 +414,8 @@ function Body({ data, loading, onDrill, brief = false }: { data: RegionsResult; 
     else if (unit?.kind === 'center') onDrill(0);
     // Biriktirilmagan — ichidagi yozuvlar paneli
     else if (unit?.kind === 'unassigned') setUnOpen(true);
+    // Yo'nalish (Tax free …) — o'z sahifasi (daromad manbalari, xarajat tarkibi, natija)
+    else if (unit?.kind === 'segment' && unit.segment && unitByCode(unit.segment)) router.push(`/solishtirma/${unitByCode(unit.segment)!.slug}`);
     else setOpenKey(key);
   };
 
