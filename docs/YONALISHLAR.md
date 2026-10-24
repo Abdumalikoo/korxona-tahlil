@@ -254,3 +254,24 @@ Umumiy sahifada qator bosilsa, endi boshqa sahifaga o'tilmaydi. Qatorning o'zi k
 - **Kenglik:** ochilgan panel jadval gorizontal aylantirilsa ham ko'rinadigan kenglikda turadi.
 - **Boshqa jadval va grafiklar:** Taqqoslash, Oylar, Ulush lentasi, Markazni qoplash va tepadagi kartochkalardan bosilsa, umumiy jadvalda o'sha birlik ochiladi va unga o'tiladi.
 - **Yo'nalishlar hisobda:** tepadagi «Butun korxona» kartochkasi va natija ko'prigi (Bridge) grafigiga yo'nalishlar alohida qator bo'lib qo'shildi. Shu bilan qismlar yig'indisi korxona jamiga teng bo'ladi.
+
+## 7 bo'limda o'chirish tugmalari
+
+- **Xarajatlar › <bo'lim>** (Markaz, Hududlar, Tax free, Marksheyder, Fermer, Buxgalteriya, Qo'mita): tuzilmalar qatorining o'ng tomonida «O'chirish» (oy, kun, oraliq) va «Hammasini o'chirish» tugmalari bor.
+- **Daromadlar › <bo'lim>:** Doimiy va Boshqa ro'yxatlarida ham xuddi shunday: belgilanganlar, oy yoki oraliq va «Hammasini o'chirish».
+- **Qamrov:** faqat shu bo'lim yozuvlari o'chadi (`scope.unit` — `entryUnitWhere` qoidasi bo'yicha). O'chganlar savatga tushadi, tiklash mumkin. «Hammasi» yoki 50 tadan ortiq yozuv uchun parol so'raladi. Hududchi faqat Hududlar bo'limida o'chira oladi.
+
+## Xodimlarning bo'limlar o'rtasida ko'chishi («miya» tarixi)
+
+- **Nima uchun:** xodim ba'zi oylarda bir bo'limda, keyin boshqasida bo'ladi. Masalan: Aliyev yanvar–mart Tax free'da, apreldan Markazda, iyuldan yana Tax free'da. Tizim har oy uchun xodim qaysi bo'limda ekanini biladi.
+- **Qanday yoziladi:**
+  - Xarajatlar › <yo'nalish> › Ish haqi › xodimlar ro'yxati › «Ko'chirish»: bo'lim (7 tadan biri) va qaysi oydan, ixtiyoriy izoh (buyruq №).
+  - «+ Xodim» shaklida «Boshqa bo'limdan, shu oydan» to'ldirilsa, xodim shu oydan boshlab shu bo'limga ko'chirilgan bo'ladi.
+- **Hisoblash qoidasi:** oy uchun bo'lim — o'sha oygacha (shu oy ham) bo'lgan eng so'nggi ko'chish. Ko'chish yo'q bo'lsa, odatdagi qoida ishlaydi (bo'lim ro'yxati va Xodimlar bazasi bilan bog'lanish). Oldingi oylar o'zgarmaydi.
+- **Bo'lim ro'yxati:** «Oy» tanlanadi va o'sha oydagi tarkib ko'rsatiladi. Boshqa bo'limga ketganlar ro'yxatdan chiqadi, ko'chib kelganlar qo'shiladi («boshqa bo'limdan ko'chib kelgan»). Har xodimda ko'chishlar belgisi bor («Iyul 2026dan: Tax free»). Pastda ikki qism bor:
+  - «Shu oyda boshqa bo'limda» — kimlar va qaysi bo'limda;
+  - «Ko'chishlar tarixi» — qayerdan qayerga, qachondan, qo'lda yoki vedomostdan. Har birini bekor qilish mumkin.
+- **Shablon:** oylar oralig'idagi hamma oylarda shu bo'limda bo'lganlar chiqadi. Xodim boshqa bo'limda bo'lgan oyning katagi kulrang bo'ladi, izohida qaysi bo'limda ekani yoziladi.
+- **Vedomost («miya»):** xodim o'sha oyda boshqa bo'limda bo'lsa, tahlilda «bu oyda: Markaz → ko'chadi» deb ko'rsatiladi. Summa bilan saqlansa, o'sha oydan shu bo'limga ko'chish avtomatik yoziladi (`source: UPLOAD`).
+- **Saqlash joyi:** `settings` jadvalidagi `unit.moves` kaliti. Migratsiya kerak emas.
+- **API:** `/api/unit-payroll/:unit/` ostida: GET `staff?period=`, GET `moves?pinfl=`, POST `moves {pinfl, unit, from, note?}`, DELETE `moves/:id`.

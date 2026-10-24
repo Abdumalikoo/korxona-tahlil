@@ -10,6 +10,7 @@ import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PeriodCloseService } from '../regional-data/period-close.service';
 import { monthName } from '../regional-data/rd.util';
+import { ENTRY_UNIT_CODES, entryUnitLabel, entryUnitWhere } from '../../common/segments/segments';
 import { SalaryCompositionService } from '../salary-composition/salary-composition.service';
 
 // ═══════════════════════════════════════════════════════════
@@ -60,6 +61,8 @@ export interface DeleteScope {
   sources?: string[];
   section?: 'DOIMIY' | 'BOSHQA';
   categoryCode?: string;
+  /** Kiritish bo'limi: CENTER, REGION, TAX_FREE … QOMITA (faqat daromad / xarajat) */
+  unit?: string;
 }
 
 export interface DeleteRequest {
@@ -213,7 +216,10 @@ export class BulkDeleteService {
       sources: Array.isArray(s.sources) ? s.sources.filter((x): x is string => typeof x === 'string' && x in SOURCE_LABEL) : undefined,
       section: s.section === 'DOIMIY' || s.section === 'BOSHQA' ? s.section : undefined,
       categoryCode: typeof s.categoryCode === 'string' && s.categoryCode ? s.categoryCode : undefined,
+      unit: typeof s.unit === 'string' && ENTRY_UNIT_CODES.includes(s.unit) ? s.unit : undefined,
     };
+    if (s.unit !== undefined && !scope.unit) throw new BadRequestException("Bo'lim noto'g'ri");
+    if (actor.role === 'HUDUDCHI' && scope.unit && scope.unit !== 'REGION') throw new ForbiddenException("Hududchi faqat hududlar ma'lumotini o'chiradi");
     if (actor.role === 'HUDUDCHI' && scope.regionCode === 0) throw new ForbiddenException("Hududchi Markaz ma'lumotini o'chira olmaydi");
     const req: DeleteRequest & { scope: DeleteScope } = { target, mode, scope };
     if (mode === 'ids') {
@@ -260,6 +266,8 @@ export class BulkDeleteService {
     if (s.sources?.length) and.push({ source: { in: s.sources } });
     if (s.section) and.push({ section: s.section });
     if (s.categoryCode) and.push({ categoryCode: s.categoryCode });
+    // Bo'lim sahifasi (Xarajatlar / Daromadlar › Tax free …) — faqat shu bo'lim yozuvlari
+    if (s.unit) and.push(entryUnitWhere(s.unit));
     return { AND: and };
   }
 
@@ -708,7 +716,7 @@ export class BulkDeleteService {
       action: 'DELETE',
       entity: `bulk_${req.target.toLowerCase()}`,
       entityId: req.month ?? req.day ?? (req.from ? `${req.from}_${req.to}` : 'ids'),
-      summary: `O'chirildi: ${count} ta ${TARGET_LABEL[req.target]} — ${p.periodLabel}, ${(Number(p.totalTiyin) / 100).toLocaleString('ru-RU')} so'm${req.scope.regional ? ' (hududlar)' : ''}`,
+      summary: `O'chirildi: ${count} ta ${TARGET_LABEL[req.target]} — ${p.periodLabel}, ${(Number(p.totalTiyin) / 100).toLocaleString('ru-RU')} so'm${req.scope.unit ? ` (${entryUnitLabel(req.scope.unit)})` : req.scope.regional ? ' (hududlar)' : ''}`,
     });
     return { count, totalTiyin: p.totalTiyin, restorable: p.restorable, periodLabel: p.periodLabel };
   }

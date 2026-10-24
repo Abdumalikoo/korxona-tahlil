@@ -1,6 +1,7 @@
 'use client';
 
 import { SourceActions } from '@/components/shared/source-actions';
+import { DeleteDataButton } from '@/components/shared/delete-data';
 import { useMonthChange, usePeriod } from '@/lib/period';
 import { downloadIncomesExcel, incomesApi, type IncomeFilters } from '@/features/incomes/api';
 import { IncomeDrawer } from '@/features/incomes/income-drawer';
@@ -221,18 +222,37 @@ export function IncomeList({ section, unit = null }: { section: SectionValue; un
           // Bo'lim sahifasida Excel yuklash yo'q: yuklangan yozuvlarda joy (Markaz/hudud/yo'nalish) bo'lmaydi
           {...(unit ? {} : { upload: { label: "Excel'dan yuklash", onClick: () => setImportOpen(true), hint: 'Shablon yuklash oynasining ichida' } })}
           download={{ label: "Excel'ga yuklab olish", onClick: () => void handleExport(), loading: exporting, disabled: items.length === 0 }}
-          {...(unit ? {} : { deleteData: {
+          deleteData={{
             target: 'INCOME',
-            scope: { section },
+            scope: unit ? { section, unit: unit.code } : { section },
             selectedIds: [...selectedIds],
             month: period,
-            place: `Daromadlar › ${SECTION_LABELS[section]}`,
+            place: unit ? `Daromadlar › ${unit.label} › ${SECTION_LABELS[section]}` : `Daromadlar › ${SECTION_LABELS[section]}`,
             onDone: ({ count }: { count: number }) => {
               setToast(`${count} ta yozuv savatga tushdi`);
               setSelectedIds(new Set());
               reloadAll();
             },
-          } })}
+          }}
+          {...(unit
+            ? {
+                extra: (
+                  <DeleteDataButton
+                    size="sm"
+                    target="INCOME"
+                    defaultMode="all"
+                    label="Hammasini o'chirish"
+                    scope={{ unit: unit.code }}
+                    place={`Daromadlar › ${unit.label} › hammasi`}
+                    onDone={({ count }) => {
+                      setToast(`${count} ta yozuv savatga tushdi`);
+                      setSelectedIds(new Set());
+                      reloadAll();
+                    }}
+                  />
+                ),
+              }
+            : {})}
         />
 
         {/* Filtrlar */}

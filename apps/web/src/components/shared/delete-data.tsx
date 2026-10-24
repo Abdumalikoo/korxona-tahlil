@@ -33,6 +33,8 @@ export interface DeleteScope {
   sources?: string[];
   section?: 'DOIMIY' | 'BOSHQA';
   categoryCode?: string;
+  /** Kiritish bo'limi (CENTER, REGION, TAX_FREE … QOMITA) — faqat shu bo'lim yozuvlari */
+  unit?: string;
 }
 
 interface Group {

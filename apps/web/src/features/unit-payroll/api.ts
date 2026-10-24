@@ -10,11 +10,35 @@ export interface UnitStaff {
   position: string | null;
   active: boolean;
   addedAt: string;
-  /** UPLOAD — vedomostdan, MANUAL — qo'lda, REGISTRY — Xodimlar bazasidan (bo'limi yoki lavozimi bo'yicha) */
-  source: 'UPLOAD' | 'MANUAL' | 'REGISTRY';
+  /** UPLOAD — vedomostdan, MANUAL — qo'lda, REGISTRY — Xodimlar bazasidan, MOVE — boshqa bo'limdan ko'chib kelgan */
+  source: 'UPLOAD' | 'MANUAL' | 'REGISTRY' | 'MOVE';
   leftAt: string | null;
   /** Umumiy xodimlar bazasida ham bor */
   inRegistry: boolean;
+  /** Bo'limlar o'rtasida ko'chishlari (oy tartibida) */
+  moves?: MoveStep[];
+}
+
+export interface MoveStep {
+  id: string;
+  unit: string;
+  unitLabel: string;
+  from: string;
+}
+
+/** Bo'limlar o'rtasida ko'chish («miya» tarixi) */
+export interface UnitMove {
+  id: string;
+  pinfl: string;
+  fullName: string;
+  unit: string;
+  unitLabel: string;
+  from: string;
+  fromUnit: string | null;
+  fromUnitLabel: string | null;
+  note: string | null;
+  source: 'MANUAL' | 'UPLOAD';
+  createdAt: string;
 }
 
 export interface UnitStaffList {
@@ -22,7 +46,11 @@ export interface UnitStaffList {
   label: string;
   active: number;
   total: number;
+  /** Ko'rsatilgan oy (shu oydagi tarkib) */
+  period?: string;
   items: UnitStaff[];
+  /** Shu oyda boshqa bo'limda bo'lganlar (oldin yoki keyin shu yerda) */
+  away?: { pinfl: string; fullName: string; unit: string | null; unitLabel: string | null; moves: MoveStep[] }[];
 }
 
 /** Xodimlar bazasi bilan bog'lash */
@@ -57,6 +85,9 @@ export interface UnitAnalyzeRow {
   position: string | null;
   amountTiyin: string;
   status: UnitRowStatus;
+  /** Shu oyda boshqa bo'limda (ko'chishlar bo'yicha) — summa bo'lsa, saqlanganda shu bo'limga ko'chadi */
+  otherUnit?: string;
+  otherUnitLabel?: string;
 }
 
 export interface UnitAnalyzeResult {
@@ -71,6 +102,7 @@ export interface UnitAnalyzeResult {
   newRows: number;
   returningRows: number;
   unnamedRows: number;
+  movedRows?: number;
   totalTiyin: string;
   invalidRows: { rowIndex: number; reason: string }[];
   duplicates: string[];
@@ -102,6 +134,7 @@ export interface UnitCommitResult {
   totalTiyin: string;
   newStaff: number;
   returned: number;
+  movedIn?: number;
   replacedPrevious: boolean;
 }
 
@@ -145,7 +178,10 @@ async function readError(response: Response, fallback: string): Promise<string> 
 const enc = encodeURIComponent;
 
 export const unitPayrollApi = {
-  staff: (unit: string) => api.get<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff`),
+  staff: (unit: string, period?: string) => api.get<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff`, period ? { params: { period } } : undefined),
+  moves: (unit: string, pinfl?: string) => api.get<ApiResponse<{ items: UnitMove[]; units: { code: string; label: string }[] }>>(`/unit-payroll/${enc(unit)}/moves`, pinfl ? { params: { pinfl } } : undefined),
+  addMove: (unit: string, body: { pinfl: string; unit: string; from: string; note?: string; fullName?: string }) => api.post<ApiResponse<UnitMove>>(`/unit-payroll/${enc(unit)}/moves`, body),
+  removeMove: (unit: string, id: string) => api.delete<ApiResponse<{ success: true; id: string }>>(`/unit-payroll/${enc(unit)}/moves/${enc(id)}`),
   link: (unit: string) => api.get<ApiResponse<StaffLinkInfo>>(`/unit-payroll/${enc(unit)}/link`),
   setLink: (unit: string, body: { departmentIds?: string[] | null; byPosition?: boolean }) => api.patch<ApiResponse<StaffLinkInfo>>(`/unit-payroll/${enc(unit)}/link`, body),
   lookup: (unit: string, pinfl: string) => api.get<ApiResponse<StaffLookup>>(`/unit-payroll/${enc(unit)}/lookup/${enc(pinfl)}`),

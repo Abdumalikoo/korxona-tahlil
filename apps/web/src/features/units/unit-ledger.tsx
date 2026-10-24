@@ -16,6 +16,7 @@ import { UnitLeaseView } from '@/features/unit-lease/unit-lease-view';
 import { UnitPayrollView } from '@/features/unit-payroll/unit-payroll-view';
 import { UnitPolicyView } from '@/features/unit-policy/unit-policy-view';
 import { UnitCategories } from './unit-categories';
+import { DeleteDataButton } from '@/components/shared/delete-data';
 import { unitTabs } from './structure';
 import type { EntryKind } from './api';
 
@@ -65,6 +66,7 @@ function ExpenseUnit({ unit, tab }: { unit: EntryUnit; tab?: string }) {
   const period = params.get('period');
   const keep = period && PERIOD_RE.test(period) ? `?period=${period}` : '';
   const base = `${BASE.expense}/${unit.slug}`;
+  const { month } = usePeriod();
   const tabs = unitTabs('expense', unit.code);
   const current = tab ? tabs.find((t) => t.slug === tab) : undefined;
 
@@ -83,8 +85,15 @@ function ExpenseUnit({ unit, tab }: { unit: EntryUnit; tab?: string }) {
 
   return (
     <>
-      <div className="no-print px-4 pt-5 md:px-6">
-        <TabPills items={items} active={(item) => (item.href.split('?')[0] ?? item.href) === pathname} />
+      <div className="no-print flex flex-wrap items-start gap-3 px-4 pt-5 md:px-6">
+        <div className="min-w-0 flex-1">
+          <TabPills items={items} active={(item) => (item.href.split('?')[0] ?? item.href) === pathname} />
+        </div>
+        {/* Shu bo'lim xarajatlarini o'chirish: oy / oraliq / hammasi (savatga, 15 kun ichida tiklash mumkin) */}
+        <div className="flex shrink-0 items-center gap-2">
+          <DeleteDataButton size="sm" target="EXPENSE" scope={{ unit: unit.code }} month={period && PERIOD_RE.test(period) ? period : month} place={`Xarajatlar › ${unit.label}`} onDone={() => window.location.reload()} />
+          <DeleteDataButton size="sm" target="EXPENSE" scope={{ unit: unit.code }} defaultMode="all" label="Hammasini o'chirish" place={`Xarajatlar › ${unit.label} › hammasi`} onDone={() => window.location.reload()} />
+        </div>
       </div>
       <div className="p-4 md:p-6">
         {tab && !current ? (

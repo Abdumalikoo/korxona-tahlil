@@ -28,7 +28,9 @@ import {
   type UnitBatch,
   type UnitRowStatus,
   type UnitStaff,
+  type UnitStaffList,
 } from './api';
+import { ENTRY_UNITS } from '@/lib/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › <yo'nalish> › Ish haqi (masalan, Tax free).
@@ -66,7 +68,9 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const batches = useAsync(() => unitPayrollApi.batches(unit.code, period), [unit.code, period]);
-  const staff = useAsync(() => unitPayrollApi.staff(unit.code), [unit.code]);
+  /** Xodimlar ro'yxati — qaysi oydagi tarkib (ko'chishlar bilan); standart — yuqori paneldagi oy */
+  const [staffPeriod, setStaffPeriod] = useState<string>(period);
+  const staff = useAsync(() => unitPayrollApi.staff(unit.code, staffPeriod), [unit.code, staffPeriod]);
   const activeCount = staff.data?.data.active ?? 0;
 
   function reset() {
@@ -127,6 +131,7 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
     const done: string[] = [];
     let total = 0n;
     let newStaff = 0;
+    let movedIn = 0;
     try {
       for (const m of pickedMonths) {
         const rows = m.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName ? null : (names[r.pinfl] ?? '').trim() }));
@@ -134,10 +139,11 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
         done.push(m.monthLabel);
         total += BigInt(res.totalTiyin);
         newStaff += res.newStaff;
+        movedIn += res.movedIn ?? 0;
       }
       setToast({
         tone: 'success',
-        message: `${done.join(', ')} saqlandi · ${formatTiyin(total.toString())} so'm` + (newStaff ? ` · ${newStaff} yangi xodim ro'yxatga qo'shildi` : '') + (replacePrevious && previousMonths.length ? ` · ${previousMonths.length} oyda oldingisi almashtirildi` : ''),
+        message: `${done.join(', ')} saqlandi · ${formatTiyin(total.toString())} so'm` + (newStaff ? ` · ${newStaff} yangi xodim ro'yxatga qo'shildi` : '') + (movedIn ? ` · ${movedIn} xodim boshqa bo'limdan shu bo'limga ko'chdi` : '') + (replacePrevious && previousMonths.length ? ` · ${previousMonths.length} oyda oldingisi almashtirildi` : ''),
       });
       reset();
     } catch (err) {
@@ -323,7 +329,7 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
           )}
         </Card>
 
-        <StaffCard unit={unit} list={staff.data?.data ?? null} loading={staff.loading} error={staff.error} onChanged={staff.reload} onToast={setToast} />
+        <StaffCard unit={unit} list={staff.data?.data ?? null} loading={staff.loading} error={staff.error} onChanged={staff.reload} onToast={setToast} period={staffPeriod} onPeriod={setStaffPeriod} />
       </div>
 
       <ConfirmDialog
@@ -403,6 +409,12 @@ function AnalysisView({
             {analysis.unnamedRows ? ` ${analysis.unnamedRows} tasining ismi bazada yo'q — jadvalda F.I.Sh. kiriting.` : ''}
           </Note>
         )}
+        {(analysis.movedRows ?? 0) > 0 && (
+          <Note tone="warn">
+            {analysis.movedRows} ta xodim bu oyda boshqa bo&apos;limda edi (ko&apos;chishlar tarixi bo&apos;yicha), lekin bu vedomostda summasi bor. Saqlansa — shu oydan {analysis.label}{' '}
+            bo&apos;limiga ko&apos;chirilgan deb yoziladi (oldingi oylar o&apos;zgarmaydi). Noto&apos;g&apos;ri bo&apos;lsa — pastdagi «Ko&apos;chishlar»dan bekor qilinadi.
+          </Note>
+        )}
         {(extraInvalid ?? analysis.invalidRows).length > 0 && (
           <Note tone="expense">
             O&apos;qilmagan kataklar (o&apos;sha oyda shu xodim saqlanmaydi — tuzatib qayta yuklang): {(extraInvalid ?? analysis.invalidRows).slice(0, 12).map((r) => `${r.rowIndex}-qator (${r.reason})`).join(', ')}
@@ -474,6 +486,12 @@ function AnalysisView({
                   </Td>
                   <Td>
                     <Badge tone={STATUS[r.status].tone} className="whitespace-nowrap">{STATUS[r.status].label}</Badge>
+                    {r.otherUnitLabel && (
+                      <span className="mt-0.5 block text-[11px] whitespace-nowrap text-(--color-warn)" title="Bu oyda boshqa bo'limda edi — summa bilan saqlansa, shu oydan shu bo'limga ko'chadi">
+                        bu oyda: {r.otherUnitLabel}
+                        {r.amountTiyin !== '0' ? ' → ko‘chadi' : ''}
+                      </span>
+                    )}
                   </Td>
                   <Td money>{r.amountTiyin === '0' ? <span className="text-(--color-text-muted)">hisoblanmagan</span> : <Money tiyin={r.amountTiyin} />}</Td>
                 </Tr>
@@ -521,13 +539,18 @@ function StaffCard({
   error,
   onChanged,
   onToast,
+  period,
+  onPeriod,
 }: {
   unit: EntryUnit;
-  list: { active: number; total: number; items: UnitStaff[] } | null;
+  list: UnitStaffList | null;
   loading: boolean;
   error: string | null;
   onChanged: () => void;
   onToast: (t: ToastState) => void;
+  /** Ro'yxat qaysi oy uchun (ko'chishlar bilan) */
+  period: string;
+  onPeriod: (p: string) => void;
 }) {
   const { isAdmin } = useAuth();
   const [q, setQ] = useState('');
@@ -536,9 +559,51 @@ function StaffCard({
   const [pinfl, setPinfl] = useState('');
   const [fullName, setFullName] = useState('');
   const [position, setPosition] = useState('');
+  /** Boshqa bo'limdan shu oydan boshlab o'tkazish (bo'sh — doimiy ro'yxatga qo'shish) */
+  const [addFrom, setAddFrom] = useState('');
   const [hint, setHint] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
+  /** Ko'chirish shakli ochiq xodim */
+  const [moving, setMoving] = useState<string | null>(null);
+  const [moveUnit, setMoveUnit] = useState('');
+  const [moveFrom, setMoveFrom] = useState(period);
+  const [moveNote, setMoveNote] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const history = useAsync(() => (historyOpen ? unitPayrollApi.moves(unit.code) : Promise.resolve(null)), [unit.code, historyOpen, list?.total, list?.items.length]);
+  const moveList = history.data?.data.items ?? [];
+  const away = list?.away ?? [];
+
+  async function submitMove(s: { pinfl: string; fullName: string }) {
+    if (!moveUnit || !/^\d{4}-\d{2}$/.test(moveFrom)) return;
+    setBusy(`m:${s.pinfl}`);
+    try {
+      await unitPayrollApi.addMove(unit.code, { pinfl: s.pinfl, unit: moveUnit, from: moveFrom, note: moveNote.trim() || undefined });
+      onToast({ message: `${s.fullName}: ${formatPeriod(moveFrom)}dan «${ENTRY_UNITS.find((u) => u.code === moveUnit)?.label ?? moveUnit}» bo'limida — oldingi oylar o'zgarmaydi`, tone: 'success' });
+      setMoving(null);
+      setMoveNote('');
+      onChanged();
+      history.reload();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Ko'chirib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function undoMove(id: string) {
+    setBusy(`u:${id}`);
+    try {
+      await unitPayrollApi.removeMove(unit.code, id);
+      onToast({ message: "Ko'chish bekor qilindi", tone: 'success' });
+      onChanged();
+      history.reload();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Bekor qilib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  }
   const link = useAsync(() => unitPayrollApi.link(unit.code), [unit.code, list?.total]);
   const linkInfo = link.data?.data;
   const linkedDeps = (linkInfo?.departments ?? []).filter((d) => d.selected);
@@ -570,8 +635,15 @@ function StaffCard({
     e.preventDefault();
     setBusy('add');
     try {
-      await unitPayrollApi.addStaff(unit.code, { pinfl, fullName: fullName.trim() || undefined, position: position.trim() || undefined });
-      onToast({ message: `Xodim qo'shildi — keyingi shablonda chiqadi`, tone: 'success' });
+      if (addFrom) {
+        // Boshqa bo'limdan ko'chib keldi — shu oydan (oldingi oylar o'sha bo'limda qoladi)
+        await unitPayrollApi.addMove(unit.code, { pinfl, unit: unit.code, from: addFrom, fullName: fullName.trim() || undefined });
+        onToast({ message: `${fullName || pinfl}: ${formatPeriod(addFrom)}dan ${unit.label} bo'limida`, tone: 'success' });
+      } else {
+        await unitPayrollApi.addStaff(unit.code, { pinfl, fullName: fullName.trim() || undefined, position: position.trim() || undefined });
+        onToast({ message: `Xodim qo'shildi — keyingi shablonda chiqadi`, tone: 'success' });
+      }
+      setAddFrom('');
       setPinfl('');
       setFullName('');
       setPosition('');
@@ -616,13 +688,19 @@ function StaffCard({
     <Card className="flex flex-col overflow-hidden">
       <CardHeader
         title={`${unit.label} xodimlari`}
-        description={`Shablonning 2-varag'i · faol: ${list?.active ?? 0} ta`}
+        description={`Shablonning 2-varag'i · ${formatPeriod(period)}: faol ${list?.active ?? 0} ta`}
         actions={
-          isAdmin && !adding ? (
-            <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
-              + Xodim
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-(--color-text-muted)" title="Shu oydagi tarkib — bo'limlar o'rtasida ko'chishlar hisobga olinadi">
+              Oy
+              <input type="month" value={period} onChange={(e) => e.target.value && onPeriod(e.target.value)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs" />
+            </label>
+            {isAdmin && !adding && (
+              <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
+                + Xodim
+              </Button>
+            )}
+          </div>
         }
       />
       {/* Xodimlar bazasi bilan bog'lanish */}
@@ -701,6 +779,10 @@ function StaffCard({
             <input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Lavozim (ixtiyoriy)" maxLength={120} className="h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-(--color-text-muted)" title="Boshqa bo'limdan ko'chib kelgan bo'lsa — qaysi oydan. Bo'sh — doimiy ro'yxatga qo'shiladi">
+              Boshqa bo&apos;limdan, shu oydan:
+              <input type="month" value={addFrom} onChange={(e) => setAddFrom(e.target.value)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs" />
+            </label>
             {hint && <span className="text-xs text-(--color-text-muted)">{hint}</span>}
             <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => setAdding(false)}>
               Bekor
@@ -742,9 +824,63 @@ function StaffCard({
                 <p className="truncate text-sm font-medium text-heading">{s.fullName}</p>
                 <p className="truncate text-xs text-(--color-text-muted)">
                   <span className="money">{s.pinfl}</span>
-                  {s.position ? ` · ${s.position}` : ''} · {s.active ? (s.source === 'REGISTRY' ? 'Xodimlar bazasidan' : `${s.source === 'UPLOAD' ? 'vedomostdan' : "qo'lda"} ${formatDate(s.addedAt)}`) : `chiqarilgan ${s.leftAt ? formatDate(s.leftAt) : ''}`}
+                  {s.position ? ` · ${s.position}` : ''} ·{' '}
+                  {s.active
+                    ? s.source === 'REGISTRY'
+                      ? 'Xodimlar bazasidan'
+                      : s.source === 'MOVE'
+                        ? "boshqa bo'limdan ko'chib kelgan"
+                        : `${s.source === 'UPLOAD' ? 'vedomostdan' : "qo'lda"} ${formatDate(s.addedAt)}`
+                    : `chiqarilgan ${s.leftAt ? formatDate(s.leftAt) : ''}`}
                 </p>
+                {(s.moves?.length ?? 0) > 0 && (
+                  <p className="mt-0.5 flex flex-wrap gap-1">
+                    {s.moves!.map((m) => (
+                      <span key={m.id} className={cn('rounded-full px-1.5 py-0.5 text-[10.5px]', m.unit === unit.code ? 'bg-brand-50 text-brand-700' : 'bg-(--color-warn-soft) text-(--color-warn)')}>
+                        {formatPeriod(m.from)}dan: {m.unitLabel}
+                      </span>
+                    ))}
+                  </p>
+                )}
+                {moving === s.pinfl && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-(--radius-control) border border-(--color-line) bg-(--color-surface-muted) p-2">
+                    <select value={moveUnit} onChange={(e) => setMoveUnit(e.target.value)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs">
+                      <option value="">Qaysi bo&apos;limga…</option>
+                      {ENTRY_UNITS.filter((u) => u.code !== unit.code).map((u) => (
+                        <option key={u.code} value={u.code}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="flex items-center gap-1 text-xs text-(--color-text-muted)">
+                      dan
+                      <input type="month" value={moveFrom} onChange={(e) => setMoveFrom(e.target.value)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs" />
+                    </label>
+                    <input value={moveNote} onChange={(e) => setMoveNote(e.target.value)} placeholder="Izoh (buyruq №)" maxLength={300} className="h-8 min-w-[8rem] flex-1 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs" />
+                    <Button size="sm" loading={busy === `m:${s.pinfl}`} disabled={!moveUnit || !moveFrom} onClick={() => void submitMove(s)}>
+                      Ko&apos;chirish
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setMoving(null)}>
+                      Bekor
+                    </Button>
+                  </div>
+                )}
               </div>
+              {isAdmin && s.active && moving !== s.pinfl && (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    setMoving(s.pinfl);
+                    setMoveUnit('');
+                    setMoveFrom(period);
+                  }}
+                  className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50"
+                  title="Boshqa bo'limga o'tkazish — tanlangan oydan boshlab (oldingi oylar shu bo'limda qoladi)"
+                >
+                  Ko&apos;chirish
+                </button>
+              )}
               {isAdmin && (
                 <button
                   type="button"
@@ -762,6 +898,57 @@ function StaffCard({
           ))}
         </ul>
       )}
+      {/* Shu oyda boshqa bo'limda bo'lganlar */}
+      {away.length > 0 && (
+        <div className="border-t border-(--color-line) bg-(--color-warn-soft)/40 px-5 py-2.5 text-xs">
+          <p className="font-semibold text-heading">
+            {formatPeriod(period)}da boshqa bo&apos;limda: {away.length} ta
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {away.map((a) => (
+              <li key={a.pinfl} className="flex flex-wrap items-center gap-x-2 text-(--color-text-muted)">
+                <span className="text-heading">{a.fullName}</span>
+                <span>→ {a.unitLabel}</span>
+                <span className="text-(--color-text-faint)">{a.moves.map((m) => `${formatPeriod(m.from)}: ${m.unitLabel}`).join(' · ')}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {/* Ko'chishlar tarixi («miya») */}
+      <div className="border-t border-(--color-line) px-5 py-2.5 text-xs">
+        <button type="button" onClick={() => setHistoryOpen((v) => !v)} className="font-semibold text-brand-700 hover:underline">
+          {historyOpen ? '▾' : '▸'} Ko&apos;chishlar tarixi (bo&apos;limlar o&apos;rtasida)
+        </button>
+        {historyOpen &&
+          (history.loading && !history.data ? (
+            <p className="mt-2 text-(--color-text-faint)">…</p>
+          ) : moveList.length === 0 ? (
+            <p className="mt-2 text-(--color-text-muted)">Hali ko&apos;chish yo&apos;q. Xodim qatorida «Ko&apos;chirish» — tanlangan oydan boshqa bo&apos;limga o&apos;tkazadi.</p>
+          ) : (
+            <table className="mt-2 w-full">
+              <tbody>
+                {moveList.map((m) => (
+                  <tr key={m.id} className="border-t border-(--color-line)/70">
+                    <td className="py-1 pr-2 whitespace-nowrap text-(--color-text-muted)">{formatPeriod(m.from)}dan</td>
+                    <td className="py-1 pr-2 text-heading">{m.fullName}</td>
+                    <td className="py-1 pr-2 whitespace-nowrap">
+                      {m.fromUnitLabel ?? '—'} → <b className="text-heading">{m.unitLabel}</b>
+                    </td>
+                    <td className="py-1 pr-2 text-(--color-text-faint)">{[m.source === 'UPLOAD' ? 'vedomostdan' : "qo'lda", m.note].filter(Boolean).join(' · ')}</td>
+                    <td className="py-1 text-right">
+                      {isAdmin && (
+                        <button type="button" disabled={busy !== null} onClick={() => void undoMove(m.id)} className="rounded px-1.5 py-0.5 text-(--color-text-muted) hover:bg-(--color-expense-soft) hover:text-(--color-expense)">
+                          {busy === `u:${m.id}` ? '…' : 'Bekor qilish'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+      </div>
     </Card>
   );
 }

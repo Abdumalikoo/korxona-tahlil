@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import { createHash, randomUUID } from 'node:crypto';
-import { entryUnitLabel, isSegment } from '../../common/segments/segments';
+import { ENTRY_UNIT_CODES, entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
@@ -52,9 +52,60 @@ export interface StaffItem {
   /** Faol — shablonning 2-varag'ida chiqadi */
   active: boolean;
   addedAt: string;
-  /** Qanday qo'shilgan: vedomostdan (avtomatik), qo'lda yoki Xodimlar bazasidan (bo'limi bo'yicha) */
-  source: 'UPLOAD' | 'MANUAL' | 'REGISTRY';
+  /** Qanday qo'shilgan: vedomostdan (avtomatik), qo'lda, Xodimlar bazasidan (bo'limi bo'yicha) yoki boshqa bo'limdan ko'chib kelgan */
+  source: 'UPLOAD' | 'MANUAL' | 'REGISTRY' | 'MOVE';
   leftAt: string | null;
+}
+
+/**
+ * Bo'limlar o'rtasida ko'chish («miya» tarixi): xodim shu oydan boshlab qaysi bo'limda.
+ * Masalan: Aliyev yanvar–mart — Tax free, apreldan — Markaz. Bo'lim — 7 ta (Markaz, Hududlar va yo'nalishlar).
+ * Oy uchun bo'lim: o'sha oygacha (shu oy ham) bo'lgan eng so'nggi ko'chish; ko'chish yo'q — odatdagi qoida
+ * (bo'lim ro'yxati va Xodimlar bazasi bilan bog'lanish).
+ */
+export interface UnitMove {
+  id: string;
+  pinfl: string;
+  fullName: string;
+  /** Qaysi bo'limga (ENTRY_UNIT kodi) */
+  unit: string;
+  /** Shu oydan boshlab (YYYY-MM) */
+  from: string;
+  note: string | null;
+  /** MANUAL — qo'lda; UPLOAD — vedomost saqlanganda (boshqa bo'limdagi xodim shu bo'lim vedomostida) */
+  source: 'MANUAL' | 'UPLOAD';
+  createdAt: string;
+  createdBy: string;
+}
+
+const MOVES_KEY = 'unit.moves';
+const PERIOD_RX = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function readMoves(raw: unknown): UnitMove[] {
+  const list = (raw as { moves?: unknown } | null)?.moves;
+  if (!Array.isArray(list)) return [];
+  return (list as Partial<UnitMove>[]).filter(
+    (m): m is UnitMove => Boolean(m && typeof m.id === 'string' && typeof m.pinfl === 'string' && typeof m.unit === 'string' && ENTRY_UNIT_CODES.includes(m.unit) && typeof m.from === 'string' && PERIOD_RX.test(m.from)),
+  );
+}
+
+/** Xodim → shu oydagi bo'limi (ko'chishlar bo'yicha; ko'chish bo'lmasa — undefined) */
+export function membership(moves: UnitMove[]): (pinfl: string, period: string) => string | undefined {
+  const by = new Map<string, UnitMove[]>();
+  for (const m of moves) by.set(m.pinfl, [...(by.get(m.pinfl) ?? []), m]);
+  for (const list of by.values()) list.sort((a, b) => a.from.localeCompare(b.from) || a.createdAt.localeCompare(b.createdAt));
+  return (pinfl, period) => {
+    const list = by.get(pinfl);
+    if (!list) return undefined;
+    let out: string | undefined;
+    for (const m of list) if (m.from <= period) out = m.unit;
+    return out;
+  };
+}
+
+/** Joriy oy (Toshkent) */
+function currentPeriod(): string {
+  return new Date(Date.now() + TASHKENT_OFFSET_HOURS * 3_600_000).toISOString().slice(0, 7);
 }
 
 export interface UnitPayrollRow {
@@ -234,7 +285,7 @@ export class UnitPayrollService {
    * Bo'lim xodimlari (o'qish uchun): Xodimlar bazasidan bog'langanlar + o'z ro'yxati.
    * O'z ro'yxatida «chiqarilgan» (active=false) bo'lsa — bazada bo'lsa ham chiqmaydi.
    */
-  async staffOf(unit: string): Promise<StaffItem[]> {
+  async staffOf(unit: string, period: string = currentPeriod(), applyMoves = true): Promise<StaffItem[]> {
     const own = await this.ownStaff(unit);
     const have = new Set(own.map((s) => s.pinfl));
     const out = [...own];
@@ -242,7 +293,114 @@ export class UnitPayrollService {
       if (have.has(e.pinfl)) continue;
       out.push({ pinfl: e.pinfl, fullName: e.fullName, position: e.position, active: true, addedAt: '', source: 'REGISTRY', leftAt: null });
     }
+    // Ko'chishlar («miya» tarixi): shu oyda boshqa bo'limda bo'lganlar chiqmaydi, shu bo'limga ko'chib kelganlar qo'shiladi
+    const moves = applyMoves ? await this.allMoves() : [];
+    if (!moves.length) return out;
+    const at = membership(moves);
+    const kept = out.filter((s) => {
+      const u = at(s.pinfl, period);
+      return u === undefined || u === unit;
+    });
+    const keptPins = new Set(kept.map((s) => s.pinfl));
+    const incoming = [...new Set(moves.filter((m) => m.unit === unit && !keptPins.has(m.pinfl)).map((m) => m.pinfl))].filter((p) => at(p, period) === unit);
+    if (incoming.length) {
+      const names = await this.registryNames(incoming);
+      for (const p of incoming) {
+        const last = moves.filter((m) => m.pinfl === p && m.unit === unit && m.from <= period).sort((a, b) => b.from.localeCompare(a.from))[0]!;
+        kept.push({ pinfl: p, fullName: names.get(p)?.fullName ?? last.fullName, position: names.get(p)?.position ?? null, active: true, addedAt: last.createdAt, source: 'MOVE', leftAt: null });
+      }
+    }
+    return kept;
+  }
+
+  // ─────────── Ko'chishlar (bo'limlar o'rtasida) ───────────
+
+  async allMoves(): Promise<UnitMove[]> {
+    return readMoves(await this.readSetting(MOVES_KEY));
+  }
+
+  /** Ko'chishdan oldingi «odatdagi» bo'limi: yo'nalish ro'yxati / bog'lanishi bo'yicha, bo'lmasa Xodimlar bazasidagi joyi */
+  private async baseUnits(pinfls: string[], period: string): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (!pinfls.length) return out;
+    const want = new Set(pinfls);
+    for (const seg of ENTRY_UNIT_CODES.filter((c) => isSegment(c))) {
+      for (const s of await this.staffOf(seg, period, false)) if (want.has(s.pinfl) && s.active && !out.has(s.pinfl)) out.set(s.pinfl, seg);
+    }
+    const rest = pinfls.filter((p) => !out.has(p));
+    if (rest.length) {
+      const emps = await this.prisma.employee.findMany({ where: { pinfl: { in: rest } }, select: { pinfl: true, regionCode: true } });
+      for (const e of emps) if (e.regionCode !== null && e.regionCode !== undefined) out.set(e.pinfl, e.regionCode === 0 ? 'CENTER' : 'REGION');
+    }
     return out;
+  }
+
+  /** Ko'chishlar ro'yxati: bo'lim bo'yicha (shu bo'limga kelgan yoki ketgan) yoki xodim bo'yicha; har birida — qayerdan */
+  async moves(filter: { unit?: string; pinfl?: string } = {}) {
+    const all = await this.allMoves();
+    const at = membership(all);
+    const prevPeriod = (p: string) => {
+      const [y, m] = p.split('-').map(Number) as [number, number];
+      return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+    };
+    const firstOf = new Map<string, string>();
+    for (const m of all) if (!firstOf.has(m.pinfl) || m.from < firstOf.get(m.pinfl)!) firstOf.set(m.pinfl, m.from);
+    // Birinchi ko'chishdan oldin — odatdagi bo'limi
+    const base = new Map<string, string>();
+    for (const [pinfl, first] of firstOf) {
+      const b = await this.baseUnits([pinfl], prevPeriod(first));
+      if (b.has(pinfl)) base.set(pinfl, b.get(pinfl)!);
+    }
+    const list = all
+      .map((m) => {
+        const before = at(m.pinfl, prevPeriod(m.from)) ?? base.get(m.pinfl);
+        return { ...m, unitLabel: entryUnitLabel(m.unit), fromUnit: before ?? null, fromUnitLabel: before ? entryUnitLabel(before) : null };
+      })
+      .filter((m) => (!filter.pinfl || m.pinfl === filter.pinfl) && (!filter.unit || m.unit === filter.unit || m.fromUnit === filter.unit))
+      .sort((a, b) => b.from.localeCompare(a.from) || b.createdAt.localeCompare(a.createdAt));
+    return { items: list, units: ENTRY_UNIT_CODES.map((c) => ({ code: c, label: entryUnitLabel(c) })) };
+  }
+
+  /**
+   * Ko'chirish: xodim «from» oydan boshlab «unit» bo'limida. Eski oylar o'zgarmaydi (o'sha oylardagi bo'limi saqlanadi).
+   * Shu oyda shu xodimga boshqa ko'chish bo'lsa — almashtiriladi. «from» dagi bo'limi allaqachon shu bo'lsa — rad etiladi.
+   */
+  async addMove(body: { pinfl?: unknown; unit?: unknown; from?: unknown; note?: unknown; fullName?: unknown }, userId: string, source: UnitMove['source'] = 'MANUAL'): Promise<UnitMove> {
+    const pinfl = parsePinfl(body?.pinfl);
+    if (!pinfl) throw new BadRequestException("PINFL 14 ta raqam bo'lishi kerak");
+    const unit = typeof body?.unit === 'string' && ENTRY_UNIT_CODES.includes(body.unit) ? body.unit : null;
+    if (!unit) throw new BadRequestException("Bo'limni tanlang");
+    const from = typeof body?.from === 'string' && PERIOD_RX.test(body.from) ? body.from : null;
+    if (!from) throw new BadRequestException("Oyni tanlang (YYYY-MM)");
+    const all = await this.allMoves();
+    const reg = (await this.registryNames([pinfl])).get(pinfl);
+    const fullName = reg?.fullName ?? cleanName(body?.fullName) ?? all.find((m) => m.pinfl === pinfl)?.fullName ?? pinfl;
+    const rest = all.filter((m) => !(m.pinfl === pinfl && m.from === from));
+    const before = membership(rest)(pinfl, from);
+    if (before === unit) throw new BadRequestException(`${fullName} — ${monthLabel(from)}da allaqachon «${entryUnitLabel(unit)}» bo'limida`);
+    const move: UnitMove = {
+      id: randomUUID(),
+      pinfl,
+      fullName,
+      unit,
+      from,
+      note: typeof body?.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 300) : null,
+      source,
+      createdAt: new Date().toISOString(),
+      createdBy: userId,
+    };
+    await this.writeSetting(MOVES_KEY, { moves: [...rest, move] });
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_move', entityId: pinfl, summary: `${fullName}: ${monthLabel(from)}dan «${entryUnitLabel(unit)}» bo'limida${before ? ` (oldin — ${entryUnitLabel(before)})` : ''}${source === 'UPLOAD' ? ' · vedomostdan' : ''}` });
+    return move;
+  }
+
+  async removeMove(id: string, userId: string) {
+    const all = await this.allMoves();
+    const m = all.find((x) => x.id === id);
+    if (!m) throw new NotFoundException("Ko'chish topilmadi");
+    await this.writeSetting(MOVES_KEY, { moves: all.filter((x) => x.id !== id) });
+    await this.audit.log({ userId, action: 'DELETE', entity: 'unit_move', entityId: m.pinfl, summary: `${m.fullName}: ${monthLabel(m.from)}dan «${entryUnitLabel(m.unit)}» — ko'chish bekor qilindi` });
+    return { success: true as const, id };
   }
 
   /** Bog'lash sozlamasi va ko'rinishi: bo'limlar (tanlangani, xodimlar soni) */
@@ -315,13 +473,29 @@ export class UnitPayrollService {
 
   // ═══════════ Xodimlar ro'yxati ═══════════
 
-  async staff(unit: string) {
-    const items = await this.staffOf(unit);
+  async staff(unit: string, periodRaw?: string) {
+    const period = periodRaw && PERIOD_RX.test(periodRaw) ? periodRaw : currentPeriod();
+    const items = await this.staffOf(unit, period);
     const names = await this.registryNames(items.map((i) => i.pinfl));
+    const moves = await this.allMoves();
+    const timeline = (pinfl: string) =>
+      moves
+        .filter((m) => m.pinfl === pinfl)
+        .sort((a, b) => a.from.localeCompare(b.from))
+        .map((m) => ({ id: m.id, unit: m.unit, unitLabel: entryUnitLabel(m.unit), from: m.from }));
     const rows = items
-      .map((i) => ({ ...i, fullName: names.get(i.pinfl)?.fullName ?? i.fullName, position: i.position ?? names.get(i.pinfl)?.position ?? null, inRegistry: names.has(i.pinfl) }))
+      .map((i) => ({ ...i, fullName: names.get(i.pinfl)?.fullName ?? i.fullName, position: i.position ?? names.get(i.pinfl)?.position ?? null, inRegistry: names.has(i.pinfl), moves: timeline(i.pinfl) }))
       .sort((a, b) => Number(b.active) - Number(a.active) || a.fullName.localeCompare(b.fullName));
-    return { unit, label: entryUnitLabel(unit), active: rows.filter((r) => r.active).length, total: rows.length, items: rows };
+    // Shu oydan keyin boshqa bo'limga ketadiganlar va shu oyda boshqa bo'limda bo'lganlar (oldin shu yerda edi)
+    const at = membership(moves);
+    const keptPins = new Set(rows.map((r) => r.pinfl));
+    const base = await this.staffOf(unit, period, false);
+    const awayPins = [...new Set([...base.map((b) => b.pinfl), ...moves.filter((m) => m.unit === unit).map((m) => m.pinfl)])].filter((p) => !keptPins.has(p));
+    const awayNames = await this.registryNames(awayPins);
+    const away = awayPins
+      .map((p) => ({ pinfl: p, fullName: awayNames.get(p)?.fullName ?? moves.find((m) => m.pinfl === p)?.fullName ?? p, unit: at(p, period) ?? null, unitLabel: at(p, period) ? entryUnitLabel(at(p, period)!) : null, moves: timeline(p) }))
+      .filter((a) => a.unit && a.unit !== unit);
+    return { unit, label: entryUnitLabel(unit), period, active: rows.filter((r) => r.active).length, total: rows.length, items: rows, away };
   }
 
   /** PINFL bo'yicha: ro'yxatda bormi, umumiy bazada ismi */
@@ -402,8 +576,12 @@ export class UnitPayrollService {
   async template(unit: string, from: string, to: string = from): Promise<{ buffer: Buffer; filename: string }> {
     const months = monthsBetween(from, to);
     const label = entryUnitLabel(unit);
-    const { items } = await this.staff(unit);
-    const active = items.filter((i) => i.active);
+    const { items } = await this.staff(unit, months[months.length - 1]);
+    // Oralig'idagi hamma oylarda shu bo'limda bo'lganlar (ko'chishlar bilan) — «miya»
+    const union = new Map<string, StaffItem>(items.filter((i) => i.active).map((i) => [i.pinfl, i]));
+    for (const p of months) for (const s of await this.staffOf(unit, p)) if (s.active && !union.has(s.pinfl)) union.set(s.pinfl, s);
+    const active = [...union.values()];
+    const at = membership(await this.allMoves());
     const saved = new Map<string, Map<string, bigint> | null>();
     for (const p of months) saved.set(p, await this.payrollMap(unit, p));
     // Saqlangan vedomostda bor, lekin ro'yxatda faol bo'lmaganlar ham (o'sha oyda ish haqi olgan)
@@ -443,7 +621,15 @@ export class UnitPayrollService {
         return v === undefined ? null : Number(v) / 100;
       })]);
       row.getCell(1).numFmt = '@';
-      months.forEach((_, i) => (row.getCell(3 + i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } }));
+      months.forEach((p, i) => {
+        const other = at(r.pinfl, p);
+        const cell = row.getCell(3 + i);
+        if (other && other !== unit) {
+          // Bu oyda boshqa bo'limda — kulrang, izoh bilan
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } };
+          cell.note = `${monthLabel(p)}: «${entryUnitLabel(other)}» bo'limida`;
+        } else cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+      });
     }
 
     // 2-varaq — faqat shu bo'lim xodimlari (Xodimlar bo'limidan va o'z ro'yxatidan)
@@ -471,6 +657,7 @@ export class UnitPayrollService {
       "• «Ish haqi» varag'ida har oy ustuniga xodimning shu oydagi ish haqi summasini (so'mda) yozing.",
       "• 0 yoki bo'sh — o'sha oyda hisoblanmagan.",
       "• Yangi xodim — pastga qator qo'shing: PINFL va F.I.Sh. Saqlanganda ro'yxatga qo'shiladi.",
+      "• Kulrang katak — xodim o'sha oyda boshqa bo'limda edi (izohda — qaysi). Summa yozilsa, saqlanganda shu oydan shu bo'limga ko'chirilgan bo'ladi.",
       "• Ustun va sarlavhalarni o'chirmang. Yuklanganda fayldagi hamma oylar o'qiladi, saqlanadiganlarini tanlaysiz.",
     ].forEach((t, i) => {
       help.getCell(i + 1, 1).value = t;
@@ -562,15 +749,26 @@ export class UnitPayrollService {
     duplicates: string[],
     fileNames: Map<string, string> = new Map(),
   ) {
-    const staff = await this.staffOf(unit);
+    const staff = await this.staffOf(unit, period);
     const byPinfl = new Map(staff.map((s) => [s.pinfl, s]));
     const names = await this.registryNames([...parsed.keys()]);
+    const at = membership(await this.allMoves());
 
     const rows = [...parsed.entries()].map(([pinfl, r]) => {
       const own = byPinfl.get(pinfl);
       const reg = names.get(pinfl);
       const status: RowStatus = own ? (own.active ? 'KNOWN' : 'RETURNING') : reg ? 'REGISTRY' : 'NEW';
-      return { rowIndex: r.rowIndex, pinfl, fullName: reg?.fullName ?? own?.fullName ?? fileNames.get(pinfl) ?? null, position: own?.position ?? reg?.position ?? null, amountTiyin: r.amountTiyin.toString(), status };
+      // Shu oyda boshqa bo'limda (ko'chishlar bo'yicha) — summa bo'lsa, saqlanganda shu bo'limga ko'chadi
+      const other = at(pinfl, period);
+      return {
+        rowIndex: r.rowIndex,
+        pinfl,
+        fullName: reg?.fullName ?? own?.fullName ?? fileNames.get(pinfl) ?? null,
+        position: own?.position ?? reg?.position ?? null,
+        amountTiyin: r.amountTiyin.toString(),
+        status,
+        ...(other && other !== unit ? { otherUnit: other, otherUnitLabel: entryUnitLabel(other) } : {}),
+      };
     });
 
     const total = rows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
@@ -594,6 +792,8 @@ export class UnitPayrollService {
       returningRows: rows.filter((r) => r.status === 'RETURNING').length,
       /** Ismi noma'lum — saqlashdan oldin F.I.Sh. kiritiladi */
       unnamedRows: rows.filter((r) => !r.fullName).length,
+      /** Shu oyda boshqa bo'limda bo'lgan, lekin summasi bor — saqlanganda shu bo'limga ko'chadi */
+      movedRows: rows.filter((r) => 'otherUnit' in r && r.amountTiyin !== '0').length,
       totalTiyin: total.toString(),
       invalidRows,
       duplicates,
@@ -786,6 +986,18 @@ export class UnitPayrollService {
       summary: `${label} ish haqi ${period}: ${rows.length} xodim, ${(Number(total) / 100).toLocaleString('uz-UZ')} so'm${result.newStaff ? `, ${result.newStaff} yangi xodim` : ''}${result.replaced ? `, ${result.replaced} ta oldingisi almashtirildi` : ''}`,
     });
 
+    // «Miya»: shu oyda boshqa bo'limda bo'lgan xodim shu bo'lim vedomostida (summa bilan) — shu oydan shu bo'limga ko'chadi
+    const at = membership(await this.allMoves());
+    let movedIn = 0;
+    for (const [pinfl, v] of merged) {
+      if (v.amount <= 0n) continue;
+      const other = at(pinfl, period);
+      if (other && other !== unit) {
+        await this.addMove({ pinfl, unit, from: period, fullName: v.fullName ?? undefined }, userId, 'UPLOAD').catch(() => null);
+        movedIn += 1;
+      }
+    }
+
     // Ish haqi qismlari (siyosat bo'yicha) — qayta ajratiladi
     await this.splitComponents(unit, period).catch(() => null);
 
@@ -798,6 +1010,8 @@ export class UnitPayrollService {
       totalTiyin: total.toString(),
       newStaff: result.newStaff,
       returned: result.returned,
+      /** Boshqa bo'limdan shu bo'limga ko'chganlar (shu oydan) */
+      movedIn,
       replacedPrevious: result.replaced > 0,
     };
   }

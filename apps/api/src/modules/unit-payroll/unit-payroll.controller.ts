@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
@@ -9,16 +9,38 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /**
- * Yo'nalish ish haqi: /api/unit-payroll/:unit/… (unit — TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA).
+ * Yo'nalish ish haqi: /api/unit-payroll/:unit/… (unit — TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA, QOMITA).
  * Shablon (2-varaq — faqat shu bo'lim xodimlari), tahlil, saqlash, tarix, bo'lim xodimlari ro'yxati.
  */
 @Controller('unit-payroll')
 export class UnitPayrollController {
   constructor(private readonly service: UnitPayrollService) {}
 
+  /** Bo'lim xodimlari (?period=YYYY-MM — o'sha oydagi tarkib; ko'chishlar bilan) */
   @Get(':unit/staff')
-  async staff(@Param('unit') unit: string) {
-    return { data: await this.service.staff(this.service.unitOf(unit)) };
+  async staff(@Param('unit') unit: string, @Query('period') period?: string) {
+    return { data: await this.service.staff(this.service.unitOf(unit), period) };
+  }
+
+  /** Bo'limlar o'rtasida ko'chishlar: shu bo'limga kelgan / ketgan (?pinfl — bitta xodim) */
+  @Get(':unit/moves')
+  async moves(@Param('unit') unit: string, @Query('pinfl') pinfl?: string) {
+    return { data: await this.service.moves({ unit: this.service.unitOf(unit), pinfl: pinfl || undefined }) };
+  }
+
+  /** Ko'chirish: { pinfl, unit (CENTER, REGION, TAX_FREE …), from: YYYY-MM, note? } */
+  @Roles(UserRole.ADMIN)
+  @Post(':unit/moves')
+  async addMove(@Param('unit') unit: string, @Body() body: { pinfl?: unknown; unit?: unknown; from?: unknown; note?: unknown; fullName?: unknown }, @CurrentUser('id') userId: string) {
+    this.service.unitOf(unit);
+    return { data: await this.service.addMove(body, userId) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete(':unit/moves/:id')
+  async removeMove(@Param('unit') unit: string, @Param('id') id: string, @CurrentUser('id') userId: string) {
+    this.service.unitOf(unit);
+    return { data: await this.service.removeMove(id, userId) };
   }
 
   /** Xodimlar bazasi bilan bog'lash: qaysi bo'limlar (avtomatik — nomi bo'yicha), lavozim bo'yicha */
