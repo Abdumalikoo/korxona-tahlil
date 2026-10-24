@@ -5,8 +5,9 @@ import { entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { unitBranches } from '../unit-lease/unit-lease.branches';
-import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
+import { monthLabel, monthsBetween } from '../../common/period';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { cellValue } from '../../common/excel/cells';
 
 // ═══════════════════════════════════════════════════════════
 // Yo'nalish xarajatlari — qo'lda kiritish jadvali (Tax free › Asosiy vositalar / Reklama / Boshqa; Fermer › Asosiy vositalar / TMZ / Boshqa).
@@ -76,17 +77,6 @@ const str = (v: unknown, max: number): string | null => {
   const s = String(v).replace(/\s+/g, ' ').trim();
   return s ? s.slice(0, max) : null;
 };
-
-function cellValue(value: ExcelJS.CellValue): unknown {
-  if (value && typeof value === 'object' && !(value instanceof Date)) {
-    const r = value as unknown as Record<string, unknown>;
-    if ('result' in r) return r.result;
-    if ('text' in r) return r.text;
-    if ('richText' in r && Array.isArray(r.richText)) return (r.richText as { text: string }[]).map((p) => p.text).join('');
-    if ('formula' in r) return null;
-  }
-  return value;
-}
 
 /** Excel katagi → so'm (son) yoki null (bo'sh) yoki NaN (xato) */
 function num(v: unknown): number | null {

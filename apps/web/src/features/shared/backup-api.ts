@@ -5,6 +5,10 @@ export interface BackupFile {
   path: string;
   sizeBytes: number;
   createdAt: string;
+  /** Shifrlangan (.sql.gz.enc) */
+  encrypted?: boolean;
+  /** Ikkinchi joyda nusxasi bormi (null — ikkinchi joy sozlanmagan) */
+  mirrored?: boolean | null;
 }
 
 export interface BackupStats {
@@ -13,6 +17,10 @@ export interface BackupStats {
   lastBackup: string | null;
   retentionDays: number;
   directory: string;
+  /** Yangi zaxiralar shifrlanadimi (serverda BACKUP_ENCRYPTION_KEY) */
+  encryption?: boolean;
+  lastEncrypted?: boolean | null;
+  mirror?: { configured: boolean; directory: string | null; last: { ok: boolean; at: string } | null };
 }
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
@@ -21,7 +29,7 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 export async function downloadBackup(name: string): Promise<void> {
   const token = getToken();
 
-  const response = await fetch(`${BASE}/backup/download/${name}`, {
+  const response = await fetch(`${BASE}/backup/download/${encodeURIComponent(name)}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 

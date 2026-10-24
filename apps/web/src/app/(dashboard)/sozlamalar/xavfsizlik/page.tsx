@@ -30,6 +30,9 @@ interface SecurityStatus {
   viewerPersonal: boolean;
   deletePasswordDefault: boolean;
   chatCodeDefault: boolean;
+  backupEncrypted?: boolean;
+  backupMirror?: boolean;
+  secretsEncrypted?: boolean;
   warnings: string[];
 }
 
@@ -197,6 +200,31 @@ export default function SecuritySettingsPage() {
                 )}
                 {secError && <p className="text-xs text-(--color-expense)">{secError}</p>}
                 <p className="text-xs text-(--color-text-muted)">O&apos;zgarish 30 soniya ichida kuchga kiradi va tarixga yoziladi.</p>
+              </CardBody>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader title="Server sozlamalari" description="Serverdagi .env faylida; o'zgartirgach API qayta ishga tushiriladi. Kalitlarning o'zi bu yerda ko'rsatilmaydi" />
+              <CardBody>
+                <ul className="divide-y divide-(--color-line) text-sm">
+                  {[
+                    { ok: sec.data?.data?.backupEncrypted, title: 'Zaxirani shifrlash', env: 'BACKUP_ENCRYPTION_KEY', hint: "kamida 16 belgi. Kalit yo'qolsa zaxirani ochib bo'lmaydi — nusxasini server tashqarisida saqlang" },
+                    { ok: sec.data?.data?.backupMirror, title: 'Zaxira ikkinchi joyda', env: 'BACKUP_MIRROR_DIR', hint: 'boshqa disk yoki tarmoq papkasi yo‘li' },
+                    { ok: sec.data?.data?.secretsEncrypted, title: 'Bazadagi maxfiy kalitlarni shifrlash', env: 'APP_ENCRYPTION_KEY', hint: 'kamida 32 belgi; Telegram bot kaliti shifrlab saqlanadi' },
+                  ].map((r) => (
+                    <li key={r.env} className="flex items-start gap-3 py-2.5">
+                      <span className={r.ok ? 'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-(--color-income-soft) text-(--color-income)' : 'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-(--color-warn-soft) text-(--color-warn)'}>
+                        {r.ok ? <IconCheck className="size-3" /> : <IconAlert className="size-3" />}
+                      </span>
+                      <span className="min-w-0">
+                        <b className="text-heading">{r.title}</b> — {r.ok ? 'yoqilgan' : 'yoqilmagan'}
+                        <span className="block text-xs text-(--color-text-muted)">
+                          <code className="money">{r.env}</code> · {r.hint}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </CardBody>
             </Card>
           </div>

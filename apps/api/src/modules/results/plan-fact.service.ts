@@ -854,9 +854,13 @@ export class PlanFactService {
     if (!months.length) throw new BadRequestException("Saqlash uchun oy yo'q: fayldagi oylarda tushum to'ldirilmagan");
     if (!a.rows.length) throw new BadRequestException('Reestrda topilgan xodim yo\'q — avval Xodimlar bo\'limiga qo\'shing');
     // Yopilgan oy (Hududchi › Oyni yopish) — o'zgartirilmaydi
+    const closed = new Set(
+      (await this.prisma.regionalPeriodClose.findMany({ where: { period: { in: months.map((m) => m.period) } }, select: { period: true, status: true } }))
+        .filter((c) => c.status === 'CLOSED')
+        .map((c) => c.period),
+    );
     for (const m of months) {
-      const close = await this.prisma.regionalPeriodClose.findUnique({ where: { period: m.period } });
-      if (close?.status === 'CLOSED') throw new BadRequestException(`${m.label} yopilgan — o'zgartirib bo'lmaydi. Xato bo'lsa, administrator oyni qayta ochadi`);
+      if (closed.has(m.period)) throw new BadRequestException(`${m.label} yopilgan — o'zgartirib bo'lmaydi. Xato bo'lsa, administrator oyni qayta ochadi`);
     }
 
     const saved: { period: string; label: string; employees: number; factTiyin: string; replaced: number; payrollTiyin: string | null }[] = [];

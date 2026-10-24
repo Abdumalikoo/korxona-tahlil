@@ -66,3 +66,18 @@ export async function runExclusive<T>(key: string, fn: () => Promise<T>, waitMs 
 export function activeLocks(): number {
   return tails.size;
 }
+
+/**
+ * Metod bezagi: shu metod (va bir xil kalitli boshqa metodlar) navbat bilan bajariladi.
+ * Xizmat boshqa bo'limdan (HTTP navbatidan tashqarida) chaqirilsa ham JSON yozuvlari yo'qolmaydi.
+ * Ichma-ich chaqiruv (bir bezakli metod boshqasini chaqirsa) o'zini kutib qolmaydi.
+ */
+export function Exclusive(key: string): MethodDecorator {
+  return (_target, _name, descriptor: PropertyDescriptor) => {
+    const original = descriptor.value as (...args: unknown[]) => Promise<unknown>;
+    descriptor.value = function (this: unknown, ...args: unknown[]) {
+      return runExclusive(`svc:${key}`, () => original.apply(this, args));
+    };
+    return descriptor;
+  };
+}

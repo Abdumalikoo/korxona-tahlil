@@ -522,3 +522,93 @@ Audit natijasidagi 1-bosqich tuzatishlari. Baza tuzilmasi o'zgarmadi (migratsiya
 - kuzatuvchi uchun yopiq va yashirilgan marshrutlar.
 
 `t-chat-pin`, `t-bulkdel-pass` va `t-unit-moves` yangi qoidalarga moslandi.
+
+
+## Xavfsizlik va sifat — 2a-bosqich
+
+Baza tuzilmasi o'zgarmadi (migratsiya yo'q). Mavjud ma'lumot qayta yozilmaydi. Yagona istisno — Telegram bot kaliti: APP_ENCRYPTION_KEY qo'yilsa, keyingi ishga tushishda shifrlanadi.
+
+### Zaxirani shifrlash va ikkinchi joy
+
+Sozlamalar › Zaxira. Serverdagi `.env`:
+
+| O'zgaruvchi | Vazifasi |
+|---|---|
+| `BACKUP_ENCRYPTION_KEY` | Zaxira paroli (kamida 16 belgi). Qo'yilsa, yangi zaxira shifrlanadi. |
+| `BACKUP_MIRROR_DIR` | Ikkinchi joy (boshqa disk yoki tarmoq papkasi). Tayyor zaxira u yerga ham nusxalanadi. |
+| `APP_ENCRYPTION_KEY` | Bazadagi maxfiy kalitlar uchun (kamida 32 belgi). Hozircha Telegram bot kaliti. |
+
+- **Qanday ishlaydi:** `pg_dump` natijasi oqimda siqiladi (gzip) va shifrlanadi (AES-256-GCM, har faylga alohida tuz). Fayl kengaytmasi: `.sql.gz.enc`.
+- Ochiq SQL diskka umuman yozilmaydi.
+- Har zaxira olingach, fayl to'liq ochib tekshiriladi. Xato bo'lsa, chala fayl o'chiriladi.
+- Kalit qo'yilmasa, avvalgidek ochiq `.sql` olinadi. Administrator sariq ogohlantirish ko'radi.
+- Eski zaxiralar 30 kundan keyin ikkala joydan ham o'chadi.
+- **Tiklash** (API papkasida; kalit faqat muhit o'zgaruvchisidan olinadi, buyruq qatorida yozilmaydi):
+  ```
+  node scripts/backup-decrypt.js korxona_….sql.gz.enc --check
+  node scripts/backup-decrypt.js korxona_….sql.gz.enc > zaxira.sql
+  psql -U postgres -d korxona_tiklash -f zaxira.sql
+  ```
+- Skript mustaqil: build ham, kutubxona ham kerak emas.
+- **Kalit yo'qolsa, zaxirani ochib bo'lmaydi.** Nusxasini server tashqarisida saqlang (parol menejeri, seyf).
+
+### Telegram bot kaliti
+
+- `APP_ENCRYPTION_KEY` bo'lsa, bot kaliti bazada shifrlangan holda saqlanadi.
+- Eski ochiq qiymat ilova ishga tushganda o'zi shifrlanadi.
+- Kalit almashtirilsa, bot ulanmaydi va «tokenni qayta kiriting» xabari chiqadi.
+
+### Hujjat raqamlari
+
+- Ariza, xarid, qabul, ombor hujjati va inventar raqamlari endi bazadagi qulf bilan beriladi (`pg_advisory_xact_lock`).
+- Bir vaqtda kelgan so'rovlar navbat bilan raqam oladi. Raqamlar takrorlanmaydi va teshiksiz ketma-ket bo'ladi.
+- Avval ko'p parallel so'rovda «raqam band» xatosi chiqishi mumkin edi. Haqiqiy PostgreSQL testida 20 ta bir vaqtdagi ariza bilan bu ko'rindi va tuzatildi.
+- Ombor hujjati raqami endi son bo'yicha olinadi. Matn tartibi 10 000-hujjatdan keyin buzilardi.
+
+### Bir vaqtdagi o'zgarishlar (qo'shimcha)
+
+- Bo'lim xodimlari, ko'chishlar, bog'lash va ish haqi yuklashlari xizmat darajasida ham navbatda turadi (`@Exclusive`).
+- Shuning uchun boshqa bo'limdan chaqirilganda ham yozuv yo'qolmaydi.
+- Haqiqiy bazada tekshirildi: navbatsiz 10 ta parallel ko'chishdan faqat 1 tasi saqlanardi. Navbat bilan 10 tasi ham saqlanadi.
+
+### settings bloklari tekshiruvi
+
+- **Bloklar** (`common/settings/shape.ts`): bo'lim xodimlari, bog'lash, ko'chishlar, ish haqi yuklashlari, chat suhbatlari.
+- **Buzilgan blok:** kutilgan ko'rinishda bo'lmasa (masalan, obyekt o'rniga massiv), amal to'xtaydi va bazadagi qiymat o'zgarmaydi. Avval kod uni «bo'sh» deb o'qib, ustidan yozib yuborardi.
+- **Tanilmagan ko'chish yozuvlari** (masalan, olib tashlangan bo'lim kodi) endi yangi ko'chish saqlanganda jim o'chmaydi.
+
+### Umumiy yordamchilar
+
+- **Fayllar:** `common/period.ts` (oylar oralig'i, oy nomi), `common/money.ts` (so'm → tiyin), `common/excel/cells.ts` (Excel katagi).
+- **Almashtirilgan nusxalar:**
+  - ijara, kiritish, bank va bo'lim ish haqi yuklashlari;
+  - ommaviy o'chirish va Hududchi ish stolidagi oylar oralig'i.
+- **Bog'liqlik:** bo'lim modullari endi bir-biridan import qilmaydi.
+- **Natijalar o'zgarmadi:** yangi funksiyalar avvalgi nusxalar bilan 120 mingdan ortiq tasodifiy qiymatda solishtirildi va aynan bir xil chiqdi (`test/t-common-helpers.js`).
+- **Tegilmagan nusxalar:** xatti-harakati farq qiladiganlari (Excel formulasini boshqacha o'qiydiganlar, boshqa chegaralilar) o'z joyida qoldi.
+
+### Tsikl ichidagi so'rovlar
+
+- **Yaxlitlik tekshiruvi:** ish haqi yuklashlari bo'yicha bitta guruhlangan so'rov. Avval har yuklash uchun alohida so'rov edi.
+- **Hudud natijalarini saqlash:** yopilgan oylar bitta so'rov bilan tekshiriladi.
+
+### Testlar
+
+- **Hammasi bitta buyruq bilan:** `node test/run-all.js` (avval API build). Natija: har test o'tdi / xato / o'tkazildi, oxirida jami.
+- **Haqiqiy PostgreSQL testlari:** `test/pg/`. Faqat `TEST_DATABASE_URL` berilsa ishlaydi.
+  - Baza nomida «test» bo'lishi shart, aks holda test to'xtaydi — ishlab chiqarish bazasiga tegmaydi.
+  - Har test boshida test bazasi tozalanadi.
+  - **pg-core:**
+    - xom SQL (yaxlitlik, iqtisod jadvali, solishtirish);
+    - parallel xato kirishlar;
+    - 20 parallel ariza raqami;
+    - parallel JSON yozuvlar;
+    - ommaviy o'chirish tranzaksiyasi.
+  - **pg-backup:** shifrlangan zaxira → ochish skripti → yangi bazaga tiklash → ma'lumot aslidek.
+  - **Tayyorlash:** `TEST_DATABASE_URL=… pnpm --filter @korxona/db exec prisma db push --skip-generate`.
+- **CI:** `.github/workflows/ci.yml`. Har push'da:
+  - tiplar;
+  - API build;
+  - vaqtinchalik PostgreSQL bilan hamma testlar;
+  - `pnpm audit` (faqat ogohlantirish).
+- **Yangi testlar:** `t-backup-crypto`, `t-common-helpers`, `t-setting-shape`, `pg/pg-core`, `pg/pg-backup`.

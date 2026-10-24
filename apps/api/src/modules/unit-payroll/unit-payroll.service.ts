@@ -4,10 +4,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ENTRY_UNIT_CODES, entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
+import { monthLabel, monthsBetween } from '../../common/period';
 import { ensurePayrollPartCategories, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
 import { hrPeople, hrUnitStaff } from '../hr-sheets/hr-sheets.store';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { Exclusive } from '../../common/locks';
+import { somToTiyin } from '../../common/money';
+import { listBlock, ObjectMap, shapeOf } from '../../common/settings/shape';
 
 // ═══════════════════════════════════════════════════════════
 // Bo'lim (yo'nalish) ish haqi — masalan, Xarajatlar › Tax free › Ish haqi.
@@ -88,12 +91,19 @@ export interface UnitMove {
 const MOVES_KEY = 'unit.moves';
 const PERIOD_RX = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+const isMove = (m: Partial<UnitMove> | null | undefined): m is UnitMove =>
+  Boolean(m && typeof m.id === 'string' && typeof m.pinfl === 'string' && typeof m.unit === 'string' && ENTRY_UNIT_CODES.includes(m.unit) && typeof m.from === 'string' && PERIOD_RX.test(m.from));
+
 function readMoves(raw: unknown): UnitMove[] {
   const list = (raw as { moves?: unknown } | null)?.moves;
   if (!Array.isArray(list)) return [];
-  return (list as Partial<UnitMove>[]).filter(
-    (m): m is UnitMove => Boolean(m && typeof m.id === 'string' && typeof m.pinfl === 'string' && typeof m.unit === 'string' && ENTRY_UNIT_CODES.includes(m.unit) && typeof m.from === 'string' && PERIOD_RX.test(m.from)),
-  );
+  return (list as Partial<UnitMove>[]).filter(isMove);
+}
+
+/** Yozishdan oldin: tanilmagan yozuvlar ham (masalan olib tashlangan bo'lim kodi) saqlanib qolsin — jim o'chmasin */
+function foreignMoves(raw: unknown): unknown[] {
+  const list = (raw as { moves?: unknown } | null)?.moves;
+  return Array.isArray(list) ? list.filter((m) => !isMove(m as Partial<UnitMove>)) : [];
 }
 
 /** Xodim → shu oydagi bo'limi (ko'chishlar bo'yicha; ko'chish bo'lmasa — undefined) */
@@ -164,13 +174,6 @@ function parsePinfl(v: unknown): string | null {
 }
 
 /** Bo'sh yoki 0 — hisoblanmagan (0). Manfiy yoki matn — null (xato) */
-function parseAmount(v: unknown): bigint | null {
-  if (isBlank(v)) return 0n;
-  if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? BigInt(Math.round(v * 100)) : null;
-  const n = Number(String(v).replace(/[\s  ]/g, '').replace(',', '.'));
-  return Number.isFinite(n) && n >= 0 ? BigInt(Math.round(n * 100)) : null;
-}
-
 function cleanName(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const s = v.replace(/\s+/g, ' ').trim();
@@ -238,6 +241,12 @@ export class UnitPayrollService {
     return (await this.prisma.setting.findUnique({ where: { key } }))?.value ?? null;
   }
 
+  /** O'qish + tashqi tuzilma tekshiruvi (buzilgan bo'lsa — xato, ustidan yozilmaydi) */
+  private async readShaped(key: string, kind: 'map' | 'moves' | 'batches'): Promise<unknown> {
+    const raw = await this.readSetting(key);
+    return shapeOf(key, raw, kind === 'map' ? ObjectMap : listBlock(kind));
+  }
+
   private async writeSetting(key: string, value: unknown): Promise<void> {
     const v = value as object;
     await this.prisma.setting.upsert({ where: { key }, create: { key, value: v }, update: { value: v } });
@@ -245,14 +254,14 @@ export class UnitPayrollService {
 
   /** Bo'limning o'z ro'yxati (qo'lda, vedomostdan va bazadagilarni «chiqarish» belgilari) — yozish uchun */
   private async ownStaff(unit: string): Promise<StaffItem[]> {
-    const all = ((await this.readSetting(STAFF_KEY)) ?? {}) as Record<string, unknown>;
+    const all = ((await this.readShaped(STAFF_KEY, 'map')) ?? {}) as Record<string, unknown>;
     return readStaff(all[unit]);
   }
 
   // ─────────── Xodimlar bazasi bilan bog'lash ───────────
 
   async linkOf(unit: string): Promise<StaffLink> {
-    const all = ((await this.readSetting(LINK_KEY)) ?? {}) as Record<string, Partial<StaffLink> | undefined>;
+    const all = ((await this.readShaped(LINK_KEY, 'map')) ?? {}) as Record<string, Partial<StaffLink> | undefined>;
     const v = all[unit] ?? {};
     return {
       departmentIds: Array.isArray(v.departmentIds) ? v.departmentIds.filter((x): x is string => typeof x === 'string') : null,
@@ -337,7 +346,7 @@ export class UnitPayrollService {
   // ─────────── Ko'chishlar (bo'limlar o'rtasida) ───────────
 
   async allMoves(): Promise<UnitMove[]> {
-    return readMoves(await this.readSetting(MOVES_KEY));
+    return readMoves(await this.readShaped(MOVES_KEY, 'moves'));
   }
 
   /** Ko'chishdan oldingi «odatdagi» bo'limi: yo'nalish ro'yxati / bog'lanishi bo'yicha, bo'lmasa Xodimlar bazasidagi joyi */
@@ -386,6 +395,7 @@ export class UnitPayrollService {
    * Ko'chirish: xodim «from» oydan boshlab «unit» bo'limida. Eski oylar o'zgarmaydi (o'sha oylardagi bo'limi saqlanadi).
    * Shu oyda shu xodimga boshqa ko'chish bo'lsa — almashtiriladi. «from» dagi bo'limi allaqachon shu bo'lsa — rad etiladi.
    */
+  @Exclusive('unit-payroll')
   async addMove(body: { pinfl?: unknown; unit?: unknown; from?: unknown; note?: unknown; fullName?: unknown }, userId: string, source: UnitMove['source'] = 'MANUAL'): Promise<UnitMove> {
     const pinfl = parsePinfl(body?.pinfl);
     if (!pinfl) throw new BadRequestException("PINFL 14 ta raqam bo'lishi kerak");
@@ -393,7 +403,8 @@ export class UnitPayrollService {
     if (!unit) throw new BadRequestException("Bo'limni tanlang");
     const from = typeof body?.from === 'string' && PERIOD_RX.test(body.from) ? body.from : null;
     if (!from) throw new BadRequestException("Oyni tanlang (YYYY-MM)");
-    const all = await this.allMoves();
+    const raw = await this.readShaped(MOVES_KEY, 'moves');
+    const all = readMoves(raw);
     const reg = (await this.registryNames([pinfl])).get(pinfl);
     const fullName = reg?.fullName ?? cleanName(body?.fullName) ?? all.find((m) => m.pinfl === pinfl)?.fullName ?? pinfl;
     const rest = all.filter((m) => !(m.pinfl === pinfl && m.from === from));
@@ -410,16 +421,18 @@ export class UnitPayrollService {
       createdAt: new Date().toISOString(),
       createdBy: userId,
     };
-    await this.writeSetting(MOVES_KEY, { moves: [...rest, move] });
+    await this.writeSetting(MOVES_KEY, { moves: [...foreignMoves(raw), ...rest, move] });
     await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_move', entityId: pinfl, summary: `${fullName}: ${monthLabel(from)}dan «${entryUnitLabel(unit)}» bo'limida${before ? ` (oldin — ${entryUnitLabel(before)})` : ''}${source === 'UPLOAD' ? ' · vedomostdan' : ''}` });
     return move;
   }
 
+  @Exclusive('unit-payroll')
   async removeMove(id: string, userId: string) {
-    const all = await this.allMoves();
+    const raw = await this.readShaped(MOVES_KEY, 'moves');
+    const all = readMoves(raw);
     const m = all.find((x) => x.id === id);
     if (!m) throw new NotFoundException("Ko'chish topilmadi");
-    await this.writeSetting(MOVES_KEY, { moves: all.filter((x) => x.id !== id) });
+    await this.writeSetting(MOVES_KEY, { moves: [...foreignMoves(raw), ...all.filter((x) => x.id !== id)] });
     await this.audit.log({ userId, action: 'DELETE', entity: 'unit_move', entityId: m.pinfl, summary: `${m.fullName}: ${monthLabel(m.from)}dan «${entryUnitLabel(m.unit)}» — ko'chish bekor qilindi` });
     return { success: true as const, id };
   }
@@ -446,8 +459,9 @@ export class UnitPayrollService {
     };
   }
 
+  @Exclusive('unit-payroll')
   async setLink(unit: string, body: { departmentIds?: unknown; byPosition?: unknown; byHr?: unknown }, userId: string) {
-    const all = { ...(((await this.readSetting(LINK_KEY)) ?? {}) as Record<string, unknown>) };
+    const all = { ...(((await this.readShaped(LINK_KEY, 'map')) ?? {}) as Record<string, unknown>) };
     const prev = await this.linkOf(unit);
     let departmentIds: string[] | null = prev.departmentIds;
     if (body?.departmentIds === null) departmentIds = null;
@@ -469,13 +483,13 @@ export class UnitPayrollService {
   }
 
   private async saveStaff(unit: string, items: StaffItem[]): Promise<void> {
-    const all = { ...(((await this.readSetting(STAFF_KEY)) ?? {}) as Record<string, unknown>) };
+    const all = { ...(((await this.readShaped(STAFF_KEY, 'map')) ?? {}) as Record<string, unknown>) };
     all[unit] = items;
     await this.writeSetting(STAFF_KEY, all);
   }
 
   private async batchesOf(unit: string, period: string): Promise<UnitPayrollBatch[]> {
-    return readBatches(await this.readSetting(payrollKey(unit, period)));
+    return readBatches(await this.readShaped(payrollKey(unit, period), 'batches'));
   }
 
   /**
@@ -543,6 +557,7 @@ export class UnitPayrollService {
     return { pinfl, inStaff: Boolean(own), active: own?.active ?? false, fullName: reg?.fullName ?? own?.fullName ?? null, position: reg?.position ?? own?.position ?? null, inRegistry: Boolean(reg) };
   }
 
+  @Exclusive('unit-payroll')
   async addStaff(unit: string, body: { pinfl?: unknown; fullName?: unknown; position?: unknown }, userId: string) {
     const pinfl = parsePinfl(body?.pinfl);
     if (!pinfl) throw new BadRequestException("PINFL 14 ta raqam bo'lishi kerak");
@@ -564,6 +579,7 @@ export class UnitPayrollService {
   }
 
   /** Ro'yxatdan chiqarish (ishdan ketgan) yoki qaytarish; ism / lavozimni tuzatish */
+  @Exclusive('unit-payroll')
   async updateStaff(unit: string, pinflRaw: string, body: { active?: unknown; fullName?: unknown; position?: unknown }, userId: string) {
     const pinfl = parsePinfl(pinflRaw);
     const items = await this.ownStaff(unit);
@@ -760,7 +776,7 @@ export class UnitPayrollService {
         if (name && !fileNames.has(pinfl)) fileNames.set(pinfl, name);
       }
       cols.forEach((c, i) => {
-        const amount = parseAmount(values[i]);
+        const amount = somToTiyin(values[i]);
         if (amount === null) {
           invalidRows.push({ rowIndex: r, reason: `${multi ? `${monthLabel(c.period)}: ` : ''}summa noto'g'ri` });
           return;
@@ -872,6 +888,7 @@ export class UnitPayrollService {
 
   // ═══════════ Saqlash ═══════════
 
+  @Exclusive('unit-payroll')
   async commit(
     unit: string,
     period: string,
@@ -929,7 +946,7 @@ export class UnitPayrollService {
 
     const result = await this.prisma.$transaction(
       async (tx) => {
-        const batches = readBatches((await tx.setting.findUnique({ where: { key } }))?.value ?? null);
+        const batches = readBatches(shapeOf(key, (await tx.setting.findUnique({ where: { key } }))?.value ?? null, listBlock('batches')));
         const committed = batches.filter((b) => b.status === 'COMMITTED');
         const now = new Date().toISOString();
         let replaced = 0;
@@ -1071,11 +1088,12 @@ export class UnitPayrollService {
     return rest;
   }
 
+  @Exclusive('unit-payroll')
   async cancel(unit: string, period: string, id: string, userId: string) {
     this.assertPeriod(period);
     const key = payrollKey(unit, period);
     const out = await this.prisma.$transaction(async (tx) => {
-      const batches = readBatches((await tx.setting.findUnique({ where: { key } }))?.value ?? null);
+      const batches = readBatches(shapeOf(key, (await tx.setting.findUnique({ where: { key } }))?.value ?? null, listBlock('batches')));
       const b = batches.find((x) => x.id === id);
       if (!b) throw new NotFoundException('Yuklash topilmadi');
       if (b.status !== 'COMMITTED') throw new BadRequestException('Bu yuklash allaqachon bekor qilingan');
@@ -1145,7 +1163,7 @@ export class UnitPayrollService {
     const key = payrollKey(unit, period);
     return this.prisma.$transaction(
       async (tx) => {
-        const batches = readBatches((await tx.setting.findUnique({ where: { key } }))?.value ?? null);
+        const batches = readBatches(shapeOf(key, (await tx.setting.findUnique({ where: { key } }))?.value ?? null, listBlock('batches')));
         const dropped = new Map<string, { pinfl: string; fullName: string; amountTiyin: bigint }>();
         const now = new Date().toISOString();
         for (const b of batches) {
@@ -1190,6 +1208,7 @@ export class UnitPayrollService {
   }
 
   /** Shu oy ish haqidan xodimlarni o'chirish (yozuv, yuklash jami va xarajat kamayadi) */
+  @Exclusive('unit-payroll')
   async removeRows(unit: string, period: string, body: { pinfls?: unknown }, userId: string) {
     this.assertPeriod(period);
     const pins = this.parsePins(body?.pinfls);
@@ -1207,6 +1226,7 @@ export class UnitPayrollService {
    *  • Summa: yo'nalishga — uning ish haqi vedomostiga (alohida yuklash); Markazga — Markaz ish haqi xarajati
    *    (Xodimlar bazasidagi bo'limi bilan); Hududlarga — xodimning hududi (Xodimlar bazasidan) ish haqi xarajati.
    */
+  @Exclusive('unit-payroll')
   async moveRows(unit: string, period: string, body: { pinfls?: unknown; target?: unknown; onlyThisMonth?: unknown; withAmount?: unknown }, userId: string) {
     this.assertPeriod(period);
     const pins = this.parsePins(body?.pinfls);

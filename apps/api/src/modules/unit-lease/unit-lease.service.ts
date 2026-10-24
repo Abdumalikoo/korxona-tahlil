@@ -6,6 +6,11 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ALL_LEASE_KINDS, LEASE_CONFIG, type LeaseKindDef, type LeaseUnitConfig, type UnitBranch } from './unit-lease.branches';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { cellValue } from '../../common/excel/cells';
+import { somToTiyin } from '../../common/money';
+import { MAX_RANGE_MONTHS as MAX_MONTHS, monthLabel, monthsBetween, PERIOD_RE } from '../../common/period';
+// Avvalgi importlar buzilmasin (boshqa modullar shu yerdan olardi)
+export { monthLabel, monthsBetween };
 
 // ═══════════════════════════════════════════════════════════
 // Yo'nalish doimiy to'lovlari: Tax free › Ijara va kommunal, Fermer xo'jaligi › Ijara va internet.
@@ -20,10 +25,7 @@ import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 // ═══════════════════════════════════════════════════════════
 
 const TASHKENT_OFFSET_HOURS = 5;
-const MAX_MONTHS = 24;
-const MONTHS_UZ = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
 const CODE_MARK = 'KOD';
-const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** Katak: turning maydoni → tiyin (ijaraTiyin, kommunalTiyin, internetTiyin …) */
 export type LeaseCell = Record<string, string>;
@@ -71,47 +73,7 @@ interface LeaseStore {
   batches: LeaseBatch[];
 }
 
-export const monthLabel = (p: string) => `${MONTHS_UZ[Number(p.slice(5, 7)) - 1]} ${p.slice(0, 4)}`;
-
-/** from..to (ikkalasi ham kiradi) */
-export function monthsBetween(from: string, to: string): string[] {
-  if (!PERIOD_RE.test(from ?? '') || !PERIOD_RE.test(to ?? '')) throw new BadRequestException("Oylar oralig'i noto'g'ri (YYYY-MM)");
-  if (from > to) throw new BadRequestException("Boshlanish oyi tugash oyidan keyin bo'lmasin");
-  const out: string[] = [];
-  let [y, m] = from.split('-').map(Number) as [number, number];
-  for (;;) {
-    const p = `${y}-${String(m).padStart(2, '0')}`;
-    out.push(p);
-    if (p === to) break;
-    if (out.length > MAX_MONTHS) throw new BadRequestException(`Ko'pi bilan ${MAX_MONTHS} oy tanlang`);
-    m += 1;
-    if (m > 12) {
-      m = 1;
-      y += 1;
-    }
-  }
-  return out;
-}
-
-function cellValue(value: ExcelJS.CellValue): unknown {
-  if (value && typeof value === 'object') {
-    const r = value as unknown as Record<string, unknown>;
-    if ('result' in r) return r.result;
-    if ('text' in r) return r.text;
-    if ('richText' in r && Array.isArray(r.richText)) return (r.richText as { text: string }[]).map((p) => p.text).join('');
-    if ('formula' in r) return null;
-  }
-  return value;
-}
-
 /** Bo'sh — 0; manfiy yoki matn — null (xato) */
-function parseAmount(v: unknown): bigint | null {
-  if (v === null || v === undefined || String(v).trim() === '' || String(v).trim() === '-') return 0n;
-  if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? BigInt(Math.round(v * 100)) : null;
-  const n = Number(String(v).replace(/[\s  ]/g, '').replace(',', '.'));
-  return Number.isFinite(n) && n >= 0 ? BigInt(Math.round(n * 100)) : null;
-}
-
 const norm = (s: string) => s.toLowerCase().replace(/[«»"'`ʻʼ‘’“”]/g, '').replace(/\s+/g, ' ').trim();
 
 function readStore(raw: unknown): LeaseStore {
@@ -440,7 +402,7 @@ export class UnitLeaseService implements OnModuleInit {
       const per = new Map<string, Map<string, bigint>>();
       for (const c of cols) {
         const raw = cellValue(row.getCell(c.col).value);
-        const v = parseAmount(raw);
+        const v = somToTiyin(raw, { dashIsZero: true });
         const cur = per.get(c.period) ?? new Map<string, bigint>();
         if (v === null) {
           invalid.push({ row: r, column: ws.getColumn(c.col).letter, reason: `Summa noto'g'ri: «${String(raw).slice(0, 30)}»` });

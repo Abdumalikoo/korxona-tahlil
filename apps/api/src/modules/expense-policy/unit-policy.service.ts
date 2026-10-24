@@ -3,7 +3,7 @@ import { ENTRY_UNITS, entryUnitLabel, entryUnitOf, isSegment } from '../../commo
 import { readUnitCategories, unitList } from '../../common/segments/unit-categories';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { monthsBetween } from '../unit-lease/unit-lease.service';
+import { monthsBetween } from '../../common/period';
 import { PayrollService } from '../payroll/payroll.service';
 import { CATEGORY_LABELS } from '../salary-composition/salary-composition.constants';
 import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';

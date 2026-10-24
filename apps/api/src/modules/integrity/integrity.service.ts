@@ -61,13 +61,18 @@ export class IntegrityService {
 
     const details: string[] = [];
 
-    for (const batch of batches) {
-      const expenses = await this.prisma.expense.aggregate({
-        where: { payrollBatchId: batch.id, deletedAt: null },
-        _sum: { amountTiyin: true },
-      });
+    // Hamma yuklashlar bo'yicha bitta so'rov (avval har yuklash uchun alohida so'rov edi)
+    const sums = batches.length
+      ? await this.prisma.expense.groupBy({
+          by: ['payrollBatchId'],
+          where: { payrollBatchId: { in: batches.map((b) => b.id) }, deletedAt: null },
+          _sum: { amountTiyin: true },
+        })
+      : [];
+    const createdOf = new Map(sums.map((r) => [r.payrollBatchId, r._sum.amountTiyin ?? 0n]));
 
-      const created = expenses._sum.amountTiyin ?? 0n;
+    for (const batch of batches) {
+      const created = createdOf.get(batch.id) ?? 0n;
 
       if (created !== batch.totalTiyin) {
         const expected = Number(batch.totalTiyin) / 100;

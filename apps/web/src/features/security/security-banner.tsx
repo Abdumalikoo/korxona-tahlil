@@ -15,6 +15,7 @@ const HIDE_KEY = 'security-banner-hidden';
 interface Status {
   deletePasswordDefault: boolean;
   chatCodeDefault: boolean;
+  backupEncrypted?: boolean;
 }
 
 export function SecurityBanner() {
@@ -40,7 +41,8 @@ export function SecurityBanner() {
     };
   }, [isAdmin, actingRole]);
 
-  if (hidden || !status || (!status.deletePasswordDefault && !status.chatCodeDefault)) return null;
+  const backupOpen = status?.backupEncrypted === false;
+  if (hidden || !status || (!status.deletePasswordDefault && !status.chatCodeDefault && !backupOpen)) return null;
 
   const hide = () => {
     setHidden(true);
@@ -70,7 +72,16 @@ export function SecurityBanner() {
             <Link href="/sozlamalar/chat-kodi" className="font-medium underline underline-offset-2">
               almashtiring
             </Link>{' '}
-            (shungacha chat yopiq).
+            (shungacha chat yopiq).{' '}
+          </>
+        )}
+        {backupOpen && (
+          <>
+            Zaxira shifrlanmagan —{' '}
+            <Link href="/sozlamalar/zaxira" className="font-medium underline underline-offset-2">
+              qanday yoqiladi
+            </Link>
+            .
           </>
         )}
       </span>

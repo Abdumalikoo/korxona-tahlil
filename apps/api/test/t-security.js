@@ -223,8 +223,9 @@ function zipOf(entries, { lie = false, method = 8, encrypted = false } = {}) {
   // Administrator ochadi — kuzatuvchi ko'radi
   const sctl = new SecurityController(sec);
   assert.deepStrictEqual(Reflect.getMetadata(ROLES_KEY, SecurityController), ['ADMIN']);
+  for (const k of ['BACKUP_ENCRYPTION_KEY', 'BACKUP_MIRROR_DIR', 'APP_ENCRYPTION_KEY']) delete process.env[k];
   let st = (await sctl.status()).data;
-  assert.deepStrictEqual([st.viewerPersonal, st.deletePasswordDefault, st.chatCodeDefault, st.warnings.length], [false, true, true, 2]);
+  assert.deepStrictEqual([st.viewerPersonal, st.deletePasswordDefault, st.chatCodeDefault, st.backupEncrypted, st.backupMirror, st.secretsEncrypted, st.warnings.length], [false, true, true, false, false, false, 5]);
   await expectErr(sctl.viewerPersonal({ enabled: 'ha' }, 'adm'), /true yoki false/);
   st = (await sctl.viewerPersonal({ enabled: true }, 'adm')).data;
   assert.strictEqual(st.viewerPersonal, true);
@@ -234,8 +235,10 @@ function zipOf(entries, { lie = false, method = 8, encrypted = false } = {}) {
   await sctl.viewerPersonal({ enabled: false }, 'adm');
   await expectErr(guard.canActivate(gctx('VIEWER', EmployeesController, 'findAll')), /yopiq/);
   sdb.tables.setting.push({ key: 'delete.password', value: { salt: 'aa', hash: 'bb' } }, { key: 'chat.pin', value: { salt: 'aa', hash: 'bb' } });
+  Object.assign(process.env, { BACKUP_ENCRYPTION_KEY: 'zaxira-kaliti-0123456', BACKUP_MIRROR_DIR: '/mnt/ikkinchi', APP_ENCRYPTION_KEY: 'ilova-kaliti-0123456789-abcdefghijklmnop' });
   st = (await sctl.status()).data;
-  assert.deepStrictEqual([st.deletePasswordDefault, st.chatCodeDefault, st.warnings.length], [false, false, 0]);
+  assert.deepStrictEqual([st.deletePasswordDefault, st.chatCodeDefault, st.backupEncrypted, st.backupMirror, st.secretsEncrypted, st.warnings.length], [false, false, true, true, true, 0]);
+  assert.ok(!JSON.stringify(st).includes('zaxira-kaliti') && !JSON.stringify(st).includes('ilova-kaliti'), 'kalitlar javobga chiqmaydi');
   console.log("  ✓ kuzatuvchi: shaxsiy ma'lumotlar yopiq / yashirilgan, administrator ochishi mumkin");
 
   console.log('OK t-security');

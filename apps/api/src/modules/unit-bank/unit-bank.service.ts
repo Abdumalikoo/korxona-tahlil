@@ -4,8 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { monthLabel, monthsBetween } from '../unit-lease/unit-lease.service';
+import { monthLabel, monthsBetween } from '../../common/period';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { cellValue } from '../../common/excel/cells';
+import { somToTiyin } from '../../common/money';
 
 // ═══════════════════════════════════════════════════════════
 // Yo'nalish bank xarajatlari (Xarajatlar › Tax free › Bank xarajatlari).
@@ -96,17 +98,6 @@ const HEADERS: { field: Field; test: (h: string) => boolean; label: string }[] =
   { field: 'purpose', test: (h) => h.includes('назначение'), label: 'Назначение платежа' },
 ];
 
-function cellValue(value: ExcelJS.CellValue): unknown {
-  if (value && typeof value === 'object' && !(value instanceof Date)) {
-    const r = value as unknown as Record<string, unknown>;
-    if ('result' in r) return r.result;
-    if ('text' in r) return r.text;
-    if ('richText' in r && Array.isArray(r.richText)) return (r.richText as { text: string }[]).map((p) => p.text).join('');
-    if ('formula' in r) return null;
-  }
-  return value;
-}
-
 const text = (v: unknown) => (v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v)).trim();
 const key = (h: string) => h.toLowerCase().replace(/[\s\n\r.:]+/g, '').replace('ё', 'е');
 
@@ -134,13 +125,6 @@ function parseDate(v: unknown): string | null {
 }
 
 /** Bo'sh — 0; manfiy yoki matn — null */
-function parseAmount(v: unknown): bigint | null {
-  if (v === null || v === undefined || text(v) === '') return 0n;
-  if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? BigInt(Math.round(v * 100)) : null;
-  const n = Number(text(v).replace(/[\s  ]/g, '').replace(',', '.'));
-  return Number.isFinite(n) && n >= 0 ? BigInt(Math.round(n * 100)) : null;
-}
-
 function readStore(raw: unknown): BankStore {
   const v = (raw ?? {}) as Partial<BankStore>;
   return {
@@ -266,8 +250,8 @@ export class UnitBankService implements OnModuleInit {
       const purpose = text(get(row, 'purpose'));
       const docDateRaw = get(row, 'docDate');
       if (/^итого/i.test(accountName) || /^итого/i.test(text(get(row, 'no'))) || /входящее сальдо/i.test(purpose)) continue;
-      const debit = parseAmount(get(row, 'debit'));
-      const credit = parseAmount(get(row, 'credit'));
+      const debit = somToTiyin(get(row, 'debit'));
+      const credit = somToTiyin(get(row, 'credit'));
       if (debit === null || credit === null) {
         invalid.push({ rowIndex: r, reason: "Summa noto'g'ri" });
         continue;

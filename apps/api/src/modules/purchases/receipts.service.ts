@@ -4,6 +4,7 @@ import { SERIALIZABLE, withRetry } from '../../common/db/retry';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WarehouseService, text } from '../warehouse/warehouse.service';
+import { lockInTx } from '../../common/db/tx-lock';
 
 // ═══════════════════════════════════════════════════════════
 // Omborga qabul: xaridchi «tovar keldi» deb yozadi → omborchi ko'rib qabul qiladi yoki qaytaradi.
@@ -57,6 +58,7 @@ export class ReceiptsService {
 
   private async nextNumber(tx: Tx, date: Date): Promise<string> {
     const prefix = `QB-${date.getUTCFullYear()}-`;
+    await lockInTx(tx, `number:${prefix}`); // bir vaqtdagi so'rovlar navbat bilan raqam oladi
     // Eng katta raqam son bo'yicha (matn tartibi 10 000-hujjatdan keyin buziladi)
     const rows = await tx.goodsReceipt.findMany({ where: { number: { startsWith: prefix } }, select: { number: true } });
     const n = rows.reduce((m, r) => Math.max(m, Number(r.number.slice(prefix.length)) || 0), 0) + 1;

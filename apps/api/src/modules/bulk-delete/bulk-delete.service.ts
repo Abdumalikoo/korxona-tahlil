@@ -12,6 +12,7 @@ import { PeriodCloseService } from '../regional-data/period-close.service';
 import { monthName } from '../regional-data/rd.util';
 import { ENTRY_UNIT_CODES, entryUnitLabel, entryUnitWhere } from '../../common/segments/segments';
 import { SalaryCompositionService } from '../salary-composition/salary-composition.service';
+import { monthSpan } from '../../common/period';
 
 // ═══════════════════════════════════════════════════════════
 // Yagona «O'chirish» — xato kiritilgan yoki yuklangan ma'lumotni o'chirish (hamma bo'lim va rollar uchun bir xil).
@@ -167,22 +168,6 @@ function dmy(iso: string): string {
 function localDay(d: Date): string {
   return new Date(d.getTime() + TASHKENT_MS).toISOString().slice(0, 10);
 }
-function monthsBetween(a: string, b: string): string[] {
-  const out: string[] = [];
-  let [y, m] = a.split('-').map(Number) as [number, number];
-  const [by, bm] = b.split('-').map(Number) as [number, number];
-  let guard = 0;
-  while ((y < by || (y === by && m <= bm)) && guard++ < 60) {
-    out.push(`${y}-${String(m).padStart(2, '0')}`);
-    m += 1;
-    if (m > 12) {
-      m = 1;
-      y += 1;
-    }
-  }
-  return out;
-}
-
 @Injectable()
 export class BulkDeleteService {
   constructor(
@@ -273,7 +258,7 @@ export class BulkDeleteService {
 
   private periodsOf(req: DeleteRequest): string[] | null {
     if (req.mode === 'month') return [req.month!];
-    if (req.mode === 'range') return monthsBetween(req.from!.slice(0, 7), req.to!.slice(0, 7));
+    if (req.mode === 'range') return monthSpan(req.from!.slice(0, 7), req.to!.slice(0, 7), 60);
     return null;
   }
 

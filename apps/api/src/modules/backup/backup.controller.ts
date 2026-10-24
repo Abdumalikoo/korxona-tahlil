@@ -10,8 +10,6 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { Roles } from '../../common/decorators';
 import { BackupService } from './backup.service';
 
@@ -53,15 +51,9 @@ export class BackupController {
   @Roles(UserRole.ADMIN)
   @Get('download/:name')
   async download(@Param('name') name: string, @Res() response: Response) {
-    // Xavfsizlik - faqat sql fayl va papkadan tashqariga chiqmasin
-    if (!/^[\w.-]+\.sql$/.test(name)) {
-      throw new NotFoundException('Fayl topilmadi');
-    }
-
-    const dir = process.env.BACKUP_DIR ?? join(process.cwd(), 'backups');
-    const filePath = join(dir, name);
-
-    if (!existsSync(filePath)) {
+    // Xavfsizlik — faqat zaxira fayli nomi va zaxiralar papkasi ichidan
+    const filePath = this.backup.resolve(name);
+    if (!filePath) {
       throw new NotFoundException('Fayl topilmadi');
     }
 

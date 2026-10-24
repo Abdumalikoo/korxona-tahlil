@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PeriodCloseService } from '../regional-data/period-close.service';
 import { RegionalIncomeService, type ParsedRow } from '../incomes/regional-income.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { monthSpan } from '../../common/period';
 
 // ═══════════════════════════════════════════════════════════
 // Hududchi (hududlar bo'limi) ish joyi:
@@ -50,21 +51,6 @@ export interface PayrollCommitInput {
   fileName?: string;
   rows?: { pinfl: string; amountTiyin: string }[];
   missing?: { rowIndex: number; pinfl: string }[];
-}
-
-function monthsBetween(from: string, to: string): string[] {
-  const out: string[] = [];
-  let [y, m] = from.split('-').map(Number) as [number, number];
-  const [ty, tm] = to.split('-').map(Number) as [number, number];
-  for (let guard = 0; guard < 240 && (y < ty || (y === ty && m <= tm)); guard++) {
-    out.push(`${y}-${String(m).padStart(2, '0')}`);
-    m++;
-    if (m > 12) {
-      m = 1;
-      y++;
-    }
-  }
-  return out;
 }
 
 function todayTashkent(): string {
@@ -209,7 +195,7 @@ export class RegionalDeskService {
       const fromMonth = range.from.slice(0, 7);
       if (fromMonth < period) {
         mode = 'CUMULATIVE';
-        previousMonths = monthsBetween(fromMonth, period).slice(0, -1);
+        previousMonths = monthSpan(fromMonth, period, 240).slice(0, -1);
       }
     } else {
       if (!periodOverride) throw new BadRequestException("Faylda hisobot sanalari topilmadi — oyni tanlang va qayta yuklang");
@@ -849,7 +835,7 @@ export class RegionalDeskService {
   async overview(periodRaw?: string) {
     const period = periodRaw ? assertPeriod(periodRaw) : todayTashkent().slice(0, 7);
     const year = period.slice(0, 4);
-    const months = monthsBetween(`${year}-01`, period);
+    const months = monthSpan(`${year}-01`, period, 240);
     const regionWhere = { not: null, notIn: [CENTRAL_REGION] };
 
     const [regions, incomes, expenses, batches] = await Promise.all([

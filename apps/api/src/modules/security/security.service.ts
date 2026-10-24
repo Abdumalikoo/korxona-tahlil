@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { secretBoxReady } from '../../common/crypto/secret-box';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -15,6 +16,12 @@ export interface SecurityStatus {
   viewerPersonal: boolean;
   deletePasswordDefault: boolean;
   chatCodeDefault: boolean;
+  /** Zaxira shifrlanadimi (BACKUP_ENCRYPTION_KEY) */
+  backupEncrypted: boolean;
+  /** Zaxira ikkinchi joyga nusxalanadimi (BACKUP_MIRROR_DIR) */
+  backupMirror: boolean;
+  /** Bazadagi maxfiy qiymatlar shifrlanadimi (APP_ENCRYPTION_KEY) */
+  secretsEncrypted: boolean;
   /** Almashtirilishi kerak bo'lgan standart qiymatlar (ekranda ogohlantirish uchun) */
   warnings: string[];
 }
@@ -60,6 +67,13 @@ export class SecurityService {
     const warnings: string[] = [];
     if (deletePasswordDefault) warnings.push("O'chirish paroli standart — Sozlamalar › Xavfsizlik'da almashtiring (almashtirilmaguncha ko'p yozuvni o'chirish yopiq)");
     if (chatCodeDefault) warnings.push("Chat kodi standart — Sozlamalar › Chat kodi'da almashtiring (almashtirilmaguncha chat yopiq)");
-    return { viewerPersonal: await this.viewerPersonal(), deletePasswordDefault, chatCodeDefault, warnings };
+    const bk = process.env.BACKUP_ENCRYPTION_KEY ?? '';
+    const backupEncrypted = bk.length >= 16;
+    const backupMirror = Boolean((process.env.BACKUP_MIRROR_DIR ?? '').trim());
+    const secretsEncrypted = secretBoxReady();
+    if (!backupEncrypted) warnings.push("Zaxira shifrlanmagan — serverdagi .env ga BACKUP_ENCRYPTION_KEY qo'shing (kamida 16 belgi)");
+    if (!backupMirror) warnings.push("Zaxira faqat bitta joyda — .env ga BACKUP_MIRROR_DIR (boshqa disk yoki tarmoq papkasi) qo'shing");
+    if (!secretsEncrypted) warnings.push("Bazadagi maxfiy kalitlar (Telegram bot) shifrlanmagan — .env ga APP_ENCRYPTION_KEY qo'shing (kamida 32 belgi)");
+    return { viewerPersonal: await this.viewerPersonal(), deletePasswordDefault, chatCodeDefault, backupEncrypted, backupMirror, secretsEncrypted, warnings };
   }
 }

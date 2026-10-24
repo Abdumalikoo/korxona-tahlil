@@ -1,0 +1,69 @@
+# Har push va pull request'da: tiplar, API build, hamma testlar (soxta baza + haqiqiy PostgreSQL).
+# Haqiqiy baza — CI ichidagi vaqtinchalik PostgreSQL (korxona_test); ishlab chiqarish bazasiga ulanmaydi.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: korxona_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Faqat CI ichidagi test bazasi
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/korxona_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/korxona_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/korxona_test
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: O'rnatish
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma mijozi
+        run: pnpm db:generate
+
+      - name: Tiplar (hamma paketlar)
+        run: pnpm -r typecheck
+
+      - name: API build
+        run: pnpm --filter api build
+
+      - name: Test bazasini tayyorlash
+        run: pnpm --filter @korxona/db exec prisma db push --skip-generate
+
+      - name: Testlar
+        working-directory: apps/api
+        run: node test/run-all.js
+
+      - name: Bog'liq kutubxonalar xavfsizligi (ogohlantirish)
+        if: always()
+        continue-on-error: true
+        run: pnpm audit --prod --audit-level high

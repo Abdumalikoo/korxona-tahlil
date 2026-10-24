@@ -26,6 +26,7 @@ import {
   type Place,
   type WarehouseOverview,
 } from './warehouse.types';
+import { lockInTx } from '../../common/db/tx-lock';
 
 // ═══════════════════════════════════════════════════════════
 // Ombor xizmati.
@@ -414,12 +415,15 @@ export class WarehouseService {
 
   private async nextNumber(tx: Tx, kind: StockDocKind, date: Date): Promise<string> {
     const prefix = `${DOC_PREFIX[kind]}-${date.getUTCFullYear()}-`;
-    const last = await tx.stockDoc.findFirst({ where: { number: { startsWith: prefix } }, orderBy: { number: 'desc' }, select: { number: true } });
-    const n = (last ? Number(last.number.slice(prefix.length)) || 0 : 0) + 1;
+    await lockInTx(tx, `number:${prefix}`); // bir vaqtdagi so'rovlar navbat bilan raqam oladi
+    // Eng katta raqam son bo'yicha (matn tartibi 10 000-hujjatdan keyin buziladi)
+    const rows = await tx.stockDoc.findMany({ where: { number: { startsWith: prefix } }, select: { number: true } });
+    const n = rows.reduce((m, r) => Math.max(m, Number(r.number.slice(prefix.length)) || 0), 0) + 1;
     return `${prefix}${String(n).padStart(4, '0')}`;
   }
 
   private async nextInventory(tx: Tx, count: number): Promise<string[]> {
+    await lockInTx(tx, 'number:INV-');
     const last = await tx.asset.findFirst({ where: { inventoryNo: { startsWith: 'INV-' } }, orderBy: { inventoryNo: 'desc' }, select: { inventoryNo: true } });
     const start = (last ? Number(last.inventoryNo.slice(4)) || 0 : 0) + 1;
     return Array.from({ length: count }, (_, i) => `INV-${String(start + i).padStart(6, '0')}`);

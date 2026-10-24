@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { ChatAnswer } from './chat.service';
+import { listBlock, shapeOf } from '../../common/settings/shape';
 
 // ═══════════════════════════════════════════════════════════
 // Manba chati — suhbatlar va saqlanganlar (har foydalanuvchiniki alohida, `settings`da; migratsiya kerak emas):
@@ -50,8 +51,11 @@ export class ChatStore {
     return `chat.source.${this.user}.${suffix}`;
   }
 
+  /** O'qish + tashqi tuzilma tekshiruvi: {threads|items: [...]} bo'lmasa — xato (ustidan yozilmaydi) */
   private async read<T>(key: string): Promise<T | null> {
-    return ((await this.prisma.setting.findUnique({ where: { key } }))?.value as T | undefined) ?? null;
+    const raw = (await this.prisma.setting.findUnique({ where: { key } }))?.value ?? null;
+    const field = key.endsWith('.index') ? 'threads' : 'items';
+    return shapeOf(key, raw, listBlock(field).partial()) as T | null;
   }
 
   private async write(key: string, value: unknown) {

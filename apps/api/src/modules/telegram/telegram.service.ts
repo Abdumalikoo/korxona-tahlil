@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { isSealed, open as openSecret, seal, secretBoxReady } from '../../common/crypto/secret-box';
 
 // ═══════════════════════════════════════════════════════════
 // Telegram bot: korxona topshiriqlarini xodimlarga yuboradi.
@@ -66,7 +67,19 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       const row = await this.prisma.setting.findUnique({ where: { key: KEY } });
       const value = (row?.value ?? null) as { token?: string; username?: string } | null;
       if (value?.token) {
-        this.token = value.token;
+        // Bazada shifrlangan (APP_ENCRYPTION_KEY bo'lsa); eski ochiq qiymat ham o'qiladi va darhol shifrlanadi
+        let token: string;
+        try {
+          token = openSecret(value.token);
+        } catch (e) {
+          this.lastError = `Bot kalitini ochib bo'lmadi: ${(e as Error).message}. Sozlamalar › Telegram'da tokenni qayta kiriting`;
+          return;
+        }
+        if (!isSealed(value.token) && secretBoxReady()) {
+          const next = { ...value, token: seal(token) };
+          await this.prisma.setting.update({ where: { key: KEY }, data: { value: next } }).catch(() => null);
+        }
+        this.token = token;
         this.username = value.username ?? null;
         this.startPolling();
       }
@@ -176,7 +189,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
     // Webhook o'rnatilgan bo'lsa — long polling ishlamaydi
     await this.call('deleteWebhook', { drop_pending_updates: false }, token).catch(() => undefined);
-    const value = { token, username: me.username ?? null };
+    const value = { token: seal(token), username: me.username ?? null }; // bazada shifrlangan
     await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
     this.stopPolling();
     this.token = token;

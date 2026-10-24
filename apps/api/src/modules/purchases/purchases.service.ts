@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WarehouseService, parseDate, text } from '../warehouse/warehouse.service';
 import { CENTRAL_REGION, WAREHOUSE_PARENT_CATEGORY } from '../warehouse/warehouse.types';
+import { lockInTx } from '../../common/db/tx-lock';
 
 // ═══════════════════════════════════════════════════════════
 // Xarid: yetkazuvchilar, arizalar, birja va oddiy xaridlar, to'lovlar.
@@ -236,6 +237,7 @@ export class PurchasesService {
 
   private async nextNumber(tx: Tx, kind: 'request' | 'purchase', date: Date): Promise<string> {
     const prefix = `${kind === 'request' ? 'AR' : 'XD'}-${date.getUTCFullYear()}-`;
+    await lockInTx(tx, `number:${prefix}`); // bir vaqtdagi so'rovlar navbat bilan raqam oladi
     // Eng katta raqam (matn tartibi 10 000-hujjatdan keyin buziladi — shuning uchun son bo'yicha)
     const rows =
       kind === 'request'
