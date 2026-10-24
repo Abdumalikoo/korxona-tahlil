@@ -380,6 +380,38 @@ Manba chati savolga **faqat tizimdagi manbalardan** javob beradi: sun'iy intelle
 
 O'ng panelda joriy kontekst va namuna savollar turadi.
 
-**Tarix:** har foydalanuvchiniki alohida, oxirgi 80 ta savol-javob. Saqlash joyi — `settings`, `chat.source.<foydalanuvchi>`. «Suhbat tarixini tozalash» faqat suhbatni o'chiradi, ma'lumotlarga tegmaydi.
+**Suhbatlar** (chap panel). Har foydalanuvchiniki alohida:
+- Birinchi savolda suhbat o'zi ochiladi va saqlanadi. Nomi — birinchi savol; uni o'zgartirish mumkin, qo'yilgan nom saqlanib qoladi.
+- Suhbatlarni qadash mumkin (qadalganlar tepada), suhbatlar orasidan qidirish mumkin.
+- Oxirgi ochilgan suhbat sahifa qayta ochilganda o'zi ochiladi.
+- Ko'pi bilan 100 ta suhbat; to'lsa, eng eski qadalmagani o'chadi. Bitta suhbatda 200 tagacha savol-javob.
 
-**API:** `POST /api/source-chat/ask` (`text`, `context`), `GET` va `DELETE /api/source-chat/history`.
+**Tozalash.** Har biri tasdiq bilan so'raladi va ma'lumotlarga (xarajat, daromad, xodimlar) tegmaydi:
+- bitta savol-javobni o'chirish;
+- suhbat ichini tozalash (suhbatning o'zi qoladi);
+- suhbatni o'chirish;
+- qadalmagan hamma suhbatlarni o'chirish;
+- hamma suhbatlarni o'chirish.
+
+Saqlangan javoblar bularning hammasidan keyin ham qoladi.
+
+**Saqlash:**
+- ☆ «Saqlash» bosilgan javob «Saqlanganlar»ga tushadi (300 tagacha). Unga izoh qo'shish mumkin. Saqlanganlar qidiriladi, ochib ko'riladi, javob olingan suhbatga o'tish mumkin, bittasini yoki hammasini o'chirish mumkin.
+- «Nusxalash» javobni matn qilib buferga oladi: savol, tushunilgani, jadvallar, manba.
+- «Excel»: suhbatni yoki saqlanganlarni (hammasini, qidiruvdagilarni yoki bittasini) faylga chiqaradi. Har savol-javob ketma-ket yoziladi: savol, vaqt, izoh, tushunilgani, matn, ko'rsatkichlar, jadvallar, manba. Xodim kartasidan faqat asosiy maydonlar chiqadi, pasport va aloqa ma'lumotlari chiqmaydi.
+
+**Saqlash joyi** — `settings`:
+- `chat.source.<foydalanuvchi>.index` — suhbatlar ro'yxati;
+- `.t.<id>` — suhbat ichidagi savol-javoblar;
+- `.saved` — saqlangan javoblar.
+
+Eski bitta tarix birinchi ochilganda «Avvalgi suhbat» bo'lib ko'chadi. Migratsiya kerak emas.
+
+**API** (`/api/source-chat/`):
+- `POST ask` (`text`, `context`, `threadId`);
+- `threads`: `GET`, `POST`, `DELETE` (`?keepPinned=1`);
+- `threads/:id`: `GET`, `PATCH` (`title`, `pinned`), `DELETE`;
+- `threads/:id/clear`, `threads/:id/items/:itemId` (`DELETE`), `threads/:id/items/:itemId/text`, `threads/:id/export`;
+- `saved`: `GET`, `POST`, `DELETE`;
+- `saved/:id`: `PATCH` (izoh), `DELETE`;
+- `saved/export?ids=`.

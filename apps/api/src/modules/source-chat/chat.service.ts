@@ -7,6 +7,8 @@ import { HR_SHEETS } from '../hr-sheets/hr-sheets.config';
 import { hrPeople, loadSnapshot } from '../hr-sheets/hr-sheets.store';
 import { PrismaService } from '../prisma/prisma.service';
 import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
+import { answerText, chatWorkbook } from './chat.export';
+import { ChatStore } from './chat.store';
 import {
   addMonths,
   catTokens,
@@ -31,11 +33,11 @@ import {
 //    Xarajat egasi Solishtirma bilan bir xil: Xarajatlar siyosati (bo'lim qoidasi, so'ng umumiy) qo'llanadi.
 //  • Xodimlar soni va ro'yxati, so'nggi yozuvlar, solishtirish (ikki davr), «eng ko'p», guruhlash.
 //  • Har javobda: nima tushunilgani, qaysi manbadan olingani va davom savollari.
-//  • Suhbat tarixi — `settings` «chat.source.<foydalanuvchi>» (oxirgi 80 ta). Migratsiya kerak emas.
+//  • Suhbatlar (bir nechta, nomi, qadash), tozalash (javob / suhbat / hammasi), saqlanganlar (izoh bilan),
+//    Excel'ga yuklab olish va matn sifatida nusxalash — chat.store.ts, chat.export.ts. Migratsiya kerak emas.
 // ═══════════════════════════════════════════════════════════
 
 const TASHKENT_OFFSET_HOURS = 5;
-const HISTORY_MAX = 80;
 const DICT_TTL_MS = 60_000;
 
 export type ChatBlock =
@@ -158,32 +160,38 @@ export class SourceChatService {
     return 'Biriktirilmagan';
   }
 
-  // ═══════════ Tarix ═══════════
+  // ═══════════ Suhbatlar va saqlanganlar ═══════════
 
-  private historyKey(userId: string) {
-    return `chat.source.${userId}`;
+  store(userId: string): ChatStore {
+    return new ChatStore(this.prisma, userId);
   }
 
-  async history(userId: string): Promise<ChatAnswer[]> {
-    const v = (await this.prisma.setting.findUnique({ where: { key: this.historyKey(userId) } }))?.value as { items?: ChatAnswer[] } | null;
-    return Array.isArray(v?.items) ? v!.items : [];
+  /** Suhbatni Excel'ga */
+  async exportThread(userId: string, id: string): Promise<{ buffer: Buffer; filename: string }> {
+    const t = await this.store(userId).get(id);
+    const buffer = await chatWorkbook(t.title, t.items.map((answer) => ({ answer })));
+    return { buffer, filename: `Chat-${t.title.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40)}.xlsx` };
   }
 
-  async clearHistory(userId: string) {
-    await this.prisma.setting.deleteMany({ where: { key: this.historyKey(userId) } });
-    return { success: true as const };
+  /** Saqlanganlarni Excel'ga (hammasi yoki tanlanganlari) */
+  async exportSaved(userId: string, ids?: string): Promise<{ buffer: Buffer; filename: string }> {
+    const want = ids ? new Set(ids.split(',')) : null;
+    const list = (await this.store(userId).saved()).filter((x) => !want || want.has(x.id));
+    const buffer = await chatWorkbook('Saqlangan javoblar', list.map((x) => ({ answer: x.answer, note: x.note, thread: x.threadTitle })));
+    return { buffer, filename: 'Chat-saqlanganlar.xlsx' };
   }
 
-  private async remember(userId: string, a: ChatAnswer) {
-    const items = [...(await this.history(userId)), a].slice(-HISTORY_MAX);
-    const key = this.historyKey(userId);
-    const value = { items } as unknown as object;
-    await this.prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  /** Javob matni (nusxalash uchun) */
+  async itemText(userId: string, threadId: string, itemId: string): Promise<string> {
+    const a = (await this.store(userId).items(threadId)).find((x) => x.id === itemId);
+    if (!a) throw new NotFoundException('Javob topilmadi');
+    return answerText(a);
   }
 
   // ═══════════ Savol ═══════════
 
-  async ask(body: { text?: unknown; context?: unknown }, userId: string): Promise<ChatAnswer> {
+  /** Savol: suhbat ko'rsatilmasa — yangi suhbat ochiladi (nomi — birinchi savol) */
+  async ask(body: { text?: unknown; context?: unknown; threadId?: unknown }, userId: string): Promise<ChatAnswer & { threadId: string | null; thread: unknown }> {
     const question = typeof body?.text === 'string' ? body.text.trim().slice(0, 500) : '';
     const ctx = (body?.context && typeof body.context === 'object' ? body.context : {}) as ChatContext;
     const now = nowPeriod();
@@ -197,8 +205,12 @@ export class SourceChatService {
       else throw e;
     }
     const out: ChatAnswer = { id: randomUUID(), question, at: new Date().toISOString(), ...a };
-    if (userId) await this.remember(userId, out).catch(() => undefined);
-    return out;
+    if (!userId) return { ...out, threadId: null, thread: null };
+    const st = this.store(userId);
+    let threadId = typeof body?.threadId === 'string' ? body.threadId : '';
+    if (!threadId || !(await st.threads()).some((t) => t.id === threadId)) threadId = (await st.create()).id;
+    const thread = await st.append(threadId, out);
+    return { ...out, threadId, thread };
   }
 
   private understood(q: ParsedQuery, d: Awaited<ReturnType<SourceChatService['dict']>>, extra: { label: string; value: string }[] = []) {
