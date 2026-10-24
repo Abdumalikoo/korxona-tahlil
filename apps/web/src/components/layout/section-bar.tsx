@@ -20,6 +20,8 @@ export function SectionBar() {
   const { isAdmin } = useAuth();
   const section = sectionFor(pathname, isAdmin);
   if (!section) return null;
+  // Bo'lim sahifalari (Daromadlar/Xarajatlar › Markaz, Hududlar, Tax free …) — alohida hudud: umumiy yorliqlar qatori yo'q
+  if (/^\/(daromadlar|xarajatlar)\/bolim(\/|$)/.test(pathname)) return null;
 
   const period = searchParams.get('period');
   const keep = period && PERIOD_RE.test(period) && section.item.href !== '/sozlamalar' ? `?period=${period}` : '';

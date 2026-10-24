@@ -2,10 +2,12 @@ import { BadRequestException } from '@nestjs/common';
 import { ENTRY_UNIT_CODES, entryUnitLabel } from './segments';
 
 // ═══════════════════════════════════════════════════════════
-// Har bir kiritish bo'limining (Markaz, Hududlar, Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari)
-// o'z moddalar ro'yxati — daromad (xizmat turlari) va xarajat (moddalar) uchun alohida.
-//  • Bo'lim uchun ro'yxat saqlanmagan bo'lsa — UMUMIY: hamma moddalar (keyin qo'shilganlari ham) ochiq.
-//  • Ro'yxat saqlansa — faqat o'shalar (xarajatda ota modda belgilansa — uning ichidagi hamma moddalar).
+// Har bir kiritish bo'limi (Markaz, Hududlar, Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) —
+// ALOHIDA hudud: o'z xarajat moddalari va o'z daromad turlari bilan. Umumiy ro'yxatdan meros yo'q.
+//  • Bo'lim boshida bo'sh — moddalar shu bo'limning «Moddalar» yorlig'ida birma-bir qo'shiladi
+//    (yangisi yaratiladi yoki mavjudidan tanlanadi).
+//  • Kiritishda (qo'lda) faqat shu bo'lim ro'yxatidagi moddalar qabul qilinadi.
+//  • Avtomatik yozuvlar (ish haqi, ijara, ombor, soliqlar, fayldan yuklash) bu tekshiruvdan o'tmaydi.
 // Saqlanadi: settings jadvali, kalit «unit.categories» — bazaga migratsiya kerak emas.
 // ═══════════════════════════════════════════════════════════
 
@@ -40,37 +42,25 @@ export async function readUnitCategories(db: SettingDb): Promise<UnitCategoriesV
   return { expense: clean(v.expense), income: clean(v.income) };
 }
 
-/** Modda shu bo'lim ro'yxatidami (ro'yxat yo'q — umumiy, hammasi ochiq). Xarajatda ota modda ham hisobga olinadi */
-export function unitAllows(list: string[] | undefined, code: string, parentOf?: (code: string) => string | null): boolean {
-  if (!list) return true;
-  const set = new Set(list);
-  let cur: string | null = code;
-  for (let depth = 0; cur && depth <= 20; depth += 1) {
-    if (set.has(cur)) return true;
-    cur = parentOf ? parentOf(cur) : null;
-  }
-  return false;
+/** Bo'lim ro'yxati (saqlanmagan — bo'sh) */
+export function unitList(value: UnitCategoriesValue, kind: EntryKind, unit: string): string[] {
+  return value[kind][unit] ?? [];
 }
 
 interface CategoryDb extends SettingDb {
-  category: { findMany(args: { select: { code: true; parentCode: true; label: true } }): Promise<{ code: string; parentCode: string | null; label: string }[]> };
+  category: { findUnique(args: { where: { code: string }; select: { label: true } }): Promise<{ label: string } | null> };
   incomeCategory: { findUnique(args: { where: { code: string }; select: { label: true } }): Promise<{ label: string } | null> };
 }
 
-/** Qo'lda kiritishda: modda tanlangan bo'limning moddalar ro'yxatida bo'lishi kerak */
+/** Qo'lda kiritishda: modda tanlangan bo'limning o'z ro'yxatida bo'lishi kerak */
 export async function assertUnitCategory(db: CategoryDb, kind: EntryKind, unit: string | null, code: string): Promise<void> {
   if (!unit) return;
-  const lists = await readUnitCategories(db);
-  const list = lists[kind][unit];
-  if (!list) return;
-  if (kind === 'income') {
-    if (list.includes(code)) return;
-    const label = (await db.incomeCategory.findUnique({ where: { code }, select: { label: true } }))?.label ?? code;
-    throw new BadRequestException(`«${label}» — «${entryUnitLabel(unit)}» bo'limining daromad turlari ro'yxatida yo'q. Ro'yxat: Daromadlar › ${entryUnitLabel(unit)} › Moddalar`);
+  const list = unitList(await readUnitCategories(db), kind, unit);
+  if (list.includes(code)) return;
+  const where = `${kind === 'expense' ? 'Xarajatlar' : 'Daromadlar'} › ${entryUnitLabel(unit)} › ${kind === 'expense' ? 'Moddalar' : 'Xizmat turlari'}`;
+  if (!list.length) {
+    throw new BadRequestException(`«${entryUnitLabel(unit)}» bo'limida hali ${kind === 'expense' ? 'xarajat moddasi' : 'daromad turi'} yo'q — avval qo'shing: ${where}`);
   }
-  const cats = await db.category.findMany({ select: { code: true, parentCode: true, label: true } });
-  const parent = new Map(cats.map((c) => [c.code, c.parentCode]));
-  if (unitAllows(list, code, (c) => parent.get(c) ?? null)) return;
-  const label = cats.find((c) => c.code === code)?.label ?? code;
-  throw new BadRequestException(`«${label}» — «${entryUnitLabel(unit)}» bo'limining xarajat moddalari ro'yxatida yo'q. Ro'yxat: Xarajatlar › ${entryUnitLabel(unit)} › Moddalar`);
+  const label = (kind === 'expense' ? await db.category.findUnique({ where: { code }, select: { label: true } }) : await db.incomeCategory.findUnique({ where: { code }, select: { label: true } }))?.label ?? code;
+  throw new BadRequestException(`«${label}» — «${entryUnitLabel(unit)}» bo'limining ro'yxatida yo'q. Qo'shish: ${where}`);
 }

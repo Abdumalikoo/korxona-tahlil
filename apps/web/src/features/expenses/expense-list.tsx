@@ -4,6 +4,7 @@ import { SourceActions } from '@/components/shared/source-actions';
 import { useMonthChange, usePeriod } from '@/lib/period';
 import { regionsApi } from '@/features/employees/api';
 import { placeText, type EntryUnit } from '@/lib/segments';
+import { useUnitCategories } from '@/features/units/api';
 import { Mark } from '@/features/reactions/mark';
 import { categoryMark, counterpartyMark, recordMark } from '@/features/reactions/marks';
 import { downloadExpensesExcel, expensesApi, type ExpenseFilters, type SortField, type SortOrder } from '@/features/expenses/api';
@@ -105,6 +106,9 @@ export function ExpenseList({ section, unit = null }: { section: SectionValue; u
   const regions = useAsync(() => regionsApi.list(), []);
   const categoryTree = useAsync(() => referencesApi.expenseTree(), []);
   const categoryLeaves = useAsync(() => referencesApi.expenseLeaves(), []);
+  /** Bo'lim sahifasida — filtrda faqat shu bo'lim moddalari guruhlari */
+  const unitLists = useUnitCategories('expense');
+  const unitCodes = unit ? new Set(unitLists.lists.get(unit.code) ?? []) : null;
 
   const list = useAsync(
     () => expensesApi.list(filters),
@@ -221,7 +225,9 @@ export function ExpenseList({ section, unit = null }: { section: SectionValue; u
 
   const categoryOptions = [
     { value: '', label: 'Barcha kategoriyalar' },
-    ...(categoryTree.data?.data ?? []).map((item) => ({ value: item.code, label: item.label })),
+    ...(categoryTree.data?.data ?? [])
+      .filter((item) => !unitCodes || unitCodes.has(item.code) || (item.children ?? []).some((c) => unitCodes.has(c.code)))
+      .map((item) => ({ value: item.code, label: item.label })),
   ];
 
   const items = list.data?.data ?? [];

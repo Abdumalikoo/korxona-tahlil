@@ -6,8 +6,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import { expensesApi, type CreateExpensePayload } from '@/features/expenses/api';
 import { EMPTY_PLACE, PlacePicker, placeCreatePayload, placeError, placeForUnit, restorePlace, type PlaceValue } from '@/components/shared/place-picker';
-import { useUnitCategories } from '@/features/units/api';
-import { allowedByUnit, entryUnitOf, unitByCode } from '@/lib/segments';
+import { unitCategoriesApi, useUnitCategories } from '@/features/units/api';
+import { entryUnitOf, unitByCode, unitOnly } from '@/lib/segments';
 import { referencesApi } from '@/features/shared/references';
 import { errorMessage } from '@/lib/error-message';
 import { recallForm, rememberForm } from '@/lib/form-memory';
@@ -184,16 +184,10 @@ export default function NewExpensePage() {
 
   /** Tanlangan bo'lim (Markaz, Hududlar, yo'nalish) moddalari — bo'lim ro'yxati bo'lmasa, umumiy (hammasi) */
   const currentUnit = lockedUnit?.code ?? entryUnitOf({ segment: form.place.segment || null, regionCode: form.place.kind === 'CENTER' ? 0 : form.place.kind === 'REGION' ? 1 : null, departmentId: null });
-  const parentOf = new Map((categories.data?.data ?? []).map((c) => [c.code, c.parentCode]));
-  for (const g of tree.data?.data ?? []) {
-    const walk = (n: { code: string; parentCode: string | null; children?: { code: string; parentCode: string | null; children?: unknown[] }[] }) => {
-      parentOf.set(n.code, n.parentCode);
-      for (const c of n.children ?? []) walk(c as typeof n);
-    };
-    walk(g);
-  }
-  const unitList = currentUnit ? (unitLists.lists.get(currentUnit) ?? null) : null;
-  const unitCategories = allowedByUnit(categories.data?.data ?? [], unitList, parentOf);
+  // Har bo'lim alohida: faqat shu bo'lim moddalari (joy tanlanmaguncha — bo'sh)
+  const unitList = currentUnit ? unitLists.lists.get(currentUnit) : undefined;
+  const unitCategories = unitOnly(categories.data?.data ?? [], unitList);
+  const unitInfo = unitByCode(currentUnit);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((state) => ({ ...state, [key]: value }));
@@ -331,10 +325,22 @@ export default function NewExpensePage() {
                   hideLabel
                   lockUnit={lockedUnit?.code}
                 />
-                {unitList && (
-                  <p className="text-xs text-(--color-text-muted)">
-                    Kategoriyalar — faqat «{unitByCode(currentUnit)?.label}» bo&apos;limi moddalari ({unitCategories.length} ta).
-                  </p>
+                {unitInfo && unitList && (
+                  unitCategories.length ? (
+                    <p className="text-xs text-(--color-text-muted)">
+                      Kategoriyalar — faqat «{unitInfo.label}» bo&apos;limi moddalari ({unitCategories.length} ta).{' '}
+                      <Link href={`/xarajatlar/bolim/${unitInfo.slug}?section=MODDALAR`} className="font-medium text-brand-700 hover:underline">
+                        Modda qo&apos;shish
+                      </Link>
+                    </p>
+                  ) : (
+                    <p className="rounded-(--radius-control) border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      «{unitInfo.label}» bo&apos;limida hali xarajat moddasi yo&apos;q — har bo&apos;limning moddalari alohida.{' '}
+                      <Link href={`/xarajatlar/bolim/${unitInfo.slug}?section=MODDALAR`} className="font-semibold text-brand-700 hover:underline">
+                        Moddalarni qo&apos;shish →
+                      </Link>
+                    </p>
+                  )
                 )}
               </section>
 
@@ -512,9 +518,19 @@ export default function NewExpensePage() {
         initialLabel={quickLabel}
         onClose={() => setQuickOpen(false)}
         onCreated={(created) => {
-          categories.reload();
-          update('categoryCode', created.code);
-          setToast({ message: 'Kategoriya qoshildi', tone: 'success' });
+          // Bo'lim tanlangan bo'lsa — yangi modda darhol shu bo'lim ro'yxatiga ham qo'shiladi (har bo'lim alohida)
+          const done = () => {
+            categories.reload();
+            update('categoryCode', created.code);
+            setToast({ message: unitInfo ? `Modda qo'shildi — «${unitInfo.label}» bo'limiga` : 'Kategoriya qoshildi', tone: 'success' });
+          };
+          if (currentUnit) {
+            void unitCategoriesApi
+              .set('expense', currentUnit, [...(unitLists.lists.get(currentUnit) ?? []), created.code])
+              .then(() => unitLists.reload())
+              .then(done)
+              .catch((e) => setToast({ message: errorMessage(e, "Bo'lim ro'yxatiga qo'shib bo'lmadi"), tone: 'error' }));
+          } else done();
         }}
       />
 

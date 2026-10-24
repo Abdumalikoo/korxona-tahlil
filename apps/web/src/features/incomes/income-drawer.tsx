@@ -15,8 +15,9 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { incomesApi } from './api';
 import { EMPTY_PLACE, PlacePicker, placeCreatePayload, placeError, placeForUnit, placeOf, placePayload, restorePlace, type PlaceValue } from '@/components/shared/place-picker';
-import { useUnitCategories } from '@/features/units/api';
-import { allowedByUnit, entryUnitOf, unitByCode } from '@/lib/segments';
+import { unitCategoriesApi, useUnitCategories } from '@/features/units/api';
+import { entryUnitOf, unitByCode, unitOnly } from '@/lib/segments';
+import Link from 'next/link';
 
 import { MoneyInput } from '@/components/shared/money-input';
 import { QuickServiceDialog } from '@/components/shared/quick-service-dialog';
@@ -310,9 +311,11 @@ export function IncomeDrawer({
 
   // Bo'lim xizmat turlari: tanlangan bo'lim ro'yxati (bo'lmasa — umumiy, hammasi); joriy tanlov doim ro'yxatda
   const currentUnit = unit ?? unitOfPlace(form.place);
-  const unitList = currentUnit ? (unitLists.lists.get(currentUnit) ?? null) : null;
-  const unitCategories = allowedByUnit(categories.map((c) => ({ ...c, parentCode: null })), unitList).filter(Boolean);
-  const shown = unitCategories.some((c) => c.code === form.categoryCode) ? unitCategories : [...unitCategories, ...categories.filter((c) => c.code === form.categoryCode).map((c) => ({ ...c, parentCode: null }))];
+  // Har bo'lim alohida: faqat shu bo'lim xizmat turlari; tahrirlashda joriy tanlov ham ro'yxatda turadi
+  const unitList = currentUnit ? unitLists.lists.get(currentUnit) : undefined;
+  const unitCategories = unitOnly(categories, unitList);
+  const unitInfo = unitByCode(currentUnit);
+  const shown = unitCategories.some((c) => c.code === form.categoryCode) ? unitCategories : [...unitCategories, ...categories.filter((c) => c.code === form.categoryCode)];
   const categoryOptions = [
     { value: '', label: 'Tanlang' },
     ...shown.map((item) => ({ value: item.code, label: item.label })),
@@ -422,10 +425,19 @@ export function IncomeDrawer({
             noun="daromad"
             lockUnit={!income ? unit : null}
           />
-          {unitList && (
-            <p className="-mt-2 text-xs text-(--color-text-muted)">
-              Xizmat turlari — faqat «{unitByCode(currentUnit)?.label}» bo&apos;limi ro&apos;yxatidan ({unitCategories.length} ta).
-            </p>
+          {unitInfo && unitList && (
+            unitCategories.length ? (
+              <p className="-mt-2 text-xs text-(--color-text-muted)">
+                Xizmat turlari — faqat «{unitInfo.label}» bo&apos;limi ro&apos;yxatidan ({unitCategories.length} ta).
+              </p>
+            ) : (
+              <p className="-mt-2 rounded-(--radius-control) border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                «{unitInfo.label}» bo&apos;limida hali daromad turi yo&apos;q — har bo&apos;limning xizmat turlari alohida.{' '}
+                <Link href={`/daromadlar/bolim/${unitInfo.slug}?section=MODDALAR`} className="font-semibold text-brand-700 hover:underline">
+                  Xizmat turlarini qo&apos;shish →
+                </Link>
+              </p>
+            )
           )}
           {isEditing && !form.place.kind && (
             <p className="-mt-2 text-xs text-(--color-warn)">
@@ -575,8 +587,19 @@ export function IncomeDrawer({
         open={quickOpen}
         onClose={() => setQuickOpen(false)}
         onCreated={(category) => {
-          onCategoriesChanged?.();
-          update('categoryCode', category.code);
+          // Bo'lim tanlangan bo'lsa — yangi xizmat turi darhol shu bo'lim ro'yxatiga ham qo'shiladi
+          const target = currentUnit;
+          const after = () => {
+            onCategoriesChanged?.();
+            update('categoryCode', category.code);
+          };
+          if (target) {
+            void unitCategoriesApi
+              .set('income', target, [...(unitLists.lists.get(target) ?? []), category.code])
+              .then(() => unitLists.reload())
+              .catch((e) => setServerError(errorMessage(e, "Bo'lim ro'yxatiga qo'shib bo'lmadi")))
+              .finally(after);
+          } else after();
         }}
       />
 

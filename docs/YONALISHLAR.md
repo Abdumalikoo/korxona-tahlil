@@ -62,14 +62,20 @@ Har bir bo'lim sahifasida:
 
 - **Doimiy / Boshqa** — faqat shu bo'lim yozuvlari ko'rinadi. Ro'yxatning `unit` filtri qidiruv, Excel'ga yuklab olish, jamilar va filtr bo'yicha o'chirishga ham ta'sir qiladi.
 - **Yangi xarajat / daromad** — yozuv joyi shu bo'limga qulflanadi. Markazda bo'lim, Hududlarda viloyat va tuman tanlanadi.
-- **Moddalar / Xizmat turlari** — shu bo'limda ishlatiladigan moddalar ro'yxati:
-  - **Umumiy** — hamma moddalar ochiq, keyin qo'shilganlari ham. Boshida hamma bo'lim shunday.
-  - **Faqat belgilanganlar** — kiritishda faqat shu moddalar chiqadi. Server ham boshqa moddani qabul qilmaydi. Ota modda to'liq belgilansa, unga keyin qo'shiladigan ichki moddalar ham o'zi kiradi.
+- **Moddalar / Xizmat turlari** — shu bo'limning o'z ro'yxati. Har bir bo'lim alohida hudud:
+  - boshida ro'yxat **bo'sh**, umumiy ro'yxatdan hech narsa meros qilinmaydi;
+  - xarajatda avval guruh yaratiladi («+ Yangi guruh»), keyin guruh ichiga moddalar birma-bir qo'shiladi («+ Modda»); daromadda xizmat turlari to'g'ridan-to'g'ri qo'shiladi;
+  - «Mavjudlardan tanlash» — boshqa bo'limda bor moddani shu bo'limga ham qo'shadi (masalan, ikki bo'limda bir xil «Ish haqi»);
+  - «Olib tashlash» moddani faqat shu bo'lim ro'yxatidan chiqaradi: modda va eski yozuvlar o'chmaydi;
+  - kiritishda faqat shu bo'lim ro'yxatidagi moddalar chiqadi, server ham boshqasini qabul qilmaydi. Tekshiruv aniq kod bo'yicha: guruh qo'shilgani uning ichki moddalarini avtomatik ochmaydi.
+
+**Muhim:** Markaz va Hududlar ham bo'sh boshlanadi. Ularga qo'lda yangi xarajat yoki daromad kiritishdan oldin moddalarni qo'shish kerak. Avtomatik manbalar (ish haqi, ijara, Excel import va h.k.) bu cheklovga bog'liq emas. Eski yozuvlarni tahrirlashda tekshiruv faqat modda yoki joy o'zgarganda ishlaydi.
 
 Bo'lim ro'yxatlari `settings` jadvalidagi `unit.categories` yozuvida saqlanadi, migratsiya kerak emas. API:
 
-- `GET /api/unit-categories?kind=expense|income` — bo'limlar ro'yxatlarini oladi;
-- `PATCH /api/unit-categories` — ro'yxatni saqlaydi. Tanasi: `{ kind, unit, codes | null }`, bunda `null` — umumiyga qaytarish. Faqat administrator saqlay oladi.
+- `GET /api/unit-categories?kind=expense|income` — bo'limlar ro'yxatlari (`codes` har doim massiv);
+- `PATCH /api/unit-categories` — ro'yxatni saqlaydi. Tanasi: `{ kind, unit, codes }`. Faqat administrator;
+- `POST /api/unit-categories/item` — yangi guruh / modda / xizmat turi yaratib, shu bo'lim ro'yxatiga qo'shadi. Tanasi: `{ kind, unit, label, parentCode? }`. Bir bo'limda bir xil nom ikki marta bo'lmaydi. Faqat administrator.
 
 Bo'lim sahifalarida Excel'dan yuklash va «oy bo'yicha o'chirish» tugmalari yo'q:
 

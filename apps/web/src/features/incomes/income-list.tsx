@@ -11,6 +11,7 @@ import { SectionTabs } from '@/features/sections/section-tabs';
 import { referencesApi } from '@/features/shared/references';
 import { useAuth } from '@/lib/auth-context';
 import { placeText, type EntryUnit } from '@/lib/segments';
+import { useUnitCategories } from '@/features/units/api';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -87,6 +88,9 @@ export function IncomeList({ section, unit = null }: { section: SectionValue; un
 
   const departments = useAsync(() => referencesApi.departments(), []);
   const categories = useAsync(() => referencesApi.incomeCategories(), []);
+  /** Bo'lim sahifasida — filtrda faqat shu bo'lim xizmat turlari */
+  const unitLists = useUnitCategories('income');
+  const unitCodes = unit ? new Set(unitLists.lists.get(unit.code) ?? []) : null;
 
   const list = useAsync(
     () => incomesApi.list(filters),
@@ -189,7 +193,7 @@ export function IncomeList({ section, unit = null }: { section: SectionValue; un
 
   const categoryOptions = [
     { value: '', label: 'Barcha xizmatlar' },
-    ...(categories.data?.data ?? []).map((item) => ({ value: item.code, label: item.label })),
+    ...(categories.data?.data ?? []).filter((item) => !unitCodes || unitCodes.has(item.code)).map((item) => ({ value: item.code, label: item.label })),
   ];
 
   const items = list.data?.data ?? [];

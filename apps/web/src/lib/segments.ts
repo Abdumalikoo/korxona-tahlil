@@ -67,18 +67,11 @@ export function entryUnitOf(r: { segment?: string | null; regionCode?: number | 
 }
 
 /**
- * Bo'lim ro'yxati bo'yicha moddalar: ro'yxat yo'q (null) — umumiy, hammasi; bor bo'lsa — o'zi yoki ota moddasi ro'yxatda.
+ * Bo'lim moddalari: har bo'lim alohida — faqat shu bo'lim ro'yxatidagilar.
+ * Ro'yxat hali yuklanmagan bo'lsa (undefined) — bo'sh (noto'g'ri modda ko'rinmasin).
  */
-export function allowedByUnit<T extends { code: string; parentCode?: string | null }>(items: T[], list: string[] | null | undefined, parentOf?: Map<string, string | null>): T[] {
-  if (!list) return items;
+export function unitOnly<T extends { code: string }>(items: T[], list: string[] | null | undefined): T[] {
+  if (!list) return [];
   const set = new Set(list);
-  return items.filter((c) => {
-    let cur: string | null | undefined = c.code;
-    for (let depth = 0; cur && depth <= 20; depth += 1) {
-      if (set.has(cur)) return true;
-      cur = parentOf ? (parentOf.get(cur) ?? null) : (c.parentCode ?? null);
-      if (!parentOf) break;
-    }
-    return false;
-  });
+  return items.filter((c) => set.has(c.code));
 }
