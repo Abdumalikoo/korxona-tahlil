@@ -22,6 +22,28 @@ export class UnitPayrollController {
     return { data: await this.service.staff(this.service.unitOf(unit), period) };
   }
 
+  /** Shu oy saqlangan ish haqi — xodimlar bo'yicha (?period=YYYY-MM) */
+  @Get(':unit/saved')
+  async saved(@Param('unit') unit: string, @Query('period') period: string) {
+    return { data: await this.service.saved(this.service.unitOf(unit), period) };
+  }
+
+  /** Shu oy ish haqidan xodimlarni olib tashlash: { pinfls } */
+  @Roles(UserRole.ADMIN)
+  @Post(':unit/saved/remove')
+  @HttpCode(HttpStatus.OK)
+  async removeRows(@Param('unit') unit: string, @Query('period') period: string, @Body() body: { pinfls?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.removeRows(this.service.unitOf(unit), period, body, userId) };
+  }
+
+  /** Shu oyda boshqa bo'limda ishlagan: { pinfls, target, onlyThisMonth?, withAmount? } */
+  @Roles(UserRole.ADMIN)
+  @Post(':unit/saved/move')
+  @HttpCode(HttpStatus.OK)
+  async moveRows(@Param('unit') unit: string, @Query('period') period: string, @Body() body: { pinfls?: unknown; target?: unknown; onlyThisMonth?: unknown; withAmount?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.moveRows(this.service.unitOf(unit), period, body, userId) };
+  }
+
   /** Bo'limlar o'rtasida ko'chishlar: shu bo'limga kelgan / ketgan (?pinfl — bitta xodim) */
   @Get(':unit/moves')
   async moves(@Param('unit') unit: string, @Query('pinfl') pinfl?: string) {

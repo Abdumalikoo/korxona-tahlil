@@ -29,6 +29,7 @@ import {
   type UnitRowStatus,
   type UnitStaff,
   type UnitStaffList,
+  type UnitSaved,
 } from './api';
 import { ENTRY_UNITS } from '@/lib/segments';
 
@@ -68,6 +69,7 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const batches = useAsync(() => unitPayrollApi.batches(unit.code, period), [unit.code, period]);
+  const savedList = useAsync(() => unitPayrollApi.saved(unit.code, period), [unit.code, period, batches.data]);
   /** Xodimlar ro'yxati — qaysi oydagi tarkib (ko'chishlar bilan); standart — yuqori paneldagi oy */
   const [staffPeriod, setStaffPeriod] = useState<string>(period);
   const staff = useAsync(() => unitPayrollApi.staff(unit.code, staffPeriod), [unit.code, staffPeriod]);
@@ -271,7 +273,24 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
         />
       )}
 
-      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        <SavedCard
+          unit={unit}
+          period={period}
+          data={savedList.data?.data ?? null}
+          loading={savedList.loading}
+          error={savedList.error}
+          onChanged={() => {
+            batches.reload();
+            savedList.reload();
+            staff.reload();
+          }}
+          onToast={setToast}
+        />
+        <StaffCard unit={unit} list={staff.data?.data ?? null} loading={staff.loading} error={staff.error} onChanged={staff.reload} onToast={setToast} period={staffPeriod} onPeriod={setStaffPeriod} />
+      </div>
+
+      {/* Yuklashlar tarixi — pastda */}
         <Card className="overflow-hidden">
           <CardHeader title="Yuklashlar tarixi" description={`${unit.label} · ${formatPeriod(period)}`} />
           {batches.loading ? (
@@ -329,8 +348,6 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
           )}
         </Card>
 
-        <StaffCard unit={unit} list={staff.data?.data ?? null} loading={staff.loading} error={staff.error} onChanged={staff.reload} onToast={setToast} period={staffPeriod} onPeriod={setStaffPeriod} />
-      </div>
 
       <ConfirmDialog
         open={cancelTarget !== null}
@@ -1038,5 +1055,239 @@ function MonthBar({
         })}
       </div>
     </div>
+  );
+}
+
+// ─────────── Saqlangan ish haqi — kim, qancha (shu oy) ───────────
+
+/**
+ * Shu oy saqlangan ish haqi: har xodim birma-bir (F.I.Sh., PINFL, summa, qaysi yuklashdan).
+ * Belgilab: o'chirish (ish haqidan olib tashlash) yoki «shu oyda boshqa bo'limda ishlagan» — o'sha bo'limga o'tkazish
+ * (summasi bilan va/yoki faqat shu oy). Ish haqi xarajati o'zi qayta hisoblanadi.
+ */
+function SavedCard({
+  unit,
+  period,
+  data,
+  loading,
+  error,
+  onChanged,
+  onToast,
+}: {
+  unit: EntryUnit;
+  period: string;
+  data: UnitSaved | null;
+  loading: boolean;
+  error: string | null;
+  onChanged: () => void;
+  onToast: (t: ToastState) => void;
+}) {
+  const { isAdmin } = useAuth();
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<'move' | null>(null);
+  const [target, setTarget] = useState('');
+  const [onlyThisMonth, setOnlyThisMonth] = useState(true);
+  const [withAmount, setWithAmount] = useState(true);
+  const [confirmDel, setConfirmDel] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const rows = data?.rows ?? [];
+  const term = q.trim().toLowerCase();
+  const shown = rows.filter((r) => !term || r.fullName.toLowerCase().includes(term) || r.pinfl.includes(term));
+  const picked = rows.filter((r) => sel.has(r.pinfl));
+  const pickedTotal = picked.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
+  const shownTotal = shown.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
+  const allShown = shown.length > 0 && shown.every((r) => sel.has(r.pinfl));
+  const targetLabel = ENTRY_UNITS.find((u) => u.code === target)?.label ?? '';
+
+  async function remove(pinfls: string[]) {
+    setBusy(true);
+    try {
+      const r = (await unitPayrollApi.removeRows(unit.code, period, pinfls)).data;
+      onToast({ message: `${r.removed} xodim ${formatPeriod(period)} ish haqidan olib tashlandi · ${formatTiyin(r.totalTiyin)} so'm`, tone: 'success' });
+      setSel(new Set());
+      setConfirmDel(null);
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'chirib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function move() {
+    if (!target || !picked.length) return;
+    setBusy(true);
+    try {
+      const r = (await unitPayrollApi.moveRows(unit.code, period, { pinfls: picked.map((p) => p.pinfl), target, onlyThisMonth, withAmount })).data;
+      onToast({
+        message: `${r.moved} xodim ${formatPeriod(period)}da «${r.targetLabel}» bo'limida${withAmount ? ` · ${formatTiyin(r.totalTiyin)} so'm o'sha yerga o'tkazildi` : ''}${onlyThisMonth ? ' · keyingi oydan yana shu yerda' : ''}`,
+        tone: 'success',
+      });
+      setSel(new Set());
+      setMode(null);
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'tkazib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const toggle = (p: string) => setSel((x) => { const n = new Set(x); if (n.has(p)) n.delete(p); else n.add(p); return n; });
+
+  return (
+    <Card className="flex flex-col overflow-hidden">
+      <CardHeader
+        title={`Saqlangan ish haqi · ${formatPeriod(period)}`}
+        description={data ? `${data.count} xodim · ${data.paidCount} tasiga hisoblangan · jami ${formatTiyin(data.totalTiyin)} so'm${data.batches > 1 ? ` · ${data.batches} ta yuklashdan` : ''}` : `${unit.label}`}
+      />
+      {Number(data?.splitTiyin ?? 0) > 0 && (
+        <p className="border-b border-(--color-line) bg-brand-50/40 px-5 py-2 text-xs text-(--color-text-muted)">
+          Ish haqi qismlari siyosat bo&apos;yicha boshqa bo&apos;limga ajratilgan: <b className="text-heading">{formatTiyin(data!.splitTiyin)}</b> so&apos;m (xarajatda ayirilgan; bu jadvalda — to&apos;liq summa)
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) px-5 py-2.5">
+        <label className="relative min-w-[12rem] flex-1">
+          <IconSearch className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-(--color-text-faint)" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ism yoki PINFL" className="h-8 w-full rounded-(--radius-control) border border-(--color-line) bg-white pr-2 pl-7 text-sm" />
+        </label>
+        {term && <span className="text-xs text-(--color-text-muted)">{shown.length} ta · {formatTiyin(shownTotal.toString())} so&apos;m</span>}
+      </div>
+      {isAdmin && sel.size > 0 && (
+        <div className="space-y-2 border-b border-(--color-line) bg-brand-50/60 px-5 py-2.5 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <b className="text-heading">{sel.size} ta belgilandi</b>
+            <span className="text-xs text-(--color-text-muted)">· {formatTiyin(pickedTotal.toString())} so&apos;m</span>
+            <div className="ml-auto flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setMode(mode === 'move' ? null : 'move')}>
+                Boshqa bo&apos;limda ishlagan…
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => setConfirmDel(picked.map((p) => p.pinfl))}>
+                O&apos;chirish
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSel(new Set())}>
+                Bekor
+              </Button>
+            </div>
+          </div>
+          {mode === 'move' && (
+            <div className="flex flex-wrap items-center gap-3 rounded-(--radius-control) border border-(--color-line) bg-white p-2.5 text-xs">
+              <span className="text-(--color-text-muted)">{formatPeriod(period)}da qaysi bo&apos;limda ishlagan:</span>
+              <select value={target} onChange={(e) => setTarget(e.target.value)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs">
+                <option value="">Tanlang…</option>
+                {ENTRY_UNITS.filter((u) => u.code !== unit.code).map((u) => (
+                  <option key={u.code} value={u.code}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-1.5" title="Belgilansa — ish haqi summasi o'sha bo'limga o'tadi (yo'nalishda — uning vedomostiga; Markaz yoki hududda — ish haqi xarajati)">
+                <input type="checkbox" className="size-3.5 accent-brand-600" checked={withAmount} onChange={(e) => setWithAmount(e.target.checked)} />
+                Summasi bilan
+              </label>
+              <label className="flex items-center gap-1.5" title="Belgilansa — keyingi oydan yana shu bo'limda; aks holda — shu oydan boshlab o'sha bo'limda qoladi">
+                <input type="checkbox" className="size-3.5 accent-brand-600" checked={onlyThisMonth} onChange={(e) => setOnlyThisMonth(e.target.checked)} />
+                Faqat shu oy
+              </label>
+              <Button size="sm" className="ml-auto" loading={busy} disabled={!target} onClick={() => void move()}>
+                {target ? `«${targetLabel}»ga o'tkazish` : "O'tkazish"}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      {loading && !data ? (
+        <LoadingState />
+      ) : error ? (
+        <p className="px-5 py-6 text-sm text-(--color-expense)">{error}</p>
+      ) : rows.length === 0 ? (
+        <div className="px-5 py-10 text-center">
+          <p className="text-sm font-semibold text-heading">{formatPeriod(period)} uchun ish haqi saqlanmagan</p>
+          <p className="mt-1 text-xs text-(--color-text-muted)">Vedomost yuklab saqlangach, har bir xodim shu yerda ko&apos;rinadi.</p>
+        </div>
+      ) : (
+        <div className="max-h-[540px] overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-[1] bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
+              <tr>
+                <th className="w-9 px-3 py-2">
+                  {isAdmin && <input type="checkbox" className="size-3.5 accent-brand-600" checked={allShown} onChange={() => setSel(allShown ? new Set() : new Set(shown.map((r) => r.pinfl)))} aria-label="Hammasini belgilash" />}
+                </th>
+                <th className="w-8 px-1 py-2 text-right font-semibold">№</th>
+                <th className="px-2 py-2 text-left font-semibold">Xodim</th>
+                <th className="w-36 px-2 py-2 text-right font-semibold">Summa</th>
+                <th className="w-24 px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r, i) => (
+                <tr key={r.pinfl} className={cn('border-t border-(--color-line)', sel.has(r.pinfl) ? 'bg-brand-50/60' : 'hover:bg-brand-50/30')}>
+                  <td className="px-3 py-1.5">{isAdmin && <input type="checkbox" className="size-3.5 accent-brand-600" checked={sel.has(r.pinfl)} onChange={() => toggle(r.pinfl)} aria-label="Belgilash" />}</td>
+                  <td className="px-1 py-1.5 text-right text-xs text-(--color-text-faint)">{i + 1}</td>
+                  <td className="px-2 py-1.5">
+                    <p className="text-heading">{r.fullName}</p>
+                    <p className="text-xs text-(--color-text-muted)">
+                      <span className="money">{r.pinfl}</span>
+                      {r.position ? ` · ${r.position}` : ''}
+                      {r.batches.length > 1 ? ` · ${r.batches.length} ta yuklashda` : ''}
+                    </p>
+                    {r.otherUnitLabel && (
+                      <span className="mt-0.5 inline-block rounded-full bg-(--color-warn-soft) px-1.5 py-0.5 text-[10.5px] text-(--color-warn)" title="Ko'chishlar tarixi bo'yicha shu oyda boshqa bo'limda">
+                        bu oyda: {r.otherUnitLabel}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 text-right">{r.amountTiyin === '0' ? <span className="text-xs text-(--color-text-muted)">hisoblanmagan</span> : <Money tiyin={r.amountTiyin} />}</td>
+                  <td className="px-2 py-1.5 text-right">
+                    {isAdmin && (
+                      <span className="inline-flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSel(new Set([r.pinfl]));
+                            setMode('move');
+                            setTarget(r.otherUnit ?? '');
+                          }}
+                          className="rounded px-1.5 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-50"
+                          title="Shu oyda boshqa bo'limda ishlagan — o'sha bo'limga o'tkazish"
+                        >
+                          Bo&apos;lim
+                        </button>
+                        <button type="button" onClick={() => setConfirmDel([r.pinfl])} className="rounded px-1.5 py-0.5 text-xs text-(--color-text-muted) hover:bg-(--color-expense-soft) hover:text-(--color-expense)" title="Shu oy ish haqidan olib tashlash">
+                          O&apos;chirish
+                        </button>
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="sticky bottom-0 bg-(--color-surface-muted) text-sm font-semibold text-heading">
+              <tr>
+                <td colSpan={3} className="px-3 py-2">
+                  Jami{term ? ' (topilganlar)' : ''}: {shown.length} xodim
+                </td>
+                <td className="px-2 py-2 text-right">
+                  <Money tiyin={shownTotal.toString()} />
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      <ConfirmDialog
+        open={confirmDel !== null}
+        title="Ish haqidan olib tashlash"
+        message={`${confirmDel?.length ?? 0} xodim ${formatPeriod(period)} ish haqidan olib tashlanadi (${formatTiyin(rows.filter((r) => confirmDel?.includes(r.pinfl)).reduce((s, r) => s + BigInt(r.amountTiyin), 0n).toString())} so'm). Ish haqi xarajati kamayadi.`}
+        confirmLabel="O'chirish"
+        danger
+        loading={busy}
+        onConfirm={() => void remove(confirmDel ?? [])}
+        onCancel={() => setConfirmDel(null)}
+      />
+    </Card>
   );
 }

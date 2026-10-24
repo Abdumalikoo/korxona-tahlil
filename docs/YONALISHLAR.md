@@ -275,3 +275,17 @@ Umumiy sahifada qator bosilsa, endi boshqa sahifaga o'tilmaydi. Qatorning o'zi k
 - **Vedomost («miya»):** xodim o'sha oyda boshqa bo'limda bo'lsa, tahlilda «bu oyda: Markaz → ko'chadi» deb ko'rsatiladi. Summa bilan saqlansa, o'sha oydan shu bo'limga ko'chish avtomatik yoziladi (`source: UPLOAD`).
 - **Saqlash joyi:** `settings` jadvalidagi `unit.moves` kaliti. Migratsiya kerak emas.
 - **API:** `/api/unit-payroll/:unit/` ostida: GET `staff?period=`, GET `moves?pinfl=`, POST `moves {pinfl, unit, from, note?}`, DELETE `moves/:id`.
+
+## Yo'nalish › Ish haqi: saqlangan ish haqi xodimlar bo'yicha
+
+- **Joylashuv:** sahifada vedomost yuklash maydonining ostida «Saqlangan ish haqi · <oy>» jadvali turadi. Uning yonida xodimlar ro'yxati, «Yuklashlar tarixi» esa pastga tushdi.
+- **Jadvalda:** har xodim birma-bir — F.I.Sh., PINFL, lavozimi va summasi. Bir necha yuklashda bo'lsa, nechtasida ekani yoziladi. Ko'chishlar bo'yicha shu oyda boshqa bo'limda bo'lsa, «bu oyda: Markaz» belgisi chiqadi. Pastda jami summa, qidiruv ham bor. Siyosat bo'yicha ajratilgan ish haqi qismlari alohida eslatiladi.
+- **O'chirish** (bitta yoki belgilanganlar): xodim shu oy vedomostidan olib tashlanadi. Yuklash jami va ish haqi xarajati qayta hisoblanadi, yuklash bo'sh qolsa xarajati o'chadi. Ish haqi qismlari qayta ajratiladi.
+- **«Bo'lim» / «Boshqa bo'limda ishlagan…»:** o'sha oyda qaysi bo'limda ishlagani tanlanadi, so'ng:
+  - «Miya»: shu oydan o'sha bo'limda deb yoziladi. «Faqat shu oy» belgilansa, keyingi oydan yana shu bo'limga qaytadi (agar keyingi oyga boshqa ko'chish yozilmagan bo'lsa).
+  - Ish haqidan olib tashlanadi.
+  - «Summasi bilan» belgilansa, summa o'tkaziladi:
+    - yo'nalishga — uning vedomostiga, «<bo'lim>dan o'tkazildi» nomli yuklash bo'lib;
+    - Markazga — Markaz ish haqi xarajati bo'lib (Xodimlar bazasidagi bo'limi bilan);
+    - Hududlarga — xodimning hududi ish haqi xarajati bo'lib. Hududi noma'lum bo'lsa, rad etiladi.
+- **API:** GET `/api/unit-payroll/:unit/saved?period=`, POST `saved/remove?period= {pinfls}`, POST `saved/move?period= {pinfls, target, onlyThisMonth, withAmount}`.

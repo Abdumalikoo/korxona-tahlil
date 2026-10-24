@@ -177,7 +177,38 @@ async function readError(response: Response, fallback: string): Promise<string> 
 
 const enc = encodeURIComponent;
 
+/** Shu oy saqlangan ish haqi — xodimlar bo'yicha */
+export interface UnitSavedRow {
+  pinfl: string;
+  fullName: string;
+  position: string | null;
+  amountTiyin: string;
+  batches: { id: string; fileName: string }[];
+  inRegistry: boolean;
+  /** Shu oyda boshqa bo'limda (ko'chishlar bo'yicha) */
+  otherUnit?: string;
+  otherUnitLabel?: string;
+}
+
+export interface UnitSaved {
+  unit: string;
+  label: string;
+  period: string;
+  monthLabel: string;
+  count: number;
+  paidCount: number;
+  totalTiyin: string;
+  splitTiyin: string;
+  batches: number;
+  rows: UnitSavedRow[];
+}
+
 export const unitPayrollApi = {
+  saved: (unit: string, period: string) => api.get<ApiResponse<UnitSaved>>(`/unit-payroll/${enc(unit)}/saved?period=${enc(period)}`),
+  removeRows: (unit: string, period: string, pinfls: string[]) =>
+    api.post<ApiResponse<{ removed: number; totalTiyin: string }>>(`/unit-payroll/${enc(unit)}/saved/remove?period=${enc(period)}`, { pinfls }),
+  moveRows: (unit: string, period: string, body: { pinfls: string[]; target: string; onlyThisMonth: boolean; withAmount: boolean }) =>
+    api.post<ApiResponse<{ moved: number; totalTiyin: string; target: string; targetLabel: string }>>(`/unit-payroll/${enc(unit)}/saved/move?period=${enc(period)}`, body),
   staff: (unit: string, period?: string) => api.get<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff`, period ? { params: { period } } : undefined),
   moves: (unit: string, pinfl?: string) => api.get<ApiResponse<{ items: UnitMove[]; units: { code: string; label: string }[] }>>(`/unit-payroll/${enc(unit)}/moves`, pinfl ? { params: { pinfl } } : undefined),
   addMove: (unit: string, body: { pinfl: string; unit: string; from: string; note?: string; fullName?: string }) => api.post<ApiResponse<UnitMove>>(`/unit-payroll/${enc(unit)}/moves`, body),

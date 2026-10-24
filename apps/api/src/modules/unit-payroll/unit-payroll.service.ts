@@ -1054,6 +1054,200 @@ export class UnitPayrollService {
     return { success: true as const, id };
   }
 
+  // ═══════════ Saqlangan ish haqi — xodimlar bo'yicha (ko'rish, o'chirish, boshqa bo'limga o'tkazish) ═══════════
+
+  /** Shu oy saqlangan ish haqi: har xodim — summa, qaysi yuklashdan; shu oyda boshqa bo'limda bo'lsa — belgisi */
+  async saved(unit: string, period: string) {
+    this.assertPeriod(period);
+    const committed = (await this.batchesOf(unit, period)).filter((b) => b.status === 'COMMITTED');
+    const byPin = new Map<string, { pinfl: string; fullName: string; amount: bigint; batches: { id: string; fileName: string }[] }>();
+    for (const b of committed) {
+      for (const r of b.rows ?? []) {
+        const x = byPin.get(r.pinfl) ?? { pinfl: r.pinfl, fullName: r.fullName, amount: 0n, batches: [] };
+        x.amount += BigInt(r.amountTiyin);
+        x.batches.push({ id: b.id, fileName: b.fileName });
+        byPin.set(r.pinfl, x);
+      }
+    }
+    const names = await this.registryNames([...byPin.keys()]);
+    const at = membership(await this.allMoves());
+    const split = ((await this.readSetting(`unit.payroll.split.${unit}.${period}`)) as { parts?: Record<string, string> } | null)?.parts ?? {};
+    const rows = [...byPin.values()]
+      .map((x) => {
+        const other = at(x.pinfl, period);
+        return {
+          pinfl: x.pinfl,
+          fullName: names.get(x.pinfl)?.fullName ?? x.fullName,
+          position: names.get(x.pinfl)?.position ?? null,
+          amountTiyin: x.amount.toString(),
+          batches: x.batches,
+          inRegistry: names.has(x.pinfl),
+          ...(other && other !== unit ? { otherUnit: other, otherUnitLabel: entryUnitLabel(other) } : {}),
+        };
+      })
+      .sort((a, b) => a.fullName.localeCompare(b.fullName));
+    const total = rows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
+    const splitTotal = Object.values(split).reduce((s, v) => s + BigInt(v), 0n);
+    return {
+      unit,
+      label: entryUnitLabel(unit),
+      period,
+      monthLabel: monthLabel(period),
+      count: rows.length,
+      paidCount: rows.filter((r) => r.amountTiyin !== '0').length,
+      totalTiyin: total.toString(),
+      /** Ish haqi qismlari (siyosat bo'yicha) boshqa bo'limga ajratilgan */
+      splitTiyin: splitTotal.toString(),
+      batches: committed.length,
+      rows,
+    };
+  }
+
+  /** Saqlangan vedomostlardan xodimlarni olib tashlash (yuklash jami va xarajat qayta hisoblanadi) — olib tashlanganlar */
+  private async dropRows(unit: string, period: string, pinfls: Set<string>): Promise<{ pinfl: string; fullName: string; amountTiyin: bigint }[]> {
+    const key = payrollKey(unit, period);
+    return this.prisma.$transaction(
+      async (tx) => {
+        const batches = readBatches((await tx.setting.findUnique({ where: { key } }))?.value ?? null);
+        const dropped = new Map<string, { pinfl: string; fullName: string; amountTiyin: bigint }>();
+        const now = new Date().toISOString();
+        for (const b of batches) {
+          if (b.status !== 'COMMITTED') continue;
+          const out = (b.rows ?? []).filter((r) => pinfls.has(r.pinfl));
+          if (!out.length) continue;
+          for (const r of out) {
+            const d = dropped.get(r.pinfl) ?? { pinfl: r.pinfl, fullName: r.fullName, amountTiyin: 0n };
+            d.amountTiyin += BigInt(r.amountTiyin);
+            dropped.set(r.pinfl, d);
+          }
+          b.rows = (b.rows ?? []).filter((r) => !pinfls.has(r.pinfl));
+          const total = b.rows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
+          b.totalTiyin = total.toString();
+          b.count = b.rows.length;
+          b.zeroCount = b.rows.filter((r) => r.amountTiyin === '0').length;
+          if (b.expenseId) {
+            if (total > 0n) await tx.expense.updateMany({ where: { id: b.expenseId, deletedAt: null }, data: { amountTiyin: total, description: `Ish haqi — ${entryUnitLabel(unit)} (${b.count - b.zeroCount} xodim)` } });
+            else {
+              await tx.expense.updateMany({ where: { id: b.expenseId, deletedAt: null }, data: { deletedAt: new Date() } });
+              b.expenseId = null;
+            }
+          }
+          if (!b.rows.length) {
+            b.status = 'CANCELLED';
+            b.cancelledAt = now;
+          }
+        }
+        const value = { batches } as object;
+        await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        return [...dropped.values()];
+      },
+      { timeout: 60_000 },
+    );
+  }
+
+  private parsePins(raw: unknown): Set<string> {
+    const list = Array.isArray(raw) ? raw.map(parsePinfl).filter((x): x is string => Boolean(x)) : [];
+    if (!list.length) throw new BadRequestException('Xodimlar belgilanmagan');
+    if (list.length > MAX_ROWS) throw new BadRequestException("Juda ko'p");
+    return new Set(list);
+  }
+
+  /** Shu oy ish haqidan xodimlarni o'chirish (yozuv, yuklash jami va xarajat kamayadi) */
+  async removeRows(unit: string, period: string, body: { pinfls?: unknown }, userId: string) {
+    this.assertPeriod(period);
+    const pins = this.parsePins(body?.pinfls);
+    const dropped = await this.dropRows(unit, period, pins);
+    if (!dropped.length) throw new NotFoundException("Belgilangan xodimlar shu oy ish haqida yo'q");
+    await this.splitComponents(unit, period).catch(() => null);
+    const total = dropped.reduce((s, d) => s + d.amountTiyin, 0n);
+    await this.audit.log({ userId, action: 'DELETE', entity: 'unit_payroll', entityId: `${unit}:${period}`, summary: `${entryUnitLabel(unit)} ish haqi ${period}: ${dropped.length} xodim olib tashlandi (${dropped.slice(0, 5).map((d) => d.fullName).join(', ')}${dropped.length > 5 ? ' …' : ''}) — ${(Number(total) / 100).toLocaleString('uz-UZ')} so'm` });
+    return { removed: dropped.length, totalTiyin: total.toString() };
+  }
+
+  /**
+   * Xodim(lar) shu oyda boshqa bo'limda ishlagan: ish haqi shu bo'limdan olinadi va (summasi bilan) o'sha bo'limga o'tkaziladi.
+   *  • «Miya»: shu oydan o'sha bo'limda; onlyThisMonth — keyingi oydan yana shu bo'limga qaytadi (o'sha oyda ko'chish yo'q bo'lsa).
+   *  • Summa: yo'nalishga — uning ish haqi vedomostiga (alohida yuklash); Markazga — Markaz ish haqi xarajati
+   *    (Xodimlar bazasidagi bo'limi bilan); Hududlarga — xodimning hududi (Xodimlar bazasidan) ish haqi xarajati.
+   */
+  async moveRows(unit: string, period: string, body: { pinfls?: unknown; target?: unknown; onlyThisMonth?: unknown; withAmount?: unknown }, userId: string) {
+    this.assertPeriod(period);
+    const pins = this.parsePins(body?.pinfls);
+    const target = typeof body?.target === 'string' && ENTRY_UNIT_CODES.includes(body.target) && body.target !== unit ? body.target : null;
+    if (!target) throw new BadRequestException("Qaysi bo'limga — tanlang");
+    const onlyThisMonth = body?.onlyThisMonth !== false;
+    const withAmount = body?.withAmount !== false;
+    const current = (await this.saved(unit, period)).rows.filter((r) => pins.has(r.pinfl));
+    if (!current.length) throw new NotFoundException("Belgilangan xodimlar shu oy ish haqida yo'q");
+    // Hududga — xodimning hududi kerak
+    const emps = await this.prisma.employee.findMany({ where: { pinfl: { in: current.map((r) => r.pinfl) } }, select: { pinfl: true, regionCode: true, departmentId: true } });
+    const empBy = new Map(emps.map((e) => [e.pinfl, e]));
+    if (withAmount && target === 'REGION') {
+      const bad = current.filter((r) => !(empBy.get(r.pinfl)?.regionCode && empBy.get(r.pinfl)!.regionCode! > 0));
+      if (bad.length) throw new BadRequestException(`Hududi noma'lum (Xodimlar bazasida hudud yo'q): ${bad.slice(0, 3).map((b) => b.fullName).join(', ')} — avval Xodimlar bo'limida hududini belgilang`);
+    }
+    const next = (() => {
+      const [y, m] = period.split('-').map(Number) as [number, number];
+      return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+    })();
+    // «Miya»
+    for (const r of current) {
+      const before = membership(await this.allMoves());
+      const nextUnitBefore = before(r.pinfl, next);
+      if (before(r.pinfl, period) !== target) await this.addMove({ pinfl: r.pinfl, unit: target, from: period, fullName: r.fullName, note: `${entryUnitLabel(unit)} ish haqidan o'tkazildi` }, userId);
+      if (onlyThisMonth) {
+        const hasNext = (await this.allMoves()).some((m) => m.pinfl === r.pinfl && m.from === next);
+        if (!hasNext && (nextUnitBefore === undefined || nextUnitBefore === unit)) {
+          await this.addMove({ pinfl: r.pinfl, unit, from: next, fullName: r.fullName, note: `${monthLabel(period)}dan keyin qaytdi` }, userId).catch(() => null);
+        }
+      }
+    }
+    // Ish haqidan olib tashlash
+    const dropped = await this.dropRows(unit, period, pins);
+    const total = dropped.reduce((s, d) => s + d.amountTiyin, 0n);
+    // Summani o'tkazish
+    let created = 0;
+    if (withAmount && total > 0n) {
+      const paid = dropped.filter((d) => d.amountTiyin > 0n);
+      if (isSegment(target)) {
+        await this.commit(target, period, { rows: paid.map((d) => ({ pinfl: d.pinfl, amountTiyin: d.amountTiyin.toString(), fullName: d.fullName })), fileName: `${entryUnitLabel(unit)}dan o'tkazildi` }, false, userId);
+        created = 1;
+      } else {
+        for (const d of paid) {
+          const e = empBy.get(d.pinfl);
+          await this.prisma.expense.create({
+            data: {
+              date: this.periodEndDate(period),
+              period,
+              amountTiyin: d.amountTiyin,
+              categoryCode: PAYROLL_CATEGORY,
+              segment: null,
+              regionCode: target === 'CENTER' ? 0 : e!.regionCode,
+              departmentId: target === 'CENTER' ? (e?.departmentId ?? null) : null,
+              description: `Ish haqi — ${d.fullName} (${entryUnitLabel(unit)}dan o'tkazildi, ${monthLabel(period)})`.slice(0, 500),
+              documentNo: d.pinfl,
+              paymentMethod: 'BANK',
+              paymentStatus: 'PAID',
+              source: 'IMPORT',
+              section: 'DOIMIY',
+              createdById: userId,
+            },
+          });
+          created += 1;
+        }
+      }
+    }
+    await this.splitComponents(unit, period).catch(() => null);
+    await this.audit.log({
+      userId,
+      action: 'UPDATE',
+      entity: 'unit_payroll',
+      entityId: `${unit}:${period}`,
+      summary: `${entryUnitLabel(unit)} ish haqi ${period}: ${dropped.length} xodim «${entryUnitLabel(target)}» bo'limiga o'tkazildi${withAmount ? ` (${(Number(total) / 100).toLocaleString('uz-UZ')} so'm bilan)` : ' (summasiz)'}${onlyThisMonth ? ', faqat shu oy' : ''}`,
+    });
+    return { moved: dropped.length, totalTiyin: total.toString(), target, targetLabel: entryUnitLabel(target), created };
+  }
+
   // ═══════════ Ish haqi qismlari (Xarajatlar siyosati bo'yicha) ═══════════
   //
   // Bo'lim siyosatida «ish haqi qismi → bo'lim» belgilangan bo'lsa (masalan, Tax free: bayram puli → Qo'mita):
