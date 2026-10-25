@@ -55,7 +55,7 @@ export interface PayoutRow {
   matchBy: MatchBy;
 }
 
-interface MonthState {
+export interface MonthState {
   batchId: string;
   fileName: string;
   savedAt: string;
@@ -63,7 +63,7 @@ interface MonthState {
   rows: PayoutRow[];
 }
 
-interface Batch {
+export interface Batch {
   id: string;
   fileName: string;
   createdAt: string;
@@ -75,7 +75,7 @@ interface Batch {
   cancelledAt: string | null;
 }
 
-interface Store {
+export interface Store {
   months: Record<string, MonthState>;
   batches: Batch[];
 }
