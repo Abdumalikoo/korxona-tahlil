@@ -17,6 +17,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { PayrollService, type MissingRow } from './payroll.service';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 import { assertAmount } from '../../common/validation/amount';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -30,7 +31,10 @@ interface CommitBody {
 
 @Controller('payroll')
 export class PayrollController {
-  constructor(private readonly payroll: PayrollService) {}
+  constructor(
+    private readonly payroll: PayrollService,
+    private readonly archive: SourceArchiveService,
+  ) {}
 
   private sendFile(response: Response, buffer: Buffer, filename: string): void {
     response.setHeader('Content-Type', XLSX_TYPE);
@@ -54,8 +58,11 @@ export class PayrollController {
   async analyze(
     @Query('period') period: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser('id') userId: string,
   ) {
     const data = await this.payroll.analyze(period, file);
+    // Manba fayl arxivga — saqlanganda shu yuklash bilan bog'lanadi
+    await this.archive.hold('payroll', file, { userId, periods: [period] });
     return { data };
   }
 
@@ -89,6 +96,7 @@ export class PayrollController {
       fileName: body.fileName ?? 'ish-haqi.xlsx',
       missing: Array.isArray(body.missing) ? body.missing : [],
     });
+    await this.archive.link('payroll', { userId, fileName: body.fileName ?? 'ish-haqi.xlsx', refId: data.batchId, periods: [period] });
 
     return { data };
   }
@@ -120,6 +128,7 @@ export class PayrollController {
   @HttpCode(HttpStatus.OK)
   async cancel(@Param('batchId') batchId: string) {
     const data = await this.payroll.cancel(batchId);
+    await this.archive.cancel('payroll', batchId);
     return { data };
   }
 

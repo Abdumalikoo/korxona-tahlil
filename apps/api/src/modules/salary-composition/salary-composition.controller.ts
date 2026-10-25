@@ -21,6 +21,7 @@ import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { isSegment } from '../../common/segments/segments';
 import { PAYROLL_UNITS } from '../unit-payroll/unit-payroll.service';
 import { CompositionPlaceService } from './salary-composition.place';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 import { CompositionReconcileService } from './salary-composition.reconcile';
 import { SalaryCompositionService } from './salary-composition.service';
 import { SalaryStructureService } from './salary-composition.structure';
@@ -54,6 +55,7 @@ export class SalaryCompositionController {
     private readonly structure: SalaryStructureService,
     private readonly reconcile: CompositionReconcileService,
     private readonly places: CompositionPlaceService,
+    private readonly archive: SourceArchiveService,
   ) {}
 
   private sendFile(response: Response, buffer: Buffer, filename: string): void {
@@ -121,7 +123,7 @@ export class SalaryCompositionController {
   @Roles(UserRole.ADMIN)
   @Post('analyze')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@Query('period') period: string, @UploadedFile() file: Express.Multer.File, @Query('sheet') sheet?: string, @Query('unit') unit?: string, @Body('mapping') mappingRaw?: string) {
+  async analyze(@CurrentUser('id') userId: string, @Query('period') period: string, @UploadedFile() file: Express.Multer.File, @Query('sheet') sheet?: string, @Query('unit') unit?: string, @Body('mapping') mappingRaw?: string) {
     // mapping — shu yuklashda tanlangan moslash: JSON { "AB": "OKLAD", "AC": "SKIP" }
     let mapping: Record<string, string> | undefined;
     if (typeof mappingRaw === 'string' && mappingRaw.length) {
@@ -137,6 +139,8 @@ export class SalaryCompositionController {
     const data = await this.composition.analyze(period, file, sheet || undefined, u, mapping);
     // Tarkibdagi bo'limlar: taklif qilingan moslik va «miya» bilan farqlar (faqat umumiy tarkib)
     const places = u ? null : await this.places.analyze(period, data.rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, deptName: r.deptName ?? null })), data.deptColumn ?? null);
+    // Manba fayl arxivga (saqlanganda shu tarkib bilan bog'lanadi — keyingi bog'liqliklar uchun qayta yuklash shart emas)
+    await this.archive.hold('salary-composition', file, { userId, periods: [period], unit: u ?? null, sheet: data.sheetName ?? sheet ?? null });
     return { data: { ...data, places } };
   }
 
@@ -199,6 +203,7 @@ export class SalaryCompositionController {
     const remembered = await this.composition.rememberColumns(body.columns).catch(() => 0);
     // Tarkibdagi bo'limlar: moslik eslab qolinadi, belgilangan xodimlarning shu oy joyi tarkibdagidek
     const places = unit ? null : await this.places.apply(period, data.batchId, body.rows.map((r) => ({ pinfl: String(r.pinfl ?? ''), fullName: r.fullName ? String(r.fullName) : null, dept: typeof r.dept === 'string' ? r.dept : null })), body.places, userId);
+    await this.archive.link('salary-composition', { userId, fileName: body.fileName ?? 'tarkib.xlsx', refId: data.batchId, periods: [period], unit: unit ?? null });
     return { data: { ...data, rememberedColumns: remembered, places } };
   }
 
@@ -209,6 +214,7 @@ export class SalaryCompositionController {
   async cancel(@Param('id') id: string, @CurrentUser('id') userId: string, @Query('unit') unit?: string, @Query('period') period?: string) {
     const u = this.unitOf(unit);
     const data = await this.composition.cancel(id, u, period);
+    await this.archive.cancel('salary-composition', id);
     // Umumiy tarkib bekor — shu oy tarkib bo'yicha o'zgartirilgan joylar ham bekor
     const places = u ? null : await this.places.onCancel(data.period, userId).catch(() => null);
     return { data: { ...data, places } };
@@ -318,7 +324,10 @@ export class SalaryCompositionController {
   async placesReadDepts(@Query('period') period: string, @UploadedFile() file: Express.Multer.File | undefined, @Query('sheet') sheet: string | undefined, @CurrentUser('id') userId: string) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
     const data = await this.composition.analyze(period, file, sheet || undefined);
-    return { data: await this.places.attachDepts(period, data.rows.map((r) => ({ pinfl: r.pinfl, deptName: r.deptName ?? null })), data.deptColumn ?? null, userId) };
+    const out = await this.places.attachDepts(period, data.rows.map((r) => ({ pinfl: r.pinfl, deptName: r.deptName ?? null })), data.deptColumn ?? null, userId);
+    // Fayl endi shu tarkib bilan arxivda — keyingi bog'liqliklar uchun yana tanlash shart emas
+    if (file) await this.archive.attach('salary-composition', file, { userId, refId: out.batchId, periods: [period], unit: null, sheet: data.sheetName ?? sheet ?? null });
+    return { data: out };
   }
 
   /** Tarkibdagi nom → bo'lim mosligi: { map: { [nom]: departmentId | 'SKIP' } } */

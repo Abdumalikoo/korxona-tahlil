@@ -276,6 +276,7 @@ export const MENU: NavItem[] = [
       { label: 'Tarix', href: '/sozlamalar/tarix' },
       { label: 'Tekshiruv', href: '/sozlamalar/tekshiruv' },
       { label: 'Zaxira', href: '/sozlamalar/zaxira' },
+      { label: 'Manba fayllar', href: '/sozlamalar/fayllar', description: 'Yuklangan fayllar arxivi: yuklash bilan bog‘langan, yangi bog‘liqliklar eski fayllarga ham qo‘llanadi' },
       { label: 'Ogohlantirishlar', href: '/sozlamalar/ogohlantirish', description: 'Muhokama talab qiladigan holatlar chegaralari' },
       { label: 'Telegram', href: '/sozlamalar/telegram', description: 'Bot va xodimlarni ulash — topshiriqlar avtomatik yetkaziladi' },
       { label: 'Demo ma\'lumotlar', href: '/sozlamalar/demo', description: "Barcha demolar: holati, hammasini o'chirish va qayta qo'shish" },

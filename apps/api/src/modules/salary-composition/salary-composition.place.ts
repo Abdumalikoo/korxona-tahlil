@@ -508,7 +508,10 @@ export class CompositionPlaceService {
     const nameCount = new Map<string, number>();
     for (const n of Object.values(month.depts)) if (!resolve(n).option && !resolve(n).skipped) nameCount.set(n, (nameCount.get(n) ?? 0) + 1);
     const unmapped = [...nameCount.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, count: n }));
+    const batch = await this.prisma.salaryCompositionBatch.findFirst({ where: { period, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, fileName: true, createdAt: true } }).catch(() => null);
     return {
+      /** Shu oy saqlangan umumiy tarkib (bo'limlari bormi — hasTarkib) */
+      batch: batch ? { id: batch.id, fileName: batch.fileName, createdAt: batch.createdAt } : null,
       unmapped,
       options: unmapped.length ? await this.options() : [],
       period,
@@ -542,7 +545,7 @@ export class CompositionPlaceService {
     const resolve = await this.resolver();
     const unknown = [...new Set(Object.values(depts))].filter((n) => !resolve(n).option && !resolve(n).skipped);
     await this.audit.log({ userId, action: 'UPDATE', entity: 'composition_place', entityId: period, summary: `Ish haqi tarkibi ${monthLabel(period)}: saqlangan tarkibga bo'limlar bog'landi (${hit.length} xodim, ${column.label} ustuni)` });
-    return { matched: hit.length, total: withDept.length, notInTarkib: withDept.length - hit.length, departments: new Set(Object.values(depts).map(deptKey)).size, unknown, column };
+    return { batchId: batch.id, matched: hit.length, total: withDept.length, notInTarkib: withDept.length - hit.length, departments: new Set(Object.values(depts).map(deptKey)).size, unknown, column };
   }
 
   /** Tarkibdagi nom → bo'lim mosligini saqlash (bo'lim sahifasidan): { [nom]: departmentId | 'SKIP' } */

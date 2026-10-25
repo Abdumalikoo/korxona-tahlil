@@ -133,7 +133,7 @@ export function PlacesBar({ period, places, isAdmin, filter, onFilter, onChanged
     <>
       <input ref={input} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => e.target.files?.[0] && void read(e.target.files[0])} />
       <Button size="sm" variant={places.hasTarkib ? 'ghost' : 'secondary'} loading={reading} onClick={() => input.current?.click()} title="Oldin yuklangan ish haqi tarkibi fayli — faqat bo‘lim ustuni o‘qiladi, tarkib qayta saqlanmaydi">
-        {places.hasTarkib ? 'Bo‘limlarni qayta o‘qish' : 'Bo‘limlarni fayldan o‘qish'}
+        Bo‘limlarni fayldan o‘qish
       </Button>
     </>
   );
@@ -142,9 +142,12 @@ export function PlacesBar({ period, places, isAdmin, filter, onFilter, onChanged
     return (
       <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) bg-(--color-surface-sunken) px-5 py-2.5 text-xs text-(--color-text-muted)">
         <span className="min-w-0 flex-1">
-          <b className="text-heading">Manbada | Ish haqi tarkibida</b> — {formatPeriod(period)} saqlangan tarkibida xodimlarning bo‘limi yo‘q (oldingi yuklashda bo‘lim ustuni saqlanmagan). O‘sha faylni tanlang — faqat bo‘limlar o‘qiladi, tarkib va summalar o‘zgarmaydi.
+          <b className="text-heading">Manbada | Ish haqi tarkibida</b> —{' '}
+          {places.batch
+            ? `${formatPeriod(period)} ish haqi tarkibida${places.batch.fileName ? ` («${places.batch.fileName}», ${formatDateTime(places.batch.createdAt)})` : ''} xodimlarning bo‘limi yo‘q: bu tarkib fayllar arxividan oldin yuklangan, fayli saqlanmagan. O‘sha faylni bir marta tanlang — faqat bo‘lim ustuni o‘qiladi (tarkib va summalar o‘zgarmaydi), fayl shu tarkib bilan arxivga olinadi va boshqa so‘ralmaydi.`
+            : `${formatPeriod(period)} uchun ish haqi tarkibi yuklanmagan (Xarajatlar › Ish haqi tarkibi) — yuklangach, har xodimning tarkibdagi bo‘limi shu jadvalda chiqadi.`}
         </span>
-        {fileBtn}
+        {places.batch && fileBtn}
       </div>
     );
   }
@@ -172,8 +175,7 @@ export function PlacesBar({ period, places, isAdmin, filter, onFilter, onChanged
           </button>
         ))}
         <span className="ml-auto flex items-center gap-2 text-[11px] text-(--color-text-faint)">
-          {places.tarkibAt ? `tarkib bo‘limlari · ${formatDateTime(places.tarkibAt)}` : ''}
-          {fileBtn}
+          {places.batch?.fileName ? `tarkib: «${places.batch.fileName}»` : ''}{places.tarkibAt ? ` · ${formatDateTime(places.tarkibAt)}` : ''}
         </span>
       </div>
       {isAdmin && places.unmapped.length > 0 && (

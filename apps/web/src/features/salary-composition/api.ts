@@ -267,6 +267,7 @@ export interface UnitPlaces {
   tarkibAt: string | null;
   rows: UnitPlaceRow[];
   counts: { total: number; mos: number; farq: number; fixed: number; noTarkib: number; unknown: number; tarkibHere: number };
+  batch: { id: string; fileName: string | null; createdAt: string } | null;
   /** Tanilmagan tarkib nomlari — tanlash uchun */
   unmapped: { name: string; count: number }[];
   options: PlaceOption[];

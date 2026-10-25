@@ -5,6 +5,7 @@ import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { Acc23106SafarService } from './acc23106.safar.service';
 import { Acc23106Service } from './acc23106.service';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -18,6 +19,7 @@ export class Acc23106Controller {
   constructor(
     private readonly service: Acc23106Service,
     private readonly safar: Acc23106SafarService,
+    private readonly archive: SourceArchiveService,
   ) {}
 
   @Get('template')
@@ -33,8 +35,10 @@ export class Acc23106Controller {
   @Post('analyze')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@UploadedFile() file: Express.Multer.File) {
-    return { data: await this.service.analyze(file) };
+  async analyze(@UploadedFile() file: Express.Multer.File, @CurrentUser('id') userId: string) {
+    const data = await this.service.analyze(file);
+    await this.archive.hold('acc-23106', file, { userId });
+    return { data };
   }
 
   /** Saqlash: tanlangan oylar (shu oylarning oldingi ko'chirmasi almashtiriladi) */
@@ -42,7 +46,9 @@ export class Acc23106Controller {
   @Post('commit')
   @HttpCode(HttpStatus.OK)
   async commit(@Body() body: { fileName?: unknown; months?: unknown; rows?: unknown }, @CurrentUser('id') userId: string) {
-    return { data: await this.service.commit(body, userId) };
+    const data = await this.service.commit(body, userId);
+    await this.archive.link('acc-23106', { userId, fileName: typeof body?.fileName === 'string' ? body.fileName : null, refId: data.batchId, periods: data.months });
+    return { data };
   }
 
   /** Saqlangan to'lovlar va nazorat (?from=YYYY-MM&to=YYYY-MM) */
@@ -61,7 +67,9 @@ export class Acc23106Controller {
   @Post('batches/:id/cancel')
   @HttpCode(HttpStatus.OK)
   async cancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return { data: await this.service.cancel(id, userId) };
+    const data = await this.service.cancel(id, userId);
+    await this.archive.cancel('acc-23106', id);
+    return { data };
   }
 
   // ═══════════ Xizmat safari — bo'limlarga yo'naltirish ═══════════

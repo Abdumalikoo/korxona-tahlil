@@ -4,6 +4,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { UnitPayrollService } from './unit-payroll.service';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -14,7 +15,10 @@ const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
  */
 @Controller('unit-payroll')
 export class UnitPayrollController {
-  constructor(private readonly service: UnitPayrollService) {}
+  constructor(
+    private readonly service: UnitPayrollService,
+    private readonly archive: SourceArchiveService,
+  ) {}
 
   /** Bo'lim xodimlari (?period=YYYY-MM — o'sha oydagi tarkib; ko'chishlar bilan) */
   @Personal()
@@ -118,8 +122,11 @@ export class UnitPayrollController {
   @Post(':unit/analyze')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@Param('unit') unit: string, @Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File) {
-    return { data: await this.service.analyze(this.service.unitOf(unit), period, file, format === 'ndfl' ? 'ndfl' : 'auto') };
+  async analyze(@Param('unit') unit: string, @Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File, @CurrentUser('id') userId: string) {
+    const u = this.service.unitOf(unit);
+    const data = await this.service.analyze(u, period, file, format === 'ndfl' ? 'ndfl' : 'auto');
+    await this.archive.hold('unit-payroll', file, { userId, periods: [period], unit: u });
+    return { data };
   }
 
   /** Fayldagi hamma oylar (oylar oralig'i shabloni); eski shablon — ?period= oyi; soliq hisoboti — ?period= oyi (?format=ndfl — faqat u) */
@@ -127,8 +134,11 @@ export class UnitPayrollController {
   @Post(':unit/analyze-many')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyzeMany(@Param('unit') unit: string, @Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File) {
-    return { data: await this.service.analyzeMany(this.service.unitOf(unit), period, file, format === 'ndfl' ? 'ndfl' : 'auto') };
+  async analyzeMany(@Param('unit') unit: string, @Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File, @CurrentUser('id') userId: string) {
+    const u = this.service.unitOf(unit);
+    const data = await this.service.analyzeMany(u, period, file, format === 'ndfl' ? 'ndfl' : 'auto');
+    await this.archive.hold('unit-payroll', file, { userId, periods: [period], unit: u });
+    return { data };
   }
 
   @Roles(UserRole.ADMIN)
@@ -141,7 +151,10 @@ export class UnitPayrollController {
     @Body() body: { rows?: unknown; fileName?: unknown },
     @CurrentUser('id') userId: string,
   ) {
-    return { data: await this.service.commit(this.service.unitOf(unit), period, body, replace === 'true', userId) };
+    const u = this.service.unitOf(unit);
+    const data = await this.service.commit(u, period, body, replace === 'true', userId);
+    await this.archive.link('unit-payroll', { userId, fileName: typeof body?.fileName === 'string' ? body.fileName : null, refId: data.batchId, periods: [period], unit: u });
+    return { data };
   }
 
   @Get(':unit/batches')
@@ -159,6 +172,8 @@ export class UnitPayrollController {
   @Post(':unit/batches/:id/cancel')
   @HttpCode(HttpStatus.OK)
   async cancel(@Param('unit') unit: string, @Param('id') id: string, @Query('period') period: string, @CurrentUser('id') userId: string) {
-    return { data: await this.service.cancel(this.service.unitOf(unit), period, id, userId) };
+    const data = await this.service.cancel(this.service.unitOf(unit), period, id, userId);
+    await this.archive.cancel('unit-payroll', id);
+    return { data };
   }
 }

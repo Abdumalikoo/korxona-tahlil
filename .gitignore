@@ -62,3 +62,6 @@ schema-backup-*.prisma
 /*.docx
 /*.pdf
 /*.zip
+
+# ---- Yuklangan manba fayllar arxivi (shaxsiy ma'lumotlar) ----
+storage/
