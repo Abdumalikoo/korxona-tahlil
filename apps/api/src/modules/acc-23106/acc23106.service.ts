@@ -8,7 +8,9 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseBankStatement, parseDate, text } from '../unit-bank/unit-bank.service';
 import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.service';
-import { KIND_LABELS, nameKey, purposeKind, purposeName, purposeOrder, type PayoutKind } from './acc23106.purpose';
+import { Acc23106SafarService } from './acc23106.safar.service';
+import { KIND_LABELS, kindComponents, nameKey, purposeKind, purposeName, purposeOrder, type PayoutKind } from './acc23106.purpose';
+import { readStore, STORE_KEY, type ControlState, type MatchBy, type PayoutRow, type Store } from './acc23106.store';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › 23106 — xodimlarga to'lovlar hisob raqami (bayram puli, mukofot, xizmat safari …) ko'chirmasi.
@@ -22,93 +24,19 @@ import { KIND_LABELS, nameKey, purposeKind, purposeName, purposeOrder, type Payo
 // Nazorat (ish haqi tarkibi va soliq hisoboti bilan): xodimga shu oy tarkibda shu turdagi summa hisoblanganmi,
 // to'langani hisoblanganidan oshmaganmi (bank «qo'lga» — soliqlardan keyingi summani o'tkazadi), soliq hisobotida bormi.
 // Xarajat yozuvlari YARATILMAYDI: bu to'lovlar ish haqi ichida allaqachon hisoblangan — ikki marta sanalmasin.
+// Istisno — xizmat safari: u ish haqida ham, soliq hisobotida ham yo'q; tasdiqlangandan keyin bo'limlarga xarajat
+// bo'lib yoziladi (acc23106.safar.service.ts).
 // Hisob raqami (№ счёта) saqlanmaydi. Saqlash joyi: settings («acc23106.store») — migratsiya kerak emas.
 // ═══════════════════════════════════════════════════════════
 
-const KEY = 'acc23106.store';
+const KEY = STORE_KEY;
 const MAX_ROWS = 20000;
 const TOL = 100n; // 1 so'm
 
-export type MatchBy = 'PINFL' | 'NAME' | null;
-export type ControlState = 'OK' | 'OVER' | 'NOT_IN_TARKIB' | 'NO_TARKIB' | 'NA';
-
-export interface PayoutRow {
-  no: string;
-  docDate: string;
-  procDate: string | null;
-  docNo: string;
-  accountName: string;
-  /** ИНН ustuni: 14 xonali — PINFL, 9 xonali — tashkilot */
-  inn: string;
-  mfo: string;
-  debitTiyin: string;
-  purpose: string;
-  kind: PayoutKind;
-  orderDate: string | null;
-  orderNo: string | null;
-  /** Hisoblangan oy (buyruq oyi, bo'lmasa — to'lov oyi) */
-  accrual: string;
-  /** Izohdagi F.I.Sh. */
-  commentName: string | null;
-  pinfl: string | null;
-  fullName: string | null;
-  matchBy: MatchBy;
-}
-
-export interface MonthState {
-  batchId: string;
-  fileName: string;
-  savedAt: string;
-  uploadedBy: string;
-  rows: PayoutRow[];
-}
-
-export interface Batch {
-  id: string;
-  fileName: string;
-  createdAt: string;
-  uploadedBy: string;
-  months: string[];
-  rows: number;
-  totalTiyin: string;
-  status: 'COMMITTED' | 'CANCELLED';
-  cancelledAt: string | null;
-}
-
-export interface Store {
-  months: Record<string, MonthState>;
-  batches: Batch[];
-}
-
-function readStore(raw: unknown): Store {
-  const v = (raw ?? {}) as Partial<Store>;
-  return {
-    months: v.months && typeof v.months === 'object' && !Array.isArray(v.months) ? (v.months as Record<string, MonthState>) : {},
-    batches: Array.isArray(v.batches) ? (v.batches as Batch[]) : [],
-  };
-}
+export type { MatchBy, ControlState, PayoutRow, MonthState, Batch, Store } from './acc23106.store';
 
 const cap = (v: unknown, n: number) => text(v).slice(0, n);
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-
-/** To'lov turi → ish haqi tarkibidagi komponentlar (nazorat uchun); null — nazorat qilinmaydi */
-function kindComponents(kind: PayoutKind, comps: { code: string; category: string }[]): Set<string> | null {
-  const by = (pred: (c: { code: string; category: string }) => boolean) => new Set(comps.filter(pred).map((c) => c.code));
-  switch (kind) {
-    case 'BAYRAM':
-      return by((c) => c.code === 'BAYRAM');
-    case 'MUKOFOT':
-      return by((c) => c.category === 'PREMIYA' && c.code !== 'BAYRAM');
-    case 'MODDIY':
-      return by((c) => c.code === 'MODDIY' || c.code === 'MODDIY_OKLAD');
-    case 'TATIL':
-      return by((c) => c.code === 'TATIL' || c.code === 'TATIL_KOMP');
-    case 'KASALLIK':
-      return by((c) => c.code === 'KASALLIK');
-    default:
-      return null;
-  }
-}
 
 @Injectable()
 export class Acc23106Service {
@@ -116,6 +44,7 @@ export class Acc23106Service {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Optional() private readonly unitPayroll?: UnitPayrollService,
+    @Optional() private readonly safar?: Acc23106SafarService,
   ) {}
 
   private async store(): Promise<Store> {
@@ -159,6 +88,7 @@ export class Acc23106Service {
       "• «Назначение платежа»dan: nima uchun (bayram puli, mukofot, xizmat safari, moddiy yordam, ta'til puli …) va buyruq («13.01.2026 даги 00003-son буйрукка асосан …»).",
       "• Hisoblangan oy — buyruq sanasi oyi. Nazorat: ish haqi tarkibi va soliq hisoboti bilan.",
       "• Xarajat yozuvi yaratilmaydi — bu to'lovlar ish haqida hisoblangan (ikki marta sanalmasin).",
+      "• Istisno — xizmat safari: ish haqida ham, soliq hisobotida ham yo'q. Saqlangandan keyin «Xizmat safari» bo'limida xodimning joyi (bo'limi) ko'rsatiladi; tekshirib tasdiqlaganingizdan keyin shu joyga xarajat bo'lib yoziladi.",
     ].forEach((t, i) => {
       help.getCell(i + 1, 1).value = t;
       if (i === 0) help.getCell(1, 1).font = { bold: true, size: 12 };
@@ -396,10 +326,14 @@ export class Acc23106Service {
     const result = await runExclusive(`setting:${KEY}`, async () => {
       const store = await this.store();
       let replaced = 0;
+      const replacedMonths: string[] = [];
       let count = 0;
       let total = 0n;
       for (const p of months) {
-        if (store.months[p]) replaced += 1;
+        if (store.months[p]) {
+          replaced += 1;
+          replacedMonths.push(p);
+        }
         const rows = byMonth.get(p)!;
         store.months[p] = { batchId, fileName, savedAt: now, uploadedBy: user?.fullName ?? '', rows };
         count += rows.length;
@@ -409,8 +343,10 @@ export class Acc23106Service {
       if (store.batches.length > 200) store.batches = store.batches.slice(-200);
       const value = store as unknown as object;
       await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
-      return { replaced, count, total };
+      return { replaced, replacedMonths, count, total };
     });
+    // Almashtirilgan oylardagi xizmat safari tasdiqlari bekor (eski to'lovlar xarajatda qolmasin) — qayta tasdiqlanadi
+    const safarDropped = this.safar ? await this.safar.dropMonths(result.replacedMonths, "ko'chirma almashtirildi", userId) : 0;
     await this.audit.log({
       userId,
       action: 'IMPORT',
@@ -418,7 +354,7 @@ export class Acc23106Service {
       entityId: batchId,
       summary: `23106 ko'chirmasi: ${months.map(monthLabel).join(', ')} — ${result.count} ta to'lov, ${(Number(result.total) / 100).toLocaleString('uz-UZ')} so'm${result.replaced ? `, ${result.replaced} oy almashtirildi` : ''}`,
     });
-    return { success: true as const, batchId, months, saved: result.count, replacedMonths: result.replaced, totalTiyin: result.total.toString() };
+    return { success: true as const, batchId, months, saved: result.count, replacedMonths: result.replaced, totalTiyin: result.total.toString(), safarDropped };
   }
 
   // ═══════════ Ko'rish, tarix, bekor qilish ═══════════
@@ -466,7 +402,8 @@ export class Acc23106Service {
       await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
       return { removed, fileName: b.fileName };
     });
+    const safarDropped = this.safar ? await this.safar.dropMonths(out.removed, "ko'chirma bekor qilindi", userId) : 0;
     await this.audit.log({ userId, action: 'DELETE', entity: 'acc_23106', entityId: id, summary: `23106 ko'chirmasi bekor qilindi: ${out.fileName} (${out.removed.map(monthLabel).join(', ') || "oylar keyin almashtirilgan"})` });
-    return { success: true as const, months: out.removed };
+    return { success: true as const, months: out.removed, safarDropped };
   }
 }

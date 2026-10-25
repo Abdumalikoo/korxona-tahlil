@@ -19,6 +19,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { isSegment } from '../../common/segments/segments';
+import { CompositionReconcileService } from './salary-composition.reconcile';
 import { SalaryCompositionService } from './salary-composition.service';
 import { SalaryStructureService } from './salary-composition.structure';
 import type { CommitRow, ComponentInput } from './salary-composition.types';
@@ -45,6 +46,7 @@ export class SalaryCompositionController {
   constructor(
     private readonly composition: SalaryCompositionService,
     private readonly structure: SalaryStructureService,
+    private readonly reconcile: CompositionReconcileService,
   ) {}
 
   private sendFile(response: Response, buffer: Buffer, filename: string): void {
@@ -247,5 +249,30 @@ export class SalaryCompositionController {
   async exportExcel(@Query('period') period: string, @Res() response: Response, @Query('unit') unit?: string) {
     const { buffer, filename } = await this.composition.exportExcel(period, this.unitOf(unit));
     this.sendFile(response, buffer, filename);
+  }
+
+  // ═══════════ Uchlik nazorat: tarkib · soliq hisoboti · 23106 ═══════════
+
+  /** Har xodim: tarkib, soliq hisoboti, 23106 to'lovlari, farq va qayerga o'tkazish tavsiyasi */
+  @Personal()
+  @Get('reconcile')
+  async reconcileView(@Query('period') period: string, @Query('unit') unit?: string) {
+    return { data: await this.reconcile.view(period, this.unitOf(unit)) };
+  }
+
+  /** Farqni tarkib komponentiga o'tkazish: { items: [{ pinfl, componentCode, amountTiyin, note?, source? }] } */
+  @Roles(UserRole.ADMIN)
+  @Post('reconcile/allocate')
+  @HttpCode(HttpStatus.OK)
+  async reconcileAllocate(@Query('period') period: string, @Body() body: { items?: unknown }, @CurrentUser('id') userId: string, @Query('unit') unit?: string) {
+    return { data: await this.reconcile.allocate(period, this.unitOf(unit), body, userId) };
+  }
+
+  /** O'tkazishni bekor qilish */
+  @Roles(UserRole.ADMIN)
+  @Post('reconcile/adjust/:id/undo')
+  @HttpCode(HttpStatus.OK)
+  async reconcileUndo(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.reconcile.undo(id, userId) };
   }
 }

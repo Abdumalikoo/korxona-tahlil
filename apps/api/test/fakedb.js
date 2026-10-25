@@ -29,7 +29,7 @@ const REL = {
   cashReportLine: { report: { model: 'cashReport', key: 'reportId' }, account: { model: 'cashAccount', key: 'accountId' } },
   stockCount: { lines: { model: 'stockCountLine', fk: 'countId', many: true }, assets: { model: 'stockCountAsset', fk: 'countId', many: true } },
   salaryCompositionItem: { row: { model: 'salaryCompositionRow', key: 'rowId' }, batch: { model: 'salaryCompositionBatch', key: 'batchId' } },
-  salaryCompositionRow: { batch: { model: 'salaryCompositionBatch', key: 'batchId' } },
+  salaryCompositionRow: { batch: { model: 'salaryCompositionBatch', key: 'batchId' }, items: { model: 'salaryCompositionItem', many: true, fk: 'rowId' } },
 };
 const DEFAULTS = {
   payrollEntry: () => ({ baseTiyin: 0n, bonusTiyin: 0n, vacationTiyin: 0n, deductionTiyin: 0n, taxTiyin: 0n, totalTiyin: 0n, workedDays: null, deletedAt: null }),

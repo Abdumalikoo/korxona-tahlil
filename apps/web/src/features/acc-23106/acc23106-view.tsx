@@ -16,12 +16,14 @@ import { formatDate, formatDateTime, formatPeriod, formatTiyin } from '@/lib/for
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
+import { SafarPanel } from './safar-panel';
 import { acc23106Api, analyzeAcc23106, downloadAcc23106Template, type ControlState, type PayoutAnalysis, type PayoutBatch, type PayoutKind, type PayoutRow, type PayoutSummary } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › 23106 — xodimlarga to'lovlar hisob raqami ko'chirmasi.
 // Yuklash → har to'lov: xodim (PINFL yoki izohdagi F.I.Sh.), sana, nima uchun (izohdan), buyruq, hisoblangan oy →
 // nazorat (ish haqi tarkibi va soliq hisoboti bilan) → saqlash. Xarajat yozuvi yaratilmaydi (ish haqida hisoblangan).
+// Istisno — xizmat safari: «Xizmat safari» bo'limida tekshirib tasdiqlangach, xodimning bo'limiga xarajat bo'lib yoziladi.
 // ═══════════════════════════════════════════════════════════
 
 type ToastState = { message: string; tone: 'success' | 'error' } | null;
@@ -52,6 +54,7 @@ export function Acc23106View() {
   const [cancelTarget, setCancelTarget] = useState<PayoutBatch | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
+  const [safarKey, setSafarKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const view = useAsync(() => (range.error ? Promise.resolve(null) : acc23106Api.view(range.from, range.to).then((r) => r.data)), [range.from, range.to, range.error]);
@@ -89,7 +92,8 @@ export function Acc23106View() {
       const months = [...picked];
       const rows = analysis.rows.filter((r) => picked.has(r.docDate.slice(0, 7)));
       const r = (await acc23106Api.commit({ fileName: analysis.fileName, months, rows })).data;
-      setToast({ message: `Saqlandi: ${r.saved} ta to'lov · ${formatTiyin(r.totalTiyin)} so'm${r.replacedMonths ? ` · ${r.replacedMonths} oyning oldingi ko'chirmasi almashtirildi` : ''}`, tone: 'success' });
+      setToast({ message: `Saqlandi: ${r.saved} ta to'lov · ${formatTiyin(r.totalTiyin)} so'm${r.replacedMonths ? ` · ${r.replacedMonths} oyning oldingi ko'chirmasi almashtirildi` : ''}${r.safarDropped ? ` · o'sha oylarning ${r.safarDropped} ta xizmat safari xarajati bekor qilindi — qayta tasdiqlang` : ''}`, tone: 'success' });
+      setSafarKey((k) => k + 1);
       range.include(months);
       reset();
       view.reload();
@@ -105,8 +109,9 @@ export function Acc23106View() {
     if (!cancelTarget) return;
     setCancelling(true);
     try {
-      await acc23106Api.cancel(cancelTarget.id);
-      setToast({ message: "Ko'chirma bekor qilindi", tone: 'success' });
+      const r = (await acc23106Api.cancel(cancelTarget.id)).data;
+      setToast({ message: `Ko'chirma bekor qilindi${r.safarDropped ? ` · ${r.safarDropped} ta xizmat safari xarajati ham o'chirildi` : ''}`, tone: 'success' });
+      setSafarKey((k) => k + 1);
       view.reload();
       batches.reload();
     } catch (err) {
@@ -135,7 +140,8 @@ export function Acc23106View() {
           <>
             Har to&apos;lov uchun dastur <b className="text-heading">xodimni</b> (ИНН ustunidagi PINFL, bo&apos;lmasa izohdagi F.I.Sh.), <b className="text-heading">sanani</b> va{' '}
             <b className="text-heading">nima uchun to&apos;langanini</b> (izohdan: bayram puli, mukofot, xizmat safari …, buyruq raqami) aniqlaydi va ish haqi tarkibi hamda soliq hisoboti bilan solishtiradi.
-            Xarajat yozuvi yaratilmaydi — bu to&apos;lovlar ish haqida hisoblangan.
+            Xarajat yozuvi yaratilmaydi — bu to&apos;lovlar ish haqida hisoblangan. Istisno — <b className="text-heading">xizmat safari</b>: pastdagi bo&apos;limda xodimning joyi
+            ko&apos;rsatiladi, siz tasdiqlaganingizdan keyin o&apos;sha bo&apos;limga xarajat bo&apos;lib yoziladi.
           </>
         }
       />
@@ -183,7 +189,7 @@ export function Acc23106View() {
         <div className="space-y-4">
           <SummaryBoxes s={analysis.summary} />
           <Card>
-            <CardHeader title={`${analysis.fileName} · ${analysis.sheetName}`} description="Saqlanadigan oylar (to'lov sanasi bo'yicha). Shu oy avval saqlangan bo'lsa — almashtiriladi" />
+            <CardHeader title={`${analysis.fileName} · ${analysis.sheetName}`} description="Saqlanadigan oylar (to'lov sanasi bo'yicha). Shu oy avval saqlangan bo'lsa — almashtiriladi (o'sha oyning tasdiqlangan xizmat safari xarajatlari ham bekor bo'ladi, qayta tasdiqlanadi)" />
             <CardBody className="flex flex-wrap gap-2">
               {analysis.months.map((m) => (
                 <label key={m.period} className={cn('flex cursor-pointer items-center gap-2 rounded-(--radius-control) border px-3 py-2 text-sm', picked.has(m.period) ? 'border-brand-600 bg-brand-50/50' : 'border-(--color-line)')}>
@@ -247,6 +253,9 @@ export function Acc23106View() {
         <EmptyState title={`${range.text || 'Tanlangan davr'} uchun ko'chirma saqlanmagan`} hint="upload" />
       )}
 
+      {/* Xizmat safari — bo'limlarga yo'naltirish */}
+      <SafarPanel from={range.from} to={range.to} rangeText={range.text} disabled={Boolean(range.error)} isAdmin={isAdmin} reloadKey={safarKey} onToast={setToast} />
+
       {/* Tarix */}
       {(batches.data?.length ?? 0) > 0 && (
         <Card className="overflow-hidden">
@@ -277,7 +286,7 @@ export function Acc23106View() {
       <ConfirmDialog
         open={cancelTarget !== null}
         title="Ko'chirmani bekor qilish"
-        message={`${cancelTarget?.fileName ?? ''} bekor qilinadi — shu yuklashdan saqlangan oylar o'chiriladi.`}
+        message={`${cancelTarget?.fileName ?? ''} bekor qilinadi — shu yuklashdan saqlangan oylar o'chiriladi. O'sha oylarning tasdiqlangan xizmat safari xarajatlari ham o'chiriladi.`}
         confirmLabel="Bekor qilish"
         danger
         loading={cancelling}

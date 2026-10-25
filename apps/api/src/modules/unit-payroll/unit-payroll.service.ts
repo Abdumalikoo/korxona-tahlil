@@ -1528,7 +1528,7 @@ export class UnitPayrollService {
    * O'tkazishda aniq joy: Markaz — bo'limi; Hududlar — viloyati va (ixtiyoriy) tumani.
    * Berilmasa — eski tartib (Xodimlar bazasidagi joyi). Noto'g'ri yoki faol bo'lmagan joy — rad etiladi.
    */
-  private async movePlace(target: string, raw: unknown): Promise<{ departmentId: string | null; regionCode: number | null; districtId: string | null; label: string | null }> {
+  async movePlace(target: string, raw: unknown): Promise<{ departmentId: string | null; regionCode: number | null; districtId: string | null; label: string | null }> {
     const none = { departmentId: null, regionCode: null, districtId: null, label: null };
     const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     if (target === 'CENTER') {

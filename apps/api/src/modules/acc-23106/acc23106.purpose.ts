@@ -76,3 +76,22 @@ export function nameKey(full: string): string {
     .trim();
   return latin.split(' ').slice(0, 2).join(' ');
 }
+
+/** To'lov turi → ish haqi tarkibidagi komponentlar (nazorat uchun); null — nazorat qilinmaydi */
+export function kindComponents(kind: PayoutKind, comps: { code: string; category: string }[]): Set<string> | null {
+  const by = (pred: (c: { code: string; category: string }) => boolean) => new Set(comps.filter(pred).map((c) => c.code));
+  switch (kind) {
+    case 'BAYRAM':
+      return by((c) => c.code === 'BAYRAM');
+    case 'MUKOFOT':
+      return by((c) => c.category === 'PREMIYA' && c.code !== 'BAYRAM');
+    case 'MODDIY':
+      return by((c) => c.code === 'MODDIY' || c.code === 'MODDIY_OKLAD');
+    case 'TATIL':
+      return by((c) => c.code === 'TATIL' || c.code === 'TATIL_KOMP');
+    case 'KASALLIK':
+      return by((c) => c.code === 'KASALLIK');
+    default:
+      return null;
+  }
+}

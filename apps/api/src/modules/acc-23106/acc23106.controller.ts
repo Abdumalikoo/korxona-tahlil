@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
+import { Acc23106SafarService } from './acc23106.safar.service';
 import { Acc23106Service } from './acc23106.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -14,7 +15,10 @@ const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
  */
 @Controller('acc-23106')
 export class Acc23106Controller {
-  constructor(private readonly service: Acc23106Service) {}
+  constructor(
+    private readonly service: Acc23106Service,
+    private readonly safar: Acc23106SafarService,
+  ) {}
 
   @Get('template')
   async template(@Res() response: Response) {
@@ -58,5 +62,30 @@ export class Acc23106Controller {
   @HttpCode(HttpStatus.OK)
   async cancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return { data: await this.service.cancel(id, userId) };
+  }
+
+  // ═══════════ Xizmat safari — bo'limlarga yo'naltirish ═══════════
+
+  /** Saqlangan ko'chirmadagi xizmat safari to'lovlari: xodim, aniqlangan joy, tasdiq holati (?from=YYYY-MM&to=YYYY-MM) */
+  @Personal()
+  @Get('safar')
+  async safarView(@Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.safar.view(from, to) };
+  }
+
+  /** Tasdiqlash: belgilangan to'lovlar joyiga xarajat bo'lib yoziladi */
+  @Roles(UserRole.ADMIN)
+  @Post('safar/confirm')
+  @HttpCode(HttpStatus.OK)
+  async safarConfirm(@Body() body: { items?: unknown; categoryCode?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.safar.confirm(body, userId) };
+  }
+
+  /** Tasdiqni bekor qilish — xarajat yozuvlari o'chiriladi */
+  @Roles(UserRole.ADMIN)
+  @Post('safar/posts/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async safarCancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.safar.cancel(id, userId) };
   }
 }

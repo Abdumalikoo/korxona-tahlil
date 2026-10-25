@@ -468,3 +468,94 @@ export const compositionApi = {
   removeComponent: (code: string) =>
     api.delete<ApiResponse<{ success: true }>>(`/salary-composition/components/${code}`),
 };
+// ═══════════════════════════════════════════════════════════
+// Uchlik nazorat: tarkib · soliq hisoboti · 23106 (bank) — farqlar va farqni komponentga o'tkazish
+// ═══════════════════════════════════════════════════════════
+
+export type ReconState = 'OK' | 'DIFF' | 'NO_TARKIB' | 'NO_SOLIQ' | 'BANK' | 'NO_PAYROLL';
+
+export interface ReconBankPart {
+  kind: string;
+  label: string;
+  /** Bankdan to'langan (soliqdan keyin, «qo'lga») */
+  netTiyin: string;
+  /** Soliqdan oldingi taxmin (÷ 0,88) */
+  grossTiyin: string;
+  count: number;
+  dates: string[];
+  orders: string[];
+  tarkibTiyin: string | null;
+  state: 'OK' | 'MISSING' | 'OVER' | 'NA';
+}
+
+export interface ReconSuggestion {
+  componentCode: string;
+  componentName: string;
+  amountTiyin: string;
+  confidence: 'STRONG' | 'WEAK';
+  reason: string;
+}
+
+export interface ReconRow {
+  pinfl: string;
+  fullName: string;
+  tarkibTiyin: string | null;
+  soliqTiyin: string | null;
+  /** Soliq − tarkib (musbat — tarkibda kam) */
+  diffTiyin: string | null;
+  state: ReconState;
+  items: Record<string, string>;
+  bank: ReconBankPart[];
+  bankNetTiyin: string;
+  suggestion: ReconSuggestion | null;
+  adjustments: { id: string; componentCode: string; componentName: string; amountTiyin: string; createdAt: string; createdBy: string }[];
+}
+
+export interface ReconAdjustment {
+  id: string;
+  period: string;
+  unit: string | null;
+  pinfl: string;
+  fullName: string;
+  componentCode: string;
+  componentName: string;
+  amountTiyin: string;
+  createdRow: boolean;
+  note: string | null;
+  source: 'SUGGESTION' | 'MANUAL';
+  createdAt: string;
+  createdBy: string;
+  status: 'APPLIED' | 'UNDONE' | 'STALE';
+  undoneAt: string | null;
+  /** Hozirgi tarkibda amalda */
+  current: boolean;
+}
+
+export interface ReconView {
+  period: string;
+  unit: string | null;
+  unitLabel: string | null;
+  batchId: string | null;
+  compositionUploaded: boolean;
+  payrollUploaded: boolean;
+  bankUploaded: boolean;
+  summary: { employees: number; ok: number; diff: number; noTarkib: number; noSoliq: number; bank: number; diffTiyin: string; suggested: number; strong: number; tarkibTiyin: string; soliqTiyin: string; bankNetTiyin: string };
+  components: { code: string; name: string; category: string; categoryLabel: string; sign: number }[];
+  rows: ReconRow[];
+  history: ReconAdjustment[];
+}
+
+export interface ReconAllocateItem {
+  pinfl: string;
+  componentCode: string;
+  amountTiyin: string;
+  note?: string;
+  source?: 'SUGGESTION' | 'MANUAL';
+}
+
+export const reconcileApi = {
+  view: (period: string, unit?: string) => api.get<ApiResponse<ReconView>>('/salary-composition/reconcile', { params: { period, unit } }),
+  allocate: (period: string, items: ReconAllocateItem[], unit?: string) =>
+    api.post<ApiResponse<{ success: true; count: number; totalTiyin: string; ids: string[] }>>(`/salary-composition/reconcile/allocate?period=${period}${unitQs(unit)}`, { items }),
+  undo: (id: string) => api.post<ApiResponse<{ success: true }>>(`/salary-composition/reconcile/adjust/${encodeURIComponent(id)}/undo`),
+};

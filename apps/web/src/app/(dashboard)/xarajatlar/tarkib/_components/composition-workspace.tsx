@@ -30,6 +30,7 @@ import { Toast } from '@/components/ui/toast';
 import { AnalysisView } from './analysis-view';
 import { CompositionTable } from './composition-table';
 import { EmployeeModal } from './employee-modal';
+import { ReconcileCard } from './reconcile-card';
 import { CheckLists, CheckSummaryBoxes, StatusBanner, StructureCard } from './shared';
 
 
@@ -345,6 +346,9 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
                     )}
                   </div>
                 </div>
+
+                {/* Uchlik nazorat: tarkib · soliq hisoboti · 23106 — farqni qayerga o'tkazish */}
+                <ReconcileCard period={period} unit={u} isAdmin={isAdmin} stamp={data} onChanged={reloadAll} onSelect={setSelected} onToast={setToast} />
 
                 <CompositionTable view={data} onSelect={setSelected} />
               </>
