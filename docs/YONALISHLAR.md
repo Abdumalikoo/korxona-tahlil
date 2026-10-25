@@ -715,3 +715,11 @@ Umumiy vedomost (hamma xodimlar bitta faylda) va bo'limlar ish haqi (Tax free, F
 ### Testlar
 - `test/t-hardening.js` — tana chegaralari, summa chegarasi, Excel matni, IP, cookie va CSRF.
 - Ishlab chiqishda haqiqiy brauzerda ham tekshirildi: cookie rejimi (token xotirada yo'q) va zaxira rejimi (boshqa sayt).
+
+## Bo'lim ish haqi — xodimni boshqa bo'limga o'tkazish (aniq joy)
+Bo'lim sahifasi › Ish haqi › saqlangan ro'yxatda xodim(lar)ni belgilab «Boshqa bo'limda ishlagan…» (yoki qatordagi «Bo'lim»):
+- **Markaz ›** — yonida Markaz bo'limlari ochiladi; summa tanlangan bo'limning ish haqi xarajatiga yoziladi (Xodimlar bazasidagi bo'limi emas).
+- **Hududlar ›** — viloyat, keyin tuman (ixtiyoriy) ochiladi; summa o'sha viloyat (va tuman) ish haqi xarajatiga yoziladi. Xodimlar bazasida hududi bo'lmagan xodimni ham shu yo'l bilan o'tkazish mumkin.
+- **Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari** — o'sha bo'lim ish haqi vedomostiga (avvalgidek).
+- **Qo'mita pullari ro'yxatda yo'q** — u ish haqi emas, ish haqi unga o'tkazilmaydi (server ham rad etadi). Bo'limlar o'rtasidagi ko'chirishda ham Qo'mita tanlanmaydi.
+- Tanlangan joy noto'g'ri bo'lsa (yopilgan bo'lim, boshqa viloyatning tumani) — saqlanmaydi, sababi ko'rsatiladi.

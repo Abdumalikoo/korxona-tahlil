@@ -31,7 +31,7 @@ import {
   type UnitStaffList,
   type UnitSaved,
 } from './api';
-import { ENTRY_UNITS } from '@/lib/segments';
+import { EMPTY_CHOICE, MOVE_UNITS, PlacePicker, choiceReady, useChoiceLabel, type MoveChoice } from './place-picker';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › <yo'nalish> › Ish haqi (masalan, Tax free).
@@ -608,7 +608,7 @@ function StaffCard({
     setBusy(`m:${s.pinfl}`);
     try {
       await unitPayrollApi.addMove(unit.code, { pinfl: s.pinfl, unit: moveUnit, from: moveFrom, note: moveNote.trim() || undefined });
-      onToast({ message: `${s.fullName}: ${formatPeriod(moveFrom)}dan «${ENTRY_UNITS.find((u) => u.code === moveUnit)?.label ?? moveUnit}» bo'limida — oldingi oylar o'zgarmaydi`, tone: 'success' });
+      onToast({ message: `${s.fullName}: ${formatPeriod(moveFrom)}dan «${MOVE_UNITS.find((u) => u.code === moveUnit)?.label ?? moveUnit}» bo'limida — oldingi oylar o'zgarmaydi`, tone: 'success' });
       setMoving(null);
       setMoveNote('');
       onChanged();
@@ -880,7 +880,7 @@ function StaffCard({
                   <div className="mt-2 flex flex-wrap items-center gap-2 rounded-(--radius-control) border border-(--color-line) bg-(--color-surface-muted) p-2">
                     <select value={moveUnit} onChange={(e) => setMoveUnit(e.target.value)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs">
                       <option value="">Qaysi bo&apos;limga…</option>
-                      {ENTRY_UNITS.filter((u) => u.code !== unit.code).map((u) => (
+                      {MOVE_UNITS.filter((u) => u.code !== unit.code).map((u) => (
                         <option key={u.code} value={u.code}>
                           {u.label}
                         </option>
@@ -1103,7 +1103,7 @@ function SavedCard({
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'move' | null>(null);
-  const [target, setTarget] = useState('');
+  const [choice, setChoice] = useState<MoveChoice>(EMPTY_CHOICE);
   const [onlyThisMonth, setOnlyThisMonth] = useState(true);
   const [withAmount, setWithAmount] = useState(true);
   const [confirmDel, setConfirmDel] = useState<string[] | null>(null);
@@ -1116,7 +1116,8 @@ function SavedCard({
   const pickedTotal = picked.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
   const shownTotal = shown.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
   const allShown = shown.length > 0 && shown.every((r) => sel.has(r.pinfl));
-  const targetLabel = ENTRY_UNITS.find((u) => u.code === target)?.label ?? '';
+  const ready = choiceReady(choice);
+  const targetLabel = useChoiceLabel(choice);
 
   async function remove(pinfls: string[]) {
     setBusy(true);
@@ -1134,16 +1135,17 @@ function SavedCard({
   }
 
   async function move() {
-    if (!target || !picked.length) return;
+    if (!ready || !picked.length) return;
     setBusy(true);
     try {
-      const r = (await unitPayrollApi.moveRows(unit.code, period, { pinfls: picked.map((p) => p.pinfl), target, onlyThisMonth, withAmount })).data;
+      const r = (await unitPayrollApi.moveRows(unit.code, period, { pinfls: picked.map((p) => p.pinfl), target: choice.target, place: choice.place, onlyThisMonth, withAmount })).data;
       onToast({
         message: `${r.moved} xodim ${formatPeriod(period)}da «${r.targetLabel}» bo'limida${withAmount ? ` · ${formatTiyin(r.totalTiyin)} so'm o'sha yerga o'tkazildi` : ''}${onlyThisMonth ? ' · keyingi oydan yana shu yerda' : ''}`,
         tone: 'success',
       });
       setSel(new Set());
       setMode(null);
+      setChoice(EMPTY_CHOICE);
       onChanged();
     } catch (err) {
       onToast({ message: errorMessage(err, "O'tkazib bo'lmadi"), tone: 'error' });
@@ -1192,14 +1194,7 @@ function SavedCard({
           {mode === 'move' && (
             <div className="flex flex-wrap items-center gap-3 rounded-(--radius-control) border border-(--color-line) bg-white p-2.5 text-xs">
               <span className="text-(--color-text-muted)">{formatPeriod(period)}da qaysi bo&apos;limda ishlagan:</span>
-              <select value={target} onChange={(e) => setTarget(e.target.value)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs">
-                <option value="">Tanlang…</option>
-                {ENTRY_UNITS.filter((u) => u.code !== unit.code).map((u) => (
-                  <option key={u.code} value={u.code}>
-                    {u.label}
-                  </option>
-                ))}
-              </select>
+              <PlacePicker value={choice} onChange={setChoice} exclude={unit.code} />
               <label className="flex items-center gap-1.5" title="Belgilansa — ish haqi summasi o'sha bo'limga o'tadi (yo'nalishda — uning vedomostiga; Markaz yoki hududda — ish haqi xarajati)">
                 <input type="checkbox" className="size-3.5 accent-brand-600" checked={withAmount} onChange={(e) => setWithAmount(e.target.checked)} />
                 Summasi bilan
@@ -1208,8 +1203,8 @@ function SavedCard({
                 <input type="checkbox" className="size-3.5 accent-brand-600" checked={onlyThisMonth} onChange={(e) => setOnlyThisMonth(e.target.checked)} />
                 Faqat shu oy
               </label>
-              <Button size="sm" className="ml-auto" loading={busy} disabled={!target} onClick={() => void move()}>
-                {target ? `«${targetLabel}»ga o'tkazish` : "O'tkazish"}
+              <Button size="sm" className="ml-auto" loading={busy} disabled={!ready} onClick={() => void move()}>
+                {ready ? `«${targetLabel}»ga o'tkazish` : "O'tkazish"}
               </Button>
             </div>
           )}
@@ -1265,7 +1260,7 @@ function SavedCard({
                           onClick={() => {
                             setSel(new Set([r.pinfl]));
                             setMode('move');
-                            setTarget(r.otherUnit ?? '');
+                            setChoice({ target: r.otherUnit && MOVE_UNITS.some((u) => u.code === r.otherUnit) ? r.otherUnit : '', place: {} });
                           }}
                           className="rounded px-1.5 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-50"
                           title="Shu oyda boshqa bo'limda ishlagan — o'sha bo'limga o'tkazish"

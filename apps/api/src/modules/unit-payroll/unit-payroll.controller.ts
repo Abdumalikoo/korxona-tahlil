@@ -38,11 +38,11 @@ export class UnitPayrollController {
     return { data: await this.service.removeRows(this.service.unitOf(unit), period, body, userId) };
   }
 
-  /** Shu oyda boshqa bo'limda ishlagan: { pinfls, target, onlyThisMonth?, withAmount? } */
+  /** Shu oyda boshqa bo'limda ishlagan: { pinfls, target, onlyThisMonth?, withAmount?, place? { departmentId } | { regionCode, districtId? } } */
   @Roles(UserRole.ADMIN)
   @Post(':unit/saved/move')
   @HttpCode(HttpStatus.OK)
-  async moveRows(@Param('unit') unit: string, @Query('period') period: string, @Body() body: { pinfls?: unknown; target?: unknown; onlyThisMonth?: unknown; withAmount?: unknown }, @CurrentUser('id') userId: string) {
+  async moveRows(@Param('unit') unit: string, @Query('period') period: string, @Body() body: { pinfls?: unknown; target?: unknown; onlyThisMonth?: unknown; withAmount?: unknown; place?: unknown }, @CurrentUser('id') userId: string) {
     return { data: await this.service.moveRows(this.service.unitOf(unit), period, body, userId) };
   }
 

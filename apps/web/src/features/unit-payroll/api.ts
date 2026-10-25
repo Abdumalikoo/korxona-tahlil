@@ -217,7 +217,7 @@ export const unitPayrollApi = {
   saved: (unit: string, period: string) => api.get<ApiResponse<UnitSaved>>(`/unit-payroll/${enc(unit)}/saved?period=${enc(period)}`),
   removeRows: (unit: string, period: string, pinfls: string[]) =>
     api.post<ApiResponse<{ removed: number; totalTiyin: string }>>(`/unit-payroll/${enc(unit)}/saved/remove?period=${enc(period)}`, { pinfls }),
-  moveRows: (unit: string, period: string, body: { pinfls: string[]; target: string; onlyThisMonth: boolean; withAmount: boolean }) =>
+  moveRows: (unit: string, period: string, body: { pinfls: string[]; target: string; place?: { departmentId?: string; regionCode?: number; districtId?: string }; onlyThisMonth: boolean; withAmount: boolean }) =>
     api.post<ApiResponse<{ moved: number; totalTiyin: string; target: string; targetLabel: string }>>(`/unit-payroll/${enc(unit)}/saved/move?period=${enc(period)}`, body),
   staff: (unit: string, period?: string) => api.get<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff`, period ? { params: { period } } : undefined),
   moves: (unit: string, pinfl?: string) => api.get<ApiResponse<{ items: UnitMove[]; units: { code: string; label: string }[] }>>(`/unit-payroll/${enc(unit)}/moves`, pinfl ? { params: { pinfl } } : undefined),

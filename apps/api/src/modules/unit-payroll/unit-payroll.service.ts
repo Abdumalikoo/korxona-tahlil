@@ -157,6 +157,8 @@ export interface UnitPayrollBatch {
 
 /** Ish haqi sahifasi bor bo'limlar (umumiy vedomostdan avtomatik taqsimlanadi) */
 export const PAYROLL_UNITS = ['TAX_FREE', 'FERMER', 'BUXGALTERIYA', 'MARKSHEYDER'] as const;
+/** Ish haqini o'tkazish mumkin bo'lgan joylar: Markaz, Hududlar va ish haqi yuritiladigan yo'nalishlar (Qo'mita — yo'q) */
+export const MOVE_TARGETS: string[] = ['CENTER', 'REGION', ...PAYROLL_UNITS];
 export type PayrollUnit = (typeof PAYROLL_UNITS)[number];
 export const isPayrollUnit = (u: unknown): u is PayrollUnit => typeof u === 'string' && (PAYROLL_UNITS as readonly string[]).includes(u);
 
@@ -1334,15 +1336,24 @@ export class UnitPayrollService {
   /**
    * Xodim(lar) shu oyda boshqa bo'limda ishlagan: ish haqi shu bo'limdan olinadi va (summasi bilan) o'sha bo'limga o'tkaziladi.
    *  • «Miya»: shu oydan o'sha bo'limda; onlyThisMonth — keyingi oydan yana shu bo'limga qaytadi (o'sha oyda ko'chish yo'q bo'lsa).
-   *  • Summa: yo'nalishga — uning ish haqi vedomostiga (alohida yuklash); Markazga — Markaz ish haqi xarajati
-   *    (Xodimlar bazasidagi bo'limi bilan); Hududlarga — xodimning hududi (Xodimlar bazasidan) ish haqi xarajati.
+   *  • Summa: yo'nalishga — uning ish haqi vedomostiga (alohida yuklash); Markazga — tanlangan Markaz bo'limi
+   *    (tanlanmasa — Xodimlar bazasidagi bo'limi) ish haqi xarajati; Hududlarga — tanlangan viloyat va tuman
+   *    (tanlanmasa — Xodimlar bazasidagi hududi) ish haqi xarajati.
+   *  • Qo'mita pullari — ish haqi emas: unga o'tkazilmaydi.
    */
   @Exclusive('unit-payroll')
-  async moveRows(unit: string, period: string, body: { pinfls?: unknown; target?: unknown; onlyThisMonth?: unknown; withAmount?: unknown }, userId: string) {
+  async moveRows(
+    unit: string,
+    period: string,
+    body: { pinfls?: unknown; target?: unknown; onlyThisMonth?: unknown; withAmount?: unknown; place?: unknown },
+    userId: string,
+  ) {
     this.assertPeriod(period);
     const pins = this.parsePins(body?.pinfls);
     const target = typeof body?.target === 'string' && ENTRY_UNIT_CODES.includes(body.target) && body.target !== unit ? body.target : null;
     if (!target) throw new BadRequestException("Qaysi bo'limga — tanlang");
+    if (!MOVE_TARGETS.includes(target)) throw new BadRequestException("Qo'mita pullariga ish haqi o'tkazilmaydi — boshqa bo'limni tanlang");
+    const place = await this.movePlace(target, body?.place);
     const onlyThisMonth = body?.onlyThisMonth !== false;
     const withAmount = body?.withAmount !== false;
     const current = (await this.saved(unit, period)).rows.filter((r) => pins.has(r.pinfl));
@@ -1350,7 +1361,7 @@ export class UnitPayrollService {
     // Hududga — xodimning hududi kerak
     const emps = await this.prisma.employee.findMany({ where: { pinfl: { in: current.map((r) => r.pinfl) } }, select: { pinfl: true, regionCode: true, departmentId: true } });
     const empBy = new Map(emps.map((e) => [e.pinfl, e]));
-    if (withAmount && target === 'REGION') {
+    if (withAmount && target === 'REGION' && !place.regionCode) {
       const bad = current.filter((r) => !(empBy.get(r.pinfl)?.regionCode && empBy.get(r.pinfl)!.regionCode! > 0));
       if (bad.length) throw new BadRequestException(`Hududi noma'lum (Xodimlar bazasida hudud yo'q): ${bad.slice(0, 3).map((b) => b.fullName).join(', ')} — avval Xodimlar bo'limida hududini belgilang`);
     }
@@ -1390,9 +1401,10 @@ export class UnitPayrollService {
               amountTiyin: d.amountTiyin,
               categoryCode: PAYROLL_CATEGORY,
               segment: null,
-              regionCode: target === 'CENTER' ? 0 : e!.regionCode,
-              departmentId: target === 'CENTER' ? (e?.departmentId ?? null) : null,
-              description: `Ish haqi — ${d.fullName} (${entryUnitLabel(unit)}dan o'tkazildi, ${monthLabel(period)})`.slice(0, 500),
+              regionCode: target === 'CENTER' ? 0 : (place.regionCode ?? e!.regionCode),
+              districtId: target === 'REGION' ? place.districtId : null,
+              departmentId: target === 'CENTER' ? (place.departmentId ?? e?.departmentId ?? null) : null,
+              description: `Ish haqi — ${d.fullName} (${entryUnitLabel(unit)}dan o'tkazildi${place.label ? `: ${place.label}` : ''}, ${monthLabel(period)})`.slice(0, 500),
               documentNo: d.pinfl,
               paymentMethod: 'BANK',
               paymentStatus: 'PAID',
@@ -1413,7 +1425,36 @@ export class UnitPayrollService {
       entityId: `${unit}:${period}`,
       summary: `${entryUnitLabel(unit)} ish haqi ${period}: ${dropped.length} xodim «${entryUnitLabel(target)}» bo'limiga o'tkazildi${withAmount ? ` (${(Number(total) / 100).toLocaleString('uz-UZ')} so'm bilan)` : ' (summasiz)'}${onlyThisMonth ? ', faqat shu oy' : ''}`,
     });
-    return { moved: dropped.length, totalTiyin: total.toString(), target, targetLabel: entryUnitLabel(target), created };
+    return { moved: dropped.length, totalTiyin: total.toString(), target, targetLabel: place.label ? `${entryUnitLabel(target)} › ${place.label}` : entryUnitLabel(target), created };
+  }
+
+  /**
+   * O'tkazishda aniq joy: Markaz — bo'limi; Hududlar — viloyati va (ixtiyoriy) tumani.
+   * Berilmasa — eski tartib (Xodimlar bazasidagi joyi). Noto'g'ri yoki faol bo'lmagan joy — rad etiladi.
+   */
+  private async movePlace(target: string, raw: unknown): Promise<{ departmentId: string | null; regionCode: number | null; districtId: string | null; label: string | null }> {
+    const none = { departmentId: null, regionCode: null, districtId: null, label: null };
+    const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    if (target === 'CENTER') {
+      const id = typeof p.departmentId === 'string' && p.departmentId.trim() ? p.departmentId.trim() : null;
+      if (!id) return none;
+      const dep = await this.prisma.department.findUnique({ where: { id }, select: { id: true, name: true, isActive: true } });
+      if (!dep || !dep.isActive) throw new BadRequestException("Markaz bo'limi topilmadi");
+      return { ...none, departmentId: dep.id, label: dep.name };
+    }
+    if (target === 'REGION') {
+      const code = typeof p.regionCode === 'number' ? p.regionCode : typeof p.regionCode === 'string' && /^\d{1,3}$/.test(p.regionCode) ? Number(p.regionCode) : null;
+      if (code === null) return none;
+      if (!Number.isInteger(code) || code <= 0) throw new BadRequestException('Viloyatni tanlang');
+      const region = await this.prisma.region.findUnique({ where: { code }, select: { code: true, name: true, isActive: true } });
+      if (!region || !region.isActive) throw new BadRequestException('Viloyat topilmadi');
+      const did = typeof p.districtId === 'string' && p.districtId.trim() ? p.districtId.trim() : null;
+      if (!did) return { ...none, regionCode: region.code, label: region.name };
+      const district = await this.prisma.district.findUnique({ where: { id: did }, select: { id: true, name: true, regionCode: true, isActive: true } });
+      if (!district || !district.isActive || district.regionCode !== region.code) throw new BadRequestException(`Tuman ${region.name} tarkibida topilmadi`);
+      return { ...none, regionCode: region.code, districtId: district.id, label: `${region.name} › ${district.name}` };
+    }
+    return none;
   }
 
   // ═══════════ Ish haqi qismlari (Xarajatlar siyosati bo'yicha) ═══════════
