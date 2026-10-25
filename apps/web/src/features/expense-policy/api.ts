@@ -83,10 +83,21 @@ export interface CenterSummary {
   policyCount: number;
 }
 
+export interface PayrollComponentAmount {
+  code: string;
+  centerTiyin: string;
+  regionTiyin: string;
+  centerEmployees: number;
+  regionEmployees: number;
+  units: { unit: string; label: string; totalTiyin: string }[];
+}
+
 export const policyApi = {
   get: () => api.get<ApiResponse<PolicyData>>('/expense-policy'),
   save: (centerCategories: string[], excludeCategories: string[] = [], payers: Record<string, string> = {}) =>
     api.patch<ApiResponse<PolicyData>>('/expense-policy', { centerCategories, excludeCategories, payers }),
+  /** Ish haqi komponentlari bo'yicha davrdagi summa (tarkibdan): Markaz / hudud xodimlari / yo'nalishlar */
+  payrollAmounts: (from: string, to: string) => api.get<ApiResponse<{ range: { from: string; to: string }; rows: PayrollComponentAmount[] }>>('/expense-policy/payroll-amounts', { params: { from, to } }),
   amounts: (from: string, to: string) => api.get<ApiResponse<{ range: { from: string; to: string }; rows: CategoryAmount[] }>>('/expense-policy/amounts', { params: { from, to } }),
   seed: () => api.post<ApiResponse<{ created: number; policy: PolicyData }>>('/expense-policy/seed', {}),
   summary: (from: string, to: string) => api.get<ApiResponse<CenterSummary>>('/expense-policy/summary', { params: { from, to } }),

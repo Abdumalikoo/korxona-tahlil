@@ -37,6 +37,8 @@ import {
     toTiyin,
 } from './salary-composition.excel';
 import { buildVedomostWorkbook, detectVedomost, rankSheets, VEDOMOST_COMPONENTS } from './salary-composition.vedomost';
+import { guessComponent, LEARNED_KEY, LEARNED_MAX, readLearned, SKIP, smartScan, type Learned, type SmartColumn, type SmartScan } from './salary-composition.smart';
+import { runExclusive } from '../../common/locks';
 import type {
     AnalysisResult,
     BatchDto,
@@ -672,7 +674,65 @@ export class SalaryCompositionService implements OnModuleInit {
   // Faylni o'qish
   // ═══════════════════════════════════════════════════════════
 
-  async analyze(period: string, file: Express.Multer.File | undefined, sheetName?: string, unit?: string): Promise<AnalysisResult> {
+  // ═══════════════════════════════════════════════════════════
+  // Ustunlar moslashi — o'rgatilganlar (sarlavha → komponent)
+  // ═══════════════════════════════════════════════════════════
+
+  async learnedColumns(): Promise<Learned> {
+    const row = await this.prisma.setting.findUnique({ where: { key: LEARNED_KEY } });
+    return readLearned(row?.value ?? null);
+  }
+
+  /**
+   * Tasdiqlangan moslashlarni eslab qolish (saqlashda). Faqat summa ustunlari; kod — mavjud komponent yoki SKIP.
+   * Bir sarlavha uchun oxirgi tanlov qoladi.
+   */
+  async rememberColumns(items: unknown): Promise<number> {
+    if (!Array.isArray(items) || !items.length) return 0;
+    const codes = new Set((await this.allComponents()).map((c) => c.code));
+    const clean = items
+      .slice(0, 400)
+      .map((x) => x as { key?: unknown; leaf?: unknown; label?: unknown; code?: unknown })
+      .filter((x) => typeof x.key === 'string' && x.key.length > 0 && x.key.length <= 400 && typeof x.leaf === 'string' && typeof x.code === 'string' && (x.code === SKIP || codes.has(x.code)));
+    if (!clean.length) return 0;
+    return runExclusive(`setting:${LEARNED_KEY}`, async () => {
+      const current = await this.learnedColumns();
+      const at = new Date().toISOString();
+      for (const x of clean) current[x.key as string] = { code: x.code as string, leaf: (x.leaf as string).slice(0, 300), label: typeof x.label === 'string' ? x.label.slice(0, 300) : '', at };
+      // Eng eskilari tashlanadi (cheklov)
+      const entries = Object.entries(current).sort((a, b) => b[1].at.localeCompare(a[1].at)).slice(0, LEARNED_MAX);
+      const value = { v: 1, items: Object.fromEntries(entries) };
+      await this.prisma.setting.upsert({ where: { key: LEARNED_KEY }, create: { key: LEARNED_KEY, value: value as never }, update: { value: value as never } });
+      return clean.length;
+    });
+  }
+
+  /** O'rgatilgan moslashlar ro'yxati (sozlash uchun) */
+  async listLearned(): Promise<{ key: string; leaf: string; label: string; code: string; at: string }[]> {
+    const l = await this.learnedColumns();
+    return Object.entries(l)
+      .map(([key, x]) => ({ key, ...x }))
+      .sort((a, b) => b.at.localeCompare(a.at));
+  }
+
+  /** O'rgatilgan moslashni o'chirish */
+  async forgetLearned(key: string): Promise<{ success: true }> {
+    await runExclusive(`setting:${LEARNED_KEY}`, async () => {
+      const current = await this.learnedColumns();
+      if (!(key in current)) return;
+      delete current[key];
+      const value = { v: 1, items: current };
+      await this.prisma.setting.upsert({ where: { key: LEARNED_KEY }, create: { key: LEARNED_KEY, value: value as never }, update: { value: value as never } });
+    });
+    return { success: true };
+  }
+
+  /**
+   * mapping — shu yuklashda foydalanuvchi tanlagani: { ustun harfi: komponent kodi | 'SKIP' }.
+   * Fayl istalgan shaklda bo'lishi mumkin: tanish shakl (vedomost, dastur shabloni) qoidalari bilan, notanishi —
+   * ma'lumotning o'zidan (PINFL ustuni, sarlavhalar) va har ustun uchun komponent taklifi bilan o'qiladi.
+   */
+  async analyze(period: string, file: Express.Multer.File | undefined, sheetName?: string, unit?: string, mapping?: Record<string, string>): Promise<AnalysisResult> {
     this.assertPeriod(period);
     if (!file) throw new BadRequestException('Fayl yuklanmadi');
 
@@ -689,6 +749,8 @@ export class SalaryCompositionService implements OnModuleInit {
     const components = await this.allComponents();
     const signs = new Map(components.map((c) => [c.code, c.sign]));
     const byCode = new Map(components.map((c) => [c.code, c]));
+    const learned = await this.learnedColumns();
+    const user = mapping && typeof mapping === 'object' ? Object.fromEntries(Object.entries(mapping).filter(([k, v]) => /^[A-Z]{1,3}$/.test(k) && typeof v === 'string')) : undefined;
 
     // Varaq: tanlangan; bo'lmasa — oy nomi mos, buxgalteriya vedomosti shaklidagi birinchisi; eski shablon («Tarkib») ham o'qiladi
     const names = workbook.worksheets.map((w) => w.name);
@@ -713,8 +775,42 @@ export class SalaryCompositionService implements OnModuleInit {
         if (sheetName) throw new BadRequestException(`«${sheetName}» varag'ida ish haqi ustunlari topilmadi`);
       }
     }
-    if (!sheet || !det) throw new BadRequestException("Ish haqi varag'i topilmadi: PINFL, F.I.O. va summa ustunlari (Оклад, Надбавка, Премия …) bo'lgan varaq kerak");
-    const { fixed, comps } = det;
+    // Ustunlar: tanish shakl — qoidalar bilan (+ o'rgatilgan va siz tanlagan); notanish — ma'lumotning o'zidan
+    let smart: SmartScan | null = null;
+    let trusted = false;
+    if (sheet && det) {
+      const rule = new Map<number, string>([...det.comps.entries()].map(([code, col]) => [col, code]));
+      const ruleSkipped = new Map<number, string>(det.skipped.map((x) => [colIndexOf(x.column), x.reason]));
+      smart = smartScan(sheet, components, { rule, ruleSkipped, trusted: true, learned, user });
+      trusted = true;
+    } else {
+      for (const name of order) {
+        const ws = workbook.getWorksheet(name);
+        if (!ws) continue;
+        const s = smartScan(ws, components, { learned, user });
+        if (!s || !s.columns.some((c) => c.kind === 'amount')) continue;
+        sheet = ws;
+        smart = s;
+        det = {
+          headerRow: s.headerBottom,
+          dataStart: s.dataStart,
+          fixed: { pinfl: s.pinflCol, ...(s.nameCol ? { fullName: s.nameCol } : {}), ...(s.daysCol ? { days: s.daysCol } : {}), ...(s.rateCol ? { rate: s.rateCol } : {}), ...(s.totalCol ? { total: s.totalCol } : {}) },
+          comps: new Map(),
+          skipped: [],
+          vedomost: true,
+        };
+        break;
+      }
+    }
+    if (!sheet || !det) throw new BadRequestException("Ish haqi varag'i topilmadi: 14 xonali PINFL ustuni va summa ustunlari bo'lgan varaq kerak");
+    const { fixed } = det;
+    if (!fixed.total && smart?.totalCol) fixed.total = smart.totalCol;
+    // Ustun → komponent (bir komponentga bir nechta ustun ham bo'lishi mumkin — qo'shiladi)
+    const colMap: [number, string][] = smart
+      ? smart.columns.filter((c) => c.kind === 'amount' && c.code).map((c) => [c.col, c.code!] as [number, string])
+      : [...det.comps.entries()].map(([code, col]) => [col, code] as [number, string]);
+    const amountCols = smart ? smart.columns.filter((c) => c.kind === 'amount').map((c) => c.col) : colMap.map(([c]) => c);
+    const unmappedWithValues = smart ? smart.columns.filter((c) => c.kind === 'amount' && !c.code && c.nonZero > 0 && c.source === 'none') : [];
 
     const invalidRows: AnalysisResult['invalidRows'] = [];
     const duplicates: AnalysisResult['duplicates'] = [];
@@ -743,8 +839,14 @@ export class SalaryCompositionService implements OnModuleInit {
       const items = new Map<string, bigint>();
       const errors: string[] = [];
       let hasAmount = false;
+      // Hamma summa ustunlari (moslanmaganlari ham) — soliq hisoboti bilan farqni tahlil qilish uchun
+      const raw = new Map<number, bigint>();
+      for (const col of amountCols) {
+        const n = parseNumber(row.getCell(col).value);
+        if (n !== null && !Number.isNaN(n) && n !== 0) raw.set(col, toTiyin(n));
+      }
 
-      for (const [code, col] of comps) {
+      for (const [col, code] of colMap) {
         const component = byCode.get(code);
         if (!component) continue;
 
@@ -769,10 +871,11 @@ export class SalaryCompositionService implements OnModuleInit {
 
         const tiyin = toTiyin(amount);
         if (tiyin !== 0n) {
-          items.set(code, tiyin);
+          items.set(code, (items.get(code) ?? 0n) + tiyin);
           hasAmount = true;
         }
       }
+      if (!hasAmount && raw.size > 0) hasAmount = true;
 
       if (!pinflRaw) {
         if (hasAmount) {
@@ -798,6 +901,7 @@ export class SalaryCompositionService implements OnModuleInit {
         const first = det.vedomost ? parsed.find((p) => p.pinfl === pinfl) : undefined;
         if (first) {
           for (const [code, amount] of items) first.items.set(code, (first.items.get(code) ?? 0n) + amount);
+          for (const [col, v] of raw) first.raw!.set(col, (first.raw!.get(col) ?? 0n) + v);
           if (fixed.total) {
             const t = parseNumber(row.getCell(fixed.total).value);
             if (t !== null && !Number.isNaN(t)) first.fileTotalTiyin = (first.fileTotalTiyin ?? 0n) + toTiyin(t);
@@ -839,6 +943,7 @@ export class SalaryCompositionService implements OnModuleInit {
         rate: rate === null || Number.isNaN(rate) ? null : rate,
         items,
         fileTotalTiyin,
+        raw,
       });
     }
 
@@ -849,7 +954,8 @@ export class SalaryCompositionService implements OnModuleInit {
     // Vedomost: fayldagi ФОТ = tarkib bo'lsin. Buxgalter formulaga qo'lda qo'shgan / ayirgan summa (ustunsiz)
     // «Vedomost farqi (+ / −)» komponentiga yoziladi va ro'yxatda ko'rsatiladi.
     const fotAdjustments: { rowIndex: number; pinfl: string; fileName: string; fileTiyin: string; computedTiyin: string; diffTiyin: string }[] = [];
-    if (det.vedomost && fixed.total) {
+    // Faqat tanish shaklda va hamma summa ustuni moslangan bo'lsa: aks holda farq — moslanmagan ustunlardan (taklif qilinadi)
+    if (det.vedomost && fixed.total && trusted && unmappedWithValues.length === 0) {
       for (const p of parsed) {
         if (p.fileTotalTiyin === null) continue;
         p.items.delete('VED_FARQ');
@@ -905,10 +1011,21 @@ export class SalaryCompositionService implements OnModuleInit {
       unit,
     );
 
-    const found = components.filter((c) => comps.has(c.code));
+    const usedCodes = new Set(colMap.map(([, code]) => code));
+    const found = components.filter((c) => usedCodes.has(c.code));
     const missingColumns = components
-      .filter((c) => c.isActive && !comps.has(c.code))
+      .filter((c) => c.isActive && !usedCodes.has(c.code))
       .map((c) => ({ code: c.code, name: c.name }));
+    // Notanish shakl yoki tanish shaklda moslanmagan ustunlar bo'lsa — ФОТ bilan farq ham ko'rsatiladi
+    if (!trusted || unmappedWithValues.length) {
+      for (const p of parsed) {
+        if (p.fileTotalTiyin === null || totalMismatches.some((m) => m.pinfl === p.pinfl)) continue;
+        const computed = this.rowTotal(p.items, signs);
+        if (this.abs(p.fileTotalTiyin - computed) > DIFF_TOLERANCE_TIYIN) totalMismatches.push({ rowIndex: p.rowIndex, pinfl: p.pinfl, fileTiyin: p.fileTotalTiyin.toString(), computedTiyin: computed.toString() });
+      }
+    }
+    const mappingOut = smart ? this.mappingDto(smart, components) : null;
+    const suggestions = smart ? this.suggestFixes(smart, parsed, payroll, signs, components) : null;
 
     const { byComponent, byCategory } = this.totals(parsed, components);
 
@@ -917,7 +1034,11 @@ export class SalaryCompositionService implements OnModuleInit {
       fileName: file.originalname,
       sheetName: sheet.name,
       sheets: names,
-      skippedColumns: det.skipped,
+      mapping: mappingOut,
+      suggestions,
+      skippedColumns: smart
+        ? smart.columns.filter((c) => c.kind === 'amount' && !c.code && c.nonZero > 0).map((c) => ({ column: c.letter, label: c.label, reason: c.reason ?? 'tanilmadi' }))
+        : det.skipped,
       fotAdjustments,
       mergedRows,
       totalRows,
@@ -934,6 +1055,103 @@ export class SalaryCompositionService implements OnModuleInit {
       check,
       rows,
     };
+  }
+
+  /** Ekran uchun: har ustun — turi, summasi, qo'llangan komponent va manbasi */
+  private mappingDto(smart: SmartScan, components: SalaryComponent[]) {
+    const name = new Map(components.map((c) => [c.code, c.name]));
+    const kindOrder = { amount: 0, total: 1, deduct: 2, qualifier: 3, info: 4 } as const;
+    return {
+      headerRows: [smart.headerTop, smart.headerBottom] as [number, number],
+      dataStart: smart.dataStart,
+      pinflColumn: colLetter(smart.pinflCol),
+      nameColumn: smart.nameCol ? colLetter(smart.nameCol) : null,
+      totalColumn: smart.totalCol ? colLetter(smart.totalCol) : null,
+      columns: smart.columns
+        .filter((c) => c.kind !== 'info' || c.nonZero > 0)
+        .sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.col - b.col)
+        .map((c) => ({
+          letter: c.letter,
+          label: c.label,
+          key: c.key,
+          leaf: c.leaf,
+          kind: c.kind,
+          nonZero: c.nonZero,
+          sumTiyin: c.sumTiyin.toString(),
+          code: c.code,
+          codeName: c.code ? (name.get(c.code) ?? c.code) : null,
+          source: c.source,
+          score: c.score,
+          reason: c.reason,
+        })),
+    };
+  }
+
+  /**
+   * Soliq hisoboti (bo'lsa) yoki fayldagi ФОТ bilan farq qilgan xodimlar bo'yicha: qaysi ustun farqni yopadi.
+   *  • ADD — moslanmagan ustun: uning summasi farqqa teng (tarkibga qo'shish kerak);
+   *  • SKIP — moslangan ustun: olib tashlansa farq yo'qoladi (jami / ikki marta sanalgan);
+   *  • ALL — hamma moslanmagan ustunlar birgalikda farqni yopadi.
+   */
+  private suggestFixes(smart: SmartScan, parsed: ParsedRow[], payroll: PayrollInfo, signs: Map<string, number>, components: SalaryComponent[]) {
+    const byCol = new Map(smart.columns.map((c) => [c.col, c]));
+    const amount = smart.columns.filter((c) => c.kind === 'amount');
+    const unmapped = amount.filter((c) => !c.code);
+    const tol = DIFF_TOLERANCE_TIYIN;
+    const stats = new Map<string, { col: number; action: 'ADD' | 'ADD_NEG' | 'SKIP'; rows: number; tiyin: bigint }>();
+    let mismatched = 0;
+    let allUnmapped = 0;
+    const against: 'SOLIQ' | 'FILE' = payroll.uploaded ? 'SOLIQ' : 'FILE';
+    for (const p of parsed) {
+      const target = payroll.uploaded ? (payroll.map.get(p.pinfl) ?? null) : p.fileTotalTiyin;
+      if (target === null) continue;
+      const computed = this.rowTotal(p.items, signs);
+      const d = target - computed;
+      if (this.abs(d) <= tol) continue;
+      mismatched += 1;
+      const raw = p.raw ?? new Map<number, bigint>();
+      let rest = 0n;
+      for (const c of unmapped) rest += raw.get(c.col) ?? 0n;
+      if (unmapped.length > 1 && this.abs(rest - d) <= tol) allUnmapped += 1;
+      for (const c of amount) {
+        const v = raw.get(c.col);
+        if (!v) continue;
+        const bump = (action: 'ADD' | 'ADD_NEG' | 'SKIP') => {
+          const k = `${c.col}|${action}`;
+          const s = stats.get(k) ?? { col: c.col, action, rows: 0, tiyin: 0n };
+          s.rows += 1;
+          s.tiyin += v;
+          stats.set(k, s);
+        };
+        if (!c.code) {
+          if (this.abs(v - d) <= tol) bump('ADD');
+          else if (this.abs(v + d) <= tol) bump('ADD_NEG');
+        } else {
+          const sign = signs.get(c.code) ?? 1;
+          if ((sign > 0 && this.abs(v + d) <= tol) || (sign < 0 && this.abs(v - d) <= tol)) bump('SKIP');
+        }
+      }
+    }
+    const name = new Map(components.map((c) => [c.code, c.name]));
+    const items = [...stats.values()]
+      .sort((a, b) => b.rows - a.rows)
+      .slice(0, 10)
+      .map((s) => {
+        const c = byCol.get(s.col)!;
+        const guess = s.action === 'ADD_NEG' ? 'JARIMA' : s.action === 'ADD' ? (guessComponent(c.leaf, c.key, components)?.code ?? 'BOSHQA') : null;
+        return {
+          letter: c.letter,
+          label: c.label,
+          action: s.action,
+          rows: s.rows,
+          tiyin: s.tiyin.toString(),
+          /** Taklif qilingan kod (ADD) yoki SKIP */
+          code: s.action === 'SKIP' ? SKIP : guess,
+          codeName: s.action === 'SKIP' ? null : guess ? (name.get(guess) ?? guess) : null,
+          currentCode: c.code,
+        };
+      });
+    return { against, mismatched, allUnmapped, unmappedColumns: unmapped.filter((c) => c.nonZero > 0).length, items };
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1637,3 +1855,24 @@ interface UnitCompBatch {
   cancelledAt: string | null;
   rows: UnitCompRow[];
 }
+
+/** Ustun harfi → raqam (A → 1) */
+function colIndexOf(letters: string): number {
+  let n = 0;
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+/** Ustun raqami → harf */
+function colLetter(index: number): string {
+  let out = '';
+  let n = index;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(65 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+export type { SmartColumn };

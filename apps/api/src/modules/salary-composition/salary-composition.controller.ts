@@ -36,6 +36,8 @@ interface CommitBody {
     /** Komponent kodi → summa (tiyin, satr ko'rinishida) */
     items: Record<string, string>;
   }[];
+  /** Tasdiqlangan ustun moslashlari — eslab qolinadi: { key, leaf, label, code | 'SKIP' } */
+  columns?: unknown;
 }
 
 @Controller('salary-composition')
@@ -110,9 +112,35 @@ export class SalaryCompositionController {
   @Roles(UserRole.ADMIN)
   @Post('analyze')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@Query('period') period: string, @UploadedFile() file: Express.Multer.File, @Query('sheet') sheet?: string, @Query('unit') unit?: string) {
-    const data = await this.composition.analyze(period, file, sheet || undefined, this.unitOf(unit));
+  async analyze(@Query('period') period: string, @UploadedFile() file: Express.Multer.File, @Query('sheet') sheet?: string, @Query('unit') unit?: string, @Body('mapping') mappingRaw?: string) {
+    // mapping — shu yuklashda tanlangan moslash: JSON { "AB": "OKLAD", "AC": "SKIP" }
+    let mapping: Record<string, string> | undefined;
+    if (typeof mappingRaw === 'string' && mappingRaw.length) {
+      if (mappingRaw.length > 20_000) throw new BadRequestException('Moslash juda katta');
+      try {
+        const parsed = JSON.parse(mappingRaw) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) mapping = parsed as Record<string, string>;
+      } catch {
+        throw new BadRequestException("Moslash noto'g'ri (JSON)");
+      }
+    }
+    const data = await this.composition.analyze(period, file, sheet || undefined, this.unitOf(unit), mapping);
     return { data };
+  }
+
+  /** O'rgatilgan ustun moslashlari (sarlavha → komponent) */
+  @Get('columns')
+  async learned() {
+    return { data: await this.composition.listLearned() };
+  }
+
+  /** O'rgatilgan moslashni o'chirish */
+  @Roles(UserRole.ADMIN)
+  @Post('columns/forget')
+  @HttpCode(HttpStatus.OK)
+  async forget(@Body('key') key: string) {
+    if (typeof key !== 'string' || !key) throw new BadRequestException('Kalit kerak');
+    return { data: await this.composition.forgetLearned(key) };
   }
 
   /** Saqlash — shu oyning oldingi tarkibini almashtiradi */
@@ -155,7 +183,9 @@ export class SalaryCompositionController {
       userId,
       unit,
     });
-    return { data };
+    // Saqlandi — tasdiqlangan ustun moslashlari eslab qolinadi (keyingi oy shu sarlavhalar o'zi taniladi)
+    const remembered = await this.composition.rememberColumns(body.columns).catch(() => 0);
+    return { data: { ...data, rememberedColumns: remembered } };
   }
 
   /** Yuklashni bekor qilish */

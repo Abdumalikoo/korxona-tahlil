@@ -30,7 +30,7 @@ export function headKey(value: string): string {
 }
 
 const QUALIFIERS = new Set(['', '%', '%%', 'сумма', 'кво', 'колво', 'кун', 'день', 'сони']);
-const isQualifier = (raw: string) => {
+export const isQualifier = (raw: string) => {
   const k = headKey(raw);
   return raw.trim() === '%' || raw.trim() === '%%' || QUALIFIERS.has(k);
 };

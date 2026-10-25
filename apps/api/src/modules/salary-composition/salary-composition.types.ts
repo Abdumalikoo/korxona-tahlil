@@ -123,6 +123,9 @@ export interface AnalysisResult {
   /** O'qilgan varaq va fayldagi barcha varaqlar */
   sheetName?: string;
   sheets?: string[];
+  /** Ustunlar moslashi va farqni yopish takliflari */
+  mapping?: MappingDto | null;
+  suggestions?: SuggestionsDto | null;
   /** Vedomostdagi o'qilmagan summa ustunlari (sababi bilan) */
   skippedColumns?: { column: string; label: string; reason: string }[];
   /** Fayldagi ФОТ ustunlar yig'indisidan farq qilgan xodimlar — farq «Vedomost farqi» komponentiga yozildi */
@@ -218,6 +221,43 @@ export interface ParsedRow {
   rate: number | null;
   items: Map<string, bigint>;
   fileTotalTiyin: bigint | null;
+  /** Hamma summa ustunlari (ustun raqami → tiyin) — farqni tahlil qilish uchun */
+  raw?: Map<number, bigint>;
+}
+
+/** Ustunlar moslashi (ekran uchun) */
+export interface MappingColumnDto {
+  letter: string;
+  label: string;
+  key: string;
+  leaf: string;
+  kind: 'amount' | 'total' | 'deduct' | 'qualifier' | 'info';
+  nonZero: number;
+  sumTiyin: string;
+  code: string | null;
+  codeName: string | null;
+  source: 'user' | 'learned' | 'rule' | 'name' | 'similar' | 'none';
+  score: number;
+  reason: string | null;
+}
+
+export interface MappingDto {
+  headerRows: [number, number];
+  dataStart: number;
+  pinflColumn: string;
+  nameColumn: string | null;
+  totalColumn: string | null;
+  columns: MappingColumnDto[];
+}
+
+export interface SuggestionsDto {
+  /** Nima bilan solishtirildi: soliq hisoboti (ish haqi yuklangan) yoki fayldagi ФОТ */
+  against: 'SOLIQ' | 'FILE';
+  mismatched: number;
+  /** Hamma moslanmagan ustunlar birgalikda farqni yopgan xodimlar */
+  allUnmapped: number;
+  unmappedColumns: number;
+  items: { letter: string; label: string; action: 'ADD' | 'ADD_NEG' | 'SKIP'; rows: number; tiyin: string; code: string | null; codeName: string | null; currentCode: string | null }[];
 }
 
 export interface RegistryInfo {

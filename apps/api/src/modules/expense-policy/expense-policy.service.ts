@@ -54,6 +54,16 @@ export interface CategoryAmount {
 }
 
 /** Ish haqi komponenti (tarkib) — Markazga o'tadimi */
+/** Ish haqi komponenti bo'yicha davrdagi summa (tarkibdan) */
+export interface PayrollComponentAmount {
+  code: string;
+  centerTiyin: string;
+  regionTiyin: string;
+  centerEmployees: number;
+  regionEmployees: number;
+  units: { unit: string; label: string; totalTiyin: string }[];
+}
+
 export interface PayrollComponentOption {
   code: string;
   name: string;
@@ -275,6 +285,91 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
     return {
       range,
       rows: [...map.entries()].map(([code, r]) => ({ code, regionTiyin: r.region.toString(), centerTiyin: r.center.toString(), noneTiyin: r.none.toString(), segmentTiyin: r.segment.toString(), count: r.count })),
+    };
+  }
+
+  /**
+   * Ish haqi komponentlari bo'yicha davrdagi summa (ish haqi tarkibidan): Markaz xodimlari, hudud xodimlari
+   * va har yo'nalish (Tax free …) alohida. Siyosat sahifasida — komponent qayerga qancha yozilgani.
+   * Hudud xodimi — shu oy joylashuvi (natijalar fayli) bo'yicha, bo'lmasa Xodimlar bazasidagi hududi.
+   */
+  async payrollAmounts(from?: string, to?: string): Promise<{ range: { from: string; to: string }; rows: PayrollComponentAmount[] }> {
+    const today = new Date(Date.now() + TASHKENT_MS).toISOString().slice(0, 10);
+    const range = { from: from || `${today.slice(0, 4)}-01-01`, to: to || today };
+    const a = parseDay(range.from);
+    const b = parseDay(range.to);
+    if (a === null || b === null) throw new BadRequestException("Sana noto'g'ri (YYYY-MM-DD)");
+    if (a > b) throw new BadRequestException('Boshlanish sanasi tugash sanasidan keyin');
+    if ((b - a) / 86_400_000 > MAX_DAYS) throw new BadRequestException('Davr 3 yildan oshmasin');
+    const months: string[] = [];
+    for (let y = Number(range.from.slice(0, 4)), m = Number(range.from.slice(5, 7)); `${y}-${String(m).padStart(2, '0')}` <= range.to.slice(0, 7); m === 12 ? (y++, (m = 1)) : m++) months.push(`${y}-${String(m).padStart(2, '0')}`);
+
+    const acc = new Map<string, { center: bigint; region: bigint; centerEmp: Set<string>; regionEmp: Set<string>; units: Map<string, bigint> }>();
+    const get = (code: string) => {
+      const r = acc.get(code) ?? { center: 0n, region: 0n, centerEmp: new Set<string>(), regionEmp: new Set<string>(), units: new Map<string, bigint>() };
+      acc.set(code, r);
+      return r;
+    };
+    // Umumiy tarkib: har oy — oxirgi faol yuklash
+    const batches = await this.prisma.salaryCompositionBatch.findMany({ where: { period: { in: months }, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, period: true } });
+    const latest = new Map<string, string>();
+    for (const x of batches) if (!latest.has(x.period)) latest.set(x.period, x.id);
+    if (latest.size) {
+      const items = await this.prisma.salaryCompositionItem.findMany({
+        where: { batchId: { in: [...latest.values()] } },
+        select: { componentCode: true, amountTiyin: true, row: { select: { employeePinfl: true, period: true } } },
+      });
+      const pins = [...new Set(items.map((i) => i.row.employeePinfl))];
+      const [emps, locs] = await Promise.all([
+        this.prisma.employee.findMany({ where: { pinfl: { in: pins } }, select: { pinfl: true, regionCode: true } }),
+        this.prisma.employeeLocation.findMany({ where: { employeePinfl: { in: pins }, period: { in: months } }, select: { employeePinfl: true, period: true, regionCode: true } }),
+      ]);
+      const reg = new Map(emps.map((e) => [e.pinfl, e.regionCode]));
+      const loc = new Map(locs.map((l) => [`${l.employeePinfl}|${l.period}`, l.regionCode]));
+      for (const i of items) {
+        if (i.amountTiyin <= 0n) continue;
+        const rc = loc.get(`${i.row.employeePinfl}|${i.row.period}`) ?? reg.get(i.row.employeePinfl) ?? 0;
+        const r = get(i.componentCode);
+        if (rc === 0) {
+          r.center += i.amountTiyin;
+          r.centerEmp.add(i.row.employeePinfl);
+        } else {
+          r.region += i.amountTiyin;
+          r.regionEmp.add(i.row.employeePinfl);
+        }
+      }
+    }
+    // Yo'nalishlar tarkibi (settings): unit.composition.<BO'LIM>.<OY>
+    const keys = SEGMENTS.flatMap((sg) => months.map((p) => `unit.composition.${sg.code}.${p}`));
+    const unitRows = await this.prisma.setting.findMany({ where: { key: { in: keys } }, select: { key: true, value: true } });
+    for (const row of unitRows) {
+      const unit = row.key.split('.')[2]!;
+      const list = ((row.value as { batches?: { cancelledAt: string | null; createdAt: string; rows?: { items?: Record<string, string> }[] }[] } | null)?.batches ?? []).filter((x) => !x.cancelledAt);
+      const active = list.sort((x, y) => y.createdAt.localeCompare(x.createdAt))[0];
+      for (const r of active?.rows ?? []) {
+        for (const [code, v] of Object.entries(r.items ?? {})) {
+          let n = 0n;
+          try {
+            n = BigInt(v);
+          } catch {
+            continue;
+          }
+          if (n <= 0n) continue;
+          const t = get(code);
+          t.units.set(unit, (t.units.get(unit) ?? 0n) + n);
+        }
+      }
+    }
+    return {
+      range,
+      rows: [...acc.entries()].map(([code, r]) => ({
+        code,
+        centerTiyin: r.center.toString(),
+        regionTiyin: r.region.toString(),
+        centerEmployees: r.centerEmp.size,
+        regionEmployees: r.regionEmp.size,
+        units: [...r.units.entries()].map(([unit, v]) => ({ unit, label: segmentLabel(unit), totalTiyin: v.toString() })),
+      })),
     };
   }
 

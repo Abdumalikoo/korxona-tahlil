@@ -741,3 +741,17 @@ Har bo'lim xarajatlarida «Ish haqi» yonida **«Soliq hisoboti»** yorlig'i. O'
 - Hisobot odatda butun tashkilot bo'yicha bo'lgani uchun bo'limga **faqat shu bo'lim xodimlari** olinadi: bo'lim ro'yxatidagilar (Xodimlar bazasidan yoki o'zining), «miya» bo'yicha shu oy shu bo'limdagilar va hech qayerda yo'q yangi xodimlar. Markaz, hududlar va boshqa bo'lim xodimlari olinmaydi — soni va summasi ko'rsatiladi.
 - Butun tashkilot hisobotini bir marta Xarajatlar › Soliq hisoboti orqali yuklash qulayroq: har kim o'z joyiga (umumiy vedomost yoki bo'lim) avtomatik yoziladi.
 - Bo'limning «Ish haqi» yorlig'iga soliq hisoboti tashlansa ham taniladi.
+
+## Ish haqi tarkibi — istalgan shakldagi faylni o'qish (moslash taklifi, o'rganish, soliq hisoboti bilan solishtirish)
+Hudud va bo'limlar tarkib fayli har oy o'zgarishi mumkin (masalan, maydan butunlay yangi shakl). Endi fayl istalgan shaklda bo'lishi mumkin:
+- **Jadval o'zi topiladi:** eng ko'p 14 xonali PINFL bo'lgan ustun — PINFL; birinchi xodim qatori — ma'lumot boshi; yuqoridagi qatorlar — sarlavha (ko'p qatorli, birlashtirilgan kataklar ham). Ustun raqamlari, yashirin kodlar, jadval nomi o'tkaziladi.
+- **Har ustun turi aniqlanadi:** summa / jami (ФОТ, итого, jami) / ushlanma (НДФЛ, ИНПС, аванс, қўлига …) / aniqlovchi (%, kun, soni) / ma'lumot (tartib raqami, lavozim, ish kuni).
+- **Har summa ustuniga komponent taklif qilinadi** (ustuvorlik tartibida): siz shu yuklashda tanlagani → avval o'rgatilgani (sarlavha eslab qolingan) → tanish shakl qoidasi (buxgalteriya vedomosti, dastur shabloni) → nomi aynan mos → o'xshash nom (taxmin, ishonch %) → tanilmadi.
+- **«Ustunlar va komponentlar»** kartasida hammasi ko'rinadi: ustun, sarlavha, nechta xodimda summa, jami, komponent (o'zgartirish mumkin yoki «Hisobga olinmasin»). «Qayta hisoblash» — fayl qayta yuklanmaydi.
+- **Soliq hisoboti bilan solishtirish:** shu oy ish haqi (soliq hisoboti) yuklangan bo'lsa — har xodim tarkibi u bilan, bo'lmasa — fayldagi jami (ФОТ) ustuni bilan. Farq bo'lsa dastur qaysi ustun farqni yopishini topadi: «K ustuni qo'shilsa — 57 xodimda farq yopiladi» yoki «bu ustun olib tashlansa — farq yo'qoladi (ikki marta sanalgan)» — bitta tugma bilan qo'llanadi.
+- **O'rganish:** saqlanganda tasdiqlangan moslashlar (siz tanlagan, nomi mos va taxminlar) eslab qolinadi — keyingi oy shu sarlavha o'zi taniladi; shakl o'zgarsa faqat yangi ustunlar so'raladi. Tanilmagan ustun o'z-o'zidan «hisobga olinmasin» deb eslab qolinmaydi.
+- Tanish shakl (buxgalteriya vedomosti) avvalgidek o'qiladi; moslanmagan summa ustuni bo'lsa, farq «Vedomost farqi»ga yashirincha yozilmaydi — taklif qilinadi.
+- Bir komponentga bir nechta ustun moslansa — summalari qo'shiladi.
+
+### Xarajatlar siyosatida — komponent bo'yicha summa
+«Ish haqi qismlari (bayram, choraklik …)» ro'yxatida har komponent yonida tanlangan davr bo'yicha: hudud xodimlariga qancha (va siyosat bo'yicha qayerga yoziladi — Markaz xarajatiga yoki hududda), Markaz xodimlariga qancha, har yo'nalishda (Tax free …) qancha. Bo'lim siyosati sahifasida avvalgidek — har ish haqi qismi summasi va qayerga ajratilgani.

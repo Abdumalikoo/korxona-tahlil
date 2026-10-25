@@ -1,11 +1,12 @@
 'use client';
 
-import type { CompositionAnalysis } from '@/features/salary-composition/api';
+import type { CompositionAnalysis, SalaryComponent } from '@/features/salary-composition/api';
 import { formatTiyin } from '@/lib/format';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { IconAlert } from '@/components/ui/icons';
+import { MappingCard } from './mapping-card';
 import { CheckLists, CheckSummaryBoxes, StatusBanner, StructureCard } from './shared';
 
 /** Yuklangan fayl tahlili — hali hech narsa saqlanmagan */
@@ -15,6 +16,9 @@ export function AnalysisView({
   onSave,
   onCancel,
   onSheet,
+  components,
+  remapping = false,
+  onRemap,
 }: {
   analysis: CompositionAnalysis;
   saving: boolean;
@@ -22,6 +26,11 @@ export function AnalysisView({
   onCancel: () => void;
   /** Boshqa varaqni o'qish (fayl qayta yuklanmaydi) */
   onSheet?: (sheet: string) => void;
+  /** Komponentlar ro'yxati (moslash uchun) */
+  components?: SalaryComponent[];
+  remapping?: boolean;
+  /** Tanlangan ustun moslashi bilan qayta o'qish */
+  onRemap?: (mapping: Record<string, string>) => void;
 }) {
   const { check } = analysis;
   const skipped = analysis.invalidRows.length + analysis.duplicates.length;
@@ -61,6 +70,18 @@ export function AnalysisView({
 
       <StatusBanner check={check} />
       <CheckSummaryBoxes check={check} />
+
+      {/* Ustunlar → komponentlar: taklif, tasdiqlash, farqni yopish */}
+      {analysis.mapping && onRemap && (
+        <MappingCard
+          key={analysis.mapping.columns.map((c) => `${c.letter}:${c.code ?? '-'}:${c.source}`).join('|') + (analysis.suggestions?.mismatched ?? 0)}
+          mapping={analysis.mapping}
+          suggestions={analysis.suggestions}
+          components={components ?? []}
+          busy={remapping}
+          onApply={onRemap}
+        />
+      )}
 
       {/* Oldingi tarkib almashtiriladi */}
       {analysis.hasPrevious && (
@@ -128,7 +149,7 @@ export function AnalysisView({
       )}
 
       {/* O'qilmagan summa ustunlari */}
-      {analysis.skippedColumns && analysis.skippedColumns.length > 0 && (
+      {!analysis.mapping && analysis.skippedColumns && analysis.skippedColumns.length > 0 && (
         <IssueCard
           title={`O'qilmagan ustunlar — ${analysis.skippedColumns.length} ta`}
           description="Summa bor, lekin ФОТ ga kirmaydi yoki boshqa ustun ichida — tarkibga qo'shilmadi"

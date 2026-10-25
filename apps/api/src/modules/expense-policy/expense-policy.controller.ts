@@ -36,6 +36,12 @@ export class ExpensePolicyController {
     return { data: await this.policy.summary(from, to) };
   }
 
+  /** Ish haqi komponentlari bo'yicha davrdagi summa (tarkibdan): Markaz, hudud xodimlari, yo'nalishlar (?from&to) */
+  @Get('payroll-amounts')
+  async payrollAmounts(@Query('from') from?: string, @Query('to') to?: string) {
+    return { data: await this.policy.payrollAmounts(from, to) };
+  }
+
   /** Moddalar bo'yicha davrdagi xarajat: hududlarda / Markazda yozilgani (?from&to) */
   @Get('amounts')
   async amounts(@Query('from') from?: string, @Query('to') to?: string) {

@@ -56,6 +56,10 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
   const { month: period } = usePeriod();
   const [analysis, setAnalysis] = useState<CompositionAnalysis | null>(null);
   const [lastFile, setLastFile] = useState<File | null>(null);
+  /** Shu fayl uchun tanlangan ustun moslashi (qayta hisoblashda yuboriladi) */
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [remapping, setRemapping] = useState(false);
+  const components = useAsync(() => compositionApi.components(), []);
 
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -77,6 +81,7 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
 
   function reset() {
     setAnalysis(null);
+    setMapping({});
     if (inputRef.current) inputRef.current.value = '';
   }
 
@@ -116,6 +121,7 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
     setUploading(true);
     setAnalysis(null);
     setLastFile(file);
+    setMapping({});
 
     try {
       setAnalysis(await analyzeCompositionFile(period, file, sheet, u));
@@ -126,12 +132,27 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
     }
   }
 
+  /** Tanlangan moslash bilan qayta o'qish (fayl qayta yuklanmaydi) */
+  async function handleRemap(choice: Record<string, string>) {
+    if (!lastFile || !analysis) return;
+    const next = { ...mapping, ...choice };
+    setRemapping(true);
+    try {
+      setAnalysis(await analyzeCompositionFile(period, lastFile, analysis.sheetName, u, next));
+      setMapping(next);
+    } catch (err) {
+      setToast({ message: errorMessage(err, "Qayta hisoblab bo'lmadi"), tone: 'error' });
+    } finally {
+      setRemapping(false);
+    }
+  }
+
   async function handleSave() {
     if (!analysis) return;
     setSaving(true);
 
     try {
-      const result = await compositionApi.commit(period, analysis.fileName, analysis.rows, u);
+      const result = await compositionApi.commit(period, analysis.fileName, analysis.rows, u, analysis.mapping);
       const data = result.data;
 
       setToast({
@@ -142,6 +163,7 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
             : data.status === 'MISMATCH'
               ? ` · ${data.mismatchCount} ta farq bor`
               : u ? ` · ${unit?.label} ish haqi vedomosti yuklanmagan` : ' · soliq hisoboti yuklanmagan') +
+          (data.rememberedColumns ? ` · ${data.rememberedColumns} ta ustun moslashi eslab qolindi` : '') +
           (data.centerTiyin && data.centerTiyin !== '0'
             ? ` · bayram/choraklik ${formatTiyin(data.centerTiyin, { currency: true })} (${data.centerEmployees ?? 0} hudud xodimi) Markaz hisobiga o'tdi`
             : ''),
@@ -276,6 +298,9 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
             analysis={analysis}
             saving={saving}
             onSheet={lastFile ? (sheet) => void handleFile(lastFile, sheet) : undefined}
+            components={components.data?.data ?? []}
+            remapping={remapping}
+            onRemap={lastFile ? (m) => void handleRemap(m) : undefined}
             onSave={() => void handleSave()}
             onCancel={reset}
           />

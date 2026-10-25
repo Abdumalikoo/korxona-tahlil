@@ -7,7 +7,7 @@ import { Toast } from '@/components/ui/toast';
 import { compact, pct, TONE } from '@/features/structure/api';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
-import { formatDate, formatPeriodShort } from '@/lib/format';
+import { formatDate, formatPeriodShort, formatTiyin } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
 import { ENTRY_UNITS } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
@@ -96,6 +96,9 @@ export function ExpensePolicyPage() {
   const policy = useAsync(() => policyApi.get().then((r) => r.data), []);
   const summary = useAsync(() => policyApi.summary(from, to).then((r) => r.data), [from, to]);
   const amounts = useAsync(() => policyApi.amounts(from, to).then((r) => r.data), [from, to]);
+  /** Ish haqi komponentlari: davrda qancha (tarkibdan) */
+  const payAmounts = useAsync(() => policyApi.payrollAmounts(from, to).then((r) => r.data), [from, to]);
+  const payBy = new Map((payAmounts.data?.rows ?? []).map((r) => [r.code, r]));
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'error' } | null>(null);
 
@@ -360,6 +363,7 @@ export function ExpensePolicyPage() {
                       {c.categoryLabel}
                       {comps?.has(c.code) ? ` → Markaz: «${c.target}»` : ' · hududda qoladi'}
                     </span>
+                    <PayAmountLine a={payBy.get(c.code)} toCenter={!!comps?.has(c.code)} />
                   </span>
                 </label>
               ))}
@@ -415,5 +419,31 @@ export function ExpensePolicyPage() {
       </div>
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} duration={toast.tone === 'error' ? 6000 : 4000} />}
     </>
+  );
+}
+
+/** Komponent bo'yicha davrdagi summa: hudud xodimlari (siyosat bo'yicha qayerga), Markaz xodimlari, yo'nalishlar */
+function PayAmountLine({ a, toCenter }: { a: { centerTiyin: string; regionTiyin: string; centerEmployees: number; regionEmployees: number; units: { unit: string; label: string; totalTiyin: string }[] } | undefined; toCenter: boolean }) {
+  if (!a) return <span className="block text-[11px] text-(--color-text-faint)">davrda tarkibda yo&apos;q</span>;
+  const region = BigInt(a.regionTiyin);
+  const center = BigInt(a.centerTiyin);
+  return (
+    <span className="mt-0.5 block space-y-0.5 text-[11px]">
+      {region > 0n && (
+        <span className={cn('block', toCenter ? 'font-medium text-brand-700' : 'text-(--color-text)')}>
+          Hudud xodimlari: <span className="money">{formatTiyin(a.regionTiyin)}</span> ({a.regionEmployees}) {toCenter ? '→ Markaz xarajatiga yoziladi' : '→ hududda'}
+        </span>
+      )}
+      {center > 0n && (
+        <span className="block text-(--color-text-muted)">
+          Markaz xodimlari: <span className="money">{formatTiyin(a.centerTiyin)}</span> ({a.centerEmployees})
+        </span>
+      )}
+      {a.units.map((u) => (
+        <span key={u.unit} className="block text-(--color-text-muted)">
+          {u.label}: <span className="money">{formatTiyin(u.totalTiyin)}</span>
+        </span>
+      ))}
+    </span>
   );
 }

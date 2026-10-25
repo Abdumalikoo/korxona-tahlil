@@ -157,8 +157,52 @@ export interface CheckSummary {
   };
 }
 
+/** Ustun turi: summa / jami (ФОТ) / ushlanma / aniqlovchi (%, kun) / ma'lumot */
+export type MappingKind = 'amount' | 'total' | 'deduct' | 'qualifier' | 'info';
+/** Komponent qayerdan aniqlandi */
+export type MappingSource = 'user' | 'learned' | 'rule' | 'name' | 'similar' | 'none';
+
+export interface MappingColumn {
+  letter: string;
+  label: string;
+  key: string;
+  leaf: string;
+  kind: MappingKind;
+  nonZero: number;
+  sumTiyin: string;
+  code: string | null;
+  codeName: string | null;
+  source: MappingSource;
+  score: number;
+  reason: string | null;
+}
+
+export interface CompositionMapping {
+  headerRows: [number, number];
+  dataStart: number;
+  pinflColumn: string;
+  nameColumn: string | null;
+  totalColumn: string | null;
+  columns: MappingColumn[];
+}
+
+export interface CompositionSuggestions {
+  /** SOLIQ — soliq hisoboti (ish haqi) bilan; FILE — fayldagi ФОТ bilan */
+  against: 'SOLIQ' | 'FILE';
+  mismatched: number;
+  allUnmapped: number;
+  unmappedColumns: number;
+  items: { letter: string; label: string; action: 'ADD' | 'ADD_NEG' | 'SKIP'; rows: number; tiyin: string; code: string | null; codeName: string | null; currentCode: string | null }[];
+}
+
+/** «Hisobga olinmasin» */
+export const SKIP_CODE = 'SKIP';
+
 /** Fayl tahlili — bazaga hali hech narsa yozilmagan */
 export interface CompositionAnalysis {
+  /** Ustunlar moslashi va farqni yopish takliflari */
+  mapping?: CompositionMapping | null;
+  suggestions?: CompositionSuggestions | null;
   period: string;
   fileName: string;
   /** O'qilgan varaq va fayldagi barcha varaqlar (buxgalteriya vedomosti — har oy alohida varaq) */
@@ -197,6 +241,8 @@ export interface CommitResult {
   /** Hudud xodimlari ish haqidan Markaz hisobiga o'tgan qism (bayram, choraklik) */
   centerTiyin?: string;
   centerEmployees?: number;
+  /** Eslab qolingan ustun moslashlari soni */
+  rememberedColumns?: number;
 }
 
 export interface CompositionBatch {
@@ -345,9 +391,12 @@ export async function analyzeCompositionFile(
   file: File,
   sheet?: string,
   unit?: string,
+  /** Shu yuklashda tanlangan moslash: { ustun harfi: komponent kodi | 'SKIP' } */
+  mapping?: Record<string, string>,
 ): Promise<CompositionAnalysis> {
   const formData = new FormData();
   formData.append('file', file);
+  if (mapping && Object.keys(mapping).length) formData.append('mapping', JSON.stringify(mapping));
 
   const qs = new URLSearchParams({ period, ...(sheet ? { sheet } : {}), ...(unit ? { unit } : {}) });
   const response = await fetch(`${BASE}/salary-composition/analyze?${qs.toString()}`, {
@@ -370,9 +419,11 @@ export async function analyzeCompositionFile(
 
 export const compositionApi = {
   /** Tahlil natijasini saqlaydi — shu oyning oldingi tarkibi almashtiriladi */
-  commit: (period: string, fileName: string, rows: CompositionRow[], unit?: string) =>
+  commit: (period: string, fileName: string, rows: CompositionRow[], unit?: string, mapping?: CompositionMapping | null) =>
     api.post<ApiResponse<CommitResult>>(`/salary-composition/commit?period=${period}${unitQs(unit)}`, {
       fileName,
+      // Tasdiqlangan moslash — eslab qolinadi (keyingi oy shu sarlavhalar o'zi taniladi)
+      columns: (mapping?.columns ?? []).filter((c) => c.kind === 'amount' && (c.source === 'user' || c.source === 'similar' || c.source === 'name')).map((c) => ({ key: c.key, leaf: c.leaf, label: c.label, code: c.code ?? SKIP_CODE })),
       rows: rows.map((row) => ({
         pinfl: row.pinfl,
         fullName: row.fullName,
