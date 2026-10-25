@@ -267,6 +267,9 @@ export interface UnitPlaces {
   tarkibAt: string | null;
   rows: UnitPlaceRow[];
   counts: { total: number; mos: number; farq: number; fixed: number; noTarkib: number; unknown: number; tarkibHere: number };
+  /** Tanilmagan tarkib nomlari — tanlash uchun */
+  unmapped: { name: string; count: number }[];
+  options: PlaceOption[];
 }
 
 export interface CompositionAnalysis {
@@ -488,6 +491,24 @@ export async function analyzeCompositionFile(
   return result.data;
 }
 
+export interface ReadDeptsResult {
+  matched: number;
+  total: number;
+  notInTarkib: number;
+  departments: number;
+  unknown: string[];
+  column: { letter: string; label: string };
+}
+
+/** Oldin saqlangan tarkibga bo'limlarni bog'lash — o'sha fayldan faqat bo'lim ustuni o'qiladi (tarkib qayta saqlanmaydi) */
+export async function readCompositionDepts(period: string, file: File): Promise<ReadDeptsResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${BASE}/salary-composition/places/read-depts?${new URLSearchParams({ period }).toString()}`, { method: 'POST', headers: authHeaders(), body: formData });
+  if (!response.ok) throw new Error(await readError(response, 'Bo‘limlarni o‘qib bo‘lmadi'));
+  return ((await response.json()) as ApiResponse<ReadDeptsResult>).data;
+}
+
 // ═══════════════════════════════════════════════════════════
 // API
 // ═══════════════════════════════════════════════════════════
@@ -511,6 +532,7 @@ export const compositionApi = {
     }),
 
   places: (period: string) => api.get<ApiResponse<PlacesView>>('/salary-composition/places', { params: { period } }),
+  learnPlaceNames: (map: Record<string, string>) => api.post<ApiResponse<{ saved: number }>>('/salary-composition/places/names', { map }),
   unitPlaces: (period: string, unit: string) => api.get<ApiResponse<UnitPlaces>>('/salary-composition/places/unit', { params: { period, unit } }),
   fixPlaces: (period: string, pinfls: string[]) =>
     api.post<ApiResponse<{ fixed: number; moved: number; redistributed: boolean; warnings: string[] }>>(`/salary-composition/places/fix?period=${period}`, { pinfls }),

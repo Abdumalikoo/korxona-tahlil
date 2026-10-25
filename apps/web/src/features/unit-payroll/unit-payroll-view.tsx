@@ -32,7 +32,8 @@ import {
   type UnitSaved,
 } from './api';
 import { NdflSummaryCard } from '@/features/payroll/ndfl-summary';
-import { TarkibCompareCard } from './tarkib-compare-card';
+import { ManbaCell, PlacesBar, TarkibCell, TarkibHereRows, placeFilterMatch, type PlaceFilter } from './tarkib-compare-card';
+import { compositionApi, type UnitPlaces } from '@/features/salary-composition/api';
 import { EMPTY_CHOICE, MOVE_UNITS, PlacePicker, choiceReady, useChoiceLabel, type MoveChoice } from './place-picker';
 
 // ═══════════════════════════════════════════════════════════
@@ -77,6 +78,8 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
   /** Xodimlar ro'yxati — qaysi oydagi tarkib (ko'chishlar bilan); standart — yuqori paneldagi oy */
   const [staffPeriod, setStaffPeriod] = useState<string>(period);
   const staff = useAsync(() => unitPayrollApi.staff(unit.code, staffPeriod), [unit.code, staffPeriod]);
+  /** Har xodim: manbada qayerda va ish haqi tarkibida qaysi bo'limda (shu oy) */
+  const places = useAsync(() => (ndflMode ? Promise.resolve(null) : compositionApi.unitPlaces(period, unit.code).then((r) => r.data).catch(() => null)), [unit.code, period, savedList.data, ndflMode]);
   const activeCount = staff.data?.data.active ?? 0;
 
   function reset() {
@@ -299,6 +302,8 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
           data={savedList.data?.data ?? null}
           loading={savedList.loading}
           error={savedList.error}
+          places={places.data ?? null}
+          onPlacesChanged={places.reload}
           onChanged={() => {
             batches.reload();
             savedList.reload();
@@ -308,20 +313,6 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
         />
         <StaffCard unit={unit} list={staff.data?.data ?? null} loading={staff.loading} error={staff.error} onChanged={staff.reload} onToast={setToast} period={staffPeriod} onPeriod={setStaffPeriod} />
       </div>
-
-      {!ndflMode && (
-        <TarkibCompareCard
-          unitCode={unit.code}
-          period={period}
-          isAdmin={isAdmin}
-          stamp={savedList.data}
-          onChanged={() => {
-            batches.reload();
-            staff.reload();
-          }}
-          onToast={setToast}
-        />
-      )}
 
       {/* Yuklashlar tarixi — pastda */}
         <Card className="overflow-hidden">
@@ -1117,6 +1108,8 @@ function SavedCard({
   data,
   loading,
   error,
+  places,
+  onPlacesChanged,
   onChanged,
   onToast,
 }: {
@@ -1125,6 +1118,8 @@ function SavedCard({
   data: UnitSaved | null;
   loading: boolean;
   error: string | null;
+  places: UnitPlaces | null;
+  onPlacesChanged: () => void;
   onChanged: () => void;
   onToast: (t: ToastState) => void;
 }) {
@@ -1138,9 +1133,60 @@ function SavedCard({
   const [confirmDel, setConfirmDel] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [pf, setPf] = useState<PlaceFilter>('ALL');
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoConfirm, setAutoConfirm] = useState(false);
   const rows = data?.rows ?? [];
   const term = q.trim().toLowerCase();
-  const shown = rows.filter((r) => !term || r.fullName.toLowerCase().includes(term) || r.pinfl.includes(term));
+  const withPlaces = Boolean(places?.hasTarkib);
+  const placeBy = new Map((places?.rows ?? []).map((p) => [p.pinfl, p]));
+  const shown = rows.filter((r) => (!term || r.fullName.toLowerCase().includes(term) || r.pinfl.includes(term)) && (!withPlaces || placeFilterMatch(placeBy.get(r.pinfl), pf)));
+  const savedPins = new Set(rows.map((r) => r.pinfl));
+  const tarkibHere = withPlaces
+    ? (places?.rows ?? []).filter((p) => p.group === 'TARKIB_HERE' && !savedPins.has(p.pinfl) && (!term || p.fullName.toLowerCase().includes(term) || p.pinfl.includes(term)) && placeFilterMatch(p, pf))
+    : [];
+  /** Tarkibdagi joy → o'tkazish tanlovi (Markaz — bo'limi bilan) */
+  const tarkibChoice = (p: string): MoveChoice | null => {
+    const t = placeBy.get(p)?.tarkib;
+    if (!t?.unit || !MOVE_UNITS.some((u) => u.code === t.unit)) return null;
+    return { target: t.unit, place: t.unit === 'CENTER' && t.departmentId ? { departmentId: t.departmentId } : {} };
+  };
+  const farqRows = rows.filter((r) => placeBy.get(r.pinfl)?.status === 'FARQ' && tarkibChoice(r.pinfl));
+  const placesChanged = () => {
+    onPlacesChanged();
+    onChanged();
+  };
+
+  /** Farqlilarni tarkibdagi joyiga (summasi bilan, faqat shu oy) — har joy alohida */
+  async function moveAllToTarkib() {
+    setAutoBusy(true);
+    try {
+      const groups = new Map<string, { choice: MoveChoice; pinfls: string[] }>();
+      for (const r of farqRows) {
+        const c = tarkibChoice(r.pinfl)!;
+        const k = `${c.target}:${c.place.departmentId ?? ''}`;
+        const g = groups.get(k) ?? { choice: c, pinfls: [] };
+        g.pinfls.push(r.pinfl);
+        groups.set(k, g);
+      }
+      let moved = 0;
+      let sum = 0n;
+      for (const g of groups.values()) {
+        const r = (await unitPayrollApi.moveRows(unit.code, period, { pinfls: g.pinfls, target: g.choice.target, place: g.choice.place, onlyThisMonth: true, withAmount: true })).data;
+        moved += r.moved;
+        sum += BigInt(r.totalTiyin);
+      }
+      onToast({ message: `${moved} xodim ${formatPeriod(period)} uchun ish haqi tarkibidagi joyiga o'tkazildi · ${formatTiyin(sum.toString())} so'm · keyingi oydan yana shu yerda`, tone: 'success' });
+      setSel(new Set());
+      placesChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'tkazib bo'lmadi"), tone: 'error' });
+      placesChanged();
+    } finally {
+      setAutoBusy(false);
+      setAutoConfirm(false);
+    }
+  }
   const picked = rows.filter((r) => sel.has(r.pinfl));
   const pickedTotal = picked.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
   const shownTotal = shown.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
@@ -1186,7 +1232,7 @@ function SavedCard({
   const toggle = (p: string) => setSel((x) => { const n = new Set(x); if (n.has(p)) n.delete(p); else n.add(p); return n; });
 
   return (
-    <Card className="flex flex-col overflow-hidden">
+    <Card className={cn('flex flex-col overflow-hidden', withPlaces && '2xl:col-span-2')}>
       <CardHeader
         title={`Saqlangan ish haqi · ${formatPeriod(period)}`}
         description={data ? `${data.count} xodim · ${data.paidCount} tasiga hisoblangan · jami ${formatTiyin(data.totalTiyin)} so'm${data.batches > 1 ? ` · ${data.batches} ta yuklashdan` : ''}` : `${unit.label}`}
@@ -1201,8 +1247,14 @@ function SavedCard({
           <IconSearch className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-(--color-text-faint)" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ism yoki PINFL" className="h-8 w-full rounded-(--radius-control) border border-(--color-line) bg-white pr-2 pl-7 text-sm" />
         </label>
-        {term && <span className="text-xs text-(--color-text-muted)">{shown.length} ta · {formatTiyin(shownTotal.toString())} so&apos;m</span>}
+        {(term || pf !== 'ALL') && <span className="text-xs text-(--color-text-muted)">{shown.length} ta · {formatTiyin(shownTotal.toString())} so&apos;m</span>}
+        {isAdmin && withPlaces && farqRows.length > 0 && (
+          <Button size="sm" variant="secondary" onClick={() => setAutoConfirm(true)} title="Har biri ish haqi tarkibidagi joyiga — summasi bilan, faqat shu oy">
+            Farqlilarni tarkibdagidek o&apos;tkazish ({farqRows.length})
+          </Button>
+        )}
       </div>
+      <PlacesBar period={period} places={places} isAdmin={isAdmin} filter={pf} onFilter={setPf} onChanged={placesChanged} onToast={onToast} />
       {isAdmin && sel.size > 0 && (
         <div className="space-y-2 border-b border-(--color-line) bg-brand-50/60 px-5 py-2.5 text-sm">
           <div className="flex flex-wrap items-center gap-2">
@@ -1243,7 +1295,7 @@ function SavedCard({
         <LoadingState />
       ) : error ? (
         <p className="px-5 py-6 text-sm text-(--color-expense)">{error}</p>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && !tarkibHere.length ? (
         <div className="px-5 py-10 text-center">
           <p className="text-sm font-semibold text-heading">{formatPeriod(period)} uchun ish haqi saqlanmagan</p>
           <p className="mt-1 text-xs text-(--color-text-muted)">Vedomost yuklab saqlangach, har bir xodim shu yerda ko&apos;rinadi.</p>
@@ -1258,13 +1310,15 @@ function SavedCard({
                 </th>
                 <th className="w-8 px-1 py-2 text-right font-semibold">№</th>
                 <th className="px-2 py-2 text-left font-semibold">Xodim</th>
+                {withPlaces && <th className="w-[19%] px-2 py-2 text-left font-semibold">Manbada</th>}
+                {withPlaces && <th className="w-[24%] px-2 py-2 text-left font-semibold">Ish haqi tarkibida</th>}
                 <th className="w-36 px-2 py-2 text-right font-semibold">Summa</th>
                 <th className="w-24 px-2 py-2" />
               </tr>
             </thead>
             <tbody>
               {shown.map((r, i) => (
-                <tr key={r.pinfl} className={cn('border-t border-(--color-line)', sel.has(r.pinfl) ? 'bg-brand-50/60' : 'hover:bg-brand-50/30')}>
+                <tr key={r.pinfl} className={cn('border-t border-(--color-line)', sel.has(r.pinfl) ? 'bg-brand-50/60' : placeBy.get(r.pinfl)?.status === 'FARQ' && withPlaces ? 'bg-(--color-warn-soft)/40 hover:bg-brand-50/30' : 'hover:bg-brand-50/30')}>
                   <td className="px-3 py-1.5">{isAdmin && <input type="checkbox" className="size-3.5 accent-brand-600" checked={sel.has(r.pinfl)} onChange={() => toggle(r.pinfl)} aria-label="Belgilash" />}</td>
                   <td className="px-1 py-1.5 text-right text-xs text-(--color-text-faint)">{i + 1}</td>
                   <td className="px-2 py-1.5">
@@ -1280,6 +1334,16 @@ function SavedCard({
                       </span>
                     )}
                   </td>
+                  {withPlaces && (
+                    <td className="px-2 py-1.5">
+                      <ManbaCell row={placeBy.get(r.pinfl)} unitCode={unit.code} />
+                    </td>
+                  )}
+                  {withPlaces && (
+                    <td className="px-2 py-1.5">
+                      <TarkibCell row={placeBy.get(r.pinfl)} />
+                    </td>
+                  )}
                   <td className="px-2 py-1.5 text-right">{r.amountTiyin === '0' ? <span className="text-xs text-(--color-text-muted)">hisoblanmagan</span> : <Money tiyin={r.amountTiyin} />}</td>
                   <td className="px-2 py-1.5 text-right">
                     {isAdmin && (
@@ -1289,7 +1353,7 @@ function SavedCard({
                           onClick={() => {
                             setSel(new Set([r.pinfl]));
                             setMode('move');
-                            setChoice({ target: r.otherUnit && MOVE_UNITS.some((u) => u.code === r.otherUnit) ? r.otherUnit : '', place: {} });
+                            setChoice(tarkibChoice(r.pinfl) ?? { target: r.otherUnit && MOVE_UNITS.some((u) => u.code === r.otherUnit) ? r.otherUnit : '', place: {} });
                           }}
                           className="rounded px-1.5 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-50"
                           title="Shu oyda boshqa bo'limda ishlagan — o'sha bo'limga o'tkazish"
@@ -1304,10 +1368,11 @@ function SavedCard({
                   </td>
                 </tr>
               ))}
+              <TarkibHereRows period={period} unitCode={unit.code} unitLabel={unit.label} rows={tarkibHere} isAdmin={isAdmin} colSpan={withPlaces ? 7 : 5} onChanged={placesChanged} onToast={onToast} />
             </tbody>
             <tfoot className="sticky bottom-0 bg-(--color-surface-muted) text-sm font-semibold text-heading">
               <tr>
-                <td colSpan={3} className="px-3 py-2">
+                <td colSpan={withPlaces ? 5 : 3} className="px-3 py-2">
                   Jami{term ? ' (topilganlar)' : ''}: {shown.length} xodim
                 </td>
                 <td className="px-2 py-2 text-right">
@@ -1328,6 +1393,15 @@ function SavedCard({
         loading={busy}
         onConfirm={() => void remove(confirmDel ?? [])}
         onCancel={() => setConfirmDel(null)}
+      />
+      <ConfirmDialog
+        open={autoConfirm}
+        title="Ish haqi tarkibidagidek o'tkazish"
+        message={`${farqRows.length} xodim ${formatPeriod(period)} uchun ish haqi tarkibida yozilgan bo'limga o'tkaziladi — summasi bilan (${formatTiyin(farqRows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n).toString())} so'm), faqat shu oy; keyingi oydan yana ${unit.label}da.`}
+        confirmLabel="O'tkazish"
+        loading={autoBusy}
+        onConfirm={() => void moveAllToTarkib()}
+        onCancel={() => setAutoConfirm(false)}
       />
     </Card>
   );

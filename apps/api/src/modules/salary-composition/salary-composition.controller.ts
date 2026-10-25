@@ -310,6 +310,25 @@ export class SalaryCompositionController {
     return { data: await this.places.compare(period, unit) };
   }
 
+  /** Oldin saqlangan tarkibga bo'limlarni bog'lash: o'sha fayl — faqat bo'lim ustuni o'qiladi (tarkib qayta saqlanmaydi) */
+  @Roles(UserRole.ADMIN)
+  @Post('places/read-depts')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
+  async placesReadDepts(@Query('period') period: string, @UploadedFile() file: Express.Multer.File | undefined, @Query('sheet') sheet: string | undefined, @CurrentUser('id') userId: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    const data = await this.composition.analyze(period, file, sheet || undefined);
+    return { data: await this.places.attachDepts(period, data.rows.map((r) => ({ pinfl: r.pinfl, deptName: r.deptName ?? null })), data.deptColumn ?? null, userId) };
+  }
+
+  /** Tarkibdagi nom → bo'lim mosligi: { map: { [nom]: departmentId | 'SKIP' } } */
+  @Roles(UserRole.ADMIN)
+  @Post('places/names')
+  @HttpCode(HttpStatus.OK)
+  async placesNames(@Body('map') map: unknown) {
+    return { data: await this.places.learnNames(map) };
+  }
+
   /** Bo'lim sahifasidan: { pinfls } — shu oy joyini tarkibdagidek qilish */
   @Roles(UserRole.ADMIN)
   @Post('places/fix')

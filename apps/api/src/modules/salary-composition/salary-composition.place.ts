@@ -504,7 +504,13 @@ export class CompositionPlaceService {
       .filter((r) => r.group === 'HERE' || r.tarkib?.unit === unit || r.fix?.unit === unit)
       .sort((a, b) => a.group.localeCompare(b.group) || Number(a.status === 'MOS') - Number(b.status === 'MOS') || a.fullName.localeCompare(b.fullName, 'uz'));
     const count = (s: string) => shown.filter((r) => r.status === s).length;
+    // Tanilmagan nomlar (shu bo'limga tegishli bo'lishi mumkin) — tanlash uchun
+    const nameCount = new Map<string, number>();
+    for (const n of Object.values(month.depts)) if (!resolve(n).option && !resolve(n).skipped) nameCount.set(n, (nameCount.get(n) ?? 0) + 1);
+    const unmapped = [...nameCount.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, count: n }));
     return {
+      unmapped,
+      options: unmapped.length ? await this.options() : [],
       period,
       unit,
       label: entryUnitLabel(unit),
@@ -513,6 +519,52 @@ export class CompositionPlaceService {
       rows: shown,
       counts: { total: shown.length, mos: count('MOS'), farq: count('FARQ'), fixed: count('FIXED'), noTarkib: count('NO_TARKIB'), unknown: count('UNKNOWN'), tarkibHere: shown.filter((r) => r.group === 'TARKIB_HERE').length },
     };
+  }
+
+  /**
+   * Oldin saqlangan tarkibga bo'limlarni bog'lash (eski yuklashlarda bo'lim ustuni saqlanmagan): o'sha faylning faqat
+   * bo'lim ustuni o'qiladi. Tarkib qayta saqlanmaydi, summalarga va joylarga tegilmaydi.
+   */
+  async attachDepts(period: string, rows: { pinfl: string; deptName?: string | null }[], column: { letter: string; label: string } | null, userId: string) {
+    const batch = await this.prisma.salaryCompositionBatch.findFirst({ where: { period, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, fileName: true } });
+    if (!batch) throw new BadRequestException(`${monthLabel(period)} uchun ish haqi tarkibi saqlanmagan — avval tarkibni yuklang`);
+    const withDept = rows.filter((r) => typeof r.deptName === 'string' && r.deptName.trim());
+    if (!column || !withDept.length) throw new BadRequestException("Faylda bo'lim ustuni («Hududi», «Bo'lim», «Подразделение») topilmadi");
+    const saved = new Set((await this.prisma.salaryCompositionRow.findMany({ where: { batchId: batch.id }, select: { employeePinfl: true } })).map((r) => r.employeePinfl));
+    const hit = withDept.filter((r) => saved.has(r.pinfl));
+    if (hit.length < Math.max(1, Math.ceil(withDept.length * 0.5))) throw new BadRequestException(`Fayl ${monthLabel(period)} saqlangan tarkibiga mos emas: ${withDept.length} xodimdan ${hit.length} tasi topildi (boshqa oy fayli bo'lishi mumkin)`);
+    const depts: Record<string, string> = {};
+    for (const r of hit) depts[r.pinfl] = r.deptName!.trim().slice(0, 120);
+    await runExclusive(`setting:${COMPOSITION_PLACE_KEY(period)}`, async () => {
+      const m = await this.month(period);
+      await this.saveMonth(period, { ...m, batchId: batch.id, at: new Date().toISOString(), depts });
+    });
+    const resolve = await this.resolver();
+    const unknown = [...new Set(Object.values(depts))].filter((n) => !resolve(n).option && !resolve(n).skipped);
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'composition_place', entityId: period, summary: `Ish haqi tarkibi ${monthLabel(period)}: saqlangan tarkibga bo'limlar bog'landi (${hit.length} xodim, ${column.label} ustuni)` });
+    return { matched: hit.length, total: withDept.length, notInTarkib: withDept.length - hit.length, departments: new Set(Object.values(depts).map(deptKey)).size, unknown, column };
+  }
+
+  /** Tarkibdagi nom → bo'lim mosligini saqlash (bo'lim sahifasidan): { [nom]: departmentId | 'SKIP' } */
+  async learnNames(raw: unknown) {
+    const options = await this.options();
+    const ids = new Set(options.map((o) => o.id));
+    const map = new Map<string, string>();
+    if (raw && typeof raw === 'object') {
+      for (const [name, v] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof v !== 'string' || !name.trim()) continue;
+        if (v !== SKIP && !ids.has(v)) throw new BadRequestException(`«${name.slice(0, 60)}» uchun tanlangan bo'lim topilmadi`);
+        map.set(deptKey(name), v);
+      }
+    }
+    if (!map.size) throw new BadRequestException("Bo'limni tanlang");
+    await runExclusive(`setting:${DEPT_NAMES_KEY}`, async () => {
+      const cur = await this.learned();
+      for (const [k, v] of map) cur[k] = v;
+      const value = { map: cur } as object;
+      await this.prisma.setting.upsert({ where: { key: DEPT_NAMES_KEY }, create: { key: DEPT_NAMES_KEY, value }, update: { value } });
+    });
+    return { saved: map.size };
   }
 
   /** Bo'lim sahifasidan: tanlangan xodimlarning shu oy joyini saqlangan tarkibdagidek qilish */

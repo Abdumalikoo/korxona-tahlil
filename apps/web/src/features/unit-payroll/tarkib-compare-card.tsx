@@ -2,26 +2,24 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { IconSearch } from '@/components/ui/icons';
-import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
-import { compositionApi, type UnitPlaceRow, type UnitPlaceStatus } from '@/features/salary-composition/api';
+import { compositionApi, readCompositionDepts, type PlaceOption, type UnitPlaceRow, type UnitPlaces, type UnitPlaceStatus } from '@/features/salary-composition/api';
 import { errorMessage } from '@/lib/error-message';
-import { formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
-import { useAsync } from '@/lib/use-async';
+import { formatDateTime, formatPeriod } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { Fragment, useMemo, useState } from 'react';
+import { useRef, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
-// Bo'lim sahifasi (Tax free …) › «Manba va ish haqi tarkibi»: tanlangan oy uchun har xodim qatori ikkiga bo'linadi —
-// «Manbada» (miyadagi asl joyi) va «Ish haqi tarkibida» (yuklangan tarkibda yozilgan bo'lim).
-// Farq bo'lsa — shu yerning o'zidan shu oy uchun tarkibdagidek o'tkazish (yoki qaytarish).
+// Bo'lim sahifasi (Tax free …) › «Saqlangan ish haqi» jadvali ichida: har xodim qatori ikkiga bo'linadi —
+// «Manbada» (miyadagi asl joyi) va «Ish haqi tarkibida» (saqlangan tarkibdagi bo'lim).
+// Eski tarkib yuklamalarida bo'lim ustuni saqlanmagan — o'sha fayldan faqat bo'limlar o'qiladi (tarkib qayta saqlanmaydi).
 // ═══════════════════════════════════════════════════════════
 
-type Filter = 'ALL' | 'FARQ' | 'FIXED' | 'MOS' | 'OTHER';
+export type PlaceFilter = 'ALL' | 'FARQ' | 'FIXED' | 'MOS' | 'OTHER';
 
-const STATUS: Record<UnitPlaceStatus, { label: string; tone: 'income' | 'warn' | 'brand' | 'neutral' | 'expense' }> = {
+type Toast = (t: { message: string; tone?: 'success' | 'error' }) => void;
+
+export const PLACE_STATUS: Record<UnitPlaceStatus, { label: string; tone: 'income' | 'warn' | 'brand' | 'neutral' }> = {
   MOS: { label: 'mos', tone: 'income' },
   FARQ: { label: 'farq', tone: 'warn' },
   FIXED: { label: 'o‘tkazilgan', tone: 'brand' },
@@ -29,46 +27,179 @@ const STATUS: Record<UnitPlaceStatus, { label: string; tone: 'income' | 'warn' |
   UNKNOWN: { label: 'bo‘lim tanlanmagan', tone: 'neutral' },
 };
 
-const place = (unit: string | null, unitLabel: string | null, dept: string | null) => (!unit ? '—' : unit === 'CENTER' ? `Markaz › ${dept ?? 'bo‘limsiz'}` : (unitLabel ?? unit));
+export const placeText = (unit: string | null, unitLabel: string | null, dept: string | null) => (!unit ? '—' : unit === 'CENTER' ? `Markaz › ${dept ?? 'bo‘limsiz'}` : (unitLabel ?? unit));
 
-export function TarkibCompareCard({ unitCode, period, isAdmin, stamp, onChanged, onToast }: { unitCode: string; period: string; isAdmin: boolean; stamp: unknown; onChanged: () => void; onToast: (t: { message: string; tone: 'success' | 'error' }) => void }) {
-  const data = useAsync(() => compositionApi.unitPlaces(period, unitCode).then((r) => r.data), [period, unitCode, stamp]);
-  const [filter, setFilter] = useState<Filter>('ALL');
-  const [q, setQ] = useState('');
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+export function placeFilterMatch(r: UnitPlaceRow | undefined, f: PlaceFilter): boolean {
+  if (f === 'ALL') return true;
+  const s = r?.status ?? 'NO_TARKIB';
+  if (f === 'OTHER') return s === 'NO_TARKIB' || s === 'UNKNOWN';
+  return s === f;
+}
+
+function statusOf(r: UnitPlaceRow) {
+  return r.status === 'UNKNOWN' && r.tarkib?.skipped ? { label: 'hisobga olinmaydi', tone: 'neutral' as const } : PLACE_STATUS[r.status];
+}
+
+/** «Manbada» katakchasi */
+export function ManbaCell({ row, unitCode }: { row: UnitPlaceRow | undefined; unitCode: string }) {
+  if (!row) return <span className="text-xs text-(--color-text-muted)">—</span>;
+  return <span className={cn('text-xs', row.manba.unit === unitCode ? 'text-heading' : 'text-(--color-text-muted)')}>{placeText(row.manba.unit, row.manba.unitLabel, row.manba.departmentName)}</span>;
+}
+
+/** «Ish haqi tarkibida» katakchasi */
+export function TarkibCell({ row }: { row: UnitPlaceRow | undefined }) {
+  if (!row || !row.tarkib) return <span className="text-xs text-(--color-text-muted)">tarkibda yo‘q</span>;
+  const diff = row.status === 'FARQ';
+  const st = statusOf(row);
+  return (
+    <span className="block text-xs">
+      <span className={cn('mr-1.5', diff ? 'font-semibold text-(--color-warn)' : 'text-heading')}>{row.tarkib.unit ? placeText(row.tarkib.unit, row.tarkib.unitLabel, row.tarkib.departmentName) : `«${row.tarkib.deptName}»`}</span>
+      <Badge tone={st.tone} className="whitespace-nowrap">
+        {st.label}
+      </Badge>
+      {row.tarkib.unit && (
+        <span className="block text-[10.5px] text-(--color-text-muted)">
+          tarkibda: «{row.tarkib.deptName}»{row.tarkib.guessed ? ' · taxminiy' : ''}
+        </span>
+      )}
+      {row.fix && <span className="block text-[10.5px] text-brand-700">shu oy → {placeText(row.fix.unit, row.fix.unitLabel, row.fix.departmentName)}</span>}
+    </span>
+  );
+}
+
+function OptionSelect({ value, options, onChange }: { value: string; options: PlaceOption[]; onChange: (v: string) => void }) {
+  const groups = [...new Set(options.map((o) => o.unitLabel))].sort((a, b) => (a === 'Markaz' ? -1 : b === 'Markaz' ? 1 : a.localeCompare(b)));
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="h-7 max-w-[18rem] rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs focus:border-brand-600 focus:outline-none">
+      <option value="">Bo‘limni tanlang…</option>
+      {groups.map((g) => (
+        <optgroup key={g} label={g}>
+          {options
+            .filter((o) => o.unitLabel === g)
+            .map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+        </optgroup>
+      ))}
+      <option value="SKIP">— hisobga olinmasin</option>
+    </select>
+  );
+}
+
+/** Jadval ustidagi satr: tarkib bilan holat (filtr), eski fayldan bo'limlarni o'qish, tanilmagan nomlar */
+export function PlacesBar({ period, places, isAdmin, filter, onFilter, onChanged, onToast }: { period: string; places: UnitPlaces | null; isAdmin: boolean; filter: PlaceFilter; onFilter: (f: PlaceFilter) => void; onChanged: () => void; onToast: Toast }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [reading, setReading] = useState(false);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  if (!places) return null;
+
+  async function read(file: File) {
+    setReading(true);
+    try {
+      const r = await readCompositionDepts(period, file);
+      onToast({
+        message: `Bo‘limlar bog‘landi: ${r.matched} xodim («${r.column.label}» ustuni, ${r.departments} ta bo‘lim)${r.notInTarkib ? ` · ${r.notInTarkib} tasi saqlangan tarkibda yo‘q` : ''}${r.unknown.length ? ` · tanilmagan: ${r.unknown.length} ta nom` : ''}. Tarkib va summalar o‘zgarmadi.`,
+        tone: 'success',
+      });
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, 'Bo‘limlarni o‘qib bo‘lmadi'), tone: 'error' });
+    } finally {
+      setReading(false);
+      if (input.current) input.current.value = '';
+    }
+  }
+
+  async function saveNames() {
+    const map = Object.fromEntries(Object.entries(names).filter(([, v]) => v));
+    if (!Object.keys(map).length) return;
+    setSaving(true);
+    try {
+      await compositionApi.learnPlaceNames(map);
+      onToast({ message: `${Object.keys(map).length} ta nom bo‘limga bog‘landi (keyingi oylarda ham o‘zi taniladi)`, tone: 'success' });
+      setNames({});
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, 'Saqlab bo‘lmadi'), tone: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const fileBtn = isAdmin && (
+    <>
+      <input ref={input} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => e.target.files?.[0] && void read(e.target.files[0])} />
+      <Button size="sm" variant={places.hasTarkib ? 'ghost' : 'secondary'} loading={reading} onClick={() => input.current?.click()} title="Oldin yuklangan ish haqi tarkibi fayli — faqat bo‘lim ustuni o‘qiladi, tarkib qayta saqlanmaydi">
+        {places.hasTarkib ? 'Bo‘limlarni qayta o‘qish' : 'Bo‘limlarni fayldan o‘qish'}
+      </Button>
+    </>
+  );
+
+  if (!places.hasTarkib) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) bg-(--color-surface-sunken) px-5 py-2.5 text-xs text-(--color-text-muted)">
+        <span className="min-w-0 flex-1">
+          <b className="text-heading">Manbada | Ish haqi tarkibida</b> — {formatPeriod(period)} saqlangan tarkibida xodimlarning bo‘limi yo‘q (oldingi yuklashda bo‘lim ustuni saqlanmagan). O‘sha faylni tanlang — faqat bo‘limlar o‘qiladi, tarkib va summalar o‘zgarmaydi.
+        </span>
+        {fileBtn}
+      </div>
+    );
+  }
+
+  const c = places.counts;
+  const chips: { key: PlaceFilter; label: string; n: number }[] = [
+    { key: 'ALL', label: 'Hammasi', n: c.total },
+    { key: 'FARQ', label: 'Farq', n: c.farq },
+    { key: 'FIXED', label: 'O‘tkazilgan', n: c.fixed },
+    { key: 'MOS', label: 'Mos', n: c.mos },
+    { key: 'OTHER', label: 'Tarkibda yo‘q', n: c.noTarkib + c.unknown },
+  ];
+  return (
+    <div className="space-y-2 border-b border-(--color-line) px-5 py-2.5">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="mr-1 text-(--color-text-muted)">Ish haqi tarkibi bilan:</span>
+        {chips.map((ch) => (
+          <button
+            key={ch.key}
+            type="button"
+            onClick={() => onFilter(ch.key)}
+            className={cn('rounded-full border px-2.5 py-0.5', filter === ch.key ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-(--color-line) bg-white text-(--color-text-muted) hover:border-(--color-line-strong)', ch.key === 'FARQ' && ch.n > 0 && filter !== ch.key && 'border-(--color-warn) text-(--color-warn)')}
+          >
+            {ch.label} <span className="money font-semibold">{ch.n}</span>
+          </button>
+        ))}
+        <span className="ml-auto flex items-center gap-2 text-[11px] text-(--color-text-faint)">
+          {places.tarkibAt ? `tarkib bo‘limlari · ${formatDateTime(places.tarkibAt)}` : ''}
+          {fileBtn}
+        </span>
+      </div>
+      {isAdmin && places.unmapped.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-(--radius-control) border border-(--color-line) bg-(--color-warn-soft) px-3 py-2 text-xs">
+          <span className="text-heading">Tarkibdagi tanilmagan nomlar:</span>
+          {places.unmapped.map((u) => (
+            <span key={u.name} className="inline-flex items-center gap-1.5">
+              «{u.name}» <span className="text-(--color-text-muted)">{u.count}</span>
+              <OptionSelect value={names[u.name] ?? ''} options={places.options} onChange={(v) => setNames((x) => ({ ...x, [u.name]: v }))} />
+            </span>
+          ))}
+          <Button size="sm" className="ml-auto" loading={saving} disabled={!Object.values(names).some(Boolean)} onClick={() => void saveNames()}>
+            Saqlash
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Jadval ostida: tarkibda shu bo'limda, lekin bu ro'yxatda yo'q (manbada boshqa joyda) — shu oyga o'tkazish */
+export function TarkibHereRows({ period, unitCode, unitLabel, rows, isAdmin, colSpan, onChanged, onToast }: { period: string; unitCode: string; unitLabel: string; rows: UnitPlaceRow[]; isAdmin: boolean; colSpan: number; onChanged: () => void; onToast: Toast }) {
   const [target, setTarget] = useState<{ kind: 'fix' | 'revert'; pinfls: string[]; label: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const v = data.data;
-
-  const rows = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return (v?.rows ?? []).filter((r) => {
-      if (s && !r.fullName.toLowerCase().includes(s) && !r.pinfl.includes(s)) return false;
-      if (filter === 'FARQ') return r.status === 'FARQ';
-      if (filter === 'FIXED') return r.status === 'FIXED';
-      if (filter === 'MOS') return r.status === 'MOS';
-      if (filter === 'OTHER') return r.status === 'NO_TARKIB' || r.status === 'UNKNOWN';
-      return true;
-    });
-  }, [v, q, filter]);
-
-  if (data.error || !v) return null;
-  const c = v.counts;
-  const groups: { key: UnitPlaceRow['group']; title: string; rows: UnitPlaceRow[] }[] = [
-    { key: 'HERE', title: `Manbada — ${v.label}`, rows: rows.filter((r) => r.group === 'HERE') },
-    { key: 'TARKIB_HERE', title: `Ish haqi tarkibida — ${v.label}, manbada boshqa joyda`, rows: rows.filter((r) => r.group === 'TARKIB_HERE') },
-  ];
+  if (!rows.length) return null;
   const fixable = rows.filter((r) => r.status === 'FARQ');
-  const pickedRows = fixable.filter((r) => picked.has(r.pinfl));
-
-  function toggle(p: string) {
-    setPicked((s) => {
-      const n = new Set(s);
-      if (n.has(p)) n.delete(p);
-      else n.add(p);
-      return n;
-    });
-  }
 
   async function run() {
     if (!target) return;
@@ -76,13 +207,11 @@ export function TarkibCompareCard({ unitCode, period, isAdmin, stamp, onChanged,
     try {
       if (target.kind === 'fix') {
         const r = (await compositionApi.fixPlaces(period, target.pinfls)).data;
-        onToast({ message: `${r.fixed} xodim ${formatPeriod(period)} uchun tarkibdagidek o‘tkazildi${r.redistributed ? ' · ish haqi qayta taqsimlandi' : ''}${r.warnings.length ? ` · ${r.warnings.join('; ')}` : ''}`, tone: 'success' });
+        onToast({ message: `${r.fixed} xodim ${formatPeriod(period)} uchun ${unitLabel}ga o‘tkazildi${r.redistributed ? ' · ish haqi qayta taqsimlandi' : ''}${r.warnings.length ? ` · ${r.warnings.join('; ')}` : ''}`, tone: 'success' });
       } else {
         const r = (await compositionApi.revertPlaces(period, target.pinfls)).data;
         onToast({ message: `${r.reverted} xodim manbadagi joyiga qaytarildi${r.redistributed ? ' · ish haqi qayta taqsimlandi' : ''}`, tone: 'success' });
       }
-      setPicked(new Set());
-      data.reload();
       onChanged();
     } catch (err) {
       onToast({ message: errorMessage(err, 'Saqlashda xatolik'), tone: 'error' });
@@ -92,146 +221,57 @@ export function TarkibCompareCard({ unitCode, period, isAdmin, stamp, onChanged,
     }
   }
 
-  const chips: { key: Filter; label: string; n: number }[] = [
-    { key: 'ALL', label: 'Hammasi', n: c.total },
-    { key: 'FARQ', label: 'Farq', n: c.farq },
-    { key: 'FIXED', label: 'O‘tkazilgan', n: c.fixed },
-    { key: 'MOS', label: 'Mos', n: c.mos },
-    { key: 'OTHER', label: 'Tarkibda yo‘q / tanlanmagan', n: c.noTarkib + c.unknown },
-  ];
-
   return (
-    <Card className="overflow-hidden">
-      <CardHeader
-        title={`Manba va ish haqi tarkibi · ${formatPeriod(period)}`}
-        description={
-          v.hasTarkib
-            ? `Har xodim: manbada (miyada) qayerda va yuklangan ish haqi tarkibida qaysi bo‘limda${v.tarkibAt ? ` · tarkib ${formatDateTime(v.tarkibAt)}` : ''}. O‘tkazish faqat shu oy uchun.`
-            : `${formatPeriod(period)} uchun bo‘limlari yozilgan ish haqi tarkibi yuklanmagan — Xarajatlar › Ish haqi tarkibi sahifasida yuklang`
-        }
-      />
-      {v.hasTarkib && (
-        <>
-          <div className="flex flex-wrap items-center gap-2 border-t border-(--color-line) px-5 py-3">
-            {chips.map((ch) => (
-              <button
-                key={ch.key}
-                type="button"
-                onClick={() => setFilter(ch.key)}
-                className={cn('rounded-full border px-3 py-1 text-xs', filter === ch.key ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-(--color-line) bg-white text-(--color-text-muted) hover:border-(--color-line-strong)', ch.key === 'FARQ' && ch.n > 0 && filter !== ch.key && 'border-(--color-warn) text-(--color-warn)')}
-              >
-                {ch.label} <span className="money font-semibold">{ch.n}</span>
+    <>
+      <tr className="border-t border-(--color-line) bg-(--color-warn-soft)/60">
+        <td colSpan={colSpan} className="px-3 py-1.5 text-xs">
+          <span className="font-semibold text-heading">
+            Ish haqi tarkibida — {unitLabel}, manbada boshqa joyda: {rows.length} ta
+          </span>
+          <span className="text-(--color-text-muted)"> · ish haqi umumiy vedomostda manbadagi joyida turibdi</span>
+          {isAdmin && fixable.length > 1 && (
+            <button type="button" onClick={() => setTarget({ kind: 'fix', pinfls: fixable.map((r) => r.pinfl), label: `${fixable.length} xodim` })} className="ml-2 rounded px-1.5 py-0.5 font-medium text-brand-700 hover:bg-brand-50">
+              Hammasini {unitLabel}ga o‘tkazish
+            </button>
+          )}
+        </td>
+      </tr>
+      {rows.map((r, i) => (
+        <tr key={r.pinfl} className="border-t border-(--color-line) bg-(--color-warn-soft)/20">
+          <td className="px-3 py-1.5" />
+          <td className="px-1 py-1.5 text-right text-xs text-(--color-text-faint)">{i + 1}</td>
+          <td className="px-2 py-1.5">
+            <p className="text-heading">{r.fullName}</p>
+            <p className="money text-xs text-(--color-text-muted)">{r.pinfl}</p>
+          </td>
+          <td className="px-2 py-1.5">
+            <ManbaCell row={r} unitCode={unitCode} />
+          </td>
+          <td className="px-2 py-1.5">
+            <TarkibCell row={r} />
+          </td>
+          <td className="px-2 py-1.5 text-right text-xs text-(--color-text-muted)">—</td>
+          <td className="px-2 py-1.5 text-right">
+            {isAdmin && r.status === 'FARQ' && (
+              <button type="button" onClick={() => setTarget({ kind: 'fix', pinfls: [r.pinfl], label: r.fullName })} className="rounded px-1.5 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-50" title={`Shu oy uchun ${unitLabel}ga (tarkibdagidek)`}>
+                O‘tkazish
               </button>
-            ))}
-            <label className="relative ml-auto w-full max-w-xs">
-              <IconSearch className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-(--color-text-muted)" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ism yoki PINFL" className="h-8 w-full rounded-(--radius-control) border border-(--color-line) bg-white pr-2 pl-8 text-sm focus:border-brand-600 focus:outline-none" />
-            </label>
-          </div>
-          {isAdmin && fixable.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3 border-t border-(--color-line) bg-(--color-warn-soft) px-5 py-2 text-sm">
-              <span className="text-heading">
-                Farq: <b>{fixable.length}</b> xodim · belgilangan: <b>{pickedRows.length}</b>
-              </span>
-              <Button size="sm" variant="ghost" onClick={() => setPicked(pickedRows.length === fixable.length ? new Set() : new Set(fixable.map((r) => r.pinfl)))}>
-                {pickedRows.length === fixable.length ? 'Belgini olish' : 'Hammasini belgilash'}
-              </Button>
-              <Button size="sm" className="ml-auto" disabled={!pickedRows.length} onClick={() => setTarget({ kind: 'fix', pinfls: pickedRows.map((r) => r.pinfl), label: `${pickedRows.length} xodim` })}>
-                Belgilanganlarni tarkibdagidek o‘tkazish
-              </Button>
-            </div>
-          )}
-          {rows.length === 0 ? (
-            <p className="border-t border-(--color-line) px-5 py-6 text-center text-sm text-(--color-text-muted)">Bu filtrda xodim yo‘q</p>
-          ) : (
-            <div className="max-h-[36rem] overflow-auto border-t border-(--color-line)">
-              <Table>
-                <THead>
-                  <Tr>
-                    {isAdmin && <Th className="w-8" />}
-                    <Th className="w-10">№</Th>
-                    <Th>Xodim</Th>
-                    <Th className="w-[22%]">Manbada</Th>
-                    <Th className="w-[26%]">Ish haqi tarkibida</Th>
-                    <Th align="right" className="w-32">
-                      Ish haqi
-                    </Th>
-                    <Th className="w-44" />
-                  </Tr>
-                </THead>
-                <TBody>
-                  {groups
-                    .filter((g) => g.rows.length)
-                    .map((g) => (
-                      <Fragment key={g.key}>
-                        <Tr>
-                          <Td colSpan={isAdmin ? 7 : 6} className="bg-(--color-surface-sunken) py-1.5 text-xs font-semibold text-heading">
-                            {g.title}: {g.rows.length} ta
-                          </Td>
-                        </Tr>
-                        {g.rows.map((r, i) => {
-                          const st = r.status === 'UNKNOWN' && r.tarkib?.skipped ? { label: 'hisobga olinmaydi', tone: 'neutral' as const } : STATUS[r.status];
-                          const diff = r.status === 'FARQ';
-                          return (
-                            <Tr key={r.pinfl} className={cn(diff && 'bg-(--color-warn-soft)/50')}>
-                              {isAdmin && <Td>{diff && <input type="checkbox" className="size-4 accent-brand-600" checked={picked.has(r.pinfl)} onChange={() => toggle(r.pinfl)} aria-label="Belgilash" />}</Td>}
-                              <Td className="text-(--color-text-muted)">{i + 1}</Td>
-                              <Td>
-                                <span className="block font-medium text-heading">{r.fullName}</span>
-                                <span className="money text-[11px] text-(--color-text-muted)">{r.pinfl}</span>
-                              </Td>
-                              <Td>
-                                <span className={cn('block', r.manba.unit === unitCode ? 'text-heading' : 'text-(--color-text-muted)')}>{place(r.manba.unit, r.manba.unitLabel, r.manba.departmentName)}</span>
-                              </Td>
-                              <Td>
-                                {r.tarkib ? (
-                                  <>
-                                    <span className={cn('block', diff ? 'font-semibold text-(--color-warn)' : 'text-heading')}>{r.tarkib.unit ? place(r.tarkib.unit, r.tarkib.unitLabel, r.tarkib.departmentName) : '—'}</span>
-                                    <span className="block text-[11px] text-(--color-text-muted)">
-                                      tarkibda: «{r.tarkib.deptName}»{r.tarkib.skipped ? ' · hisobga olinmaydi' : r.tarkib.guessed ? ' · taxminiy moslik' : ''}
-                                    </span>
-                                  </>
-                                ) : (
-                                  <span className="text-(--color-text-muted)">—</span>
-                                )}
-                                {r.fix && <span className="block text-[11px] text-brand-700">shu oy → {place(r.fix.unit, r.fix.unitLabel, r.fix.departmentName)}{r.fix.by ? ` · ${r.fix.by}` : ''}</span>}
-                              </Td>
-                              <Td align="right" className="money">
-                                {r.amountTiyin && r.amountTiyin !== '0' ? formatTiyin(r.amountTiyin) : <span className="text-(--color-text-muted)">—</span>}
-                              </Td>
-                              <Td>
-                                <div className="flex items-center justify-end gap-2">
-                                  <Badge tone={st.tone} className="whitespace-nowrap">{st.label}</Badge>
-                                  {isAdmin && diff && (
-                                    <Button size="sm" variant="ghost" onClick={() => setTarget({ kind: 'fix', pinfls: [r.pinfl], label: r.fullName })}>
-                                      O‘tkazish
-                                    </Button>
-                                  )}
-                                  {isAdmin && r.status === 'FIXED' && (
-                                    <Button size="sm" variant="ghost" className="text-(--color-text-muted) hover:text-(--color-expense)" onClick={() => setTarget({ kind: 'revert', pinfls: [r.pinfl], label: r.fullName })}>
-                                      Qaytarish
-                                    </Button>
-                                  )}
-                                </div>
-                              </Td>
-                            </Tr>
-                          );
-                        })}
-                      </Fragment>
-                    ))}
-                </TBody>
-              </Table>
-            </div>
-          )}
-        </>
-      )}
+            )}
+            {isAdmin && r.status === 'FIXED' && (
+              <button type="button" onClick={() => setTarget({ kind: 'revert', pinfls: [r.pinfl], label: r.fullName })} className="rounded px-1.5 py-0.5 text-xs text-(--color-text-muted) hover:bg-(--color-expense-soft) hover:text-(--color-expense)">
+                Qaytarish
+              </button>
+            )}
+          </td>
+        </tr>
+      ))}
       <ConfirmDialog
         open={target !== null}
-        title={target?.kind === 'revert' ? 'Manbadagi joyiga qaytarish' : 'Tarkibdagidek o‘tkazish'}
+        title={target?.kind === 'revert' ? 'Manbadagi joyiga qaytarish' : `${unitLabel}ga o‘tkazish`}
         message={
           target?.kind === 'revert'
             ? `${target?.label ?? ''}: ${formatPeriod(period)} uchun joyi manbadagi holatiga qaytadi; ish haqi xarajati ham qayta taqsimlanadi.`
-            : `${target?.label ?? ''}: faqat ${formatPeriod(period)} uchun joyi ish haqi tarkibidagi bo‘limga o‘tadi (keyingi oydan — manbadagi joyida). Ish haqi xarajati qayta taqsimlanadi, summa o‘zgarmaydi.`
+            : `${target?.label ?? ''}: faqat ${formatPeriod(period)} uchun ${unitLabel}da (ish haqi tarkibidagidek), keyingi oydan — manbadagi joyida. Umumiy vedomostdagi ish haqi xarajati qayta taqsimlanadi, summa o‘zgarmaydi.`
         }
         confirmLabel={target?.kind === 'revert' ? 'Qaytarish' : 'O‘tkazish'}
         danger={target?.kind === 'revert'}
@@ -239,6 +279,6 @@ export function TarkibCompareCard({ unitCode, period, isAdmin, stamp, onChanged,
         onConfirm={() => void run()}
         onCancel={() => setTarget(null)}
       />
-    </Card>
+    </>
   );
 }

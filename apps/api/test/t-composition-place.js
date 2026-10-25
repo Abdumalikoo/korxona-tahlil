@@ -153,6 +153,25 @@ async function tarkib(rows) {
   assert.ok(!JSON.stringify(T.unitMoves ?? []).includes(P.A));
   assert.ok(T.auditLog.some((l) => l.entityType === 'composition_place'));
 
+  // ── Eski yuklash (bo'limsiz saqlangan) → o'sha fayldan faqat bo'limlar bog'lanadi ──
+  await assert.rejects(places.attachDepts('2026-05', a.rows, a.deptColumn, 'adm'), /saqlanmagan/);
+  const c2 = await comp.commit({ period: PER, fileName: 'tarkib-fevral.xlsx', userId: 'adm', rows: a.rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, workedDays: null, rate: null, items: new Map(Object.entries(r.items).map(([k, v]) => [k, BigInt(v)])) })) });
+  assert.strictEqual((await places.compare(PER, 'TAX_FREE')).hasTarkib, false);
+  const before = JSON.stringify(T.expense.filter((e) => !e.deletedAt).map((e) => [e.segment, e.departmentId, String(e.amountTiyin)]).sort());
+  await assert.rejects(places.attachDepts(PER, [{ pinfl: '48888888888888', deptName: 'AUP' }, { pinfl: '47777777777777', deptName: 'AUP' }], a.deptColumn, 'adm'), /mos emas/);
+  await assert.rejects(places.attachDepts(PER, a.rows.map((r) => ({ pinfl: r.pinfl })), null, 'adm'), /topilmadi/);
+  const at = await places.attachDepts(PER, a.rows.map((r) => ({ pinfl: r.pinfl, deptName: r.deptName })), a.deptColumn, 'adm');
+  assert.deepStrictEqual([at.matched, at.total, at.departments], [4, 4, 3]);
+  assert.strictEqual(JSON.stringify(T.expense.filter((e) => !e.deletedAt).map((e) => [e.segment, e.departmentId, String(e.amountTiyin)]).sort()), before, 'summalarga tegilmadi');
+  assert.strictEqual((await places.view(PER)).batchId, c2.batchId);
+  cmp = await places.compare(PER, 'TAX_FREE');
+  assert.deepStrictEqual([cmp.hasTarkib, cmp.rows.find((r) => r.pinfl === P.A).status], [true, 'FARQ']);
+  // Tanilmagan nom bo'lim sahifasidan tanlanadi
+  await places.learnNames({ 'Moliya-iqtisod': 'dA' });
+  const cc2 = await places.compare(PER, 'CENTER');
+  assert.deepStrictEqual([cc2.rows.find((r) => r.pinfl === P.D).status, cc2.unmapped.length], ['MOS', 0]);
+  await assert.rejects(places.learnNames({ X: 'YOQ' }), /topilmadi/);
+
   // Moslik noto'g'ri bo'lim — rad
   await assert.rejects(places.apply(PER, null, [{ pinfl: P.A, fullName: 'x', dept: 'Call markaz' }], { map: { 'Call markaz': 'YOQ' }, apply: [P.A] }, 'adm'), /topilmadi/);
 
