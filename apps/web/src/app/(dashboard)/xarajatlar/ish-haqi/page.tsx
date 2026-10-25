@@ -2,18 +2,13 @@
 
 import { useMonthChange, usePeriod } from '@/lib/period';
 import { SourceActions } from '@/components/shared/source-actions';
-import {
-  analyzeFile,
-  downloadMissing,
-  downloadTemplate,
-  payrollApi,
-  type AnalyzeResult,
-  type PayrollBatch,
-} from '@/features/payroll/api';
+import { downloadTemplate, payrollApi, type PayrollBatch } from '@/features/payroll/api';
+import { planApi, type PlanAnalysis, type PlanInputRow } from '@/features/payroll/plan-api';
+import { PlanView } from '@/features/payroll/plan-view';
 import { compositionApi, type CheckSummary } from '@/features/salary-composition/api';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
-import { formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
+import { formatDateTime, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import Link from 'next/link';
 import { useRef, useState } from 'react';
@@ -23,10 +18,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { IconAlert, IconCheck, IconDownload, IconSpinner, IconUpload } from '@/components/ui/icons';
+import { IconAlert, IconCheck, IconSpinner, IconUpload } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { EmptyState, LoadingState } from '@/components/ui/states';
-import { Table, TBody, Td, TFoot, Th, THead, Tr } from '@/components/ui/table';
+import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
 import { SectionTabs } from '@/features/sections/section-tabs';
 import { Toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
@@ -40,7 +35,7 @@ export default function PayrollPage() {
 
   /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
   const { month: period } = usePeriod();
-  const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
+  const [analysis, setAnalysis] = useState<PlanAnalysis | null>(null);
   const [replacePrevious, setReplacePrevious] = useState(false);
 
   const [uploading, setUploading] = useState(false);
@@ -85,7 +80,7 @@ export default function PayrollPage() {
     setAnalysis(null);
 
     try {
-      setAnalysis(await analyzeFile(period, file));
+      setAnalysis(await planApi.analyze(period, file));
     } catch (err) {
       setToast({ message: errorMessage(err, 'Faylni o\u2018qib bo\u2018lmadi'), tone: 'error' });
     } finally {
@@ -93,23 +88,24 @@ export default function PayrollPage() {
     }
   }
 
-  async function handleSave() {
+  /** Saqlash: umumiy qism — umumiy vedomost, bo'lim xodimlari — o'z bo'limi ish haqiga */
+  async function handleSave(rows: PlanInputRow[]) {
     if (!analysis) return;
 
     setSaving(true);
 
     try {
-      const result = await payrollApi.commit(
-        period,
-        { rows: analysis.rows, fileName: analysis.fileName, missing: analysis.missing },
-        replacePrevious,
-      );
-
-      const data = result.data;
+      const data = (await planApi.commit(period, rows, analysis.fileName, replacePrevious)).data;
+      const parts = [
+        data.general ? `umumiy vedomostga ${data.general.employees} xodim (${data.general.expensesCreated} ta xarajat)` : null,
+        ...data.units.map((u) => `${u.label}ga ${u.employees} xodim`),
+      ].filter(Boolean);
       setToast({
         message:
-          `${data.employees} xodim saqlandi, ${data.expensesCreated} ta xarajat yaratildi` +
-          (data.zeroCount > 0 ? ` \u00B7 ${data.zeroCount} tasiga hisoblanmagan` : ''),
+          `Saqlandi: ${parts.join(', ')}` +
+          (data.locked ? ` · ${data.locked} tasi bo'limlarda avval yuklangan — olinmadi` : '') +
+          (data.skipped ? ` · ${data.skipped} tasi olinmadi` : '') +
+          (data.moved ? ` · ${data.moved} tasining bo'limi o'zgartirildi` : ''),
         tone: 'success',
       });
 
@@ -130,7 +126,7 @@ export default function PayrollPage() {
 
     try {
       await payrollApi.cancel(cancelTarget.id);
-      setToast({ message: 'Yuklash bekor qilindi, xarajatlar savatga tushdi', tone: 'success' });
+      setToast({ message: "Yuklash bekor qilindi, xarajatlar savatga tushdi (undan bo'limlarga yozilganlari ham)", tone: 'success' });
       batches.reload();
       composition.reload();
     } catch (err) {
@@ -235,12 +231,12 @@ export default function PayrollPage() {
 
         {/* Tahlil natijasi */}
         {analysis && (
-          <AnalysisView
+          <PlanView
             analysis={analysis}
             period={period}
             replacePrevious={replacePrevious}
             onReplaceChange={setReplacePrevious}
-            onSave={() => void handleSave()}
+            onSave={(rows) => void handleSave(rows)}
             onCancel={reset}
             saving={saving}
             onError={(message) => setToast({ message, tone: 'error' })}
@@ -321,7 +317,7 @@ export default function PayrollPage() {
       <ConfirmDialog
         open={cancelTarget !== null}
         title="Yuklashni bekor qilish"
-        message={`${cancelTarget?.fileName ?? ''} bekor qilinadi. Undan yaratilgan xarajatlar savatga tushadi.`}
+        message={`${cancelTarget?.fileName ?? ''} bekor qilinadi. Undan yaratilgan xarajatlar (shu yuklashdan bo'limlarga yozilgan ish haqi ham) savatga tushadi.`}
         confirmLabel="Bekor qilish"
         danger
         loading={cancelling}
@@ -333,302 +329,6 @@ export default function PayrollPage() {
         <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />
       )}
     </>
-  );
-}
-
-// ─────── Tahlil natijasi ───────
-
-function AnalysisView({
-  analysis,
-  period,
-  replacePrevious,
-  onReplaceChange,
-  onSave,
-  onCancel,
-  saving,
-  onError,
-}: {
-  analysis: AnalyzeResult;
-  period: string;
-  replacePrevious: boolean;
-  onReplaceChange: (value: boolean) => void;
-  onSave: () => void;
-  onCancel: () => void;
-  saving: boolean;
-  onError: (message: string) => void;
-}) {
-  const [showZero, setShowZero] = useState(false);
-
-  async function handleMissing() {
-    try {
-      await downloadMissing(period, analysis.missing);
-    } catch (err) {
-      onError(errorMessage(err, 'Faylni yuklab bo\u2018lmadi'));
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Yig'indi */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <SummaryBox label="Topildi" value={String(analysis.matchedRows)} />
-        <SummaryBox label="Hisoblangan" value={String(analysis.paidRows)} tone="income" />
-        <SummaryBox
-          label="Hisoblanmagan"
-          value={String(analysis.zeroRows)}
-          tone={analysis.zeroRows > 0 ? 'warn' : 'neutral'}
-        />
-        <SummaryBox
-          label="Topilmadi"
-          value={String(analysis.missingRows)}
-          tone={analysis.missingRows > 0 ? 'expense' : 'neutral'}
-        />
-        <SummaryBox label="Jami summa" value={formatTiyin(analysis.totalTiyin)} />
-      </div>
-
-      {/* Hisoblanmaganlar */}
-      {analysis.zeroEmployees.length > 0 && (
-        <div className="rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
-          <div className="flex items-start gap-2.5">
-            <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-(--color-warn)">
-                  {analysis.zeroEmployees.length} ta xodimga ish haqi hisoblanmagan
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => setShowZero((state) => !state)}
-                  className="text-xs font-medium text-(--color-text-muted) hover:text-(--color-text)"
-                >
-                  {showZero ? 'Yashirish' : 'Ro\u2018yxatni ko\u2018rish'}
-                </button>
-              </div>
-
-              <p className="mt-0.5 text-xs text-(--color-text-muted)">
-                Ular saqlanadi va tahlilda &ldquo;hisoblanmagan&rdquo; deb ko&rsquo;rinadi
-              </p>
-
-              {showZero && (
-                <div className="mt-3 max-h-60 space-y-1 overflow-y-auto">
-                  {analysis.zeroEmployees.map((employee) => (
-                    <div
-                      key={employee.pinfl}
-                      className="flex items-center justify-between gap-3 rounded-(--radius-control) bg-white px-3 py-1.5 text-xs"
-                    >
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {employee.fullName}
-                      </span>
-                      <span className="shrink-0 text-(--color-text-muted)">{employee.place}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Topilmaganlar */}
-      {analysis.missing.length > 0 && (
-        <Card className="overflow-hidden">
-          <CardHeader
-            title={`Reestrda topilmadi \u2014 ${analysis.missing.length} ta`}
-            description="Bu PINFL lar xodimlar ro'yxatida yo'q va saqlanmaydi"
-            actions={
-              <Button variant="secondary" size="sm" onClick={() => void handleMissing()}>
-                <IconDownload className="size-4" />
-                Excel
-              </Button>
-            }
-          />
-          <CardBody className="max-h-40 overflow-y-auto">
-            <div className="flex flex-wrap gap-2">
-              {analysis.missing.map((row) => (
-                <span
-                  key={`${row.rowIndex}-${row.pinfl}`}
-                  className="money rounded bg-(--color-expense-soft) px-2 py-1 text-xs text-(--color-expense)"
-                >
-                  {row.pinfl}
-                  <span className="ml-1.5 opacity-60">{row.rowIndex}-qator</span>
-                </span>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Xato qatorlar */}
-      {analysis.invalidRows.length > 0 && (
-        <Card className="overflow-hidden">
-          <CardHeader
-            title={`Xato qatorlar \u2014 ${analysis.invalidRows.length} ta`}
-            description="O'tkazib yuboriladi"
-          />
-          <CardBody className="max-h-40 overflow-y-auto">
-            <ul className="space-y-1 text-sm text-(--color-text-muted)">
-              {analysis.invalidRows.map((row) => (
-                <li key={row.rowIndex}>
-                  <span className="money">{row.rowIndex}-qator</span> &mdash; {row.reason}
-                </li>
-              ))}
-            </ul>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Takroriy PINFL */}
-      {analysis.duplicates.length > 0 && (
-        <p className="text-xs text-(--color-text-muted)">
-          {analysis.duplicates.length} ta xodim faylda bir necha marta uchradi &mdash; summalari
-          qo&rsquo;shildi.
-        </p>
-      )}
-
-      {/* Oldingi yuklash */}
-      {analysis.hasPrevious && (
-        <div className="rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
-          <p className="text-sm font-medium text-(--color-warn)">
-            Bu oy uchun {analysis.previousCount} ta yuklash allaqachon saqlangan
-          </p>
-
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <ChoiceCard
-              checked={!replacePrevious}
-              onChange={() => onReplaceChange(false)}
-              title="Qo'shish"
-              description="Eski yuklash qoladi, bu ham qo'shiladi (masalan mukofot)"
-            />
-            <ChoiceCard
-              checked={replacePrevious}
-              onChange={() => onReplaceChange(true)}
-              title="Almashtirish"
-              description="Eski yuklash bekor qilinadi, faqat bu qoladi"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Guruhlar */}
-      <Card className="overflow-hidden">
-        <CardHeader
-          title="Shakllanadigan xarajatlar"
-          description="Saqlanganda shu yozuvlar yaratiladi"
-        />
-
-        <Table>
-          <THead>
-            <Tr>
-              <Th>Guruh</Th>
-              <Th align="center" className="w-24">
-                Xodim
-              </Th>
-              <Th align="center" className="w-32">
-                Hisoblanmagan
-              </Th>
-              <Th align="right" className="w-44">
-                Summa
-              </Th>
-            </Tr>
-          </THead>
-
-          <TBody>
-            {analysis.groups.map((group) => (
-              <Tr key={group.label}>
-                <Td>{group.label}</Td>
-                <Td align="center" className="money text-(--color-text-muted)">
-                  {group.count}
-                </Td>
-                <Td align="center" className="money">
-                  {group.zeroCount > 0 ? (
-                    <span className="text-(--color-warn)">{group.zeroCount}</span>
-                  ) : (
-                    <span className="text-(--color-text-faint)">&mdash;</span>
-                  )}
-                </Td>
-                <Td money>
-                  <Money tiyin={group.totalTiyin} tone="expense" />
-                </Td>
-              </Tr>
-            ))}
-          </TBody>
-
-          <TFoot>
-            <Tr>
-              <Td colSpan={3}>Jami</Td>
-              <Td money>
-                <Money tiyin={analysis.totalTiyin} tone="expense" className="font-semibold" />
-              </Td>
-            </Tr>
-          </TFoot>
-        </Table>
-      </Card>
-
-      {/* Amallar */}
-      <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={onCancel} disabled={saving}>
-          Boshqa fayl
-        </Button>
-        <Button onClick={onSave} loading={saving} disabled={analysis.matchedRows === 0}>
-          Saqlash
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function SummaryBox({
-  label,
-  value,
-  tone = 'neutral',
-}: {
-  label: string;
-  value: string;
-  tone?: 'neutral' | 'income' | 'expense' | 'warn';
-}) {
-  const colors = {
-    neutral: 'text-(--color-text)',
-    income: 'text-(--color-income)',
-    expense: 'text-(--color-expense)',
-    warn: 'text-(--color-warn)',
-  };
-
-  return (
-    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
-        {label}
-      </p>
-      <p className={cn('money mt-2 text-xl font-semibold', colors[tone])}>{value}</p>
-    </div>
-  );
-}
-
-function ChoiceCard({
-  checked,
-  onChange,
-  title,
-  description,
-}: {
-  checked: boolean;
-  onChange: () => void;
-  title: string;
-  description: string;
-}) {
-  return (
-    <label
-      className={cn(
-        'flex cursor-pointer items-start gap-2.5 rounded-(--radius-control) border bg-white px-3 py-2.5',
-        checked ? 'border-brand-600' : 'border-transparent',
-      )}
-    >
-      <input type="radio" checked={checked} onChange={onChange} className="mt-0.5 size-4" />
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium">{title}</span>
-        <span className="block text-xs text-(--color-text-muted)">{description}</span>
-      </span>
-    </label>
   );
 }
 

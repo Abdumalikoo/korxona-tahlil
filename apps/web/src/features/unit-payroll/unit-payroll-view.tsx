@@ -134,9 +134,13 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
     let total = 0n;
     let newStaff = 0;
     let movedIn = 0;
+    let inGeneral = 0;
     try {
       for (const m of pickedMonths) {
-        const rows = m.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName ? null : (names[r.pinfl] ?? '').trim() }));
+        // Shu oy umumiy vedomostda bor xodimlar yuborilmaydi (server ham olmaydi)
+        inGeneral += m.rows.filter((r) => r.inGeneral).length;
+        const rows = m.rows.filter((r) => !r.inGeneral).map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName ? null : (names[r.pinfl] ?? '').trim() }));
+        if (!rows.length) continue;
         const res = (await unitPayrollApi.commit(unit.code, m.period, { rows, fileName: many.fileName }, replacePrevious && m.hasPrevious)).data;
         done.push(m.monthLabel);
         total += BigInt(res.totalTiyin);
@@ -145,7 +149,7 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
       }
       setToast({
         tone: 'success',
-        message: `${done.join(', ')} saqlandi · ${formatTiyin(total.toString())} so'm` + (newStaff ? ` · ${newStaff} yangi xodim ro'yxatga qo'shildi` : '') + (movedIn ? ` · ${movedIn} xodim boshqa bo'limdan shu bo'limga ko'chdi` : '') + (replacePrevious && previousMonths.length ? ` · ${previousMonths.length} oyda oldingisi almashtirildi` : ''),
+        message: `${done.join(', ')} saqlandi · ${formatTiyin(total.toString())} so'm` + (newStaff ? ` · ${newStaff} yangi xodim ro'yxatga qo'shildi` : '') + (movedIn ? ` · ${movedIn} xodim boshqa bo'limdan shu bo'limga ko'chdi` : '') + (inGeneral ? ` · ${inGeneral} tasi umumiy vedomostda bor — olinmadi` : '') + (replacePrevious && previousMonths.length ? ` · ${previousMonths.length} oyda oldingisi almashtirildi` : ''),
       });
       reset();
     } catch (err) {
@@ -426,6 +430,13 @@ function AnalysisView({
             {analysis.unnamedRows ? ` ${analysis.unnamedRows} tasining ismi bazada yo'q — jadvalda F.I.Sh. kiriting.` : ''}
           </Note>
         )}
+        {(analysis.inGeneralRows ?? 0) > 0 && (
+          <Note tone="warn">
+            {analysis.inGeneralRows} ta xodimning shu oy ish haqisi umumiy vedomostda (Xarajatlar › Ish haqi) allaqachon bor —{' '}
+            {formatTiyin(analysis.inGeneralTiyin ?? '0')} so&apos;m. Ular bu bo&apos;limga olinmaydi (ish haqi ikki marta sanalmasin). Bu bo&apos;limga o&apos;tkazmoqchi bo&apos;lsangiz — umumiy vedomostni qayta
+            yuklab, ularni shu bo&apos;limga belgilang.
+          </Note>
+        )}
         {(analysis.movedRows ?? 0) > 0 && (
           <Note tone="warn">
             {analysis.movedRows} ta xodim bu oyda boshqa bo&apos;limda edi (ko&apos;chishlar tarixi bo&apos;yicha), lekin bu vedomostda summasi bor. Saqlansa — shu oydan {analysis.label}{' '}
@@ -509,6 +520,7 @@ function AnalysisView({
                         {r.amountTiyin !== '0' ? ' → ko‘chadi' : ''}
                       </span>
                     )}
+                    {r.inGeneral && <span className="mt-0.5 block text-[11px] whitespace-nowrap text-(--color-expense)">umumiy vedomostda bor — olinmaydi</span>}
                   </Td>
                   <Td money>{r.amountTiyin === '0' ? <span className="text-(--color-text-muted)">hisoblanmagan</span> : <Money tiyin={r.amountTiyin} />}</Td>
                 </Tr>

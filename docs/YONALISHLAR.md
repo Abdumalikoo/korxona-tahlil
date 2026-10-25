@@ -642,3 +642,49 @@ Shifrlanmaydi: F.I.Sh., JShShIR, lavozim, tuzilma, jins, yosh, ma'lumoti. Qidiru
 **Testlar:**
 - `t-hr-crypto` — yangi yuklash, eski ma'lumotni shifrlash, zaxira olinmasa to'xtash, qaytarish, kalitsiz va boshqa kalit holatlari, eksport, orqaga qaytarish;
 - `pg/pg-core` — haqiqiy bazada 600 qiymat shifrlanib, aynan qaytariladi.
+
+## Umumiy vedomost bo'limlar bilan birga (Xarajatlar › Ish haqi)
+
+Umumiy vedomost (hamma xodimlar bitta faylda) va bo'limlar ish haqi (Tax free, Fermer, Buxgalteriya, Marksheyder) endi bir-biriga bog'langan. Ish haqi ikki marta sanalmaydi.
+
+**Fayl yuklanganda har xodim uchun joy aniqlanadi:**
+- **Bo'limga allaqachon yuklangan** (shu oy, bo'lim sahifasida): olinmaydi. Sariq ogohlantirish chiqadi — qaysi bo'limda, nechta xodim, faylda qancha, bo'limda qancha yuklangan; ro'yxatni ochib ko'rish mumkin. Bunday xodimni umumiyga o'tkazib bo'lmaydi: avval bo'lim sahifasidagi yuklashni bekor qilish kerak.
+- **Bo'limga tegishli, lekin u yerga hali yuklanmagan:** saqlanganda o'sha bo'lim ish haqiga avtomatik yoziladi. Tegishlilik «miya» bo'yicha aniqlanadi:
+  - ko'chishlar;
+  - bo'lim ro'yxati;
+  - Xodimlar bazasidagi bo'limi yoki lavozimi;
+  - ma'lumotnomalar.
+
+  Bo'limda bu alohida yuklash bo'lib turadi, nomi «… (umumiy vedomostdan)».
+- **Qolganlari:** avvalgidek umumiy vedomost (Markaz bo'limlari, hududlar, shartnoma).
+- **Reestrda ham, bo'limlarda ham yo'q:** olinmaydi (Excel'ga yuklab olish mumkin).
+
+**Saqlashdan oldin** «Xodimlar va bo'limi» jadvalida:
+- har xodimning joyini tanlash mumkin: umumiy vedomost, istalgan bo'lim yoki «Olinmaydi» (olib tashlash);
+- tizim taklifi ★ bilan belgilangan; ↺ taklifga qaytaradi;
+- filtrlar: hammasi, umumiy, bo'limlarga, olinmaydi, avval yuklangan, o'zgartirilgan, muammoli; F.I.Sh., JShShIR yoki joyi bo'yicha qidiruv;
+- jamilar va «Shakllanadigan xarajatlar» har o'zgarishda serverda qayta hisoblanadi;
+- reestrda yo'q xodimni umumiy vedomostga yozib bo'lmaydi, faqat bo'limga. F.I.Sh. noma'lum bo'lsa, jadvalda kiritiladi.
+
+**Bo'limi o'zgartirilsa**, «miya»ga ko'chish yoziladi: xodim shu oydan yangi bo'limida turadi. Umumiyga o'tkazilsa, Markaz yoki Hududlarga (Xodimlar bazasidagi joyi bo'yicha) o'tadi. Keyingi oylarda tizim uni shu bo'limida taklif qiladi.
+
+**Bekor qilish va almashtirish:**
+- **Umumiy yuklash bekor qilinsa:** undan bo'limlarga yozilganlar ham bekor bo'ladi, xarajatlari savatga tushadi. Bo'lim sahifasida qo'lda yuklanganlar o'z joyida qoladi.
+- **«Almashtirish»:** avvalgi umumiy yuklash va undan bo'limlarga yozilganlar bekor qilinadi, yangisi yoziladi.
+- **Hamma xodim bo'limlarga tushsa:** umumiy yuklash yaratilmaydi, faqat bo'limlar yuklashi.
+- **Xato bo'lsa:** biror qadam xato bersa, shu saqlashda yaratilganlar bekor qilinadi.
+
+**Teskari tomoni (bo'lim sahifasi):**
+- Bo'limga yuklangan faylda shu oy umumiy vedomostda bor xodim bo'lsa, tahlilda «umumiy vedomostda bor — olinmaydi» deb ko'rsatiladi va saqlanmaydi.
+- Uni bo'limga o'tkazish uchun umumiy vedomostni qayta yuklab, shu bo'limga belgilash kerak.
+- To'g'ridan-to'g'ri umumiy vedomostga (eski yo'l, Hududchi vedomosti) bo'limda yuklangan xodim kelsa ham rad etiladi.
+
+**Kod va API:**
+- Kod: `modules/payroll/payroll-plan.service.ts`; bo'lim tomoni — `unit-payroll.service.ts` (`unitsAt`, `uploadedIn`, `cancelByGeneral`).
+- Bo'lim yuklashida yangi maydonlar: `origin: 'GENERAL'` va `generalBatchId`.
+- API: `POST /api/payroll-plan/analyze`, `/preview`, `/commit?replace=`.
+- Baza tuzilmasi o'zgarmadi.
+
+**Testlar:**
+- `t-payroll-plan` — taklif, ogohlantirish, o'zgartirish va olib tashlash, F.I.Sh. talabi, saqlash, ko'chishlar, teskari tomon, almashtirish, bekor qilish, faqat bo'limlarga;
+- `pg/pg-plan` — haqiqiy bazada.

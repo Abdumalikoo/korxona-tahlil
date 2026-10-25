@@ -148,7 +148,16 @@ export interface UnitPayrollBatch {
   newStaff: number;
   expenseId: string | null;
   rows: UnitPayrollRow[];
+  /** GENERAL — umumiy vedomost (Xarajatlar › Ish haqi) yuklanganda avtomatik yaratilgan */
+  origin?: 'GENERAL';
+  /** Umumiy vedomost yuklashi (bekor qilinsa — bu ham bekor bo'ladi); hamma qatorlar bo'limga tushsa — null */
+  generalBatchId?: string | null;
 }
+
+/** Ish haqi sahifasi bor bo'limlar (umumiy vedomostdan avtomatik taqsimlanadi) */
+export const PAYROLL_UNITS = ['TAX_FREE', 'FERMER', 'BUXGALTERIYA', 'MARKSHEYDER'] as const;
+export type PayrollUnit = (typeof PAYROLL_UNITS)[number];
+export const isPayrollUnit = (u: unknown): u is PayrollUnit => typeof u === 'string' && (PAYROLL_UNITS as readonly string[]).includes(u);
 
 /** Tahlilda qator holati */
 export type RowStatus = 'KNOWN' | 'RETURNING' | 'REGISTRY' | 'NEW';
@@ -521,6 +530,85 @@ export class UnitPayrollService {
     return out;
   }
 
+  // ═══════════ Umumiy vedomost bilan bog'lanish ═══════════
+
+  /** F.I.Sh. va lavozim: Xodimlar bazasi, ma'lumotnomalar, bo'limlarning o'z ro'yxatlari */
+  async namesFor(pinfls: string[], period: string = currentPeriod()): Promise<Map<string, { fullName: string; position: string | null }>> {
+    const out = await this.registryNames(pinfls);
+    if (out.size < pinfls.length) {
+      const want = new Set(pinfls.filter((p) => !out.has(p)));
+      for (const unit of PAYROLL_UNITS) {
+        if (!want.size) break;
+        for (const s of await this.staffOf(unit, period, false)) {
+          if (want.has(s.pinfl) && s.fullName && s.fullName !== s.pinfl) {
+            out.set(s.pinfl, { fullName: s.fullName, position: s.position });
+            want.delete(s.pinfl);
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Shu oyda har xodim qaysi bo'limda: avval ko'chishlar («miya» tarixi), bo'lmasa — yo'nalish ro'yxatlari
+   * (bog'langan bo'lim, lavozim, ma'lumotnomalar, qo'lda qo'shilgan), bo'lmasa — Xodimlar bazasi (Markaz / Hududlar).
+   * Hech qayerda topilmasa — xaritada yo'q.
+   */
+  async unitsAt(pinfls: string[], period: string): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (!pinfls.length) return out;
+    const at = membership(await this.allMoves());
+    const base = await this.baseUnits(pinfls, period);
+    for (const p of pinfls) {
+      const u = at(p, period) ?? base.get(p);
+      if (u) out.set(p, u);
+    }
+    return out;
+  }
+
+  /**
+   * Shu oy bo'limlar sahifasida (qo'lda) yuklangan ish haqi: xodim → bo'lim va summa.
+   * Umumiy vedomostdan avtomatik yaratilgan yuklashlar hisobga olinmaydi.
+   */
+  async uploadedIn(period: string): Promise<Map<string, { unit: string; amountTiyin: bigint }>> {
+    const out = new Map<string, { unit: string; amountTiyin: bigint }>();
+    for (const unit of PAYROLL_UNITS) {
+      for (const b of await this.batchesOf(unit, period)) {
+        if (b.status !== 'COMMITTED' || b.origin === 'GENERAL') continue;
+        for (const r of b.rows ?? []) {
+          const x = out.get(r.pinfl);
+          if (x && x.unit !== unit) continue; // birinchi topilgan bo'lim
+          out.set(r.pinfl, { unit, amountTiyin: (x?.amountTiyin ?? 0n) + BigInt(r.amountTiyin) });
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Umumiy vedomost yuklashi bekor qilinganda — undan yaratilgan bo'lim yuklashlari ham bekor */
+  async cancelByGeneral(generalBatchId: string, period: string, userId: string): Promise<number> {
+    let n = 0;
+    for (const unit of PAYROLL_UNITS) {
+      for (const b of await this.batchesOf(unit, period)) {
+        if (b.status === 'COMMITTED' && b.origin === 'GENERAL' && b.generalBatchId === generalBatchId) {
+          await this.cancel(unit, period, b.id, userId);
+          n += 1;
+        }
+      }
+    }
+    return n;
+  }
+
+  /** Shu oy umumiy yoki hududlar vedomostida (saqlangan) bor xodimlar */
+  private async inGeneral(period: string, pinfls: string[]): Promise<Set<string>> {
+    if (!pinfls.length) return new Set();
+    const rows = await this.prisma.payrollEntry
+      .findMany({ where: { period, employeePinfl: { in: pinfls }, batch: { status: 'COMMITTED' } }, select: { employeePinfl: true } })
+      .catch(() => [] as { employeePinfl: string }[]);
+    return new Set(rows.map((r) => r.employeePinfl));
+  }
+
   // ═══════════ Xodimlar ro'yxati ═══════════
 
   async staff(unit: string, periodRaw?: string) {
@@ -806,6 +894,7 @@ export class UnitPayrollService {
     const byPinfl = new Map(staff.map((s) => [s.pinfl, s]));
     const names = await this.registryNames([...parsed.keys()]);
     const at = membership(await this.allMoves());
+    const general = await this.inGeneral(period, [...parsed.keys()]);
 
     const rows = [...parsed.entries()].map(([pinfl, r]) => {
       const own = byPinfl.get(pinfl);
@@ -821,10 +910,12 @@ export class UnitPayrollService {
         amountTiyin: r.amountTiyin.toString(),
         status,
         ...(other && other !== unit ? { otherUnit: other, otherUnitLabel: entryUnitLabel(other) } : {}),
+        /** Shu oy umumiy vedomostda bor — saqlanganda olinmaydi (ish haqi ikki marta sanalmasin) */
+        ...(general.has(pinfl) ? { inGeneral: true } : {}),
       };
     });
 
-    const total = rows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
+    const total = rows.filter((r) => !general.has(r.pinfl)).reduce((s, r) => s + BigInt(r.amountTiyin), 0n);
     const inFile = new Set(parsed.keys());
     const notInFile = staff.filter((s) => s.active && !inFile.has(s.pinfl)).map((s) => ({ pinfl: s.pinfl, fullName: names.get(s.pinfl)?.fullName ?? s.fullName }));
     const previous = (await this.batchesOf(unit, period)).filter((b) => b.status === 'COMMITTED');
@@ -847,6 +938,9 @@ export class UnitPayrollService {
       unnamedRows: rows.filter((r) => !r.fullName).length,
       /** Shu oyda boshqa bo'limda bo'lgan, lekin summasi bor — saqlanganda shu bo'limga ko'chadi */
       movedRows: rows.filter((r) => 'otherUnit' in r && r.amountTiyin !== '0').length,
+      /** Umumiy vedomostda allaqachon bor — olinmaydi */
+      inGeneralRows: rows.filter((r) => general.has(r.pinfl)).length,
+      inGeneralTiyin: rows.filter((r) => general.has(r.pinfl)).reduce((s, r) => s + BigInt(r.amountTiyin), 0n).toString(),
       totalTiyin: total.toString(),
       invalidRows,
       duplicates,
@@ -895,6 +989,7 @@ export class UnitPayrollService {
     body: { rows?: unknown; fileName?: unknown },
     replacePrevious: boolean,
     userId: string,
+    opts: { origin?: 'GENERAL'; generalBatchId?: string | null } = {},
   ) {
     this.assertPeriod(period);
     if (!Array.isArray(body?.rows) || body.rows.length === 0) throw new BadRequestException("Saqlash uchun ma'lumot yo'q");
@@ -915,6 +1010,17 @@ export class UnitPayrollService {
       if (amount < 0n) throw new BadRequestException(`Manfiy summa: ${pinfl}`);
       const prev = merged.get(pinfl);
       merged.set(pinfl, { amount: (prev?.amount ?? 0n) + amount, fullName: cleanName(raw?.fullName) ?? prev?.fullName ?? null });
+    }
+
+    // Shu oy umumiy vedomostda bor xodimlar olinmaydi — ish haqi ikki marta sanalmasin
+    const skippedInGeneral: string[] = [];
+    if (opts.origin !== 'GENERAL') {
+      const general = await this.inGeneral(period, [...merged.keys()]);
+      for (const p of general) {
+        merged.delete(p);
+        skippedInGeneral.push(p);
+      }
+      if (!merged.size) throw new BadRequestException(`Fayldagi hamma xodimlar (${skippedInGeneral.length}) shu oy umumiy vedomostda bor — saqlanmadi`);
     }
 
     const pinfls = [...merged.keys()];
@@ -1019,6 +1125,7 @@ export class UnitPayrollService {
           newStaff,
           expenseId,
           rows,
+          ...(opts.origin === 'GENERAL' ? { origin: 'GENERAL' as const, generalBatchId: opts.generalBatchId ?? null } : {}),
         };
         const value = { batches: [...batches, batch] } as object;
         await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
@@ -1037,7 +1144,7 @@ export class UnitPayrollService {
       action: 'CREATE',
       entity: 'unit_payroll',
       entityId: `${unit}:${period}:${result.batchId}`,
-      summary: `${label} ish haqi ${period}: ${rows.length} xodim, ${(Number(total) / 100).toLocaleString('uz-UZ')} so'm${result.newStaff ? `, ${result.newStaff} yangi xodim` : ''}${result.replaced ? `, ${result.replaced} ta oldingisi almashtirildi` : ''}`,
+      summary: `${label} ish haqi ${period}${opts.origin === 'GENERAL' ? ' (umumiy vedomostdan)' : ''}: ${rows.length} xodim, ${(Number(total) / 100).toLocaleString('uz-UZ')} so'm${result.newStaff ? `, ${result.newStaff} yangi xodim` : ''}${result.replaced ? `, ${result.replaced} ta oldingisi almashtirildi` : ''}${skippedInGeneral.length ? `, ${skippedInGeneral.length} tasi umumiy vedomostda bor — olinmadi` : ''}`,
     });
 
     // «Miya»: shu oyda boshqa bo'limda bo'lgan xodim shu bo'lim vedomostida (summa bilan) — shu oydan shu bo'limga ko'chadi
@@ -1067,6 +1174,8 @@ export class UnitPayrollService {
       /** Boshqa bo'limdan shu bo'limga ko'chganlar (shu oydan) */
       movedIn,
       replacedPrevious: result.replaced > 0,
+      /** Umumiy vedomostda bor bo'lgani uchun olinmaganlar */
+      skippedInGeneral: skippedInGeneral.length,
     };
   }
 

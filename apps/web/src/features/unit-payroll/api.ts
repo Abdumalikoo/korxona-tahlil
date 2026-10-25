@@ -91,6 +91,8 @@ export interface UnitAnalyzeRow {
   /** Shu oyda boshqa bo'limda (ko'chishlar bo'yicha) — summa bo'lsa, saqlanganda shu bo'limga ko'chadi */
   otherUnit?: string;
   otherUnitLabel?: string;
+  /** Shu oy umumiy vedomostda bor — saqlanmaydi (ish haqi ikki marta sanalmasin) */
+  inGeneral?: boolean;
 }
 
 export interface UnitAnalyzeResult {
@@ -106,6 +108,9 @@ export interface UnitAnalyzeResult {
   returningRows: number;
   unnamedRows: number;
   movedRows?: number;
+  /** Umumiy vedomostda allaqachon bor — olinmaydi */
+  inGeneralRows?: number;
+  inGeneralTiyin?: string;
   totalTiyin: string;
   invalidRows: { rowIndex: number; reason: string }[];
   duplicates: string[];
@@ -139,6 +144,8 @@ export interface UnitCommitResult {
   returned: number;
   movedIn?: number;
   replacedPrevious: boolean;
+  /** Umumiy vedomostda bor bo'lgani uchun olinmaganlar */
+  skippedInGeneral?: number;
 }
 
 export interface UnitBatch {

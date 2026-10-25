@@ -1,13 +1,16 @@
 import { Module } from "@nestjs/common";
 import { TaxesModule } from "../taxes/taxes.module";
+import { UnitPayrollModule } from "../unit-payroll/unit-payroll.module";
+import { PayrollPlanController } from "./payroll-plan.controller";
+import { PayrollPlanService } from "./payroll-plan.service";
 import { PayrollService } from "./payroll.service";
 import { PayrollController } from "./payroll.controller";
 
 @Module({
   // Ish haqidan foizli soliqlar (ijtimoiy soliq) vedomost o'zgarganda qayta hisoblanadi
-  imports: [TaxesModule],
-  controllers: [PayrollController],
-  providers: [PayrollService],
+  imports: [TaxesModule, UnitPayrollModule],
+  controllers: [PayrollController, PayrollPlanController],
+  providers: [PayrollService, PayrollPlanService],
   exports: [PayrollService],
 })
 export class PayrollModule {}

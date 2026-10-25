@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { ensureCenterCategories, ensurePayrollPartCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, payrollCenterCategory, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaxesService } from '../taxes/taxes.service';
+import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 
 const CENTRAL_REGION = 0;
@@ -19,6 +20,8 @@ export interface PayrollRow {
 export interface MissingRow {
   rowIndex: number;
   pinfl: string;
+  /** Fayldagi summa (bo'limga taqsimlash uchun; eski yuklashlarda bo'lmaydi) */
+  amountTiyin?: bigint | string;
 }
 
 /** Guruhlash uchun xodim — hudud va turi tarixga qarab almashtirilgan bo'lishi mumkin */
@@ -116,7 +119,36 @@ export class PayrollService {
     private readonly prisma: PrismaService,
     /** Ish haqidan foiz soliqlar (ijtimoiy soliq …) — vedomost o'zgarganda qayta hisoblanadi */
     @Optional() private readonly taxes?: TaxesService,
+    /** Bo'limlar ish haqi: umumiy vedomost bilan ikki marta sanalmasin, bekor qilinganda birga */
+    @Optional() private readonly unitPayroll?: UnitPayrollService,
   ) {}
+
+  /**
+   * Umumiy vedomostning bir qismi (taqsimotdan keyin «Umumiy»ga qolganlar) — qaysi xarajat guruhlari shakllanadi.
+   * Hech narsa saqlanmaydi. Reestrda yo'qlari — missing.
+   */
+  async previewGeneral(period: string, rows: PayrollRow[]) {
+    this.assertPeriod(period);
+    const merged = new Map<string, bigint>();
+    for (const r of rows) merged.set(r.pinfl, (merged.get(r.pinfl) ?? 0n) + r.amountTiyin);
+    const pinfls = [...merged.keys()];
+    const [employees, locations] = pinfls.length
+      ? await Promise.all([this.prisma.employee.findMany({ where: { pinfl: { in: pinfls } }, include: EMPLOYEE_INCLUDE }), this.loadLocations(period, pinfls)])
+      : [[], new Map<string, LocationRef>()];
+    const items = employees.map((e) => ({ amountTiyin: merged.get(e.pinfl) ?? 0n, employee: this.applyLocation(e as unknown as GroupEmployee, locations.get(e.pinfl)) }));
+    const found = new Set(employees.map((e) => e.pinfl));
+    const groups = this.buildGroups(items);
+    return {
+      count: items.length,
+      zeroCount: items.filter((i) => i.amountTiyin === 0n).length,
+      totalTiyin: items.reduce((s, i) => s + i.amountTiyin, 0n),
+      missing: pinfls.filter((p) => !found.has(p)),
+      places: new Map(items.map((i) => [i.employee.pinfl, this.placeOf(i.employee)])),
+      groups: [...groups.values()]
+        .map((g) => ({ label: g.label, departmentId: g.departmentId, regionCode: g.regionCode, count: g.count, zeroCount: g.zeroCount, totalTiyin: g.totalTiyin }))
+        .sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1)),
+    };
+  }
 
   private retax(period: string): void {
     if (!this.taxes) return;
@@ -450,7 +482,7 @@ export class PayrollService {
       const employee = employeeMap.get(pinfl);
 
       if (!employee) {
-        missing.push({ rowIndex: row.rowIndex, pinfl });
+        missing.push({ rowIndex: row.rowIndex, pinfl, amountTiyin: row.amountTiyin });
         continue;
       }
 
@@ -584,6 +616,14 @@ export class PayrollService {
           select: { employeePinfl: true },
           take: 2000,
         });
+        // Bo'limlar sahifasida (qo'lda) shu oy yuklanganlar — umumiy vedomostga olinmaydi
+        if (this.unitPayroll) {
+          const inUnits = await this.unitPayroll.uploadedIn(period);
+          const both = pinfls.filter((p) => inUnits.has(p));
+          if (both.length) {
+            throw new BadRequestException(`${both.length} ta xodimning shu oy ish haqisi bo'limlarda (Tax free, Fermer …) allaqachon yuklangan. Ularni olib tashlang — ish haqi ikki marta sanalmasin`);
+          }
+        }
         if (overlap.length > 0) {
           const n = new Set(overlap.map((o) => o.employeePinfl)).size;
           throw new BadRequestException(
@@ -1027,8 +1067,10 @@ export class PayrollService {
       }),
     ]);
     this.retax(batch.period);
+    // Shu yuklashdan bo'limlarga avtomatik yozilganlar ham bekor
+    const units = this.unitPayroll ? await this.unitPayroll.cancelByGeneral(batchId, batch.period, batch.uploadedById).catch(() => 0) : 0;
 
-    return { success: true as const };
+    return { success: true as const, unitBatchesCancelled: units };
   }
 
   // ═══════════ Topilmaganlar Excel ═══════════
