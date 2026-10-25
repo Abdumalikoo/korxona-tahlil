@@ -19,6 +19,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { isSegment } from '../../common/segments/segments';
+import { PAYROLL_UNITS } from '../unit-payroll/unit-payroll.service';
 import { CompositionPlaceService } from './salary-composition.place';
 import { CompositionReconcileService } from './salary-composition.reconcile';
 import { SalaryCompositionService } from './salary-composition.service';
@@ -298,6 +299,25 @@ export class SalaryCompositionController {
   async placesView(@Query('period') period: string) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
     return { data: await this.places.view(period) };
+  }
+
+  /** Bo'lim sahifasi: shu oy «Manbada» va «Ish haqi tarkibida» yonma-yon */
+  @Personal()
+  @Get('places/unit')
+  async placesUnit(@Query('period') period: string, @Query('unit') unit: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    if (!['CENTER', ...PAYROLL_UNITS].includes(String(unit ?? ''))) throw new BadRequestException("Bo'lim noto'g'ri");
+    return { data: await this.places.compare(period, unit) };
+  }
+
+  /** Bo'lim sahifasidan: { pinfls } — shu oy joyini tarkibdagidek qilish */
+  @Roles(UserRole.ADMIN)
+  @Post('places/fix')
+  @HttpCode(HttpStatus.OK)
+  async placesFix(@Query('period') period: string, @Body('pinfls') pinfls: unknown, @CurrentUser('id') userId: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    if (!Array.isArray(pinfls) || !pinfls.length) throw new BadRequestException('Xodimlarni tanlang');
+    return { data: await this.places.fixStored(period, pinfls.map(String).slice(0, 2000), userId) };
   }
 
   /** O'zgarishni bekor qilish: { pinfls } — avvalgi joyiga */

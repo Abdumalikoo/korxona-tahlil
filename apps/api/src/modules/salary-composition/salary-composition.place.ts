@@ -276,7 +276,7 @@ export class CompositionPlaceService {
    * xodimlarning joyini shu oy uchun tarkibdagidek qilish.
    * body: { map: { [tarkibdagi nom]: departmentId | 'SKIP' }, apply: string[] (PINFL) }
    */
-  async apply(period: string, batchId: string | null, rows: { pinfl: string; fullName: string | null; dept?: string | null }[], body: unknown, userId: string) {
+  async apply(period: string, batchId: string | null, rows: { pinfl: string; fullName: string | null; dept?: string | null }[], body: unknown, userId: string, learn = true) {
     const b = (body && typeof body === 'object' ? body : {}) as { map?: unknown; apply?: unknown };
     const options = await this.options();
     const optBy = new Map(options.map((o) => [o.id, o]));
@@ -296,7 +296,7 @@ export class CompositionPlaceService {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null);
 
     // Eslab qolish (faqat foydalanuvchi bergan moslik)
-    if (map.size) {
+    if (map.size && learn) {
       await runExclusive(`setting:${DEPT_NAMES_KEY}`, async () => {
         const cur = await this.learned();
         for (const [k, v] of map) cur[k] = v;
@@ -422,6 +422,113 @@ export class CompositionPlaceService {
         .sort((a, b) => a.fullName.localeCompare(b.fullName))
         .map((f) => ({ ...f, unitLabel: entryUnitLabel(f.unit), fromUnitLabel: f.fromUnit ? entryUnitLabel(f.fromUnit) : null })),
     };
+  }
+
+  /** Tarkibdagi nom → bizdagi bo'lim (eslab qolingan, bo'lmasa — taxminiy moslik); «hisobga olinmasin» — SKIP */
+  private async resolver() {
+    const [options, learned] = await Promise.all([this.options(), this.learned()]);
+    const optBy = new Map(options.map((o) => [o.id, o]));
+    const deps = options.map((o) => ({ id: o.id, name: o.name }));
+    const cache = new Map<string, { option: (typeof options)[number] | null; skipped: boolean; guessed: boolean }>();
+    return (name: string) => {
+      const k = deptKey(name);
+      const hit = cache.get(k);
+      if (hit) return hit;
+      const l = learned[k];
+      let r: { option: (typeof options)[number] | null; skipped: boolean; guessed: boolean };
+      if (l === SKIP) r = { option: null, skipped: true, guessed: false };
+      else if (l && optBy.has(l)) r = { option: optBy.get(l)!, skipped: false, guessed: false };
+      else {
+        const g = matchDepartment(name, deps);
+        r = { option: g ? optBy.get(g.id)! : null, skipped: false, guessed: Boolean(g) };
+      }
+      cache.set(k, r);
+      return r;
+    };
+  }
+
+  /**
+   * Bo'lim sahifasi (Tax free …): shu oy «Manbada» (miyadagi asl joyi) va «Ish haqi tarkibida» (yuklangan tarkibdagi
+   * bo'lim) yonma-yon. Ikki guruh: manbada shu bo'limdagilar va tarkibda shu bo'limda, manbada boshqa joydagilar.
+   */
+  async compare(period: string, unit: string) {
+    const [month, resolve, staff, moves] = await Promise.all([this.month(period), this.resolver(), this.units.staffOf(unit, period), this.units.allMoves()]);
+    const fixIds = new Set(Object.values(month.fixes).flatMap((f) => f.moveIds ?? []));
+    // Manba (asl) — tarkib bo'yicha qilingan ko'chishlarsiz
+    const asl = membership(moves.filter((m) => !fixIds.has(m.id)));
+    const hasTarkib = Object.keys(month.depts).length > 0;
+    const tarkibOf = (p: string) => {
+      const name = month.depts[p];
+      if (!name) return null;
+      const r = resolve(name);
+      return { deptName: name, departmentId: r.option?.id ?? null, departmentName: r.option?.name ?? null, unit: r.option?.unit ?? null, unitLabel: r.option?.unitLabel ?? null, skipped: r.skipped, guessed: r.guessed };
+    };
+    const pins = new Set<string>(staff.filter((s) => s.active).map((s) => s.pinfl));
+    for (const f of Object.values(month.fixes)) if (f.unit === unit || f.fromUnit === unit) pins.add(f.pinfl);
+    // Markaz — alohida ro'yxati yo'q: tarkibdagi hamma xodim tekshiriladi (manbada Markazda bo'lganlar qoladi)
+    for (const p of Object.keys(month.depts)) if (unit === 'CENTER' || tarkibOf(p)?.unit === unit) pins.add(p);
+    const list = [...pins];
+    const [cur, names, paid] = await Promise.all([
+      this.miya(list, period, month),
+      this.units.namesFor(list, period).catch(() => new Map<string, { fullName: string; position: string | null }>()),
+      this.units.payrollMap(unit, period).catch(() => null),
+    ]);
+    // Manbadagi asl yo'nalish: ko'chishlar (tarkibnikisiz) yoki ro'yxat
+    const baseUnits = await this.units.unitsAt(list, period);
+    const rows = list.map((p) => {
+      const fix = month.fixes[p] ?? null;
+      const c = cur.get(p)!;
+      const mUnit = fix ? fix.fromUnit : (asl(p, period) ?? baseUnits.get(p) ?? null);
+      const mDeptId = fix ? fix.fromDepartmentId : c.departmentId;
+      const mDeptName = fix ? fix.fromDepartmentName : c.departmentName;
+      const t = tarkibOf(p);
+      let status: 'MOS' | 'FARQ' | 'FIXED' | 'NO_TARKIB' | 'UNKNOWN';
+      if (fix) status = 'FIXED';
+      else if (!t) status = 'NO_TARKIB';
+      else if (!t.unit) status = 'UNKNOWN';
+      else status = t.unit === mUnit && (t.unit !== 'CENTER' || t.departmentId === mDeptId) ? 'MOS' : 'FARQ';
+      const amount = paid?.get(p);
+      return {
+        pinfl: p,
+        fullName: names.get(p)?.fullName ?? c.fullName ?? fix?.fullName ?? p,
+        group: (mUnit === unit ? 'HERE' : 'TARKIB_HERE') as 'HERE' | 'TARKIB_HERE',
+        manba: { unit: mUnit, unitLabel: mUnit ? entryUnitLabel(mUnit) : null, departmentId: mDeptId, departmentName: mDeptName },
+        tarkib: t,
+        status,
+        fix: fix ? { unit: fix.unit, unitLabel: entryUnitLabel(fix.unit), departmentName: fix.departmentName, at: fix.at, by: fix.by } : null,
+        amountTiyin: amount !== undefined ? amount.toString() : null,
+      };
+    });
+    // Manbada boshqa joyda va tarkibda ham boshqa joyda (shu bo'limga aloqasi yo'q) — chiqarilmaydi
+    const shown = rows
+      .filter((r) => r.group === 'HERE' || r.tarkib?.unit === unit || r.fix?.unit === unit)
+      .sort((a, b) => a.group.localeCompare(b.group) || Number(a.status === 'MOS') - Number(b.status === 'MOS') || a.fullName.localeCompare(b.fullName, 'uz'));
+    const count = (s: string) => shown.filter((r) => r.status === s).length;
+    return {
+      period,
+      unit,
+      label: entryUnitLabel(unit),
+      hasTarkib,
+      tarkibAt: month.at || null,
+      rows: shown,
+      counts: { total: shown.length, mos: count('MOS'), farq: count('FARQ'), fixed: count('FIXED'), noTarkib: count('NO_TARKIB'), unknown: count('UNKNOWN'), tarkibHere: shown.filter((r) => r.group === 'TARKIB_HERE').length },
+    };
+  }
+
+  /** Bo'lim sahifasidan: tanlangan xodimlarning shu oy joyini saqlangan tarkibdagidek qilish */
+  async fixStored(period: string, pinfls: string[], userId: string) {
+    const month = await this.month(period);
+    const want = pinfls.filter((p) => month.depts[p]);
+    if (!want.length) throw new BadRequestException("Tanlangan xodimlar shu oy ish haqi tarkibida yo'q (yoki tarkibda bo'limi yozilmagan)");
+    const resolve = await this.resolver();
+    const map: Record<string, string> = {};
+    for (const p of want) {
+      const r = resolve(month.depts[p]!);
+      if (!r.option) throw new BadRequestException(`«${month.depts[p]!.slice(0, 60)}» qaysi bo'lim ekanligi belgilanmagan — Ish haqi tarkibi sahifasida tanlang`);
+      map[month.depts[p]!] = r.option.id;
+    }
+    const rows = Object.entries(month.depts).map(([pinfl, dept]) => ({ pinfl, fullName: null, dept }));
+    return this.apply(period, month.batchId, rows, { map, apply: want }, userId, false);
   }
 
   /** O'zgarishni bekor qilish (pinfls berilmasa — shu oy hammasi): «miya» va xarajatlar avvalgi holatiga */

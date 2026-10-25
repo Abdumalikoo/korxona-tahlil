@@ -32,6 +32,7 @@ import {
   type UnitSaved,
 } from './api';
 import { NdflSummaryCard } from '@/features/payroll/ndfl-summary';
+import { TarkibCompareCard } from './tarkib-compare-card';
 import { EMPTY_CHOICE, MOVE_UNITS, PlacePicker, choiceReady, useChoiceLabel, type MoveChoice } from './place-picker';
 
 // ═══════════════════════════════════════════════════════════
@@ -307,6 +308,20 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
         />
         <StaffCard unit={unit} list={staff.data?.data ?? null} loading={staff.loading} error={staff.error} onChanged={staff.reload} onToast={setToast} period={staffPeriod} onPeriod={setStaffPeriod} />
       </div>
+
+      {!ndflMode && (
+        <TarkibCompareCard
+          unitCode={unit.code}
+          period={period}
+          isAdmin={isAdmin}
+          stamp={savedList.data}
+          onChanged={() => {
+            batches.reload();
+            staff.reload();
+          }}
+          onToast={setToast}
+        />
+      )}
 
       {/* Yuklashlar tarixi — pastda */}
         <Card className="overflow-hidden">

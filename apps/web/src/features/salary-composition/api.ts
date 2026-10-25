@@ -247,6 +247,28 @@ export interface PlacesView {
   fixes: PlaceFixView[];
 }
 
+/** Bo'lim sahifasi: «Manbada» va «Ish haqi tarkibida» */
+export type UnitPlaceStatus = 'MOS' | 'FARQ' | 'FIXED' | 'NO_TARKIB' | 'UNKNOWN';
+export interface UnitPlaceRow {
+  pinfl: string;
+  fullName: string;
+  group: 'HERE' | 'TARKIB_HERE';
+  manba: { unit: string | null; unitLabel: string | null; departmentId: string | null; departmentName: string | null };
+  tarkib: { deptName: string; departmentId: string | null; departmentName: string | null; unit: string | null; unitLabel: string | null; skipped: boolean; guessed: boolean } | null;
+  status: UnitPlaceStatus;
+  fix: { unit: string; unitLabel: string; departmentName: string; at: string; by: string } | null;
+  amountTiyin: string | null;
+}
+export interface UnitPlaces {
+  period: string;
+  unit: string;
+  label: string;
+  hasTarkib: boolean;
+  tarkibAt: string | null;
+  rows: UnitPlaceRow[];
+  counts: { total: number; mos: number; farq: number; fixed: number; noTarkib: number; unknown: number; tarkibHere: number };
+}
+
 export interface CompositionAnalysis {
   /** Tarkibdagi bo'limlar (umumiy tarkibda, bo'lim ustuni topilsa) */
   places?: PlacesAnalysis | null;
@@ -489,6 +511,9 @@ export const compositionApi = {
     }),
 
   places: (period: string) => api.get<ApiResponse<PlacesView>>('/salary-composition/places', { params: { period } }),
+  unitPlaces: (period: string, unit: string) => api.get<ApiResponse<UnitPlaces>>('/salary-composition/places/unit', { params: { period, unit } }),
+  fixPlaces: (period: string, pinfls: string[]) =>
+    api.post<ApiResponse<{ fixed: number; moved: number; redistributed: boolean; warnings: string[] }>>(`/salary-composition/places/fix?period=${period}`, { pinfls }),
   revertPlaces: (period: string, pinfls: string[]) => api.post<ApiResponse<{ reverted: number; redistributed: boolean }>>(`/salary-composition/places/revert?period=${period}`, { pinfls }),
 
   /** Yo'nalishda (unit) — oy ham kerak */

@@ -123,6 +123,25 @@ async function tarkib(rows) {
   assert.strictEqual(live({ segment: 'TAX_FREE' }).reduce((s, e) => s + e.amountTiyin, 0n), so(1_000_000));
   assert.strictEqual(live({ departmentId: 'dK', categoryCode: 'PAYROLL_BASE' }).reduce((s, e) => s + e.amountTiyin, 0n), so(2_000_000), 'B hali Kadrlarda');
 
+  // ── Bo'lim sahifasi: «Manbada» va «Ish haqi tarkibida» ──
+  let cmp = await places.compare(PER, 'TAX_FREE');
+  let ra = cmp.rows.find((r) => r.pinfl === P.A);
+  assert.ok(cmp.hasTarkib);
+  assert.deepStrictEqual([ra.group, ra.status, ra.manba.unit, ra.tarkib.unit, ra.tarkib.departmentName], ['HERE', 'FARQ', 'TAX_FREE', 'CENTER', 'Call markaz']);
+  assert.ok(!cmp.rows.some((r) => r.pinfl === P.C), "Tax free'ga aloqasi yo'q");
+  const fx = await places.fixStored(PER, [P.A], 'adm');
+  assert.deepStrictEqual([fx.fixed, fx.moved, fx.redistributed], [1, 1, true]);
+  assert.strictEqual(live({ segment: 'TAX_FREE' }).reduce((s, e) => s + e.amountTiyin, 0n), 0n, "bo'lim sahifasidan o'tkazildi");
+  cmp = await places.compare(PER, 'TAX_FREE');
+  ra = cmp.rows.find((r) => r.pinfl === P.A);
+  assert.deepStrictEqual([ra.group, ra.status, ra.manba.unit, ra.fix.unit], ['HERE', 'FIXED', 'TAX_FREE', 'CENTER'], 'manbada — asl joyi');
+  const cc = await places.compare(PER, 'CENTER');
+  const st = (p) => cc.rows.find((r) => r.pinfl === p);
+  assert.deepStrictEqual([st(P.A).group, st(P.B).status, st(P.B).manba.departmentName, st(P.C).status, st(P.D).status, st(P.D).tarkib.skipped], ['TARKIB_HERE', 'FIXED', 'AUP', 'MOS', 'UNKNOWN', true]);
+  await assert.rejects(places.fixStored(PER, [P.D], 'adm'), /belgilanmagan/);
+  await assert.rejects(places.fixStored(PER, ['49999999999999'], 'adm'), /tarkibida yo'q/);
+  await places.revert(PER, [P.A], 'adm');
+
   // ── Tarkib bekor qilindi → hamma o'zgarishlar bekor ──
   await comp.cancel(c.batchId);
   const oc = await places.onCancel(PER, 'adm');
