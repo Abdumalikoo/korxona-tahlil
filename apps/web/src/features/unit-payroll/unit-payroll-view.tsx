@@ -31,6 +31,7 @@ import {
   type UnitStaffList,
   type UnitSaved,
 } from './api';
+import { NdflSummaryCard } from '@/features/payroll/ndfl-summary';
 import { EMPTY_CHOICE, MOVE_UNITS, PlacePicker, choiceReady, useChoiceLabel, type MoveChoice } from './place-picker';
 
 // ═══════════════════════════════════════════════════════════
@@ -49,8 +50,10 @@ const STATUS: Record<UnitRowStatus, { label: string; tone: 'neutral' | 'income' 
   NEW: { label: 'Yangi', tone: 'warn' },
 };
 
-export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
+/** mode: vedomost — shablon (oylar ustunlari); ndfl — soliq hisobotining o'zi (4 va 5-ilova, tanlangan oy) */
+export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; mode?: 'vedomost' | 'ndfl' }) {
   const { isAdmin } = useAuth();
+  const ndflMode = mode === 'ndfl';
   const { month: period } = usePeriod();
   const range = useMonthRange('month');
   const [many, setMany] = useState<UnitManyResult | null>(null);
@@ -106,7 +109,7 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
     setUploading(true);
     setMany(null);
     try {
-      const result = await analyzeUnitFileMany(unit.code, period, file);
+      const result = await analyzeUnitFileMany(unit.code, period, file, ndflMode ? 'ndfl' : 'auto');
       setMany(result);
       setNames({});
       // Hammasi 0 (to'ldirilmagan) oylar — standart belgilanmagan
@@ -178,22 +181,27 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
 
   return (
     <div className="space-y-4">
-      <MonthRangeCard range={range} />
+      {!ndflMode && <MonthRangeCard range={range} />}
       <SourceActions
         upload={
           isAdmin
             ? {
-                label: 'Vedomostni yuklash',
+                label: ndflMode ? 'Soliq hisobotini yuklash' : 'Vedomostni yuklash',
                 onClick: () => inputRef.current?.click(),
                 loading: uploading,
                 disabled: Boolean(analysis),
-                hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : `${unit.label} ish haqi vedomosti (Excel)`,
+                hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : ndflMode ? 'JShDS hisob-kitobi: 4-ilova (oylik) va 5-ilova (boshqa daromadlar)' : `${unit.label} ish haqi vedomosti (Excel)`,
               }
             : undefined
         }
-        template={{ label: range.error ? 'Shablon' : `Shablon · ${range.text}`, onClick: () => void handleTemplate(), loading: downloading, disabled: Boolean(range.error), hint: `Har oy — alohida ustun (PINFL, F.I.Sh., oylar) · 2-varaq: ${unit.label} xodimlari` }}
+        template={ndflMode ? undefined : { label: range.error ? 'Shablon' : `Shablon · ${range.text}`, onClick: () => void handleTemplate(), loading: downloading, disabled: Boolean(range.error), hint: `Har oy — alohida ustun (PINFL, F.I.Sh., oylar) · 2-varaq: ${unit.label} xodimlari` }}
         note={
-          <>
+          ndflMode ? (
+            <>
+              Oy: <b className="text-heading">{formatPeriod(period)}</b> (yuqori paneldagi «Davr»). Faqat «hisobot davrida hisoblangan» summa olinadi (yil boshidan «jami» — olinmaydi); 4 va 5-ilovadagi summa PINFL bo&apos;yicha qo&apos;shiladi.
+              Hisobotdan faqat {unit.label} xodimlari (<b className="text-heading">{activeCount}</b> ta) va hech qayerda yo&apos;q yangi xodimlar olinadi.
+            </>
+          ) : <>
             Shablon tanlangan oylar uchun: har oy ustuniga summa yoziladi, <b className="text-heading">0 yoki bo&apos;sh — o&apos;sha oyda hisoblanmagan</b>. Yuklanganda fayldagi hamma oylar o&apos;qiladi. Tarix — yuqori paneldagi oy ({formatPeriod(period)}). Xodimlar — faqat {unit.label} xodimlari (
             <b className="text-heading">{activeCount}</b> ta) — Xodimlar bo&apos;limidan o&apos;zi olinadi: u yerda yangi xodim qo&apos;shilsa, keyingi shablonda chiqadi.
           </>
@@ -245,14 +253,20 @@ export function UnitPayrollView({ unit }: { unit: EntryUnit }) {
               ) : (
                 <>
                   <IconUpload className="size-8 text-(--color-text-faint)" strokeWidth={1.5} />
-                  <p className="text-sm font-medium">{unit.label} ish haqi vedomostini shu yerga tashlang</p>
-                  <p className="text-xs text-(--color-text-muted)">yoki bosib tanlang · PINFL va summa. Summa bo&apos;sh yoki 0 — «hisoblanmagan»</p>
+                  <p className="text-sm font-medium">{ndflMode ? `Soliq hisoboti faylini shu yerga tashlang (${unit.label})` : `${unit.label} ish haqi vedomostini shu yerga tashlang`}</p>
+                  <p className="text-xs text-(--color-text-muted)">
+                    {ndflMode
+                      ? "yoki bosib tanlang · 4-ilova (oylik) va 5-ilova (ta'til puli va boshqa daromadlar) · faqat shu oy summasi"
+                      : "yoki bosib tanlang · PINFL va summa (yoki soliq hisobotining o'zi). Summa bo'sh yoki 0 — «hisoblanmagan»"}
+                  </p>
                 </>
               )}
             </div>
           </CardBody>
         </Card>
       )}
+
+      {many?.ndfl && <NdflSummaryCard ndfl={many.ndfl} period={period} />}
 
       {analysis && (
         <AnalysisView

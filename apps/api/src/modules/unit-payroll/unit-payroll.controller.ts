@@ -118,17 +118,17 @@ export class UnitPayrollController {
   @Post(':unit/analyze')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@Param('unit') unit: string, @Query('period') period: string, @UploadedFile() file: Express.Multer.File) {
-    return { data: await this.service.analyze(this.service.unitOf(unit), period, file) };
+  async analyze(@Param('unit') unit: string, @Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File) {
+    return { data: await this.service.analyze(this.service.unitOf(unit), period, file, format === 'ndfl' ? 'ndfl' : 'auto') };
   }
 
-  /** Fayldagi hamma oylar (oylar oralig'i shabloni); eski shablon — ?period= oyi */
+  /** Fayldagi hamma oylar (oylar oralig'i shabloni); eski shablon — ?period= oyi; soliq hisoboti — ?period= oyi (?format=ndfl — faqat u) */
   @Roles(UserRole.ADMIN)
   @Post(':unit/analyze-many')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyzeMany(@Param('unit') unit: string, @Query('period') period: string, @UploadedFile() file: Express.Multer.File) {
-    return { data: await this.service.analyzeMany(this.service.unitOf(unit), period, file) };
+  async analyzeMany(@Param('unit') unit: string, @Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File) {
+    return { data: await this.service.analyzeMany(this.service.unitOf(unit), period, file, format === 'ndfl' ? 'ndfl' : 'auto') };
   }
 
   @Roles(UserRole.ADMIN)

@@ -21,11 +21,14 @@ export interface UnitTab {
    */
   view?: 'payroll' | 'composition' | 'lease' | 'bank' | 'entries' | 'policy';
   entryKind?: EntryKindCode;
+  /** payroll: soliq hisobotining o'zi (4 va 5-ilova) yuklanadi */
+  ndfl?: boolean;
 }
 
 const EXPENSE: Record<string, UnitTab[]> = {
   TAX_FREE: [
     { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
+    { slug: 'soliq-hisoboti', label: 'Soliq hisoboti', view: 'payroll', ndfl: true },
     { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi', view: 'composition' },
     { slug: 'ijara-kommunal', label: 'Ijara va kommunal', view: 'lease' },
     { slug: 'asosiy-vositalar', label: 'Asosiy vositalar', view: 'entries', entryKind: 'ASSET' },
@@ -35,6 +38,7 @@ const EXPENSE: Record<string, UnitTab[]> = {
   ],
   FERMER: [
     { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
+    { slug: 'soliq-hisoboti', label: 'Soliq hisoboti', view: 'payroll', ndfl: true },
     { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi', view: 'composition' },
     { slug: 'ijara-internet', label: 'Ijara va internet', view: 'lease' },
     { slug: 'asosiy-vositalar', label: 'Asosiy vositalar', view: 'entries', entryKind: 'ASSET' },
@@ -43,6 +47,7 @@ const EXPENSE: Record<string, UnitTab[]> = {
   ],
   BUXGALTERIYA: [
     { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
+    { slug: 'soliq-hisoboti', label: 'Soliq hisoboti', view: 'payroll', ndfl: true },
     { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi', view: 'composition' },
     { slug: 'reklama', label: 'Reklama xarajatlari', view: 'entries', entryKind: 'AD' },
     { slug: 'asosiy-vositalar', label: 'Asosiy vositalar', view: 'entries', entryKind: 'ASSET' },
@@ -51,6 +56,7 @@ const EXPENSE: Record<string, UnitTab[]> = {
   ],
   MARKSHEYDER: [
     { slug: 'ish-haqi', label: 'Ish haqi', view: 'payroll' },
+    { slug: 'soliq-hisoboti', label: 'Soliq hisoboti', view: 'payroll', ndfl: true },
     { slug: 'ish-haqi-tarkibi', label: 'Ish haqi tarkibi', view: 'composition' },
     // Hozircha tugma — yuklash tartibi va shabloni keyin belgilanadi
     { slug: 'xizmat-safari', label: 'Xizmat safari' },

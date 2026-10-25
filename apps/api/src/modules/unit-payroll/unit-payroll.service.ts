@@ -12,6 +12,7 @@ import { Exclusive } from '../../common/locks';
 import { somToTiyin } from '../../common/money';
 import { listBlock, ObjectMap, shapeOf } from '../../common/settings/shape';
 import { assertAmount } from '../../common/validation/amount';
+import { isNdflWorkbook, parseNdfl, type NdflResult } from '../payroll/ndfl.parser';
 
 // ═══════════════════════════════════════════════════════════
 // Bo'lim (yo'nalish) ish haqi — masalan, Xarajatlar › Tax free › Ish haqi.
@@ -829,9 +830,30 @@ export class UnitPayrollService {
 
   /**
    * Faylni o'qish: yangi shablon (oylar ustunlari, yashirin «KOD» qatori) yoki eski (A — PINFL, B — Summa; oy — tanlangan).
+   * Soliq hisoboti (4 va 5-ilova) bo'lsa — tanlangan oy uchun «hisobot davrida» summalari, ikkala ilova PINFL bo'yicha qo'shiladi.
    * Natija: oy → xodim → summa. Bo'sh yoki 0 — hisoblanmagan (0).
    */
-  private parseBook(wb: ExcelJS.Workbook, period: string) {
+  private parseBook(wb: ExcelJS.Workbook, period: string, fileName = '', format: 'auto' | 'ndfl' = 'auto') {
+    if (isNdflWorkbook(wb)) {
+      const ndfl = parseNdfl(wb, fileName);
+      const m = new Map<string, { rowIndex: number; amountTiyin: bigint }>();
+      const fileNames = new Map<string, string>();
+      for (const p of ndfl.people) {
+        m.set(p.pinfl, { rowIndex: p.rowIndex, amountTiyin: p.salaryTiyin + p.otherTiyin });
+        if (p.fullName) fileNames.set(p.pinfl, p.fullName);
+      }
+      return {
+        multi: false,
+        byMonth: new Map([[period, m]]),
+        fileNames,
+        invalidRows: ndfl.invalid.map((x) => ({ rowIndex: x.rowIndex, reason: `${x.sheet}: ${x.reason}` })),
+        duplicates: [] as string[],
+        ndfl,
+      };
+    }
+    if (format === 'ndfl') {
+      throw new BadRequestException("Bu fayl soliq hisoboti emas: «ЖШ ШИР» va «ҳисобот даврида ҳисобланган … даромадлар» ustunli varaq (4 yoki 5-ilova) topilmadi");
+    }
     const sheet = wb.worksheets[0]!;
     const invalidRows: { rowIndex: number; reason: string }[] = [];
     const duplicates = new Set<string>();
@@ -880,7 +902,57 @@ export class UnitPayrollService {
         } else m.set(pinfl, { rowIndex: r, amountTiyin: amount });
       });
     }
-    return { multi, byMonth, fileNames, invalidRows, duplicates: [...duplicates] };
+    return { multi, byMonth, fileNames, invalidRows, duplicates: [...duplicates], ndfl: null as NdflResult | null };
+  }
+
+  /**
+   * Soliq hisoboti odatda butun tashkilot bo'yicha — bo'limga faqat shu bo'lim xodimlari olinadi:
+   * bo'lim ro'yxatida (Xodimlar bazasidan yoki o'zining) yoki «miya» bo'yicha shu oy shu bo'limda bo'lganlar,
+   * hamda hech qayerda yo'q (reestrda ham, boshqa bo'limda ham emas) yangi xodimlar.
+   * Qolganlari (Markaz, hududlar, boshqa bo'limlar) — olinmaydi, soni va summasi ko'rsatiladi.
+   */
+  private async ndflForUnit(unit: string, period: string, parsed: Map<string, { rowIndex: number; amountTiyin: bigint }>) {
+    const pins = [...parsed.keys()];
+    const [staff, names, moves, others] = await Promise.all([
+      this.staffOf(unit, period),
+      this.registryNames(pins),
+      this.allMoves(),
+      Promise.all(PAYROLL_UNITS.filter((u) => u !== unit).map((u) => this.staffOf(u, period))),
+    ]);
+    const own = new Set(staff.filter((x) => x.active).map((x) => x.pinfl));
+    const elsewhere = new Set(others.flat().filter((x) => x.active).map((x) => x.pinfl));
+    const at = membership(moves);
+    const kept = new Map<string, { rowIndex: number; amountTiyin: bigint }>();
+    let outside = 0;
+    let outsideTiyin = 0n;
+    for (const [pinfl, v] of parsed) {
+      const where = at(pinfl, period);
+      const mine = own.has(pinfl) || where === unit || (!names.has(pinfl) && !elsewhere.has(pinfl) && !where);
+      if (mine) kept.set(pinfl, v);
+      else {
+        outside += 1;
+        outsideTiyin += v.amountTiyin;
+      }
+    }
+    return { kept, outside, outsideTiyin };
+  }
+
+  /** Soliq hisoboti xulosasi (ekran uchun) */
+  private ndflSummary(ndfl: NdflResult, period: string, outside: { outside: number; outsideTiyin: bigint }) {
+    return {
+      sheets: ndfl.sheets.map((x) => ({ ...x, monthTiyin: x.monthTiyin.toString(), cumulativeTiyin: x.cumulativeTiyin.toString(), taxMonthTiyin: x.taxMonthTiyin.toString(), types: x.types.map((t) => ({ ...t, monthTiyin: t.monthTiyin.toString() })) })),
+      people: ndfl.people.length,
+      inBoth: ndfl.inBoth,
+      monthOverCumulative: ndfl.monthOverCumulative,
+      periodHint: ndfl.periodHint,
+      periodMismatch: Boolean(ndfl.periodHint && ndfl.periodHint !== period),
+      salaryTiyin: ndfl.people.reduce((a, p) => a + p.salaryTiyin, 0n).toString(),
+      otherTiyin: ndfl.people.reduce((a, p) => a + p.otherTiyin, 0n).toString(),
+      taxTiyin: ndfl.people.reduce((a, p) => a + p.taxTiyin, 0n).toString(),
+      /** Boshqa joy xodimlari — bo'limga olinmadi */
+      outside: outside.outside,
+      outsideTiyin: outside.outsideTiyin.toString(),
+    };
   }
 
   /** Bir oy natijasi (xodimlar holati, jamilar, oldingi vedomost) */
@@ -956,23 +1028,35 @@ export class UnitPayrollService {
   }
 
   /** Bitta oy (eski usul): fayldagi «period» ustuni yoki eski shablon (PINFL, Summa) */
-  async analyze(unit: string, period: string, file: Express.Multer.File | undefined) {
+  async analyze(unit: string, period: string, file: Express.Multer.File | undefined, format: 'auto' | 'ndfl' = 'auto') {
     this.assertPeriod(period);
-    const p = this.parseBook(await this.loadBook(file), period);
-    const parsed = p.byMonth.get(period) ?? p.byMonth.values().next().value ?? new Map();
+    const fileName = String(file?.originalname ?? 'ish-haqi.xlsx').slice(0, 200);
+    const p = this.parseBook(await this.loadBook(file), period, fileName, format);
+    let parsed = p.byMonth.get(period) ?? p.byMonth.values().next().value ?? new Map();
+    let ndfl: ReturnType<UnitPayrollService['ndflSummary']> | null = null;
+    if (p.ndfl) {
+      const f = await this.ndflForUnit(unit, period, parsed);
+      parsed = f.kept;
+      ndfl = this.ndflSummary(p.ndfl, period, f);
+      if (parsed.size === 0) throw new BadRequestException(`Soliq hisobotida ${entryUnitLabel(unit)} xodimlari topilmadi (${f.outside} xodim — boshqa joylarniki). Umumiy hisobotni Xarajatlar › Soliq hisoboti orqali yuklang — bo'lim xodimlari o'z bo'limiga avtomatik yoziladi`);
+    }
     if (parsed.size === 0) throw new BadRequestException('Faylda yaroqli qator topilmadi (1-varaq: A — PINFL, keyin summa)');
     if (parsed.size > MAX_ROWS) throw new BadRequestException(`Qatorlar juda ko'p (${parsed.size}) — ${MAX_ROWS} tagacha`);
-    return this.monthResult(unit, period, String(file?.originalname ?? 'ish-haqi.xlsx').slice(0, 200), parsed, p.invalidRows, p.duplicates, p.fileNames);
+    return { ...(await this.monthResult(unit, period, fileName, parsed, p.invalidRows, p.duplicates, p.fileNames)), ndfl };
   }
 
   /**
    * Fayldagi hamma oylar: yangi shablon — har oy ustuni alohida; eski shablon — tanlangan oy.
    * Har oy — alohida natija (saqlashda tanlangan oylar birma-bir saqlanadi).
    */
-  async analyzeMany(unit: string, period: string, file: Express.Multer.File | undefined) {
+  async analyzeMany(unit: string, period: string, file: Express.Multer.File | undefined, format: 'auto' | 'ndfl' = 'auto') {
     this.assertPeriod(period);
-    const p = this.parseBook(await this.loadBook(file), period);
     const fileName = String(file?.originalname ?? 'ish-haqi.xlsx').slice(0, 200);
+    const p = this.parseBook(await this.loadBook(file), period, fileName, format);
+    if (p.ndfl) {
+      const single = await this.analyze(unit, period, file, 'ndfl');
+      return { unit, label: entryUnitLabel(unit), fileName, format: 'NDFL' as const, invalidRows: p.invalidRows, duplicates: [], months: [single], ndfl: single.ndfl };
+    }
     const size = Math.max(0, ...[...p.byMonth.values()].map((m) => m.size));
     if (size === 0) throw new BadRequestException("Faylda yaroqli qator topilmadi — shablonni shu sahifadan yuklab oling (A — PINFL, keyin oylar)");
     if (size > MAX_ROWS) throw new BadRequestException(`Qatorlar juda ko'p (${size}) — ${MAX_ROWS} tagacha`);
@@ -980,7 +1064,7 @@ export class UnitPayrollService {
     for (const [per, parsed] of [...p.byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       months.push(await this.monthResult(unit, per, fileName, parsed, [], p.duplicates, p.fileNames));
     }
-    return { unit, label: entryUnitLabel(unit), fileName, format: p.multi ? 'MONTHS' : 'SINGLE', invalidRows: p.invalidRows, duplicates: p.duplicates, months };
+    return { unit, label: entryUnitLabel(unit), fileName, format: p.multi ? ('MONTHS' as const) : ('SINGLE' as const), invalidRows: p.invalidRows, duplicates: p.duplicates, months, ndfl: null };
   }
 
   // ═══════════ Saqlash ═══════════

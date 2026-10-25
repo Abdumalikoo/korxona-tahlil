@@ -162,6 +162,32 @@ const load = async (f) => {
   assert.deepStrictEqual(c.units.map((u) => [u.unit, u.employees, u.totalTiyin]), [['FERMER', 1, '8000000']]);
   const exp = T.expense.filter((e) => !e.deletedAt && e.categoryCode === 'PAYROLL_BASE' && e.payrollBatchId);
   assert.strictEqual(exp.reduce((s, e) => s + e.amountTiyin, 0n), 305000025n, 'umumiy vedomost xarajatlari = shu oy jami (o\'sib boruvchi emas)');
+
+  // ── Bo'lim sahifasida (Tax free): faqat shu bo'lim xodimlari olinadi ──
+  const db2 = fakeDb();
+  const T2 = db2.tables;
+  T2.user.push({ id: 'adm', role: 'ADMIN', fullName: 'Admin' });
+  T2.region.push({ code: 0, name: 'Markaz', isActive: true });
+  T2.category.push({ code: 'PAYROLL_BASE', label: 'Ish haqi', parentCode: null, isLeaf: true, isActive: true });
+  T2.employee.push({ pinfl: P.A, fullName: 'Aliyev Ali', lastName: 'Aliyev', firstName: 'Ali', regionCode: 0, departmentId: null, districtId: null, position: null, employmentType: 'SHTAT', isActive: true, hiredAt: null, firedAt: null });
+  T2.setting.push({ key: 'unit.staff', value: {
+    TAX_FREE: [{ pinfl: P.B, fullName: 'Botirov Bobur', position: null, active: true, addedAt: '2026-01-01T00:00:00Z', source: 'MANUAL', leftAt: null }],
+    FERMER: [{ pinfl: P.W, fullName: 'Vohidov Vali', position: null, active: true, addedAt: '2026-01-01T00:00:00Z', source: 'MANUAL', leftAt: null }],
+  } });
+  const up2 = new UnitPayrollService(db2.client, new AuditService(db2.client));
+  const plainU = new ExcelJS.Workbook();
+  plainU.addWorksheet('Ish haqi').addRow(['PINFL', 'Summa']);
+  await assert.rejects(up2.analyzeMany('TAX_FREE', '2026-03', { buffer: Buffer.from(await plainU.xlsx.writeBuffer()), originalname: 'x.xlsx' }, 'ndfl'), /soliq hisoboti emas/);
+  const u = await up2.analyzeMany('TAX_FREE', '2026-03', f);
+  assert.strictEqual(u.format, 'NDFL', "oddiy yuklashda ham taniladi");
+  const m = u.months[0];
+  assert.strictEqual(m.period, '2026-03');
+  // B — bo'lim xodimi; C, D — reestrda ham, boshqa bo'limda ham yo'q (yangi); A — reestrda (Markaz), W — Fermer — olinmaydi
+  assert.deepStrictEqual(m.rows.map((r) => r.pinfl).sort(), [P.B, P.C, P.D].sort());
+  assert.deepStrictEqual([u.ndfl.outside, u.ndfl.outsideTiyin], [2, String(135000025n + 8000000n)]);
+  assert.strictEqual(m.rows.find((r) => r.pinfl === P.D).fullName, 'Xato PINFLli', 'ismi hisobotdan');
+  const c2 = await up2.commit('TAX_FREE', '2026-03', { rows: m.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName })), fileName: u.fileName }, false, 'adm');
+  assert.strictEqual(c2.totalTiyin, String(150000000n + 0n + 20000000n));
   console.log('OK t-ndfl');
 })().catch((e) => {
   console.error(e);

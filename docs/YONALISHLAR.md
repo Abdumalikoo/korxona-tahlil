@@ -735,3 +735,9 @@ Bo'lim sahifasi › Ish haqi › saqlangan ro'yxatda xodim(lar)ni belgilab «Bos
 - Fayl nomidagi oy (masalan «NDFL_yanvar_2026») tanlangan oydan farq qilsa — ogohlantiriladi.
 - Keyingi qadamlar Ish haqidagidek: bo'limlarga taqsimot (bo'limga avval yuklanganlar olinmaydi), bo'limni o'zgartirish, saqlash — umumiy vedomost bo'lib yoziladi. Reestrda yo'q bo'lim xodimining F.I.Sh. hisobotdan olinadi.
 - «Ish haqi» yorlig'iga soliq hisoboti tashlansa ham taniladi.
+
+### Bo'limlarda ham (Tax free, Fermer xo'jaligi, Buxgalteriya xizmatlari, Marksheyder)
+Har bo'lim xarajatlarida «Ish haqi» yonida **«Soliq hisoboti»** yorlig'i. O'qish qoidasi xuddi shunday (faqat hisobot davri, 4 + 5-ilova PINFL bo'yicha), oy — yuqori paneldagi «Davr».
+- Hisobot odatda butun tashkilot bo'yicha bo'lgani uchun bo'limga **faqat shu bo'lim xodimlari** olinadi: bo'lim ro'yxatidagilar (Xodimlar bazasidan yoki o'zining), «miya» bo'yicha shu oy shu bo'limdagilar va hech qayerda yo'q yangi xodimlar. Markaz, hududlar va boshqa bo'lim xodimlari olinmaydi — soni va summasi ko'rsatiladi.
+- Butun tashkilot hisobotini bir marta Xarajatlar › Soliq hisoboti orqali yuklash qulayroq: har kim o'z joyiga (umumiy vedomost yoki bo'lim) avtomatik yoziladi.
+- Bo'limning «Ish haqi» yorlig'iga soliq hisoboti tashlansa ham taniladi.

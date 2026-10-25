@@ -58,6 +58,9 @@ export interface NdflSummary {
   salaryTiyin: string;
   otherTiyin: string;
   taxTiyin: string;
+  /** Bo'lim sahifasida: boshqa joy xodimlari — olinmadi */
+  outside?: number;
+  outsideTiyin?: string;
 }
 
 export interface PlanSummary {

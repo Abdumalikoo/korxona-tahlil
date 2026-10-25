@@ -104,7 +104,7 @@ function ExpenseUnit({ unit, tab }: { unit: EntryUnit; tab?: string }) {
             </Link>
           </Card>
         ) : current?.view === 'payroll' ? (
-          <UnitPayrollView unit={unit} />
+          <UnitPayrollView key={current.slug} unit={unit} mode={current.ndfl ? 'ndfl' : 'vedomost'} />
         ) : current?.view === 'composition' ? (
           <CompositionWorkspace unit={unit} />
         ) : current?.view === 'lease' ? (

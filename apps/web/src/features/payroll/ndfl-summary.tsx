@@ -56,6 +56,12 @@ export function NdflSummaryCard({ ndfl, period }: { ndfl: NdflSummary; period: s
             </div>
           ))}
         </div>
+        {(ndfl.outside ?? 0) > 0 && (
+          <p className="rounded-(--radius-control) bg-(--color-surface-muted) px-3 py-2 text-xs text-(--color-text-muted)">
+            <b className="text-heading">{ndfl.outside}</b> xodim (<span className="money">{formatTiyin(ndfl.outsideTiyin ?? '0')}</span> so&apos;m) bu bo&apos;limniki emas — Markaz, hududlar yoki boshqa bo&apos;lim xodimlari, olinmadi.
+            Butun tashkilot hisobotini Xarajatlar › Soliq hisoboti orqali yuklasangiz, har kim o&apos;z joyiga avtomatik yoziladi.
+          </p>
+        )}
         {ndfl.monthOverCumulative > 0 && (
           <p className="text-xs text-(--color-warn)">{ndfl.monthOverCumulative} ta qatorda shu oy summasi yil boshidan jamidan katta — faylni tekshiring.</p>
         )}

@@ -1,3 +1,4 @@
+import type { NdflSummary } from '@/features/payroll/plan-api';
 import { api, getToken, type ApiResponse } from '@/lib/api';
 
 // ═══════════════════════════════════════════════════════════
@@ -126,8 +127,10 @@ export interface UnitManyResult {
   unit: string;
   label: string;
   fileName: string;
-  /** MONTHS — oylar ustunli shablon; SINGLE — eski (PINFL, Summa) — tanlangan oy */
-  format: 'MONTHS' | 'SINGLE';
+  /** MONTHS — oylar ustunli shablon; SINGLE — eski (PINFL, Summa) — tanlangan oy; NDFL — soliq hisoboti (tanlangan oy) */
+  format: 'MONTHS' | 'SINGLE' | 'NDFL';
+  /** Soliq hisoboti bo'lsa — xulosa (bo'lim xodimi bo'lmaganlar — outside) */
+  ndfl: NdflSummary | null;
   invalidRows: { rowIndex: number; reason: string }[];
   duplicates: string[];
   months: (UnitAnalyzeResult & { monthLabel: string; paidRows: number })[];
@@ -266,10 +269,11 @@ export async function analyzeUnitFile(unit: string, period: string, file: File):
 }
 
 /** Faylni tahlil qiladi — undagi hamma oylar (eski shablon — tanlangan oy); hali saqlanmaydi */
-export async function analyzeUnitFileMany(unit: string, period: string, file: File): Promise<UnitManyResult> {
+/** format: auto — shablon yoki soliq hisoboti; ndfl — faqat soliq hisoboti */
+export async function analyzeUnitFileMany(unit: string, period: string, file: File, format: 'auto' | 'ndfl' = 'auto'): Promise<UnitManyResult> {
   const form = new FormData();
   form.append('file', file);
-  const response = await fetch(`${BASE}/unit-payroll/${enc(unit)}/analyze-many?period=${enc(period)}`, { method: 'POST', headers: authHeaders(), body: form });
+  const response = await fetch(`${BASE}/unit-payroll/${enc(unit)}/analyze-many?period=${enc(period)}&format=${format}`, { method: 'POST', headers: authHeaders(), body: form });
   if (!response.ok) throw new Error(await readError(response, "Faylni tahlil qilib bo'lmadi"));
   return ((await response.json()) as ApiResponse<UnitManyResult>).data;
 }
