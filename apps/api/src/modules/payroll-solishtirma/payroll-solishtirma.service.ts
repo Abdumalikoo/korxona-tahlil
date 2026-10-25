@@ -36,6 +36,8 @@ export interface SolishtirmaSettings {
 const DEFAULTS: SolishtirmaSettings = { taxPct: 12, unionPct: 2, toleranceSum: 1000 };
 
 export type BankMonthMode = 'ACCRUAL' | 'PAID';
+/** FOT manbasi: tarkib (bo'lmasa soliq hisoboti) yoki soliq hisoboti (bo'lmasa tarkib) */
+export type FotMode = 'TARKIB' | 'SOLIQ';
 export type SolState = 'OK' | 'LESS' | 'MORE' | 'NO_BANK' | 'NO_FOT';
 export type GroupKey = 'CENTER_SHTAT' | 'CENTER_SHARTNOMA' | 'REGION_SHTAT' | 'REGION_SHARTNOMA' | 'UNIT' | 'UNKNOWN';
 
@@ -150,9 +152,10 @@ export class PayrollSolishtirmaService {
 
   // ═══════════ Solishtirma ═══════════
 
-  async view(period: string, modeRaw?: string) {
+  async view(period: string, modeRaw?: string, fotRaw?: string) {
     if (!PERIOD_RE.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
     const mode: BankMonthMode = modeRaw === 'PAID' ? 'PAID' : 'ACCRUAL';
+    const fotMode: FotMode = fotRaw === 'SOLIQ' ? 'SOLIQ' : 'TARKIB';
     const [set, f, bank] = await Promise.all([this.settings(), this.fot(period), this.bank(period, mode)]);
     const tol = BigInt(Math.round(set.toleranceSum * 100));
     const pinfls = [...new Set([...f.tarkib.keys(), ...f.soliq.keys(), ...bank.by.keys()])];
@@ -178,8 +181,12 @@ export class PayrollSolishtirmaService {
       const typeRaw = (loc?.employmentType ?? e?.employmentType ?? null) as string | null;
       const type: 'SHTAT' | 'SHARTNOMA' = typeRaw === 'SHARTNOMA' ? 'SHARTNOMA' : 'SHTAT';
       const group: GroupKey = unit ? 'UNIT' : regionCode === null ? 'UNKNOWN' : regionCode === 0 ? (type === 'SHTAT' ? 'CENTER_SHTAT' : 'CENTER_SHARTNOMA') : type === 'SHTAT' ? 'REGION_SHTAT' : 'REGION_SHARTNOMA';
-      const fot = t?.total ?? s?.total ?? null;
-      const fotSource: 'TARKIB' | 'SOLIQ' | null = t ? 'TARKIB' : s ? 'SOLIQ' : null;
+      const first = fotMode === 'SOLIQ' ? s : t;
+      const second = fotMode === 'SOLIQ' ? t : s;
+      const fot = first?.total ?? second?.total ?? null;
+      const fotSource: 'TARKIB' | 'SOLIQ' | null = first ? fotMode : second ? (fotMode === 'SOLIQ' ? 'TARKIB' : 'SOLIQ') : null;
+      // Tarkib ≠ soliq hisoboti (ikkalasi bor bo'lsa)
+      const tsDiff = t && s ? s.total - t.total : null;
       const tax = fot === null ? null : pct(fot, set.taxPct);
       const union = fot === null ? null : type === 'SHTAT' ? pct(fot, set.unionPct) : 0n;
       const expected = fot === null ? null : fot - tax! - union!;
@@ -231,6 +238,8 @@ export class PayrollSolishtirmaService {
         fotSource,
         tarkibTiyin: t ? t.total.toString() : null,
         soliqTiyin: s ? s.total.toString() : null,
+        /** Soliq hisoboti − tarkib (ikkalasi bo'lsa) */
+        tarkibSoliqDiffTiyin: tsDiff === null ? null : tsDiff.toString(),
         taxTiyin: tax === null ? null : tax.toString(),
         unionTiyin: union === null ? null : union.toString(),
         expectedTiyin: expected === null ? null : expected.toString(),
@@ -248,7 +257,7 @@ export class PayrollSolishtirmaService {
     const groups = (Object.keys(GROUP_LABELS) as GroupKey[])
       .map((g) => {
         const list = rows.filter((r) => r.group === g);
-        const sum = (k: 'fotTiyin' | 'taxTiyin' | 'unionTiyin' | 'expectedTiyin' | 'bankTiyin' | 'diffTiyin') => list.reduce((s, r) => s + BigInt(r[k] ?? '0'), 0n).toString();
+        const sum = (k: 'fotTiyin' | 'tarkibTiyin' | 'soliqTiyin' | 'taxTiyin' | 'unionTiyin' | 'expectedTiyin' | 'bankTiyin' | 'diffTiyin') => list.reduce((s, r) => s + BigInt(r[k] ?? '0'), 0n).toString();
         return {
           key: g,
           label: GROUP_LABELS[g],
@@ -257,6 +266,8 @@ export class PayrollSolishtirmaService {
           ok: list.filter((r) => r.state === 'OK').length,
           problems: list.filter((r) => r.state !== 'OK').length,
           fotTiyin: sum('fotTiyin'),
+          tarkibTiyin: sum('tarkibTiyin'),
+          soliqTiyin: sum('soliqTiyin'),
           taxTiyin: sum('taxTiyin'),
           unionTiyin: sum('unionTiyin'),
           expectedTiyin: sum('expectedTiyin'),
@@ -285,6 +296,7 @@ export class PayrollSolishtirmaService {
       period,
       label: monthLabel(period),
       mode,
+      fotMode,
       settings: set,
       sources: { tarkib: f.tarkibUploaded, soliq: f.soliqUploaded, bank: bank.uploaded },
       summary: {
@@ -294,6 +306,8 @@ export class PayrollSolishtirmaService {
         more: count('MORE'),
         noBank: count('NO_BANK'),
         noFot: count('NO_FOT'),
+        /** Tarkibi soliq hisobotidan farq qiladigan xodimlar (ikkalasi bor) */
+        tarkibSoliqDiff: rows.filter((r) => r.tarkibSoliqDiffTiyin !== null && (BigInt(r.tarkibSoliqDiffTiyin) > tol || BigInt(r.tarkibSoliqDiffTiyin) < -tol)).length,
         fotTiyin: rows.reduce((s, r) => s + BigInt(r.fotTiyin ?? '0'), 0n).toString(),
         expectedTiyin: rows.reduce((s, r) => s + BigInt(r.expectedTiyin ?? '0'), 0n).toString(),
         bankTiyin: rows.reduce((s, r) => s + BigInt(r.bankTiyin), 0n).toString(),

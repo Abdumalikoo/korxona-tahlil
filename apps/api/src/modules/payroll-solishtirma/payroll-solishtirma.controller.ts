@@ -8,11 +8,11 @@ import { PayrollSolishtirmaService, type SolishtirmaSettings } from './payroll-s
 export class PayrollSolishtirmaController {
   constructor(private readonly service: PayrollSolishtirmaService) {}
 
-  /** ?period=YYYY-MM&bankMonth=ACCRUAL|PAID */
+  /** ?period=YYYY-MM&bankMonth=ACCRUAL|PAID&fot=TARKIB|SOLIQ */
   @Personal()
   @Get()
-  async view(@Query('period') period: string, @Query('bankMonth') bankMonth?: string) {
-    return { data: await this.service.view(period, bankMonth) };
+  async view(@Query('period') period: string, @Query('bankMonth') bankMonth?: string, @Query('fot') fot?: string) {
+    return { data: await this.service.view(period, bankMonth, fot) };
   }
 
   @Get('settings')

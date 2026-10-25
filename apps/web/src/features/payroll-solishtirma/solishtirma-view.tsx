@@ -13,7 +13,7 @@ import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
-import { solishtirmaApi, type BankMonthMode, type GroupKey, type SolishtirmaSettings, type SolRow, type SolState } from './api';
+import { solishtirmaApi, type BankMonthMode, type FotMode, type GroupKey, type SolishtirmaSettings, type SolRow, type SolState } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Ish haqi solishtirma: FOT − daromad solig'i − kasaba uyushmasi (faqat shtat) = 23106.
@@ -36,7 +36,8 @@ export function SolishtirmaView() {
   const { isAdmin } = useAuth();
   const { month: period } = usePeriod();
   const [mode, setMode] = useState<BankMonthMode>('ACCRUAL');
-  const data = useAsync(() => solishtirmaApi.view(period, mode).then((r) => r.data), [period, mode]);
+  const [fotMode, setFotMode] = useState<FotMode>('TARKIB');
+  const data = useAsync(() => solishtirmaApi.view(period, mode, fotMode).then((r) => r.data), [period, mode, fotMode]);
   const v = data.data;
   const [group, setGroup] = useState<GroupKey | 'ALL'>('ALL');
   const [state, setState] = useState<StateFilter>('PROBLEM');
@@ -104,8 +105,17 @@ export function SolishtirmaView() {
             <Source ok={v.sources.tarkib} label="Ish haqi tarkibi" />
             <Source ok={v.sources.soliq} label="Soliq hisoboti" />
             <Source ok={v.sources.bank} label="23106 ko‘chirmasi" />
-            <span className="text-(--color-text-muted)">FOT — tarkibdagi jami; tarkib bo‘lmasa — soliq hisobotidagi summa</span>
             <span className="ml-auto flex items-center gap-1 rounded-full border border-(--color-line) bg-white p-0.5">
+              <span className="pl-2 text-(--color-text-muted)">FOT:</span>
+              <ModeBtn active={fotMode === 'TARKIB'} onClick={() => setFotMode('TARKIB')} title="FOT — ish haqi tarkibidagi jami (tarkib bo‘lmasa — soliq hisobotidagi summa)">
+                Ish haqi tarkibi
+              </ModeBtn>
+              <ModeBtn active={fotMode === 'SOLIQ'} onClick={() => setFotMode('SOLIQ')} title="FOT — soliq hisobotidagi «hisobot davrida hisoblangan» summa (bo‘lmasa — tarkib)">
+                Soliq hisoboti
+              </ModeBtn>
+            </span>
+            <span className="flex items-center gap-1 rounded-full border border-(--color-line) bg-white p-0.5">
+              <span className="pl-2 text-(--color-text-muted)">23106:</span>
               <ModeBtn active={mode === 'ACCRUAL'} onClick={() => setMode('ACCRUAL')} title="Izohdagi «… oyi uchun» (bo‘lmasa buyruq oyi): avans shu oyda, qoldiq keyingi oyda to‘lansa ham — shu oyga">
                 Qaysi oy uchun to‘langan
               </ModeBtn>
@@ -169,8 +179,10 @@ export function SolishtirmaView() {
                   </div>
                   <p className="mt-0.5 text-[11px] text-(--color-text-muted)">{g.rule} · {g.employees} xodim</p>
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-                    <dt className="text-(--color-text-muted)">FOT</dt>
+                    <dt className="text-(--color-text-muted)">FOT ({v.fotMode === 'TARKIB' ? 'tarkib' : 'soliq hisoboti'})</dt>
                     <dd className="money text-right">{formatTiyin(g.fotTiyin)}</dd>
+                    <dt className="text-(--color-text-muted)">{v.fotMode === 'TARKIB' ? 'Soliq hisobotida' : 'Tarkibda'}</dt>
+                    <dd className={cn('money text-right', (() => { const d = BigInt(v.fotMode === 'TARKIB' ? g.soliqTiyin : g.tarkibTiyin) - BigInt(g.fotTiyin); const t = BigInt(Math.round(st.toleranceSum * 100)) * BigInt(g.employees); return d > t || d < -t; })() && 'text-(--color-warn)')}>{formatTiyin(v.fotMode === 'TARKIB' ? g.soliqTiyin : g.tarkibTiyin)}</dd>
                     <dt className="text-(--color-text-muted)">Kutilgan (qo‘lga)</dt>
                     <dd className="money text-right">{formatTiyin(g.expectedTiyin)}</dd>
                     <dt className="text-(--color-text-muted)">23106</dt>
@@ -223,7 +235,7 @@ export function SolishtirmaView() {
           <Card className="overflow-hidden">
             <CardHeader
               title={group === 'ALL' ? 'Xodimlar' : (v.groups.find((g) => g.key === group)?.label ?? 'Xodimlar')}
-              description={`${shown.length} ta${s.unknownType ? ` · ${s.unknownType} xodimning turi (shtat/shartnoma) bazada yo‘q — shtat deb olindi` : ''}`}
+              description={`${shown.length} ta${s.tarkibSoliqDiff ? ` · ${s.tarkibSoliqDiff} xodimda tarkib soliq hisobotidan farq qiladi` : ''}${s.unknownType ? ` · ${s.unknownType} xodimning turi (shtat/shartnoma) bazada yo‘q — shtat deb olindi` : ''}`}
             />
             <div className="flex flex-wrap items-center gap-2 border-b border-(--color-line) px-5 py-2.5">
               {(['PROBLEM', 'LESS', 'MORE', 'NO_BANK', 'NO_FOT', 'OK', 'ALL'] as StateFilter[]).map((k) => (
@@ -261,7 +273,8 @@ export function SolishtirmaView() {
                 <thead className="sticky top-0 z-[1] bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold">Xodim</th>
-                    <th className="w-32 px-2 py-2 text-right font-semibold">FOT</th>
+                    <th className="w-32 px-2 py-2 text-right font-semibold">FOT ({v.fotMode === 'TARKIB' ? 'tarkib' : 'soliq'})</th>
+                    <th className="w-32 px-2 py-2 text-right font-semibold">{v.fotMode === 'TARKIB' ? 'Soliq hisoboti' : 'Tarkib'}</th>
                     <th className="w-28 px-2 py-2 text-right font-semibold">Soliq {st.taxPct}%</th>
                     <th className="w-28 px-2 py-2 text-right font-semibold">Kasaba</th>
                     <th className="w-32 px-2 py-2 text-right font-semibold">Kutilgan</th>
@@ -272,11 +285,11 @@ export function SolishtirmaView() {
                 </thead>
                 <tbody>
                   {slice.map((r) => (
-                    <PersonRow key={r.pinfl} r={r} />
+                    <PersonRow key={r.pinfl} r={r} fotMode={v.fotMode} tol={BigInt(Math.round(st.toleranceSum * 100))} />
                   ))}
                   {!slice.length && (
                     <tr>
-                      <td colSpan={8} className="py-6 text-center text-sm text-(--color-text-muted)">
+                      <td colSpan={9} className="py-6 text-center text-sm text-(--color-text-muted)">
                         {state === 'PROBLEM' ? 'Farq yo‘q — hammasi qoidaga mos' : 'Bu tanlovda xodim yo‘q'}
                       </td>
                     </tr>
@@ -308,7 +321,7 @@ export function SolishtirmaView() {
   );
 }
 
-function PersonRow({ r }: { r: SolRow }) {
+function PersonRow({ r, fotMode, tol }: { r: SolRow; fotMode: FotMode; tol: bigint }) {
   const st = STATE[r.state];
   const diff = r.diffTiyin === null ? null : BigInt(r.diffTiyin);
   const dash = <span className="text-(--color-text-faint)">—</span>;
@@ -332,6 +345,22 @@ function PersonRow({ r }: { r: SolRow }) {
       <td className="money px-2 py-2 text-right">
         {r.fotTiyin === null ? dash : formatTiyin(r.fotTiyin)}
         {r.fotSource && <span className="block text-[10px] text-(--color-text-faint)">{r.fotSource === 'TARKIB' ? 'tarkibdan' : r.unit ? 'bo‘lim ish haqidan' : 'soliq hisobotidan'}</span>}
+      </td>
+      <td className="money px-2 py-2 text-right">
+        {(() => {
+          const other = fotMode === 'TARKIB' ? r.soliqTiyin : r.tarkibTiyin;
+          if (other === null) return <span className="text-[11px] text-(--color-text-faint)">{fotMode === 'TARKIB' ? 'yo‘q' : 'tarkib yo‘q'}</span>;
+          // Ko'rsatilgan ustun − FOT: tarkib rejimida (soliq − tarkib), soliq rejimida (tarkib − soliq)
+          const raw = r.tarkibSoliqDiffTiyin === null ? 0n : BigInt(r.tarkibSoliqDiffTiyin);
+          const d = fotMode === 'TARKIB' ? raw : -raw;
+          const differs = d > tol || d < -tol;
+          return (
+            <>
+              <span className={differs ? 'text-(--color-warn)' : 'text-(--color-text-muted)'}>{formatTiyin(other)}</span>
+              {differs && <span className="block text-[10px] text-(--color-warn)">{fotMode === 'TARKIB' ? 'tarkibdan' : 'soliqdan'} {d > 0n ? '+' : ''}{formatTiyin(d.toString())}</span>}
+            </>
+          );
+        })()}
       </td>
       <td className="money px-2 py-2 text-right text-(--color-text-muted)">{r.taxTiyin === null ? dash : formatTiyin(r.taxTiyin)}</td>
       <td className="money px-2 py-2 text-right text-(--color-text-muted)">{r.unionTiyin === null ? dash : r.unionTiyin === '0' ? <span className="text-(--color-text-faint)">ushlanmaydi</span> : formatTiyin(r.unionTiyin)}</td>

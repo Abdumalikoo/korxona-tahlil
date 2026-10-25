@@ -81,6 +81,15 @@ async function statement(rows) {
   assert.deepStrictEqual(v.regions.map((x) => [x.name, x.employees, x.problems]), [['Namuna viloyati', 2, 1]]);
   assert.strictEqual(v.rows[0].state, 'MORE', 'muammolilar yuqorida');
 
+  // ── Soliq hisobotidagi summa ham ko'rsatiladi; FOT manbasini almashtirish ──
+  assert.deepStrictEqual([r(P.A).tarkibTiyin, r(P.A).soliqTiyin, r(P.A).tarkibSoliqDiffTiyin], [String(so(10_000_000)), String(so(9_999_000)), String(-so(1_000))]);
+  assert.strictEqual(v.summary.tarkibSoliqDiff, 0, '1 000 so\'m — chegara ichida');
+  assert.deepStrictEqual([cg.tarkibTiyin, cg.soliqTiyin], [String(so(15_000_000)), String(so(14_999_000))]);
+  let vs = await svc.view('2026-01', 'ACCRUAL', 'SOLIQ');
+  const rs = (p) => vs.rows.find((x) => x.pinfl === p);
+  assert.deepStrictEqual([vs.fotMode, rs(P.A).fotSource, rs(P.A).fotTiyin], ['SOLIQ', 'SOLIQ', String(so(9_999_000))]);
+  assert.strictEqual(rs(P.A).expectedTiyin, String(so(9_999_000) - so(1_199_880) - so(199_980)));
+
   // ── To'langan oy bo'yicha: yanvarda faqat avans ──
   v = await svc.view('2026-01', 'PAID');
   assert.deepStrictEqual([r(P.A).bankTiyin, r(P.A).state], [String(so(4_000_000)), 'LESS']);

@@ -5,6 +5,7 @@ import { api, type ApiResponse } from '@/lib/api';
 // ═══════════════════════════════════════════════════════════
 
 export type BankMonthMode = 'ACCRUAL' | 'PAID';
+export type FotMode = 'TARKIB' | 'SOLIQ';
 export type SolState = 'OK' | 'LESS' | 'MORE' | 'NO_BANK' | 'NO_FOT';
 export type GroupKey = 'CENTER_SHTAT' | 'CENTER_SHARTNOMA' | 'REGION_SHTAT' | 'REGION_SHARTNOMA' | 'UNIT' | 'UNKNOWN';
 
@@ -30,6 +31,8 @@ export interface SolRow {
   fotSource: 'TARKIB' | 'SOLIQ' | null;
   tarkibTiyin: string | null;
   soliqTiyin: string | null;
+  /** Soliq hisoboti − tarkib (ikkalasi bo'lsa) */
+  tarkibSoliqDiffTiyin: string | null;
   taxTiyin: string | null;
   unionTiyin: string | null;
   expectedTiyin: string | null;
@@ -48,6 +51,8 @@ export interface SolGroup {
   ok: number;
   problems: number;
   fotTiyin: string;
+  tarkibTiyin: string;
+  soliqTiyin: string;
   taxTiyin: string;
   unionTiyin: string;
   expectedTiyin: string;
@@ -59,15 +64,16 @@ export interface SolView {
   period: string;
   label: string;
   mode: BankMonthMode;
+  fotMode: FotMode;
   settings: SolishtirmaSettings;
   sources: { tarkib: boolean; soliq: boolean; bank: boolean };
-  summary: { employees: number; ok: number; less: number; more: number; noBank: number; noFot: number; fotTiyin: string; expectedTiyin: string; bankTiyin: string; unknownType: number };
+  summary: { employees: number; ok: number; less: number; more: number; noBank: number; noFot: number; tarkibSoliqDiff: number; fotTiyin: string; expectedTiyin: string; bankTiyin: string; unknownType: number };
   groups: SolGroup[];
   regions: { name: string; employees: number; problems: number; expectedTiyin: string; bankTiyin: string; diffTiyin: string }[];
   rows: SolRow[];
 }
 
 export const solishtirmaApi = {
-  view: (period: string, bankMonth: BankMonthMode) => api.get<ApiResponse<SolView>>('/payroll-solishtirma', { params: { period, bankMonth } }),
+  view: (period: string, bankMonth: BankMonthMode, fot: FotMode) => api.get<ApiResponse<SolView>>('/payroll-solishtirma', { params: { period, bankMonth, fot } }),
   saveSettings: (s: SolishtirmaSettings) => api.put<ApiResponse<SolishtirmaSettings>>('/payroll-solishtirma/settings', s),
 };
