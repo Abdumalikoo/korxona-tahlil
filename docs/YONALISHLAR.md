@@ -768,3 +768,11 @@ Yorliq: Xarajatlar › Doimiy qatorida («Ish haqi tarkibi»dan keyin). Bankdan 
 - **Xarajat yozuvi yaratilmaydi** — bu to'lovlar ish haqida allaqachon hisoblangan (ikki marta sanalmasin). Kirim (kredit) qatorlari olinmaydi.
 - **Hisob raqami (№ счёта) saqlanmaydi.** Ko'rish — faqat shaxsiy ma'lumotga ruxsati borlarga; yuklash va bekor qilish — administrator.
 - Saqlash oylar bo'yicha (to'lov sanasi): shu oy qayta yuklansa — oldingisi almashtiriladi; yuklashni bekor qilish mumkin. Saqlash joyi — settings, migratsiya kerak emas.
+
+### Soliq hisobotidan faqat «miya»dagi xodimlar olinadi
+Iyuldan boshlab soliq hisobotida fermer xo'jaliklari buxgalterlarining oyliklari ham bor — ular bizning xarajat emas. Shuning uchun soliq hisoboti o'qilganda:
+- **Olinadi** — faqat «miya»dagi xodimlar: Xodimlar bazasi, bo'limlar ro'yxatlari (katta jadvallardan bog'langanlar ham), ko'chishlar.
+- **Olinmaydi va alohida ko'rsatiladi** — miyada ham, katta jadvallarda (10/16/37/51-jadval) ham umuman yo'q odamlar: soni, summasi, ro'yxati (F.I.Sh. soliq hisobotidan). Umumiy sahifada ularga bo'lim tanlab bo'lmaydi («Miyada yo'q — olinmaydi»); server ham olmaydi.
+- **Faqat katta jadvallarda bor** (Xodimlar bazasida va bo'limlarda yo'q) — olinmaydi, lekin kerak bo'lsa bo'limini tanlab olish mumkin.
+- Bo'lim sahifasidagi «Soliq hisoboti»da hech qayerda yo'q odam endi «yangi xodim» bo'lib qo'shilmaydi — «miyada yo'q» ro'yxatida ko'rsatiladi.
+- Oddiy vedomost (PINFL + summa) avvalgidek: reestrda yo'q odamni bo'limni tanlab yozish mumkin.

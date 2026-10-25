@@ -21,7 +21,7 @@ import { PAYROLL_UNITS, planApi, targetLabel, type PlanAnalysis, type PlanInputR
 //  • har xodimning bo'limini o'zgartirish yoki olib tashlash; jamilar darhol qayta hisoblanadi.
 // ═══════════════════════════════════════════════════════════
 
-type Filter = 'ALL' | 'GENERAL' | 'UNITS' | 'SKIP' | 'LOCKED' | 'CHANGED' | 'PROBLEM';
+type Filter = 'ALL' | 'GENERAL' | 'UNITS' | 'SKIP' | 'LOCKED' | 'CHANGED' | 'PROBLEM' | 'NOMIYA';
 const PAGE = 100;
 const TARGETS: PlanTarget[] = ['GENERAL', ...PAYROLL_UNITS.map((u) => u.code), 'SKIP'];
 const unitSlug = (code: string) => PAYROLL_UNITS.find((u) => u.code === code)?.slug ?? '';
@@ -64,7 +64,7 @@ export function PlanView({
     const t = setTimeout(() => {
       setRecalc(true);
       planApi
-        .preview(period, input(rows))
+        .preview(period, input(rows), Boolean(analysis.summary.strict))
         .then((r) => {
           if (my !== seq.current) return;
           setSummary(r.data.summary);
@@ -97,6 +97,7 @@ export function PlanView({
       LOCKED: rows.filter((r) => r.locked).length,
       CHANGED: rows.filter((r) => !r.locked && r.target !== r.suggested).length,
       PROBLEM: rows.filter((r) => r.problem && !r.locked).length,
+      NOMIYA: rows.filter((r) => r.presence === 'NONE' || r.presence === 'HR_ONLY').length,
     }),
     [rows],
   );
@@ -111,6 +112,7 @@ export function PlanView({
       if (filter === 'LOCKED' && !r.locked) return false;
       if (filter === 'CHANGED' && (r.locked || r.target === r.suggested)) return false;
       if (filter === 'PROBLEM' && !(r.problem && !r.locked)) return false;
+      if (filter === 'NOMIYA' && !(r.presence === 'NONE' || r.presence === 'HR_ONLY')) return false;
       if (!qq) return true;
       if (qd.length >= 4 && r.pinfl.includes(qd)) return true;
       return (r.fullName ?? '').toLowerCase().includes(qq) || (r.place ?? '').toLowerCase().includes(qq);
@@ -177,6 +179,34 @@ export function PlanView({
         </div>
       )}
 
+      {/* Miyada yo'q — olinmaydi (masalan fermer xo'jaliklari buxgalterlari: soliq hisobotida bor, bizning xarajat emas) */}
+      {(s.notInMiya?.count ?? 0) + (s.hrOnly?.count ?? 0) > 0 && (
+        <div className="rounded-(--radius-card) border border-(--color-line-strong) bg-(--color-surface-muted) px-4 py-3 text-sm">
+          <p className="flex items-start gap-2 font-semibold text-heading">
+            <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
+            <span>
+            {s.notInMiya?.count ? (
+              <span>
+                {s.notInMiya.count} ta odam miyada ham (Xodimlar bazasi, bo&apos;limlar, ko&apos;chishlar), katta jadvallarda (10/16/37/51) ham yo&apos;q —{' '}
+                <span className="money">{formatTiyin(s.notInMiya.totalTiyin)}</span> so&apos;m hisobga olinmadi
+              </span>
+            ) : null}
+            {s.hrOnly?.count ? (
+              <span className="font-normal text-(--color-text-muted)">
+                {' '}· {s.hrOnly.count} tasi faqat katta jadvallarda bor (<span className="money">{formatTiyin(s.hrOnly.totalTiyin)}</span>) — olinmadi, kerak bo&apos;lsa bo&apos;limini tanlang
+              </span>
+            ) : null}
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-(--color-text-muted)">
+            {s.strict ? "Soliq hisobotidan faqat miyadagi xodimlar olinadi (masalan, fermer xo'jaliklari buxgalterlarining oyliklari — bizning xarajat emas). " : ''}
+            <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => setFilter('NOMIYA')}>
+              Ro&apos;yxatni ko&apos;rish
+            </button>
+          </p>
+        </div>
+      )}
+
       {/* Bo'limlarga avtomatik */}
       {unitsUsed.length > 0 && (
         <Card>
@@ -219,6 +249,7 @@ export function PlanView({
                 ['LOCKED', 'Avval yuklangan'],
                 ['CHANGED', "O'zgartirilgan"],
                 ['PROBLEM', 'Muammoli'],
+                ...(counts.NOMIYA ? ([['NOMIYA', "Miyada yo'q"]] as [Filter, string][]) : []),
               ] as [Filter, string][]
             ).map(([k, label]) => (
               <button
@@ -293,6 +324,9 @@ export function PlanView({
                       <Badge tone="neutral">{r.locked.label} bo&apos;limida bor — olinmaydi</Badge>
                     ) : (
                       <div className="flex items-center gap-1.5">
+                        {s.strict && r.presence === 'NONE' ? (
+                          <Badge tone="neutral">Miyada yo&apos;q — olinmaydi</Badge>
+                        ) : (
                         <select
                           value={r.target}
                           onChange={(e) => change(r.pinfl, { target: e.target.value as PlanTarget })}
@@ -309,6 +343,7 @@ export function PlanView({
                             </option>
                           ))}
                         </select>
+                        )}
                         {changed && (
                           <button type="button" title="Taklifga qaytarish" onClick={() => change(r.pinfl, { target: r.suggested })} className="text-xs text-(--color-text-muted) hover:text-heading">
                             ↺

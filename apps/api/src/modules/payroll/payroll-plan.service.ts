@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { isPayrollUnit, PAYROLL_UNITS, UnitPayrollService, type PayrollUnit } from '../unit-payroll/unit-payroll.service';
 import { PayrollService, type MissingRow } from './payroll.service';
 import { assertAmount } from '../../common/validation/amount';
+import { hrPeople } from '../hr-sheets/hr-sheets.store';
 
 // ═══════════════════════════════════════════════════════════
 // Umumiy vedomost (Xarajatlar › Ish haqi) — bo'limlar bilan birga.
@@ -45,6 +46,11 @@ export interface PlanRow {
   problem: string | null;
   /** Soliq hisobotidan: oylik (4-ilova) va boshqa daromad (5-ilova) */
   parts?: { salaryTiyin: string; otherTiyin: string };
+  /**
+   * «Miya»da bormi: MIYA — Xodimlar bazasi, bo'lim ro'yxatlari yoki ko'chishlarda; HR_ONLY — faqat katta jadvallarda
+   * (10/16/37/51); NONE — hech qayerda yo'q (masalan fermer xo'jaliklari buxgalterlari — bizning xarajat emas)
+   */
+  presence: 'MIYA' | 'HR_ONLY' | 'NONE';
 }
 
 interface InputRow {
@@ -96,15 +102,20 @@ export class PayrollPlanService {
     return out;
   }
 
-  /** Reja: har xodim qayerga, jamilar. targets berilmasa — tizim taklifi */
-  async plan(period: string, rows: InputRow[]) {
+  /**
+   * Reja: har xodim qayerga, jamilar. targets berilmasa — tizim taklifi.
+   * strict (soliq hisoboti): faqat «miya»dagi xodimlar olinadi — hech qayerda yo'q odam (miyada ham, katta jadvallarda ham)
+   * tanlov qanday bo'lmasin olinmaydi va alohida ko'rsatiladi.
+   */
+  async plan(period: string, rows: InputRow[], opts: { strict?: boolean } = {}) {
     const input = this.clean(rows);
     const pinfls = [...input.keys()];
-    const [unitsNow, uploaded, names, registry] = await Promise.all([
+    const [unitsNow, uploaded, names, registry, hr] = await Promise.all([
       this.units.unitsAt(pinfls, period),
       this.units.uploadedIn(period),
       this.units.namesFor(pinfls, period),
       this.prisma.employee.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true } }),
+      hrPeople(this.prisma).catch(() => new Map()),
     ]);
     const inRegistry = new Set(registry.map((e) => e.pinfl));
     const generalAll = await this.payroll.previewGeneral(
@@ -117,16 +128,22 @@ export class PayrollPlanService {
       const up = uploaded.get(pinfl);
       const now = unitsNow.get(pinfl) ?? null;
       const reg = inRegistry.has(pinfl);
+      const presence: PlanRow['presence'] = now || reg ? 'MIYA' : hr.has(pinfl) ? 'HR_ONLY' : 'NONE';
       const suggested: PlanTarget = up ? 'SKIP' : now && isPayrollUnit(now) ? now : reg ? 'GENERAL' : 'SKIP';
       let target: PlanTarget = up ? 'SKIP' : (v.target ?? suggested);
       const fullName = names.get(pinfl)?.fullName ?? v.fullName ?? null;
       let problem: string | null = null;
       if (up) problem = `${entryUnitLabel(up.unit)} bo'limiga shu oy yuklangan — olinmaydi`;
+      else if (opts.strict && presence === 'NONE') {
+        problem = "Miyada ham, katta jadvallarda (10/16/37/51) ham yo'q — hisobga olinmaydi";
+        target = 'SKIP';
+      }
       else if (target === 'GENERAL' && !reg) {
         problem = 'Xodimlar reestrida yo‘q — umumiy vedomostga yozib bo‘lmaydi (bo‘limni tanlang yoki reestrga qo‘shing)';
         target = 'SKIP';
       } else if (isPayrollUnit(target) && !fullName) problem = 'F.I.Sh. noma’lum — kiriting';
-      else if (target === 'SKIP' && !reg && !now) problem = 'Xodimlar reestrida ham, bo‘limlarda ham topilmadi';
+      else if (target === 'SKIP' && presence === 'HR_ONLY') problem = 'Faqat katta jadvallarda bor (Xodimlar bazasida va bo‘limlarda yo‘q) — olinmaydi; kerak bo‘lsa bo‘limini tanlang';
+      else if (target === 'SKIP' && presence === 'NONE') problem = "Miyada ham, katta jadvallarda (10/16/37/51) ham yo'q — olinmaydi";
       return {
         pinfl,
         rowIndex: v.rowIndex,
@@ -140,6 +157,7 @@ export class PayrollPlanService {
         target,
         locked: up ? { unit: up.unit, label: entryUnitLabel(up.unit), amountTiyin: up.amountTiyin.toString() } : null,
         problem,
+        presence,
       };
     });
 
@@ -171,6 +189,10 @@ export class PayrollPlanService {
         locked: { count: lockedRows.length, fileTiyin: sum(lockedRows), byUnit: lockedByUnit },
         skipped: { count: skipped.length, totalTiyin: sum(skipped) },
         changed: changed.length,
+        /** «Miya»da yo'q (hech qayerda) va faqat katta jadvallarda bor — olinmagan */
+        notInMiya: { count: out.filter((r) => r.presence === 'NONE' && r.target === 'SKIP').length, totalTiyin: sum(out.filter((r) => r.presence === 'NONE' && r.target === 'SKIP')) },
+        hrOnly: { count: out.filter((r) => r.presence === 'HR_ONLY' && r.target === 'SKIP').length, totalTiyin: sum(out.filter((r) => r.presence === 'HR_ONLY' && r.target === 'SKIP')) },
+        strict: Boolean(opts.strict),
         /** Saqlashga to'sqinlik qiladiganlar (F.I.Sh. yo'q) */
         blocking: out.filter((r) => isPayrollUnit(r.target) && !r.fullName).length,
       },
@@ -186,7 +208,8 @@ export class PayrollPlanService {
       ...a.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: String(r.amountTiyin), fullName: nameOf(r.pinfl) })),
       ...a.missing.map((m) => ({ pinfl: m.pinfl, amountTiyin: String(m.amountTiyin ?? '0'), rowIndex: m.rowIndex, fullName: nameOf(m.pinfl) })),
     ];
-    const plan = await this.plan(period, rows);
+    // Soliq hisoboti — faqat «miya»dagi xodimlar
+    const plan = await this.plan(period, rows, { strict: Boolean(a.ndfl) });
     // Har xodim: oylik (4-ilova) va boshqa daromad (5-ilova) — ekranda ko'rsatish uchun
     if (a.ndfl) {
       for (const r of plan.rows) {
@@ -210,9 +233,9 @@ export class PayrollPlanService {
    * Saqlash: umumiy qism — umumiy vedomost; bo'limlarga tushganlar — har bo'lim ish haqiga alohida yuklash
    * (manbasi: umumiy vedomost). Biror qadam xato bersa — shu saqlashda yaratilganlar bekor qilinadi.
    */
-  async commit(period: string, body: { rows?: unknown; fileName?: unknown }, replacePrevious: boolean, userId: string) {
+  async commit(period: string, body: { rows?: unknown; fileName?: unknown; strict?: unknown }, replacePrevious: boolean, userId: string) {
     const fileName = typeof body?.fileName === 'string' && body.fileName.trim() ? body.fileName.trim().slice(0, 200) : 'ish-haqi.xlsx';
-    const plan = await this.plan(period, (body?.rows ?? []) as InputRow[]);
+    const plan = await this.plan(period, (body?.rows ?? []) as InputRow[], { strict: body?.strict === true });
     const blocking = plan.rows.filter((r) => isPayrollUnit(r.target) && !r.fullName);
     if (blocking.length) throw new BadRequestException(`${blocking.length} ta xodimning F.I.Sh. noma'lum — bo'limga yozish uchun kiriting`);
     const general = plan.rows.filter((r) => r.target === 'GENERAL');

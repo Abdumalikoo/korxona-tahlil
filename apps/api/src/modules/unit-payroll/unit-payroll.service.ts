@@ -907,9 +907,9 @@ export class UnitPayrollService {
 
   /**
    * Soliq hisoboti odatda butun tashkilot bo'yicha — bo'limga faqat shu bo'lim xodimlari olinadi:
-   * bo'lim ro'yxatida (Xodimlar bazasidan yoki o'zining) yoki «miya» bo'yicha shu oy shu bo'limda bo'lganlar,
-   * hamda hech qayerda yo'q (reestrda ham, boshqa bo'limda ham emas) yangi xodimlar.
-   * Qolganlari (Markaz, hududlar, boshqa bo'limlar) — olinmaydi, soni va summasi ko'rsatiladi.
+   * bo'lim ro'yxatida (Xodimlar bazasidan, katta jadvallardan yoki o'zining) yoki «miya» bo'yicha shu oy shu bo'limda bo'lganlar.
+   * Qolganlari olinmaydi: Markaz, hududlar, boshqa bo'limlar xodimlari (outside) va «miya»da ham, katta jadvallarda ham
+   * umuman yo'q odamlar (notInMiya — masalan fermer xo'jaliklari buxgalterlari: soliq hisobotida bor, lekin bizning xarajat emas).
    */
   private async ndflForUnit(unit: string, period: string, parsed: Map<string, { rowIndex: number; amountTiyin: bigint }>) {
     const pins = [...parsed.keys()];
@@ -925,20 +925,23 @@ export class UnitPayrollService {
     const kept = new Map<string, { rowIndex: number; amountTiyin: bigint }>();
     let outside = 0;
     let outsideTiyin = 0n;
+    const notInMiya: { pinfl: string; amountTiyin: bigint }[] = [];
     for (const [pinfl, v] of parsed) {
       const where = at(pinfl, period);
-      const mine = own.has(pinfl) || where === unit || (!names.has(pinfl) && !elsewhere.has(pinfl) && !where);
+      const mine = own.has(pinfl) || where === unit;
       if (mine) kept.set(pinfl, v);
+      else if (!names.has(pinfl) && !elsewhere.has(pinfl) && !where) notInMiya.push({ pinfl, amountTiyin: v.amountTiyin });
       else {
         outside += 1;
         outsideTiyin += v.amountTiyin;
       }
     }
-    return { kept, outside, outsideTiyin };
+    return { kept, outside, outsideTiyin, notInMiya };
   }
 
   /** Soliq hisoboti xulosasi (ekran uchun) */
-  private ndflSummary(ndfl: NdflResult, period: string, outside: { outside: number; outsideTiyin: bigint }) {
+  private ndflSummary(ndfl: NdflResult, period: string, outside: { outside: number; outsideTiyin: bigint; notInMiya: { pinfl: string; amountTiyin: bigint }[] }) {
+    const nameOf = new Map(ndfl.people.map((p) => [p.pinfl, p.fullName]));
     return {
       sheets: ndfl.sheets.map((x) => ({ ...x, monthTiyin: x.monthTiyin.toString(), cumulativeTiyin: x.cumulativeTiyin.toString(), taxMonthTiyin: x.taxMonthTiyin.toString(), types: x.types.map((t) => ({ ...t, monthTiyin: t.monthTiyin.toString() })) })),
       people: ndfl.people.length,
@@ -952,6 +955,15 @@ export class UnitPayrollService {
       /** Boshqa joy xodimlari — bo'limga olinmadi */
       outside: outside.outside,
       outsideTiyin: outside.outsideTiyin.toString(),
+      /** «Miya»da ham, katta jadvallarda ham yo'q — olinmadi (ro'yxat: F.I.Sh. soliq hisobotidan) */
+      notInMiya: {
+        count: outside.notInMiya.length,
+        totalTiyin: outside.notInMiya.reduce((s, x) => s + x.amountTiyin, 0n).toString(),
+        people: outside.notInMiya
+          .sort((a, b) => (b.amountTiyin > a.amountTiyin ? 1 : -1))
+          .slice(0, 500)
+          .map((x) => ({ pinfl: x.pinfl, fullName: nameOf.get(x.pinfl) ?? null, amountTiyin: x.amountTiyin.toString() })),
+      },
     };
   }
 
@@ -1038,7 +1050,7 @@ export class UnitPayrollService {
       const f = await this.ndflForUnit(unit, period, parsed);
       parsed = f.kept;
       ndfl = this.ndflSummary(p.ndfl, period, f);
-      if (parsed.size === 0) throw new BadRequestException(`Soliq hisobotida ${entryUnitLabel(unit)} xodimlari topilmadi (${f.outside} xodim — boshqa joylarniki). Umumiy hisobotni Xarajatlar › Soliq hisoboti orqali yuklang — bo'lim xodimlari o'z bo'limiga avtomatik yoziladi`);
+      if (parsed.size === 0) throw new BadRequestException(`Soliq hisobotida ${entryUnitLabel(unit)} xodimlari topilmadi (${f.outside} xodim — boshqa joylarniki${f.notInMiya.length ? `, ${f.notInMiya.length} tasi miyada ham, katta jadvallarda ham yo'q` : ''}). Umumiy hisobotni Xarajatlar › Soliq hisoboti orqali yuklang — bo'lim xodimlari o'z bo'limiga avtomatik yoziladi`);
     }
     if (parsed.size === 0) throw new BadRequestException('Faylda yaroqli qator topilmadi (1-varaq: A — PINFL, keyin summa)');
     if (parsed.size > MAX_ROWS) throw new BadRequestException(`Qatorlar juda ko'p (${parsed.size}) — ${MAX_ROWS} tagacha`);

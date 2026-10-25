@@ -31,6 +31,8 @@ export interface PlanRow {
   problem: string | null;
   /** Soliq hisobotidan: oylik (4-ilova) va boshqa daromad (5-ilova) */
   parts?: { salaryTiyin: string; otherTiyin: string };
+  /** «Miya»da: MIYA — bazada / bo'limlarda; HR_ONLY — faqat katta jadvallarda; NONE — hech qayerda yo'q */
+  presence?: 'MIYA' | 'HR_ONLY' | 'NONE';
 }
 
 export interface NdflSheetSummary {
@@ -61,6 +63,8 @@ export interface NdflSummary {
   /** Bo'lim sahifasida: boshqa joy xodimlari — olinmadi */
   outside?: number;
   outsideTiyin?: string;
+  /** Bo'lim sahifasida: miyada ham, katta jadvallarda ham yo'q — olinmadi */
+  notInMiya?: { count: number; totalTiyin: string; people: { pinfl: string; fullName: string | null; amountTiyin: string }[] };
 }
 
 export interface PlanSummary {
@@ -72,6 +76,12 @@ export interface PlanSummary {
   skipped: { count: number; totalTiyin: string };
   changed: number;
   blocking: number;
+  /** Miyada ham, katta jadvallarda ham yo'q — olinmadi */
+  notInMiya?: { count: number; totalTiyin: string };
+  /** Faqat katta jadvallarda bor — olinmadi (bo'limi tanlansa olinadi) */
+  hrOnly?: { count: number; totalTiyin: string };
+  /** Soliq hisoboti: faqat miyadagilar */
+  strict?: boolean;
 }
 
 export interface PlanResult {
@@ -122,6 +132,7 @@ export const planApi = {
     }
     return ((await res.json()) as ApiResponse<PlanAnalysis>).data;
   },
-  preview: (period: string, rows: PlanInputRow[]) => api.post<ApiResponse<PlanResult>>(`/payroll-plan/preview?period=${period}`, { rows }),
-  commit: (period: string, rows: PlanInputRow[], fileName: string, replace: boolean) => api.post<ApiResponse<PlanCommitResult>>(`/payroll-plan/commit?period=${period}&replace=${replace}`, { rows, fileName }),
+  /** strict — soliq hisoboti: faqat «miya»dagi xodimlar olinadi */
+  preview: (period: string, rows: PlanInputRow[], strict = false) => api.post<ApiResponse<PlanResult>>(`/payroll-plan/preview?period=${period}`, { rows, strict }),
+  commit: (period: string, rows: PlanInputRow[], fileName: string, replace: boolean, strict = false) => api.post<ApiResponse<PlanCommitResult>>(`/payroll-plan/commit?period=${period}&replace=${replace}`, { rows, fileName, strict }),
 };

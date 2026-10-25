@@ -22,14 +22,14 @@ export class PayrollPlanController {
   /** O'zgartirilgan taqsimot bo'yicha qayta hisoblash (hech narsa saqlanmaydi) */
   @Post('preview')
   @HttpCode(HttpStatus.OK)
-  async preview(@Query('period') period: string, @Body() body: { rows?: unknown }) {
-    return { data: await this.plans.plan(period, (body?.rows ?? []) as never[]) };
+  async preview(@Query('period') period: string, @Body() body: { rows?: unknown; strict?: unknown }) {
+    return { data: await this.plans.plan(period, (body?.rows ?? []) as never[], { strict: body?.strict === true }) };
   }
 
   /** Saqlash: umumiy qism va bo'limlar */
   @Post('commit')
   @HttpCode(HttpStatus.OK)
-  async commit(@Query('period') period: string, @Query('replace') replace: string, @Body() body: { rows?: unknown; fileName?: unknown }, @CurrentUser('id') userId: string) {
+  async commit(@Query('period') period: string, @Query('replace') replace: string, @Body() body: { rows?: unknown; fileName?: unknown; strict?: unknown }, @CurrentUser('id') userId: string) {
     return { data: await this.plans.commit(period, body, replace === 'true', userId) };
   }
 }

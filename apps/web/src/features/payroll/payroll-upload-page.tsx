@@ -104,7 +104,7 @@ export function PayrollUploadPage({ mode }: { mode: 'vedomost' | 'ndfl' }) {
     setSaving(true);
 
     try {
-      const data = (await planApi.commit(period, rows, analysis.fileName, replacePrevious)).data;
+      const data = (await planApi.commit(period, rows, analysis.fileName, replacePrevious, Boolean(analysis.ndfl))).data;
       const parts = [
         data.general ? `umumiy vedomostga ${data.general.employees} xodim (${data.general.expensesCreated} ta xarajat)` : null,
         ...data.units.map((u) => `${u.label}ga ${u.employees} xodim`),

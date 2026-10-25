@@ -62,6 +62,21 @@ export function NdflSummaryCard({ ndfl, period }: { ndfl: NdflSummary; period: s
             Butun tashkilot hisobotini Xarajatlar › Soliq hisoboti orqali yuklasangiz, har kim o&apos;z joyiga avtomatik yoziladi.
           </p>
         )}
+        {(ndfl.notInMiya?.count ?? 0) > 0 && (
+          <details className="rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3 py-2 text-xs">
+            <summary className="cursor-pointer font-medium text-heading">
+              {ndfl.notInMiya!.count} ta odam miyada ham, katta jadvallarda (10/16/37/51) ham yo&apos;q — <span className="money">{formatTiyin(ndfl.notInMiya!.totalTiyin)}</span> so&apos;m olinmadi (ro&apos;yxat)
+            </summary>
+            <ul className="mt-1.5 max-h-56 space-y-0.5 overflow-y-auto">
+              {ndfl.notInMiya!.people.map((p) => (
+                <li key={p.pinfl} className="flex justify-between gap-3">
+                  <span className="min-w-0 flex-1 truncate">{p.fullName ?? '—'} <span className="money text-(--color-text-faint)">{p.pinfl}</span></span>
+                  <span className="money shrink-0">{formatTiyin(p.amountTiyin)}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         {ndfl.monthOverCumulative > 0 && (
           <p className="text-xs text-(--color-warn)">{ndfl.monthOverCumulative} ta qatorda shu oy summasi yil boshidan jamidan katta — faylni tekshiring.</p>
         )}

@@ -182,12 +182,27 @@ const load = async (f) => {
   assert.strictEqual(u.format, 'NDFL', "oddiy yuklashda ham taniladi");
   const m = u.months[0];
   assert.strictEqual(m.period, '2026-03');
-  // B — bo'lim xodimi; C, D — reestrda ham, boshqa bo'limda ham yo'q (yangi); A — reestrda (Markaz), W — Fermer — olinmaydi
-  assert.deepStrictEqual(m.rows.map((r) => r.pinfl).sort(), [P.B, P.C, P.D].sort());
+  // B — bo'lim xodimi — olinadi; A — reestrda (Markaz), W — Fermer — boshqa joyniki;
+  // C, D — miyada ham (reestr, bo'limlar, ko'chishlar), katta jadvallarda ham yo'q — olinmaydi va ko'rsatiladi
+  assert.deepStrictEqual(m.rows.map((r) => r.pinfl), [P.B]);
   assert.deepStrictEqual([u.ndfl.outside, u.ndfl.outsideTiyin], [2, String(135000025n + 8000000n)]);
-  assert.strictEqual(m.rows.find((r) => r.pinfl === P.D).fullName, 'Xato PINFLli', 'ismi hisobotdan');
+  assert.deepStrictEqual([u.ndfl.notInMiya.count, u.ndfl.notInMiya.totalTiyin], [2, String(0n + 20000000n)]);
+  assert.deepStrictEqual(u.ndfl.notInMiya.people.map((x) => [x.pinfl, x.fullName]), [[P.D, 'Xato PINFLli'], [P.C, 'Comilova Charos']]);
   const c2 = await up2.commit('TAX_FREE', '2026-03', { rows: m.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName })), fileName: u.fileName }, false, 'adm');
-  assert.strictEqual(c2.totalTiyin, String(150000000n + 0n + 20000000n));
+  assert.strictEqual(c2.totalTiyin, String(150000000n));
+
+  // ── Umumiy: miyada yo'q odam — tanlansa ham olinmaydi (soliq hisoboti, strict) ──
+  const NONE = '48888888888888';
+  const pl = await plans.plan('2026-03', [{ pinfl: P.A, amountTiyin: '100' }, { pinfl: NONE, amountTiyin: '500', target: 'FERMER', fullName: 'Begona Buxgalter' }], { strict: true });
+  const none = pl.rows.find((r) => r.pinfl === NONE);
+  assert.deepStrictEqual([none.presence, none.target], ['NONE', 'SKIP']);
+  assert.match(none.problem, /Miyada ham, katta jadvallarda/);
+  assert.deepStrictEqual([pl.summary.notInMiya.count, pl.summary.notInMiya.totalTiyin, pl.summary.strict], [1, '500', true]);
+  assert.strictEqual(pl.rows.find((r) => r.pinfl === P.A).presence, 'MIYA');
+  // Oddiy vedomostda (strict emas) — bo'limni tanlash mumkin (avvalgidek)
+  const pl2 = await plans.plan('2026-03', [{ pinfl: NONE, amountTiyin: '500', target: 'FERMER', fullName: 'Begona Buxgalter' }]);
+  assert.strictEqual(pl2.rows[0].target, 'FERMER');
+  await assert.rejects(plans.commit('2026-04', { rows: [{ pinfl: NONE, amountTiyin: '500', target: 'FERMER', fullName: 'Begona Buxgalter' }], strict: true }, false, 'adm'), /Saqlanadigan xodim yo'q/);
   console.log('OK t-ndfl');
 })().catch((e) => {
   console.error(e);

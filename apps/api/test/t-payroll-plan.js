@@ -57,7 +57,7 @@ const unitBatches = (unit) => T.setting.find((s) => s.key === `unit.payroll.${un
   );
   assert.deepStrictEqual(row(P.F).locked, { unit: 'TAX_FREE', label: 'Tax free', amountTiyin: som(500) });
   assert.match(row(P.F).problem, /Tax free bo'limiga shu oy yuklangan/);
-  assert.match(row(P.E).problem, /reestrida ham, bo.limlarda ham topilmadi/);
+  assert.match(row(P.E).problem, /Miyada ham, katta jadvallarda .* ham yo'q/);
   assert.strictEqual(row(P.D).fullName, 'Dilshodov Doston', "F.I.Sh. bo'lim ro'yxatidan");
   assert.strictEqual(row(P.B).unitNow, 'TAX_FREE');
   const S = a.summary;
