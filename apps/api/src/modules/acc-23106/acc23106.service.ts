@@ -9,7 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { parseBankStatement, parseDate, text } from '../unit-bank/unit-bank.service';
 import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { Acc23106SafarService } from './acc23106.safar.service';
-import { KIND_LABELS, kindComponents, nameKey, purposeKind, purposeName, purposeOrder, type PayoutKind } from './acc23106.purpose';
+import { KIND_LABELS, kindComponents, nameKey, purposeKind, purposeMonth, purposeName, purposeOrder, type PayoutKind } from './acc23106.purpose';
 import { readStore, STORE_KEY, type ControlState, type MatchBy, type PayoutRow, type Store } from './acc23106.store';
 
 // ═══════════════════════════════════════════════════════════
@@ -20,7 +20,7 @@ import { readStore, STORE_KEY, type ControlState, type MatchBy, type PayoutRow, 
 // Har to'lov (debet qatori) uchun:
 //  • xodim — ИНН ustunidagi 14 xonali PINFL bo'yicha; bo'lmasa — izohdagi F.I.Sh. bo'yicha (Xodimlar bazasi, bo'lim ro'yxatlari);
 //  • sana — hujjat sanasi; nima uchun — izohdan (bayram, mukofot, safar …); asos — buyruq sanasi va raqami;
-//  • hisoblangan oy — buyruq sanasi oyi (bo'lmasa — to'lov oyi).
+//  • hisoblangan oy — izohdagi «… oyi uchun» oy nomi; bo'lmasa buyruq sanasi oyi; bo'lmasa to'lov oyi.
 // Nazorat (ish haqi tarkibi va soliq hisoboti bilan): xodimga shu oy tarkibda shu turdagi summa hisoblanganmi,
 // to'langani hisoblanganidan oshmaganmi (bank «qo'lga» — soliqlardan keyingi summani o'tkazadi), soliq hisobotida bormi.
 // Xarajat yozuvlari YARATILMAYDI: bu to'lovlar ish haqi ichida allaqachon hisoblangan — ikki marta sanalmasin.
@@ -86,7 +86,7 @@ export class Acc23106Service {
       "• Bankdan olingan ko'chirmani (выписка) «Page 1» varag'iga shu ustunlar bilan qo'ying (11-qator — sarlavha).",
       "• Xodim «ИНН» ustunidagi 14 xonali PINFL bo'yicha topiladi; bo'lmasa — izohdagi F.I.Sh. bo'yicha («… сотруднику FAMILIYA ISM OTA»).",
       "• «Назначение платежа»dan: nima uchun (bayram puli, mukofot, xizmat safari, moddiy yordam, ta'til puli …) va buyruq («13.01.2026 даги 00003-son буйрукка асосан …»).",
-      "• Hisoblangan oy — buyruq sanasi oyi. Nazorat: ish haqi tarkibi va soliq hisoboti bilan.",
+      "• Hisoblangan oy — izohdagi «… oyi uchun» (masalan, «январ ойи учун иш ҳақи»), bo'lmasa buyruq sanasi oyi. Nazorat: ish haqi tarkibi va soliq hisoboti bilan.",
       "• Xarajat yozuvi yaratilmaydi — bu to'lovlar ish haqida hisoblangan (ikki marta sanalmasin).",
       "• Istisno — xizmat safari: ish haqida ham, soliq hisobotida ham yo'q. Saqlangandan keyin «Xizmat safari» bo'limida xodimning joyi (bo'limi) ko'rsatiladi; tekshirib tasdiqlaganingizdan keyin shu joyga xarajat bo'lib yoziladi.",
     ].forEach((t, i) => {
@@ -132,6 +132,15 @@ export class Acc23106Service {
   /** Fayl qatori → to'lov (izohdan tur, buyruq, F.I.Sh.) */
   private toRow(raw: { no: string; docDate: string; procDate: string | null; docNo: string; accountName: string; inn: string; mfo: string; debitTiyin: string; purpose: string }): Omit<PayoutRow, 'pinfl' | 'fullName' | 'matchBy'> {
     const order = purposeOrder(raw.purpose);
+    // «… oyi uchun» (izohda oy nomi) — eng aniq; bo'lmasa buyruq oyi; bo'lmasa to'lov oyi
+    const named = purposeMonth(raw.purpose, raw.docDate);
+    const payMonth = raw.docDate.slice(0, 7);
+    const lowest = `${Number(raw.docDate.slice(0, 4)) - 1}-${raw.docDate.slice(5, 7)}`;
+    const nextPay = (() => {
+      const [y, m] = payMonth.split('-').map(Number) as [number, number];
+      return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+    })();
+    const namedOk = named && named >= lowest && named <= nextPay ? named : null;
     const accrual = (order.date ?? raw.docDate).slice(0, 7);
     return {
       no: cap(raw.no, 20),
@@ -147,7 +156,7 @@ export class Acc23106Service {
       orderDate: order.date,
       orderNo: order.no,
       // Buyruq to'lovdan 13 oydan ko'p oldin bo'lsa (sana xato) — to'lov oyi
-      accrual: order.date && order.date >= `${Number(raw.docDate.slice(0, 4)) - 1}-${raw.docDate.slice(5, 7)}` && order.date <= raw.docDate.slice(0, 10) ? accrual : raw.docDate.slice(0, 7),
+      accrual: namedOk ?? (order.date && order.date >= lowest && order.date <= raw.docDate.slice(0, 10) ? accrual : payMonth),
       commentName: purposeName(raw.purpose),
     };
   }

@@ -21,7 +21,7 @@ export interface PayoutRow {
   kind: PayoutKind;
   orderDate: string | null;
   orderNo: string | null;
-  /** Hisoblangan oy (buyruq oyi, bo'lmasa — to'lov oyi) */
+  /** Hisoblangan oy (izohdagi oy nomi, bo'lmasa buyruq oyi, bo'lmasa — to'lov oyi) */
   accrual: string;
   /** Izohdagi F.I.Sh. */
   commentName: string | null;

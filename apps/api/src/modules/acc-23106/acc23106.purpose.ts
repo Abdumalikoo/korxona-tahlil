@@ -95,3 +95,39 @@ export function kindComponents(kind: PayoutKind, comps: { code: string; category
       return null;
   }
 }
+
+/** Oy nomlari (o'zbek lotin/kirill, rus) → oy raqami */
+const MONTH_RES: [RegExp, number][] = [
+  [/yanvar|январ/i, 1],
+  [/fevral|феврал/i, 2],
+  [/(?<![\p{L}])mart(?![\p{L}])|(?<![\p{L}])март(?:а|и)?(?![\p{L}])/iu, 3],
+  [/aprel|апрел/i, 4],
+  [/(?<![\p{L}])may(?:ning)?(?![\p{L}])|(?<![\p{L}])ма[йя](?:а|и|нинг)?(?![\p{L}])/iu, 5],
+  [/iyun|июн/i, 6],
+  [/iyul|июл/i, 7],
+  [/avgust|август/i, 8],
+  [/sentabr|sentyabr|сентябр|сентабр/i, 9],
+  [/oktabr|oktyabr|октябр|октабр/i, 10],
+  [/noyabr|ноябр/i, 11],
+  [/dekabr|декабр/i, 12],
+];
+
+/**
+ * Izohdagi «qaysi oy uchun» (masalan, «2026 йил январ ойи учун иш ҳақи», «за январь», «yanvar oyi uchun avans»).
+ * Yil — izohdagi 4 xonali yil yoki to'lov sanasidan (oy to'lov oyidan keyin bo'lsa — o'tgan yil). Topilmasa — null.
+ */
+export function purposeMonth(text: string, docDate: string): string | null {
+  // Faqat «… oy(i) uchun / за …» atrofidagi oy nomi — buyruq sanasi ichidagi sonlar emas
+  // Xodim ismi qismi olib tashlanadi («… сотруднику YANVAROV …» oy deb olinmasin)
+  const head = text.split(/сотрудник|работник|xodim|ходим/i)[0] ?? '';
+  const hit = MONTH_RES.find(([re]) => re.test(head));
+  if (!hit) return null;
+  const m = hit[1];
+  const years = [...head.matchAll(/(?<!\d)(20\d{2})\s*(?:-?\s*y(?:il)?\.?|-?\s*й(?:ил)?\.?|г\.?|года|йил)/giu)].map((x) => Number(x[1]));
+  const payY = Number(docDate.slice(0, 4));
+  const payM = Number(docDate.slice(5, 7));
+  let y = years.length ? years[years.length - 1]! : payY;
+  if (!years.length && m > payM + 1) y = payY - 1; // dekabr uchun yanvarda to'langan
+  if (y < 2000 || y > 2100) return null;
+  return `${y}-${String(m).padStart(2, '0')}`;
+}

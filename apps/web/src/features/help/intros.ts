@@ -177,6 +177,11 @@ export const INTROS: Record<string, PageIntro> = {
     from: "Bankdan olingan ko'chirma (выписка) Excel fayli",
     how: "Xodim — ИНН ustunidagi PINFL (bo'lmasa izohdagi F.I.Sh.); nima uchun va buyruq — «Назначение платежа»dan. Ish haqi tarkibi va soliq hisoboti bilan solishtiriladi; xarajat yozuvi yaratilmaydi.",
   },
+  '/xarajatlar/ish-haqi-solishtirma': {
+    what: "Har xodim: ish haqi fondi (FOT) − daromad solig'i (12%) − kasaba uyushmasi (2%, faqat asosiy shtat) = 23106 dan to'langan summa. Farq chiqqanlar alohida ko'rsatiladi.",
+    from: "Ish haqi tarkibi (bo'lmasa soliq hisoboti), Xodimlar bo'limi (shtat yoki shartnoma), 23106 ko'chirmasi",
+    how: "Shartnoma: 10 000 000 − 1 200 000 = 8 800 000. Shtat: 10 000 000 − 1 200 000 − 200 000 = 8 600 000. Bank oyi — izohdagi «… oyi uchun» (avans va qoldiq bitta oyga), yoki to'langan oy. Foizlar sozlanadi.",
+  },
   '/xarajatlar/tarkib': {
     what: 'Ish haqi tarkibi: har xodim bo‘yicha komponentlar (oklad, ustama, mukofot…).',
     from: 'Yuklangan Excel fayl',
