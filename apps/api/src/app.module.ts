@@ -26,6 +26,7 @@ import { PayrollModule } from './modules/payroll/payroll.module';
 import { UnitPayrollModule } from './modules/unit-payroll/unit-payroll.module';
 import { UnitLeaseModule } from './modules/unit-lease/unit-lease.module';
 import { UnitBankModule } from './modules/unit-bank/unit-bank.module';
+import { Acc23106Module } from './modules/acc-23106/acc23106.module';
 import { UnitEntriesModule } from './modules/unit-entries/unit-entries.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { RegionsModule } from './modules/regions/regions.module';
@@ -81,6 +82,7 @@ import { RateLimitGuard } from './common/security/rate-limit';
     UnitPayrollModule,
     UnitLeaseModule,
     UnitBankModule,
+    Acc23106Module,
     UnitEntriesModule,
     ScheduleModule.forRoot(),
     DashboardModule,

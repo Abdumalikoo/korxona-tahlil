@@ -758,3 +758,13 @@ Hudud va bo'limlar tarkib fayli har oy o'zgarishi mumkin (masalan, maydan butunl
 
 ## .xltx (Excel shabloni) fayllari
 Hamma Excel yuklash joylarida (soliq hisoboti, umumiy va bo'lim ish haqi, ish haqi tarkibi, Hududchi vedomosti, ijara, bank, internet, asosiy vositalar, hudud rejasi, biznes-reja va boshqalar) **.xlsx** bilan birga **.xltx** ham qabul qilinadi — tuzilmasi bir xil, xavfsizlik tekshiruvi (ZIP bomba) ham o'sha.
+
+## Xarajatlar › 23106 — xodimlarga to'lovlar ko'chirmasi (bayram puli, mukofot, xizmat safari …)
+Yorliq: Xarajatlar › Doimiy qatorida («Ish haqi tarkibi»dan keyin). Bankdan olingan 23106 hisob raqami ko'chirmasi (выписка) yuklanadi — shakli: №пп, Дата документа, Дата обработки, № док, Наименование счёта, ИНН, № счёта, МФО, Обороты по дебету, Обороты по кредиту, Назначение платежа («Shablon» — shu ko'rinishda).
+- **Xodim:** «ИНН» ustunidagi 14 xonali PINFL bo'yicha (Xodimlar bazasi va bo'lim ro'yxatlari); bo'lmasa — izohdagi F.I.Sh. bo'yicha («… сотруднику FAMILIYA ISM OTA»; kirill va lotin yozuvi teng). Ikki xodimning ismi bir xil bo'lsa — ism bo'yicha aniqlanmaydi. Reestrga keyin qo'shilgan xodim ko'rishda o'zi topiladi.
+- **Sana** — «Дата документа». **Nima uchun** — izohdan: bayram puli, mukofot (premiya), xizmat safari, moddiy yordam, ta'til puli, kasallik, ish haqi / avans, boshqa. **Asos** — buyruq sanasi va raqami («13.01.2026 даги 00003-son …», «29.12.2025 даги 358-if-sonli …»).
+- **Hisoblangan oy** — buyruq sanasi oyi (bo'lmasa — to'lov oyi): dekabr buyrug'i bo'yicha yanvarda to'langan mukofot — dekabrniki.
+- **Nazorat:** xodimga hisoblangan oyda ish haqi tarkibida shu turdagi summa bormi (bayram → «Bayram premiyasi», mukofot → premiyalar, moddiy yordam, ta'til, kasallik) va to'langani undan oshmaganmi (bank soliqlardan keyingi summani o'tkazadi — shuning uchun «oshmagan» sharti): «Tarkibga mos», «Tarkibdan ko'p», «Tarkibda yo'q», «Tarkib yuklanmagan». Xizmat safari va ish haqi — tarkib bilan solishtirilmaydi. Soliq hisobotida (umumiy va bo'limlar ish haqi) borligi ham ko'rsatiladi.
+- **Xarajat yozuvi yaratilmaydi** — bu to'lovlar ish haqida allaqachon hisoblangan (ikki marta sanalmasin). Kirim (kredit) qatorlari olinmaydi.
+- **Hisob raqami (№ счёта) saqlanmaydi.** Ko'rish — faqat shaxsiy ma'lumotga ruxsati borlarga; yuklash va bekor qilish — administrator.
+- Saqlash oylar bo'yicha (to'lov sanasi): shu oy qayta yuklansa — oldingisi almashtiriladi; yuklashni bekor qilish mumkin. Saqlash joyi — settings, migratsiya kerak emas.

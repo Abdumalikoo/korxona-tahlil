@@ -98,11 +98,11 @@ const HEADERS: { field: Field; test: (h: string) => boolean; label: string }[] =
   { field: 'purpose', test: (h) => h.includes('назначение'), label: 'Назначение платежа' },
 ];
 
-const text = (v: unknown) => (v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v)).trim();
+export const text = (v: unknown) => (v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v)).trim();
 const key = (h: string) => h.toLowerCase().replace(/[\s\n\r.:]+/g, '').replace('ё', 'е');
 
 /** «05.01.2026», Date yoki Excel seriya raqami → YYYY-MM-DD */
-function parseDate(v: unknown): string | null {
+export function parseDate(v: unknown): string | null {
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
     // ExcelJS sanani UTC yarim tun sifatida beradi
     return `${v.getUTCFullYear()}-${String(v.getUTCMonth() + 1).padStart(2, '0')}-${String(v.getUTCDate()).padStart(2, '0')}`;
@@ -211,82 +211,7 @@ export class UnitBankService implements OnModuleInit {
   // ═══════════ Fayl o'qish ═══════════
 
   private parse(wb: ExcelJS.Workbook) {
-    let ws: ExcelJS.Worksheet | undefined;
-    let headerRow = 0;
-    const cols = new Map<Field, number>();
-    for (const sheet of wb.worksheets) {
-      for (let r = 1; r <= Math.min(sheet.rowCount, 20); r++) {
-        const row = sheet.getRow(r);
-        const found = new Map<Field, number>();
-        row.eachCell((cell, c) => {
-          const h = key(text(cellValue(cell.value)));
-          if (!h) return;
-          const def = HEADERS.find((x) => !found.has(x.field) && x.test(h));
-          if (def) found.set(def.field, c);
-        });
-        if (found.has('debit') && (found.has('docDate') || found.has('purpose'))) {
-          ws = sheet;
-          headerRow = r;
-          for (const [f, c] of found) cols.set(f, c);
-          break;
-        }
-      }
-      if (ws) break;
-    }
-    if (!ws) throw new BadRequestException("Bank ko'chirmasi topilmadi: «Обороты по дебету» va «Дата документа» ustunlari bo'lgan varaq kerak");
-    if (!cols.has('docDate') && !cols.has('procDate')) throw new BadRequestException("«Дата документа» ustuni topilmadi");
-
-    const rows: (BankRow & { rowIndex: number; period: string })[] = [];
-    const invalid: { rowIndex: number; reason: string }[] = [];
-    let inflowCount = 0;
-    let inflowTiyin = 0n;
-    const get = (row: ExcelJS.Row, f: Field) => (cols.has(f) ? cellValue(row.getCell(cols.get(f)!).value) : null);
-
-    for (let r = headerRow + 1; r <= ws.rowCount; r++) {
-      const row = ws.getRow(r);
-      const vals = [...cols.values()].map((c) => text(cellValue(row.getCell(c).value)));
-      if (vals.every((v) => !v)) continue;
-      const accountName = text(get(row, 'accountName'));
-      const purpose = text(get(row, 'purpose'));
-      const docDateRaw = get(row, 'docDate');
-      if (/^итого/i.test(accountName) || /^итого/i.test(text(get(row, 'no'))) || /входящее сальдо/i.test(purpose)) continue;
-      const debit = somToTiyin(get(row, 'debit'));
-      const credit = somToTiyin(get(row, 'credit'));
-      if (debit === null || credit === null) {
-        invalid.push({ rowIndex: r, reason: "Summa noto'g'ri" });
-        continue;
-      }
-      if (debit === 0n) {
-        if (credit > 0n) {
-          inflowCount += 1;
-          inflowTiyin += credit;
-        }
-        continue;
-      }
-      const docDate = parseDate(docDateRaw) ?? parseDate(get(row, 'procDate'));
-      if (!docDate) {
-        invalid.push({ rowIndex: r, reason: `Sana noto'g'ri: «${text(docDateRaw).slice(0, 20)}»` });
-        continue;
-      }
-      rows.push({
-        rowIndex: r,
-        period: docDate.slice(0, 7),
-        no: cap(get(row, 'no'), 20),
-        docDate,
-        procDate: parseDate(get(row, 'procDate')),
-        docNo: cap(get(row, 'docNo'), 60),
-        accountName: cap(accountName, 300),
-        inn: cap(get(row, 'inn'), 20),
-        account: cap(get(row, 'account'), 40),
-        mfo: cap(get(row, 'mfo'), 10),
-        debitTiyin: debit.toString(),
-        creditTiyin: credit.toString(),
-        purpose: cap(purpose, 1000),
-        description: purposeText(purpose).slice(0, 1000) || 'Bank xarajati',
-      });
-      if (rows.length > MAX_ROWS) throw new BadRequestException(`Xarajat qatorlari juda ko'p — ${MAX_ROWS} tagacha`);
-    }
-    return { sheetName: ws.name, rows, invalid, inflowCount, inflowTiyin };
+    return parseBankStatement(wb);
   }
 
   async analyze(unit: string, file: Express.Multer.File | undefined) {
@@ -494,4 +419,87 @@ export class UnitBankService implements OnModuleInit {
     await this.audit.log({ userId, action: 'DELETE', entity: 'unit_bank', entityId: `${unit}:${id}`, summary: `${entryUnitLabel(unit)} bank xarajatlari yuklashi bekor qilindi: ${out.b.fileName}${out.cleared.length ? ` (${out.cleared.map(monthLabel).join(', ')})` : ''}` });
     return { success: true as const, clearedMonths: out.cleared };
   }
+}
+
+/**
+ * Bank ko'chirmasi (выписка): sarlavha ustunlari bo'yicha; debet qatorlari, kirim (kredit) soni, xato qatorlar.
+ * (Bo'lim bank xarajatlari va 23106 hisob raqami ko'chirmasi — bir xil shakl.)
+ */
+export function parseBankStatement(wb: ExcelJS.Workbook) {
+  let ws: ExcelJS.Worksheet | undefined;
+  let headerRow = 0;
+  const cols = new Map<Field, number>();
+  for (const sheet of wb.worksheets) {
+    for (let r = 1; r <= Math.min(sheet.rowCount, 20); r++) {
+      const row = sheet.getRow(r);
+      const found = new Map<Field, number>();
+      row.eachCell((cell, c) => {
+        const h = key(text(cellValue(cell.value)));
+        if (!h) return;
+        const def = HEADERS.find((x) => !found.has(x.field) && x.test(h));
+        if (def) found.set(def.field, c);
+      });
+      if (found.has('debit') && (found.has('docDate') || found.has('purpose'))) {
+        ws = sheet;
+        headerRow = r;
+        for (const [f, c] of found) cols.set(f, c);
+        break;
+      }
+    }
+    if (ws) break;
+  }
+  if (!ws) throw new BadRequestException("Bank ko'chirmasi topilmadi: «Обороты по дебету» va «Дата документа» ustunlari bo'lgan varaq kerak");
+  if (!cols.has('docDate') && !cols.has('procDate')) throw new BadRequestException("«Дата документа» ustuni topilmadi");
+
+  const rows: (BankRow & { rowIndex: number; period: string })[] = [];
+  const invalid: { rowIndex: number; reason: string }[] = [];
+  let inflowCount = 0;
+  let inflowTiyin = 0n;
+  const get = (row: ExcelJS.Row, f: Field) => (cols.has(f) ? cellValue(row.getCell(cols.get(f)!).value) : null);
+
+  for (let r = headerRow + 1; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r);
+    const vals = [...cols.values()].map((c) => text(cellValue(row.getCell(c).value)));
+    if (vals.every((v) => !v)) continue;
+    const accountName = text(get(row, 'accountName'));
+    const purpose = text(get(row, 'purpose'));
+    const docDateRaw = get(row, 'docDate');
+    if (/^итого/i.test(accountName) || /^итого/i.test(text(get(row, 'no'))) || /входящее сальдо/i.test(purpose)) continue;
+    const debit = somToTiyin(get(row, 'debit'));
+    const credit = somToTiyin(get(row, 'credit'));
+    if (debit === null || credit === null) {
+      invalid.push({ rowIndex: r, reason: "Summa noto'g'ri" });
+      continue;
+    }
+    if (debit === 0n) {
+      if (credit > 0n) {
+        inflowCount += 1;
+        inflowTiyin += credit;
+      }
+      continue;
+    }
+    const docDate = parseDate(docDateRaw) ?? parseDate(get(row, 'procDate'));
+    if (!docDate) {
+      invalid.push({ rowIndex: r, reason: `Sana noto'g'ri: «${text(docDateRaw).slice(0, 20)}»` });
+      continue;
+    }
+    rows.push({
+      rowIndex: r,
+      period: docDate.slice(0, 7),
+      no: cap(get(row, 'no'), 20),
+      docDate,
+      procDate: parseDate(get(row, 'procDate')),
+      docNo: cap(get(row, 'docNo'), 60),
+      accountName: cap(accountName, 300),
+      inn: cap(get(row, 'inn'), 20),
+      account: cap(get(row, 'account'), 40),
+      mfo: cap(get(row, 'mfo'), 10),
+      debitTiyin: debit.toString(),
+      creditTiyin: credit.toString(),
+      purpose: cap(purpose, 1000),
+      description: purposeText(purpose).slice(0, 1000) || 'Bank xarajati',
+    });
+    if (rows.length > MAX_ROWS) throw new BadRequestException(`Xarajat qatorlari juda ko'p — ${MAX_ROWS} tagacha`);
+  }
+  return { sheetName: ws.name, rows, invalid, inflowCount, inflowTiyin };
 }

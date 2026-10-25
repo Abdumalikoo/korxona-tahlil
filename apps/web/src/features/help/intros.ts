@@ -172,6 +172,11 @@ export const INTROS: Record<string, PageIntro> = {
     from: 'Soliq idorasiga topshirilgan Excel hisobot',
     how: "Faqat «hisobot davrida hisoblangan» summa olinadi; ikkala ilovadagi summa PINFL bo'yicha qo'shiladi. Keyin — Ish haqidagidek bo'limlarga taqsimot va saqlash.",
   },
+  '/xarajatlar/23106': {
+    what: "23106 hisob raqamidan xodimlarga to'lovlar (bayram puli, mukofot, xizmat safari …): kim, qachon, nima uchun.",
+    from: "Bankdan olingan ko'chirma (выписка) Excel fayli",
+    how: "Xodim — ИНН ustunidagi PINFL (bo'lmasa izohdagi F.I.Sh.); nima uchun va buyruq — «Назначение платежа»dan. Ish haqi tarkibi va soliq hisoboti bilan solishtiriladi; xarajat yozuvi yaratilmaydi.",
+  },
   '/xarajatlar/tarkib': {
     what: 'Ish haqi tarkibi: har xodim bo‘yicha komponentlar (oklad, ustama, mukofot…).',
     from: 'Yuklangan Excel fayl',
