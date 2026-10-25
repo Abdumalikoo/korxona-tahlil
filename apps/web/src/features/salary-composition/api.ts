@@ -103,6 +103,8 @@ export interface CompositionRow {
   payrollTiyin: string | null;
   diffTiyin: string | null;
   state: RowState;
+  /** Tarkib faylidagi bo'lim nomi (tahlilda) */
+  deptName?: string | null;
 }
 
 export interface ComponentTotal {
@@ -199,7 +201,56 @@ export interface CompositionSuggestions {
 export const SKIP_CODE = 'SKIP';
 
 /** Fayl tahlili — bazaga hali hech narsa yozilmagan */
+// ── Tarkibdagi bo'limlar (xodim shu oy qaysi bo'limda) ──
+
+export interface PlaceOption {
+  id: string;
+  name: string;
+  /** Qaysi yo'nalishga tushadi: CENTER yoki TAX_FREE … */
+  unit: string;
+  unitLabel: string;
+}
+
+export interface PlacesAnalysis {
+  column: { letter: string; label: string } | null;
+  departments: { name: string; key: string; count: number; departmentId: string | null; departmentName: string | null; unit: string | null; unitLabel: string | null; source: 'LEARNED' | 'SKIPPED' | 'MATCH' | 'NONE'; exact: boolean }[];
+  options: PlaceOption[];
+  rows: { pinfl: string; fullName: string; deptName: string; deptKey: string; miya: { unit: string | null; unitLabel: string | null; departmentId: string | null; departmentName: string | null; fixed: boolean } }[];
+}
+
+/** Saqlashda: nom → bo'lim (yoki 'SKIP'), joyi tarkibdagidek qilinadigan xodimlar */
+export interface PlacesChoice {
+  map: Record<string, string>;
+  apply: string[];
+}
+
+export interface PlaceFixView {
+  pinfl: string;
+  fullName: string;
+  deptName: string;
+  departmentId: string;
+  departmentName: string;
+  unit: string;
+  unitLabel: string;
+  fromUnit: string | null;
+  fromUnitLabel: string | null;
+  fromDepartmentName: string | null;
+  at: string;
+  by: string;
+}
+
+export interface PlacesView {
+  period: string;
+  batchId: string | null;
+  at: string | null;
+  departments: { name: string; count: number }[];
+  fixes: PlaceFixView[];
+}
+
 export interface CompositionAnalysis {
+  /** Tarkibdagi bo'limlar (umumiy tarkibda, bo'lim ustuni topilsa) */
+  places?: PlacesAnalysis | null;
+  deptColumn?: { letter: string; label: string } | null;
   /** Ustunlar moslashi va farqni yopish takliflari */
   mapping?: CompositionMapping | null;
   suggestions?: CompositionSuggestions | null;
@@ -243,6 +294,8 @@ export interface CommitResult {
   centerEmployees?: number;
   /** Eslab qolingan ustun moslashlari soni */
   rememberedColumns?: number;
+  /** Tarkibdagi bo'limlar: nechta bo'lim, nechta xodimning shu oy joyi o'zgartirildi */
+  places?: { departments: number; fixed: number; moved: number; redistributed: boolean; warnings: string[] } | null;
 }
 
 export interface CompositionBatch {
@@ -419,7 +472,7 @@ export async function analyzeCompositionFile(
 
 export const compositionApi = {
   /** Tahlil natijasini saqlaydi — shu oyning oldingi tarkibi almashtiriladi */
-  commit: (period: string, fileName: string, rows: CompositionRow[], unit?: string, mapping?: CompositionMapping | null) =>
+  commit: (period: string, fileName: string, rows: CompositionRow[], unit?: string, mapping?: CompositionMapping | null, places?: PlacesChoice | null) =>
     api.post<ApiResponse<CommitResult>>(`/salary-composition/commit?period=${period}${unitQs(unit)}`, {
       fileName,
       // Tasdiqlangan moslash — eslab qolinadi (keyingi oy shu sarlavhalar o'zi taniladi)
@@ -430,8 +483,13 @@ export const compositionApi = {
         workedDays: row.workedDays,
         rate: row.rate,
         items: row.items,
+        ...(row.deptName ? { dept: row.deptName } : {}),
       })),
+      ...(places ? { places } : {}),
     }),
+
+  places: (period: string) => api.get<ApiResponse<PlacesView>>('/salary-composition/places', { params: { period } }),
+  revertPlaces: (period: string, pinfls: string[]) => api.post<ApiResponse<{ reverted: number; redistributed: boolean }>>(`/salary-composition/places/revert?period=${period}`, { pinfls }),
 
   /** Yo'nalishda (unit) — oy ham kerak */
   cancel: (batchId: string, unit?: string, period?: string) =>

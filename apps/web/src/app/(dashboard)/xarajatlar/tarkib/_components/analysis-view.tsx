@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { IconAlert } from '@/components/ui/icons';
 import { MappingCard } from './mapping-card';
+import { PlacesCard, type PlaceState } from './places-card';
 import { CheckLists, CheckSummaryBoxes, StatusBanner, StructureCard } from './shared';
 
 /** Yuklangan fayl tahlili — hali hech narsa saqlanmagan */
@@ -19,6 +20,8 @@ export function AnalysisView({
   components,
   remapping = false,
   onRemap,
+  placeState,
+  onPlaceState,
 }: {
   analysis: CompositionAnalysis;
   saving: boolean;
@@ -31,6 +34,9 @@ export function AnalysisView({
   remapping?: boolean;
   /** Tanlangan ustun moslashi bilan qayta o'qish */
   onRemap?: (mapping: Record<string, string>) => void;
+  /** Tarkibdagi bo'limlar: moslik va farqlar tanlovi */
+  placeState?: PlaceState | null;
+  onPlaceState?: (v: PlaceState) => void;
 }) {
   const { check } = analysis;
   const skipped = analysis.invalidRows.length + analysis.duplicates.length;
@@ -82,6 +88,9 @@ export function AnalysisView({
           onApply={onRemap}
         />
       )}
+
+      {/* Tarkibdagi bo'limlar: xodim shu oy qaysi bo'limda — «miya» bilan farqlar */}
+      {analysis.places && analysis.places.rows.length > 0 && placeState && onPlaceState && <PlacesCard places={analysis.places} period={analysis.period} value={placeState} onChange={onPlaceState} />}
 
       {/* Oldingi tarkib almashtiriladi */}
       {analysis.hasPrevious && (

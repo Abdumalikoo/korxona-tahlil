@@ -57,6 +57,8 @@ export interface CompositionRowDto {
   payrollTiyin: string | null;
   diffTiyin: string | null;
   state: RowState;
+  /** Tarkib faylidagi bo'lim nomi (tahlilda) */
+  deptName?: string | null;
 }
 
 export interface ComponentTotal {
@@ -146,6 +148,8 @@ export interface AnalysisResult {
   byCategory: CategoryTotal[];
   check: CheckSummary;
   rows: CompositionRowDto[];
+  /** Bo'lim ustuni (topilgan bo'lsa) */
+  deptColumn?: { letter: string; label: string } | null;
 }
 
 /** Saqlash uchun kiruvchi qator */
@@ -223,6 +227,8 @@ export interface ParsedRow {
   fileTotalTiyin: bigint | null;
   /** Hamma summa ustunlari (ustun raqami → tiyin) — farqni tahlil qilish uchun */
   raw?: Map<number, bigint>;
+  /** Tarkibdagi bo'lim nomi («Hududi» ustuni: AUP, Call markaz, Tax free …) */
+  dept?: string | null;
 }
 
 /** Ustunlar moslashi (ekran uchun) */

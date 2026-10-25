@@ -37,6 +37,7 @@ import {
     toTiyin,
 } from './salary-composition.excel';
 import { buildVedomostWorkbook, detectVedomost, rankSheets, VEDOMOST_COMPONENTS } from './salary-composition.vedomost';
+import { findDeptColumn } from './salary-composition.place';
 import { guessComponent, LEARNED_KEY, LEARNED_MAX, readLearned, SKIP, smartScan, type Learned, type SmartColumn, type SmartScan } from './salary-composition.smart';
 import { runExclusive } from '../../common/locks';
 import type {
@@ -821,6 +822,8 @@ export class SalaryCompositionService implements OnModuleInit {
     let totalRows = 0;
 
     const pinflCol = fixed.pinfl as number;
+    // Bo'lim ustuni («Hududi», «Bo'lim» …) — xodim shu oy qaysi bo'limda (faqat umumiy tarkibda)
+    const deptCol = unit ? null : findDeptColumn(sheet, det.dataStart, pinflCol, cellText);
 
     for (let r = det.dataStart; r <= sheet.rowCount; r++) {
       const row = sheet.getRow(r);
@@ -944,6 +947,7 @@ export class SalaryCompositionService implements OnModuleInit {
         items,
         fileTotalTiyin,
         raw,
+        dept: deptCol ? cellText(row.getCell(deptCol.col).value).replace(/\s+/g, ' ').trim().slice(0, 120) || null : null,
       });
     }
 
@@ -1001,6 +1005,7 @@ export class SalaryCompositionService implements OnModuleInit {
         payrollTiyin: state.payrollTiyin === null ? null : state.payrollTiyin.toString(),
         diffTiyin: state.diffTiyin === null ? null : state.diffTiyin.toString(),
         state: state.state,
+        ...(deptCol ? { deptName: p.dept ?? null } : {}),
       };
     });
 
@@ -1054,6 +1059,7 @@ export class SalaryCompositionService implements OnModuleInit {
       byCategory,
       check,
       rows,
+      deptColumn: deptCol ? { letter: colLetter(deptCol.col), label: deptCol.label } : null,
     };
   }
 

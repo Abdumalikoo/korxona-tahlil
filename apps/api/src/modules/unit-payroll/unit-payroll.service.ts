@@ -590,6 +590,18 @@ export class UnitPayrollService {
     return out;
   }
 
+  /** Umumiy vedomostdan (shu yuklashdan) bo'limlarga yozilgan qatorlar — qayta taqsimlash uchun */
+  async generalRows(period: string, generalBatchId: string): Promise<{ unit: string; pinfl: string; fullName: string; amountTiyin: string }[]> {
+    const out: { unit: string; pinfl: string; fullName: string; amountTiyin: string }[] = [];
+    for (const unit of PAYROLL_UNITS) {
+      for (const b of await this.batchesOf(unit, period)) {
+        if (b.status !== 'COMMITTED' || b.origin !== 'GENERAL' || b.generalBatchId !== generalBatchId) continue;
+        for (const r of b.rows ?? []) out.push({ unit, pinfl: r.pinfl, fullName: r.fullName, amountTiyin: String(r.amountTiyin) });
+      }
+    }
+    return out;
+  }
+
   /** Umumiy vedomost yuklashi bekor qilinganda — undan yaratilgan bo'lim yuklashlari ham bekor */
   async cancelByGeneral(generalBatchId: string, period: string, userId: string): Promise<number> {
     let n = 0;

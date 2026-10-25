@@ -30,6 +30,7 @@ import { Toast } from '@/components/ui/toast';
 import { AnalysisView } from './analysis-view';
 import { CompositionTable } from './composition-table';
 import { EmployeeModal } from './employee-modal';
+import { initialPlaceState, placesPayload, SavedPlacesCard, type PlaceState } from './places-card';
 import { ReconcileCard } from './reconcile-card';
 import { CheckLists, CheckSummaryBoxes, StatusBanner, StructureCard } from './shared';
 
@@ -55,7 +56,21 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
 
   /** Oy — yuqori paneldagi umumiy «Davr» tugmasidan (oy ko'rinishi) */
   const { month: period } = usePeriod();
-  const [analysis, setAnalysis] = useState<CompositionAnalysis | null>(null);
+  const [analysis, setAnalysisRaw] = useState<CompositionAnalysis | null>(null);
+  /** Tarkibdagi bo'limlar tanlovi (yangi tahlil — boshidan) */
+  const [placeState, setPlaceState] = useState<PlaceState | null>(null);
+  const setAnalysis = (a: CompositionAnalysis | null) => {
+    setAnalysisRaw(a);
+    // Qayta o'qishda (boshqa varaq, ustun moslashi) — tanlangan bo'lim mosliklari saqlanib qoladi
+    setPlaceState((prev) => {
+      if (!a?.places) return null;
+      const init = initialPlaceState(a.places);
+      if (!prev) return init;
+      const map = { ...init.map };
+      for (const k of Object.keys(map)) if (prev.map[k] !== undefined) map[k] = prev.map[k]!;
+      return { map, excluded: prev.excluded };
+    });
+  };
   const [lastFile, setLastFile] = useState<File | null>(null);
   /** Shu fayl uchun tanlangan ustun moslashi (qayta hisoblashda yuboriladi) */
   const [mapping, setMapping] = useState<Record<string, string>>({});
@@ -153,7 +168,7 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
     setSaving(true);
 
     try {
-      const result = await compositionApi.commit(period, analysis.fileName, analysis.rows, u, analysis.mapping);
+      const result = await compositionApi.commit(period, analysis.fileName, analysis.rows, u, analysis.mapping, u ? null : placesPayload(analysis.places, placeState));
       const data = result.data;
 
       setToast({
@@ -165,6 +180,8 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
               ? ` · ${data.mismatchCount} ta farq bor`
               : u ? ` · ${unit?.label} ish haqi vedomosti yuklanmagan` : ' · soliq hisoboti yuklanmagan') +
           (data.rememberedColumns ? ` · ${data.rememberedColumns} ta ustun moslashi eslab qolindi` : '') +
+          (data.places?.fixed ? ` · ${data.places.fixed} xodimning shu oy joyi tarkibdagidek qilindi${data.places.redistributed ? ' (ish haqi qayta taqsimlandi)' : ''}` : '') +
+          (data.places?.warnings?.length ? ` · diqqat: ${data.places.warnings[0]}${data.places.warnings.length > 1 ? ` (+${data.places.warnings.length - 1})` : ''}` : '') +
           (data.centerTiyin && data.centerTiyin !== '0'
             ? ` · bayram/choraklik ${formatTiyin(data.centerTiyin, { currency: true })} (${data.centerEmployees ?? 0} hudud xodimi) Markaz hisobiga o'tdi`
             : ''),
@@ -302,6 +319,8 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
             components={components.data?.data ?? []}
             remapping={remapping}
             onRemap={lastFile ? (m) => void handleRemap(m) : undefined}
+            placeState={placeState}
+            onPlaceState={setPlaceState}
             onSave={() => void handleSave()}
             onCancel={reset}
           />
@@ -346,6 +365,9 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
                     )}
                   </div>
                 </div>
+
+                {/* Tarkib bo'yicha shu oy joyi o'zgartirilganlar */}
+                {!u && <SavedPlacesCard period={period} isAdmin={isAdmin} stamp={data} onChanged={reloadAll} onToast={setToast} />}
 
                 {/* Uchlik nazorat: tarkib · soliq hisoboti · 23106 — farqni qayerga o'tkazish */}
                 <ReconcileCard period={period} unit={u} isAdmin={isAdmin} stamp={data} onChanged={reloadAll} onSelect={setSelected} onToast={setToast} />

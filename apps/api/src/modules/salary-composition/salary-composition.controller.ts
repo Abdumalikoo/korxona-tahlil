@@ -19,6 +19,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { isSegment } from '../../common/segments/segments';
+import { CompositionPlaceService } from './salary-composition.place';
 import { CompositionReconcileService } from './salary-composition.reconcile';
 import { SalaryCompositionService } from './salary-composition.service';
 import { SalaryStructureService } from './salary-composition.structure';
@@ -36,7 +37,11 @@ interface CommitBody {
     rate?: number | null;
     /** Komponent kodi → summa (tiyin, satr ko'rinishida) */
     items: Record<string, string>;
+    /** Tarkibdagi bo'lim nomi (bo'lsa) */
+    dept?: string | null;
   }[];
+  /** Tarkibdagi bo'limlar: { map: { nom: departmentId | 'SKIP' }, apply: PINFL[] } — shu oy joyini tarkibdagidek qilish */
+  places?: unknown;
   /** Tasdiqlangan ustun moslashlari — eslab qolinadi: { key, leaf, label, code | 'SKIP' } */
   columns?: unknown;
 }
@@ -47,6 +52,7 @@ export class SalaryCompositionController {
     private readonly composition: SalaryCompositionService,
     private readonly structure: SalaryStructureService,
     private readonly reconcile: CompositionReconcileService,
+    private readonly places: CompositionPlaceService,
   ) {}
 
   private sendFile(response: Response, buffer: Buffer, filename: string): void {
@@ -126,8 +132,11 @@ export class SalaryCompositionController {
         throw new BadRequestException("Moslash noto'g'ri (JSON)");
       }
     }
-    const data = await this.composition.analyze(period, file, sheet || undefined, this.unitOf(unit), mapping);
-    return { data };
+    const u = this.unitOf(unit);
+    const data = await this.composition.analyze(period, file, sheet || undefined, u, mapping);
+    // Tarkibdagi bo'limlar: taklif qilingan moslik va «miya» bilan farqlar (faqat umumiy tarkib)
+    const places = u ? null : await this.places.analyze(period, data.rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, deptName: r.deptName ?? null })), data.deptColumn ?? null);
+    return { data: { ...data, places } };
   }
 
   /** O'rgatilgan ustun moslashlari (sarlavha → komponent) */
@@ -187,16 +196,21 @@ export class SalaryCompositionController {
     });
     // Saqlandi — tasdiqlangan ustun moslashlari eslab qolinadi (keyingi oy shu sarlavhalar o'zi taniladi)
     const remembered = await this.composition.rememberColumns(body.columns).catch(() => 0);
-    return { data: { ...data, rememberedColumns: remembered } };
+    // Tarkibdagi bo'limlar: moslik eslab qolinadi, belgilangan xodimlarning shu oy joyi tarkibdagidek
+    const places = unit ? null : await this.places.apply(period, data.batchId, body.rows.map((r) => ({ pinfl: String(r.pinfl ?? ''), fullName: r.fullName ? String(r.fullName) : null, dept: typeof r.dept === 'string' ? r.dept : null })), body.places, userId);
+    return { data: { ...data, rememberedColumns: remembered, places } };
   }
 
   /** Yuklashni bekor qilish */
   @Roles(UserRole.ADMIN)
   @Post('batches/:id/cancel')
   @HttpCode(HttpStatus.OK)
-  async cancel(@Param('id') id: string, @Query('unit') unit?: string, @Query('period') period?: string) {
-    const data = await this.composition.cancel(id, this.unitOf(unit), period);
-    return { data };
+  async cancel(@Param('id') id: string, @CurrentUser('id') userId: string, @Query('unit') unit?: string, @Query('period') period?: string) {
+    const u = this.unitOf(unit);
+    const data = await this.composition.cancel(id, u, period);
+    // Umumiy tarkib bekor — shu oy tarkib bo'yicha o'zgartirilgan joylar ham bekor
+    const places = u ? null : await this.places.onCancel(data.period, userId).catch(() => null);
+    return { data: { ...data, places } };
   }
 
   /** Yuklashlar tarixi */
@@ -274,5 +288,25 @@ export class SalaryCompositionController {
   @HttpCode(HttpStatus.OK)
   async reconcileUndo(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return { data: await this.reconcile.undo(id, userId) };
+  }
+
+  // ═══════════ Tarkibdagi bo'limlar (shu oy joyi) ═══════════
+
+  /** Shu oy: tarkibdagi bo'limlar va tarkib bo'yicha o'zgartirilgan joylar */
+  @Personal()
+  @Get('places')
+  async placesView(@Query('period') period: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    return { data: await this.places.view(period) };
+  }
+
+  /** O'zgarishni bekor qilish: { pinfls } — avvalgi joyiga */
+  @Roles(UserRole.ADMIN)
+  @Post('places/revert')
+  @HttpCode(HttpStatus.OK)
+  async placesRevert(@Query('period') period: string, @Body('pinfls') pinfls: unknown, @CurrentUser('id') userId: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    if (!Array.isArray(pinfls) || !pinfls.length) throw new BadRequestException('Xodimlarni tanlang');
+    return { data: await this.places.revert(period, pinfls.map(String), userId) };
   }
 }

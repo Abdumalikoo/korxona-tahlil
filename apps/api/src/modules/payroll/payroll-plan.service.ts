@@ -318,6 +318,25 @@ export class PayrollPlanService {
     };
   }
 
+  /**
+   * Qayta taqsimlash: shu oy saqlangan umumiy vedomost (soliq hisoboti) — «miya» o'zgargandan keyin (masalan, ish haqi
+   * tarkibi bo'yicha xodim shu oy boshqa bo'limda bo'lgan) xodimlar yangi joyiga qayta yoziladi. Summalar o'sha — faqat
+   * qaysi bo'limga tushishi o'zgaradi. Umumiy vedomost saqlanmagan bo'lsa — null (keyin saqlanganda o'zi to'g'ri tushadi).
+   */
+  async redistribute(period: string, userId: string) {
+    const batch = await this.prisma.payrollBatch.findFirst({ where: { period, status: 'COMMITTED', scope: 'ALL' }, orderBy: { createdAt: 'desc' }, select: { id: true, fileName: true } });
+    if (!batch) return null;
+    const entries = await this.prisma.payrollEntry.findMany({ where: { batchId: batch.id, deletedAt: null }, select: { employeePinfl: true, baseTiyin: true } });
+    const toUnits = await this.units.generalRows(period, batch.id);
+    const rows: InputRow[] = [
+      ...entries.map((e) => ({ pinfl: e.employeePinfl, amountTiyin: e.baseTiyin.toString() })),
+      ...toUnits.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName })),
+    ];
+    if (!rows.length) return null;
+    const base = (batch.fileName ?? 'ish-haqi.xlsx').replace(/ \(qayta taqsimlandi\)$/, '');
+    return this.commit(period, { rows, fileName: `${base} (qayta taqsimlandi)`.slice(0, 200) }, true, userId);
+  }
+
   /** Umumiyga o'tkazilganda — Xodimlar bazasidagi joyi bo'yicha Markaz yoki Hududlar */
   private async registryUnit(pinfl: string): Promise<string | null> {
     const e = await this.prisma.employee.findUnique({ where: { pinfl }, select: { regionCode: true } });

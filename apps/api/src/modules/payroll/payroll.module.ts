@@ -11,6 +11,6 @@ import { PayrollController } from "./payroll.controller";
   imports: [TaxesModule, UnitPayrollModule],
   controllers: [PayrollController, PayrollPlanController],
   providers: [PayrollService, PayrollPlanService],
-  exports: [PayrollService],
+  exports: [PayrollService, PayrollPlanService],
 })
 export class PayrollModule {}

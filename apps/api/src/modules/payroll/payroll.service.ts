@@ -42,10 +42,19 @@ export interface LocationRef {
   employeePinfl: string;
   regionCode: number;
   districtId: string | null;
-  employmentType: string;
+  /** Yo'q bo'lsa — xodimning o'z turi */
+  employmentType?: string;
   region: { name: string };
   district: { id: string; code: number; name: string } | null;
+  /** Ish haqi tarkibi bo'yicha shu oy Markaz bo'limi (bor bo'lsa — reestrdagi bo'lim o'rniga) */
+  department?: { id: string; name: string } | null;
 }
+
+/**
+ * Ish haqi tarkibida ko'rsatilgan shu oydagi joy (Ish haqi tarkibi › «Tarkibdagi bo'limlar» tasdiqlanganda):
+ * settings «salary.composition.place.<oy>» → fixes[pinfl].departmentId. Faqat shu oy uchun.
+ */
+export const COMPOSITION_PLACE_KEY = (period: string) => `salary.composition.place.${period}`;
 
 export interface ExpenseGroup {
   key: string;
@@ -240,7 +249,21 @@ export class PayrollService {
       },
     });
 
-    return new Map<string, LocationRef>(locations.map((item) => [item.employeePinfl, item]));
+    const out = new Map<string, LocationRef>(locations.map((item) => [item.employeePinfl, item]));
+
+    // Ish haqi tarkibi bo'yicha shu oy joyi (Markaz bo'limi) — natijalar faylidagi hududdan ham ustun
+    const fixes = ((await this.prisma.setting.findUnique({ where: { key: COMPOSITION_PLACE_KEY(period) } }).catch(() => null))?.value as { fixes?: Record<string, { departmentId?: string | null }> } | null)?.fixes ?? {};
+    const want = Object.entries(fixes).filter(([pinfl, f]) => f?.departmentId && (!pinfls || pinfls.includes(pinfl)));
+    if (want.length) {
+      const deps = new Map((await this.prisma.department.findMany({ where: { id: { in: [...new Set(want.map(([, f]) => f.departmentId!))] } }, select: { id: true, name: true } })).map((d) => [d.id, d]));
+      for (const [pinfl, f] of want) {
+        const dep = deps.get(f.departmentId!);
+        if (!dep) continue;
+        const loc = out.get(pinfl);
+        out.set(pinfl, { employeePinfl: pinfl, regionCode: CENTRAL_REGION, districtId: null, ...(loc ? { employmentType: loc.employmentType } : {}), region: { name: 'Markaz' }, district: null, department: dep });
+      }
+    }
+    return out;
   }
 
   /** Tarixda yozuv bo'lsa — hudud, tuman va tur shundan olinadi */
@@ -250,9 +273,10 @@ export class PayrollService {
     return {
       ...employee,
       regionCode: location.regionCode,
-      employmentType: location.employmentType,
+      employmentType: location.employmentType ?? employee.employmentType,
       region: { name: location.region.name },
       district: location.district ? { name: location.district.name } : null,
+      ...(location.department ? { departmentId: location.department.id, department: { name: location.department.name } } : {}),
     };
   }
 
