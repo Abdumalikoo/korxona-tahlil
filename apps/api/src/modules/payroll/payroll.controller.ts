@@ -17,6 +17,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { PayrollService, type MissingRow } from './payroll.service';
+import { assertAmount } from '../../common/validation/amount';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -74,7 +75,7 @@ export class PayrollController {
 
     const rows = body.rows.map((row) => {
       try {
-        return { pinfl: String(row.pinfl), amountTiyin: BigInt(row.amountTiyin) };
+        return { pinfl: String(row.pinfl), amountTiyin: assertAmount(BigInt(row.amountTiyin), String(row.pinfl)) };
       } catch {
         throw new BadRequestException(`Notogri summa: ${row.pinfl}`);
       }

@@ -9,6 +9,7 @@ import { cellText, cellValue, parseNumber } from '../salary-composition/salary-c
 import { ASSET_MODES, FixedAssetsService, MODE_LABEL, type AssetMode } from './fixed-assets.service';
 import { TASHKENT_MS } from './fixed-assets.util';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { assertAmount } from '../../common/validation/amount';
 
 // ═══════════════════════════════════════════════════════════
 // Asosiy vositalar — Excel'dan yuklash (xodimlarga berilgan inventar).
@@ -388,6 +389,7 @@ export class FixedAssetImportService {
         throw new BadRequestException(`${label}: summa noto'g'ri`);
       }
       if (cost < 0n) throw new BadRequestException(`${label}: summa manfiy`);
+      assertAmount(cost, label);
       const inv = typeof r.inventoryNo === 'string' && r.inventoryNo.trim() ? r.inventoryNo.trim().slice(0, 60) : null;
       const placeText = typeof r.placeText === 'string' ? r.placeText.slice(0, 300) : '';
       const holderName = typeof r.holderName === 'string' && r.holderName.trim() ? r.holderName.trim().slice(0, 200) : null;

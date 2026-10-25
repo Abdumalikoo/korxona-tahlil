@@ -8,6 +8,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { PaymentMethod, PaymentStatus } from '@prisma/client';
+import { MaxAmount } from '../../../common/validation/amount';
 
 export class UpdateExpenseDto {
   @IsOptional()
@@ -17,6 +18,7 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @MaxAmount()
   amountTiyin?: number;
 
   @IsOptional()
@@ -81,5 +83,6 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @MaxAmount()
   vatTiyin?: number;
 }

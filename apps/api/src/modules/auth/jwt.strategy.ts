@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { cookieToken } from '../../common/security/auth-cookie';
 import { AuthService } from './auth.service';
 import type { AuthUser, JwtPayload } from './auth.types';
 
@@ -17,9 +18,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Bearer sarlavhasi yoki httpOnly sessiya cookie'si
+      jwtFromRequest: ExtractJwt.fromExtractors([ExtractJwt.fromAuthHeaderAsBearerToken(), cookieToken]),
       ignoreExpiration: false,
       secretOrKey: secret,
+      // Faqat HS256 — algoritmni almashtirish hujumiga qarshi
+      algorithms: ['HS256'],
     });
   }
 

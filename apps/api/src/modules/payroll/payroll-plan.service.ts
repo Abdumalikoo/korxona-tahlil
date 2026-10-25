@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isPayrollUnit, PAYROLL_UNITS, UnitPayrollService, type PayrollUnit } from '../unit-payroll/unit-payroll.service';
 import { PayrollService, type MissingRow } from './payroll.service';
+import { assertAmount } from '../../common/validation/amount';
 
 // ═══════════════════════════════════════════════════════════
 // Umumiy vedomost (Xarajatlar › Ish haqi) — bo'limlar bilan birga.
@@ -80,6 +81,7 @@ export class PayrollPlanService {
         throw new BadRequestException(`Noto'g'ri summa: ${pinfl}`);
       }
       if (amount < 0n) throw new BadRequestException(`Manfiy summa: ${pinfl}`);
+      assertAmount(amount, pinfl);
       const name = typeof r?.fullName === 'string' && r.fullName.trim() ? r.fullName.trim().replace(/\s+/g, ' ').slice(0, 160) : null;
       const prev = out.get(pinfl);
       out.set(pinfl, {

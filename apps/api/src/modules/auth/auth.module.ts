@@ -25,7 +25,9 @@ const TOKEN_TTL_SECONDS = 24 * 60 * 60;
 
         return {
           secret,
-          signOptions: { expiresIn: ttl },
+          // Algoritm qat'iy: faqat HS256 (boshqa algoritmli yoki «none» token qabul qilinmaydi)
+          signOptions: { expiresIn: ttl, algorithm: 'HS256' },
+          verifyOptions: { algorithms: ['HS256'] },
         };
       },
     }),

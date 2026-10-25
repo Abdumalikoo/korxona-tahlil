@@ -141,9 +141,16 @@ export class PublicActsController {
   }
 }
 
-/** Telefon so'rovi Next vositachisi (shu kompyuter) orqali keladi — haqiqiy IP x-forwarded-for da */
+/**
+ * Telefon so'rovi Next vositachisi (shu kompyuter) orqali keladi — haqiqiy IP x-forwarded-for da.
+ * Faqat OXIRGI qiymat olinadi: uni bizning vositachi qo'shadi. Birinchilari telefondan kelgan sarlavha bo'lishi
+ * mumkin (soxtalashtirish) — ishonilmaydi. So'rov to'g'ridan-to'g'ri kelsa (vositachisiz) — sarlavha e'tiborsiz.
+ */
 export function clientIp(ip: string | undefined, forwarded: string | undefined): string | undefined {
   const local = !ip || /^(::1|127\.|::ffff:127\.)/.test(ip);
-  const first = forwarded?.split(',')[0]?.trim();
-  return local && first ? first.replace(/^::ffff:/, '').slice(0, 64) : ip;
+  const parts = (forwarded ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const last = parts[parts.length - 1];
+  if (!local || !last) return ip;
+  const clean = last.replace(/^::ffff:/, '').slice(0, 64);
+  return /^[0-9a-fA-F:.]+$/.test(clean) ? clean : ip;
 }

@@ -8,6 +8,7 @@ import {
     MaxLength,
     Min,
 } from 'class-validator';
+import { MaxAmount } from '../../../common/validation/amount';
 
 export class CreateIncomeDto {
   @IsDateString({}, { message: 'Sana noto\u2018g\u2018ri formatda' })
@@ -16,12 +17,14 @@ export class CreateIncomeDto {
   /** Shartnoma yoki hisob-faktura summasi, TIYIN'da */
   @IsInt({ message: 'Summa butun son bo\u2018lishi kerak (tiyinda)' })
   @Min(1, { message: 'Summa noldan katta bo\u2018lishi kerak' })
+  @MaxAmount()
   amountTiyin!: number;
 
   /** Haqiqatda tushgan summa, TIYIN'da. Ko'rsatilmasa to'lov holatidan hisoblanadi */
   @IsOptional()
   @IsInt()
   @Min(0)
+  @MaxAmount()
   paidTiyin?: number;
 
   @IsString()
@@ -44,7 +47,7 @@ export class CreateIncomeDto {
   @IsString()
   districtId?: string;
 
-  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA (bo'lsa — hudud va bo'lim bo'lmaydi) */
+  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA, QOMITA (bo'lsa — hudud va bo'lim bo'lmaydi) */
   @IsOptional()
   @IsString()
   @MaxLength(20)

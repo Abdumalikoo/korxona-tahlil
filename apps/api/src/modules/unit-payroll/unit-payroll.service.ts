@@ -11,6 +11,7 @@ import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { Exclusive } from '../../common/locks';
 import { somToTiyin } from '../../common/money';
 import { listBlock, ObjectMap, shapeOf } from '../../common/settings/shape';
+import { assertAmount } from '../../common/validation/amount';
 
 // ═══════════════════════════════════════════════════════════
 // Bo'lim (yo'nalish) ish haqi — masalan, Xarajatlar › Tax free › Ish haqi.
@@ -1008,6 +1009,7 @@ export class UnitPayrollService {
         throw new BadRequestException(`Noto'g'ri summa: ${pinfl}`);
       }
       if (amount < 0n) throw new BadRequestException(`Manfiy summa: ${pinfl}`);
+      assertAmount(amount, pinfl);
       const prev = merged.get(pinfl);
       merged.set(pinfl, { amount: (prev?.amount ?? 0n) + amount, fullName: cleanName(raw?.fullName) ?? prev?.fullName ?? null });
     }

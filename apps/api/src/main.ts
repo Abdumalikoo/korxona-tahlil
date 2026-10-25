@@ -5,6 +5,8 @@ import 'reflect-metadata';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { securityHeaders } from './common/security/headers';
+import { bodyLimits } from './common/security/body-limits';
+import { csrfGuard } from './common/security/auth-cookie';
 
 /**
  * BigInt JSON'ga seriyalanmaydi — bu Node.js cheklovi.
@@ -28,10 +30,11 @@ async function bootstrap(): Promise<void> {
   if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
   app.use(securityHeaders(production));
 
-  // Ish haqi, natijalar, ijara kabi katta fayllar JSON bilan keladi (standart 100 kb yetmaydi)
-  const bodyLimit = process.env.BODY_LIMIT ?? '10mb';
-  app.useBodyParser('json', { limit: bodyLimit });
-  app.useBodyParser('urlencoded', { limit: bodyLimit, extended: true });
+  // So'rov tanasi chegarasi: kirishsiz ochiq manzillarga — kichik (begona katta so'rov serverni band qilmasin),
+  // kirgan foydalanuvchiga — katta (ish haqi, natijalar, ijara kabi katta jadvallar JSON bilan keladi)
+  app.use(bodyLimits(process.env.BODY_LIMIT ?? '10mb'));
+  // Sessiya cookie'si bilan kelgan o'zgartiruvchi so'rovlar — CSRF tekshiruvi
+  app.use(csrfGuard());
 
   app.useGlobalPipes(
     new ValidationPipe({

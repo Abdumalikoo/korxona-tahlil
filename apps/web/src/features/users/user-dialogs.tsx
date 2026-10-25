@@ -6,7 +6,7 @@ import { Drawer } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { PinInput, weakPinReason } from '@/features/auth/pin';
-import { api, setToken, type ApiResponse } from '@/lib/api';
+import { adoptSession, api, type ApiResponse } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -516,7 +516,7 @@ export function MyPasswordDrawer({ open, onClose, onDone }: { open: boolean; onC
     try {
       const r = await api.post<ApiResponse<{ success: true; accessToken?: string }>>('/auth/change-password', { currentPassword: current, newPassword: next });
       // Parol o'zgardi — boshqa qurilmalar chiqarildi, bu oyna yangi token bilan davom etadi
-      if (r.data.accessToken) setToken(r.data.accessToken);
+      if (r.data.accessToken) await adoptSession(r.data.accessToken);
       onDone();
       onClose();
     } catch (err) {

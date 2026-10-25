@@ -17,6 +17,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { SimpleImportService, type SimpleRow } from './simple-import.service';
+import { assertAmount } from '../../common/validation/amount';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
@@ -76,7 +77,7 @@ export class SimpleImportController {
     const rows: SimpleRow[] = body.rows.map((row) => ({
       rowIndex: Number(row.rowIndex),
       name: String(row.name),
-      amountTiyin: BigInt(row.amountTiyin),
+      amountTiyin: assertAmount(BigInt(row.amountTiyin), `${Number(row.rowIndex)}-qator`),
     }));
 
     const data = await this.service.commit(type, rows, userId, section === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY');

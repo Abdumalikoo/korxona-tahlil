@@ -9,19 +9,74 @@
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 const TOKEN_KEY = 'korxona_token';
 
-// ─────────── Token ───────────
+// ─────────── Sessiya ───────────
+//
+// Asosiy usul — httpOnly cookie (server o'rnatadi; JavaScript tokenni ko'rmaydi, XSS o'g'irlay olmaydi).
+// Brauzer cookie'ni yubormaydigan o'rnatishda (web va API boshqa saytlarda) — zaxira: token localStorage'da.
+// Qaysi biri ishlashini kirishda web o'zi tekshiradi (adoptSession).
+
+/** API'ga har so'rovda: cookie yuborilsin va CSRF sarlavhasi bo'lsin */
+export const API_HEADERS = { 'X-Requested-With': 'korxona' } as const;
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  try {
+    return window.localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setToken(token: string): void {
-  window.localStorage.setItem(TOKEN_KEY, token);
+  try {
+    window.localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // brauzer xotirasi yopiq — cookie bilan ishlaydi
+  }
 }
 
 export function clearToken(): void {
-  window.localStorage.removeItem(TOKEN_KEY);
+  try {
+    window.localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // e'tiborsiz
+  }
+}
+
+/**
+ * Kirgandan keyin: cookie ishlayaptimi (tokensiz /auth/me). Ishlasa — token brauzerda saqlanmaydi.
+ * Ishlamasa (masalan web va API boshqa domenda) — zaxira sifatida token saqlanadi.
+ */
+export async function adoptSession(accessToken: string): Promise<'cookie' | 'token'> {
+  try {
+    const r = await fetch(`${BASE_URL}/auth/me`, { credentials: 'include', headers: { ...API_HEADERS } });
+    if (r.ok) {
+      clearToken();
+      return 'cookie';
+    }
+  } catch {
+    // tarmoq — pastda zaxira
+  }
+  setToken(accessToken);
+  return 'token';
+}
+
+/**
+ * Boshqa joylardagi to'g'ridan-to'g'ri fetch (fayl yuklab olish, Excel yuklash) ham cookie va CSRF sarlavhasi bilan ketsin.
+ * Faqat API manziliga; boshqa manzillarga tegmaydi.
+ */
+if (typeof window !== 'undefined' && !(window as unknown as { __ktFetch?: boolean }).__ktFetch) {
+  (window as unknown as { __ktFetch?: boolean }).__ktFetch = true;
+  const original = window.fetch.bind(window);
+  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith(BASE_URL)) {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      if (!headers.has('X-Requested-With')) headers.set('X-Requested-With', API_HEADERS['X-Requested-With']);
+      return original(input, { ...init, headers, credentials: init?.credentials ?? 'include' });
+    }
+    return original(input, init);
+  };
 }
 
 // ─────────── Xatolar ───────────
@@ -83,8 +138,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   const response = await fetch(url, {
     ...rest,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      ...API_HEADERS,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },

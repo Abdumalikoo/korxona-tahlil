@@ -8,6 +8,7 @@ import { unitBranches } from '../unit-lease/unit-lease.branches';
 import { monthLabel, monthsBetween } from '../../common/period';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { cellValue } from '../../common/excel/cells';
+import { MAX_AMOUNT_TIYIN } from '../../common/validation/amount';
 
 // ═══════════════════════════════════════════════════════════
 // Yo'nalish xarajatlari — qo'lda kiritish jadvali (Tax free › Asosiy vositalar / Reklama / Boshqa; Fermer › Asosiy vositalar / TMZ / Boshqa).
@@ -214,6 +215,10 @@ export class UnitEntriesService implements OnModuleInit {
     if (raw?.amountTiyin !== null && raw?.amountTiyin !== undefined && raw?.amountTiyin !== '') {
       try {
         amount = BigInt(String(raw.amountTiyin));
+        if (amount > MAX_AMOUNT_TIYIN) {
+          errors.push("Summa juda katta (10 trillion so'mdan oshmasin)");
+          amount = null;
+        }
       } catch {
         errors.push("Summa noto'g'ri");
       }

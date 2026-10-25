@@ -688,3 +688,30 @@ Umumiy vedomost (hamma xodimlar bitta faylda) va bo'limlar ish haqi (Tax free, F
 **Testlar:**
 - `t-payroll-plan` — taklif, ogohlantirish, o'zgartirish va olib tashlash, F.I.Sh. talabi, saqlash, ko'chishlar, teskari tomon, almashtirish, bekor qilish, faqat bo'limlarga;
 - `pg/pg-plan` — haqiqiy bazada.
+
+## Xavfsizlik — 2c: sessiya, so'rovlar va fayllar
+
+### Sessiya — httpOnly cookie
+- Kirishda server `kt_session` cookie'sini o'rnatadi: `HttpOnly` (JavaScript ko'rmaydi — sahifaga zararli skript tushsa ham sessiyani o'g'irlay olmaydi), `SameSite=Strict`, `Path=/api`, HTTPS bo'lsa `Secure`; muddati token muddati bilan bir xil.
+- Web kirgandan keyin cookie ishlashini o'zi tekshiradi: ishlasa — token brauzer xotirasida (localStorage) **saqlanmaydi**. Web va API boshqa-boshqa saytda bo'lsa (cookie yuborilmaydi) — eski usul (token xotirada, `Authorization: Bearer`) zaxira sifatida ishlaydi.
+- «Chiqish» har doim serverda ham yopadi: cookie o'chiriladi, eski tokenlar yaroqsiz.
+- Parol / PIN almashtirilganda yangi cookie beriladi.
+
+### CSRF himoyasi
+- Cookie bilan kelgan yozish so'rovi (POST/PATCH/PUT/DELETE) `X-Requested-With` sarlavhasisiz bo'lsa — 403 (`CSRF`). Web bu sarlavhani hamma so'rovga (fayl yuklash va yuklab olish ham) o'zi qo'shadi. `Authorization` bilan kelgan so'rovlar (skript, Telegram) bunga tegmaydi.
+
+### So'rov hajmi
+- Kirish (`/auth/login`, `/auth/code-login`): 16 KB; telefondan imzo (`/public/...`): 2 MB; qolganlari: `BODY_LIMIT` (standart 10 MB). Oshsa — 413 `PAYLOAD_TOO_LARGE`; buzilgan JSON — 400 `BAD_JSON` (logga «ichki xato» bo'lib tushmaydi).
+
+### Summa chegarasi
+- Bitta yozuv / qator summasi 10 trillion so'mdan oshmasin (xato bilan qo'shilgan nollar hisobotlarni buzmasin). Xarajat/daromad shakllari, Excel importlari (ish haqi, bo'limlar, ijara, internet, asosiy vositalar, hududiy daromad, oddiy import) — hammasida tekshiriladi.
+
+### Boshqalar
+- Biznes-reja Excel'i: foydalanuvchi yozgan nom va izohlar `=`, `+`, `-`, `@` bilan boshlansa ham formula bo'lib qolmaydi (oddiy matn).
+- Token faqat HS256 algoritmi bilan imzolanadi va tekshiriladi (boshqa algoritmdagi token rad etiladi).
+- Telefondan imzo: IP manzil faqat bizning vositachi qo'shgan oxirgi qiymatdan olinadi (soxta sarlavhaga ishonilmaydi).
+- Garaj 3D sahifasida mashina nomi xavfsiz chiqariladi (HTML sifatida emas).
+
+### Testlar
+- `test/t-hardening.js` — tana chegaralari, summa chegarasi, Excel matni, IP, cookie va CSRF.
+- Ishlab chiqishda haqiqiy brauzerda ham tekshirildi: cookie rejimi (token xotirada yo'q) va zaxira rejimi (boshqa sayt).

@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service';
 import { CENTRAL_REGION, VAT_PERCENT, type LeasePlace, type LeaseStatus } from './leases.types';
+import { assertAmount } from '../../common/validation/amount';
 
 // ═══════════════════════════════════════════════════════════
 // Ijara — umumiy yordamchilar (servislar orasida bo'lishiladi)
@@ -51,7 +52,7 @@ export function parseTiyin(value: unknown, label = 'Summa'): bigint {
     throw new BadRequestException(`${label} noto'g'ri`);
   }
   if (result < 0n) throw new BadRequestException(`${label} manfiy bo'lishi mumkin emas`);
-  return result;
+  return assertAmount(result, label);
 }
 
 /** Summa ichidagi QQS (12%) */

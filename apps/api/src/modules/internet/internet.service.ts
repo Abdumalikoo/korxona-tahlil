@@ -13,6 +13,7 @@ import {
   type RegistryRow,
 } from './internet.parse';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { assertAmount } from '../../common/validation/amount';
 
 // ═══════════════════════════════════════════════════════════
 // Internet to'lovlari: shartnomalar ro'yxati va oylik to'lovlar → xarajat.
@@ -520,6 +521,7 @@ export class InternetService {
         throw new BadRequestException(`${i + 1}-to'lov: summa noto'g'ri`);
       }
       if (amount <= 0n) throw new BadRequestException(`${i + 1}-to'lov: summa noto'g'ri`);
+      assertAmount(amount, `${i + 1}-to'lov`);
       return {
         period,
         amountTiyin: amount,

@@ -232,7 +232,14 @@ export function Garage3D({
           el.type = 'button';
           el.className = cn('garage-tag', selected.current === v.id && 'is-on');
           const share = Number(v.month.totalTiyin) / max;
-          el.innerHTML = `<b>${v.plateNumber}</b><span>${active ? formatTiyin(v.month.totalTiyin) : '—'}</span><i style="width:${Math.round(share * 100)}%"></i>`;
+          // Matn DOM orqali (innerHTML emas): davlat raqami foydalanuvchi kiritadi — HTML sifatida o'qilmasin
+          const plate = document.createElement('b');
+          plate.textContent = v.plateNumber;
+          const sum = document.createElement('span');
+          sum.textContent = active ? formatTiyin(v.month.totalTiyin) : '—';
+          const bar = document.createElement('i');
+          bar.style.width = `${Math.max(0, Math.min(100, Math.round((Number.isFinite(share) ? share : 0) * 100)))}%`;
+          el.append(plate, sum, bar);
           el.title = `${v.model}${v.driverName ? ` · ${v.driverName}` : ''}`;
           el.addEventListener('click', () => onSelectRef.current(v.id));
           const label = new CSS2DObject(el);

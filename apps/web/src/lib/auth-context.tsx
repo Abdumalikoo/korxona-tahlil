@@ -9,7 +9,7 @@ import {
     useState,
     type ReactNode,
 } from 'react';
-import { api, ApiError, clearToken, getToken, setToken, type ApiResponse } from './api';
+import { adoptSession, api, clearToken, type ApiResponse } from './api';
 import type { LoginResult, User } from './types';
 
 // ═══════════════════════════════════════════════════════════
@@ -76,26 +76,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // sessionStorage yopiq bo'lsa
     }
-    const token = getToken();
-
-    if (!token) {
-      setReady(true);
-      return;
+    // Sessiya: cookie (yoki zaxira token) — tekshiruv to'g'ridan-to'g'ri (401 bo'lsa kirish sahifasiga o'tkazmaydi:
+    // ochiq sahifalar, masalan telefondagi imzo sahifasi ham shu qobiqda)
+    const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
+    let token: string | null = null;
+    try {
+      token = window.localStorage.getItem('korxona_token');
+    } catch {
+      token = null;
     }
-
-    api
-      .get<ApiResponse<User>>('/auth/me')
-      .then((response) => setUser(response.data))
-      .catch((error: unknown) => {
-        // Faqat sessiya haqiqatan tugagan bo'lsa (401) chiqariladi; tarmoq/server xatosida token saqlanadi
-        if (error instanceof ApiError && error.isUnauthorized) clearToken();
+    fetch(`${base}/auth/me`, { credentials: 'include', headers: { 'X-Requested-With': 'korxona', ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+      .then(async (r) => {
+        if (r.ok) setUser(((await r.json()) as ApiResponse<User>).data);
+        else if (r.status === 401) clearToken();
+      })
+      .catch(() => {
+        // tarmoq xatosi — token saqlanadi, keyinroq qayta tekshiriladi
       })
       .finally(() => setReady(true));
   }, []);
 
+  /** Kirish / PIN almashtirishdan keyin: cookie ishlasa — token brauzerda saqlanmaydi */
   const applySession = useCallback((result: LoginResult) => {
-    setToken(result.accessToken);
     setUser(result.user);
+    void adoptSession(result.accessToken);
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
@@ -103,16 +107,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username,
       password,
     });
-    applySession(response.data);
+    await adoptSession(response.data.accessToken);
+    setUser(response.data.user);
     // Yo'naltirishni chaqiruvchi sahifa hal qiladi
     return response.data.user;
-  }, [applySession]);
+  }, []);
 
   const codeLogin = useCallback(async (code: string, pin: string) => {
     const response = await api.post<ApiResponse<LoginResult>>('/auth/code-login', { code, pin });
-    applySession(response.data);
+    await adoptSession(response.data.accessToken);
+    setUser(response.data.user);
     return response.data.user;
-  }, [applySession]);
+  }, []);
 
   const enterRole = useCallback((role: string): string | null => {
     const entry = ROLE_ENTRY[role];
@@ -143,7 +149,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // Serverda ham yopiladi: token boshqa joyda saqlanib qolgan bo'lsa ham yaroqsiz bo'ladi.
     // Javob kutilmaydi (1,5 soniya) — tarmoq yo'q bo'lsa ham foydalanuvchi chiqadi.
-    if (getToken()) {
+    {
+      // Serverda sessiya va cookie yopiladi
       const done = api.post('/auth/logout').catch(() => null);
       void Promise.race([done, new Promise((r) => setTimeout(r, 1500))]).finally(() => {
         clearToken();

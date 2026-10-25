@@ -8,6 +8,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { PaymentMethod, PaymentStatus } from '@prisma/client';
+import { MaxAmount } from '../../../common/validation/amount';
 
 export class CreateExpenseDto {
   /** ISO sana: "2026-09-10" */
@@ -20,6 +21,7 @@ export class CreateExpenseDto {
    */
   @IsInt({ message: 'Summa butun son bolishi kerak (tiyinda)' })
   @Min(1, { message: 'Summa noldan katta bolishi kerak' })
+  @MaxAmount()
   amountTiyin!: number;
 
   @IsString()
@@ -46,7 +48,7 @@ export class CreateExpenseDto {
   @IsString()
   districtId?: string;
 
-  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA (bo'lsa — hudud va bo'lim bo'lmaydi) */
+  /** Yo'nalish: TAX_FREE, MARKSHEYDER, FERMER, BUXGALTERIYA, QOMITA (bo'lsa — hudud va bo'lim bo'lmaydi) */
   @IsOptional()
   @IsString()
   @MaxLength(20)
@@ -93,6 +95,7 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsInt({ message: 'QQS butun son bolishi kerak (tiyinda)' })
   @Min(0)
+  @MaxAmount()
   vatTiyin?: number;
 
   /** Bo'lim: DOIMIY yoki BOSHQA */

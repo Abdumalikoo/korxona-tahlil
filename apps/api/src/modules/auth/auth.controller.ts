@@ -1,4 +1,6 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { clearAuthCookie, setAuthCookie } from '../../common/security/auth-cookie';
 import { CurrentUser, Public } from '../../common/decorators';
 import { RateLimit } from '../../common/security/rate-limit';
 import { AuthService } from './auth.service';
@@ -17,8 +19,9 @@ export class AuthController {
   @RateLimit({ limit: 10, windowSec: 60, bodyKey: 'username', bodyLimit: 10 })
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: LoginDto): Promise<{ data: LoginResult }> {
+  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<{ data: LoginResult }> {
     const result = await this.auth.login(dto.username, dto.password);
+    setAuthCookie(req, res, result.accessToken);
     return { data: result };
   }
 
@@ -27,8 +30,10 @@ export class AuthController {
   @RateLimit({ limit: 20, windowSec: 60, bodyKey: 'code', bodyLimit: 12 })
   @Post('code-login')
   @HttpCode(HttpStatus.OK)
-  async codeLogin(@Body() dto: CodeLoginDto): Promise<{ data: LoginResult }> {
-    return { data: await this.auth.codeLogin(dto.code, dto.pin) };
+  async codeLogin(@Body() dto: CodeLoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<{ data: LoginResult }> {
+    const result = await this.auth.codeLogin(dto.code, dto.pin);
+    setAuthCookie(req, res, result.accessToken);
+    return { data: result };
   }
 
   /** Joriy foydalanuvchi, roli va ochiq bo'limlari */
@@ -42,24 +47,30 @@ export class AuthController {
   async changePassword(
     @CurrentUser('id') userId: string,
     @Body() dto: ChangePasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<{ data: { success: true } & LoginResult }> {
     // Eski tokenlar yaroqsiz bo'ladi — joriy oyna yangi token bilan davom etadi
     const result = await this.auth.changePassword(userId, dto.currentPassword, dto.newPassword);
+    setAuthCookie(req, res, result.accessToken);
     return { data: { success: true, ...result } };
   }
 
   /** Chiqish — barcha qurilmalardagi sessiyalar yopiladi */
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@CurrentUser('id') userId: string): Promise<{ data: { success: true } }> {
+  async logout(@CurrentUser('id') userId: string, @Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<{ data: { success: true } }> {
     await this.auth.logout(userId);
+    clearAuthCookie(req, res);
     return { data: { success: true } };
   }
 
   /** Ishchi o'z PIN'ini o'zgartiradi — yangi token qaytadi */
   @Post('change-pin')
   @HttpCode(HttpStatus.OK)
-  async changePin(@CurrentUser('id') userId: string, @Body() dto: ChangePinDto): Promise<{ data: LoginResult }> {
-    return { data: await this.auth.changePin(userId, dto.currentPin, dto.newPin) };
+  async changePin(@CurrentUser('id') userId: string, @Body() dto: ChangePinDto, @Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<{ data: LoginResult }> {
+    const result = await this.auth.changePin(userId, dto.currentPin, dto.newPin);
+    setAuthCookie(req, res, result.accessToken);
+    return { data: result };
   }
 }

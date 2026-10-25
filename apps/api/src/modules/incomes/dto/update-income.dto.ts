@@ -8,6 +8,7 @@ import {
     MaxLength,
     Min,
 } from 'class-validator';
+import { MaxAmount } from '../../../common/validation/amount';
 
 export class UpdateIncomeDto {
   @IsOptional()
@@ -17,11 +18,13 @@ export class UpdateIncomeDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @MaxAmount()
   amountTiyin?: number;
 
   @IsOptional()
   @IsInt()
   @Min(0)
+  @MaxAmount()
   paidTiyin?: number;
 
   @IsOptional()

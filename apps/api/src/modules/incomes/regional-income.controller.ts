@@ -16,6 +16,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { RegionalIncomeService, type ParsedRow } from './regional-income.service';
+import { assertAmount } from '../../common/validation/amount';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -88,7 +89,7 @@ export class RegionalIncomeController {
           categoryLabel: String(row.categoryLabel),
           quantity:
             row.quantity === null || row.quantity === undefined ? null : Number(row.quantity),
-          amountTiyin: BigInt(row.amountTiyin),
+          amountTiyin: assertAmount(BigInt(row.amountTiyin), `${row.regionName} - ${row.categoryLabel}`),
         };
       } catch {
         throw new BadRequestException(`Notogri qator: ${row.regionName} - ${row.categoryLabel}`);

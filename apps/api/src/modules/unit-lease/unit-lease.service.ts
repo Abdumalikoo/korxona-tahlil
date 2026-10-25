@@ -9,6 +9,7 @@ import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { cellValue } from '../../common/excel/cells';
 import { somToTiyin } from '../../common/money';
 import { MAX_RANGE_MONTHS as MAX_MONTHS, monthLabel, monthsBetween, PERIOD_RE } from '../../common/period';
+import { assertAmount } from '../../common/validation/amount';
 // Avvalgi importlar buzilmasin (boshqa modullar shu yerdan olardi)
 export { monthLabel, monthsBetween };
 
@@ -485,6 +486,7 @@ export class UnitLeaseService implements OnModuleInit {
           throw new BadRequestException(`Summa noto'g'ri: ${branch.no}-${cfg.branchLabel.toLowerCase()}, ${period}`);
         }
         if (x < 0n) throw new BadRequestException(`Manfiy summa: ${branch.no}-${cfg.branchLabel.toLowerCase()}, ${period}`);
+        assertAmount(x, `${branch.no}-${cfg.branchLabel.toLowerCase()}, ${period}`);
         v.set(k.key, x);
       }
       per.set(branch.code, v);

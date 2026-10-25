@@ -33,7 +33,16 @@ const CENTER: Partial<ExcelJS.Alignment> = { horizontal: 'center', vertical: 'mi
 
 const q = (sheet: string) => `'${sheet.replace(/'/g, "''")}'`;
 
-type Val = string | number | null | undefined;
+type Val = string | number | ExcelJS.CellRichTextValue | null | undefined;
+
+/**
+ * Foydalanuvchi matni (nomlar, izohlar): «=» bilan boshlansa ham formula bo'lib qolmasin —
+ * katakka oddiy matn sifatida yoziladi (Excel'da formula ishga tushmaydi).
+ */
+export function txt(v: string | null | undefined): Val {
+  if (v === null || v === undefined || v === '') return v;
+  return /^[=+\-@\t\r]/.test(v) ? ({ richText: [{ text: v }] } as ExcelJS.CellRichTextValue) : v;
+}
 
 function put(ws: ExcelJS.Worksheet, ref: string, value: Val, o: { font?: Partial<ExcelJS.Font>; fill?: ExcelJS.Fill; fmt?: string; align?: Partial<ExcelJS.Alignment>; border?: boolean } = {}) {
   const c = ws.getCell(ref);
@@ -119,7 +128,7 @@ export async function buildWorkbook(source: Buffer, o: BuildOptions): Promise<Bu
   GROUPS.forEach((gr, i) => {
     const col = CL(2 + i);
     st.getColumn(2 + i).width = 17;
-    put(st, `${col}11`, gr.name, { fill: FILL_SUB, align: CENTER });
+    put(st, `${col}11`, txt(gr.name), { fill: FILL_SUB, align: CENTER });
     put(st, `${col}12`, o.facts.groupMap[i] ?? gr.uo, { font: F_B, fill: FILL_SET, align: CENTER });
     st.getCell(`${col}12`).dataValidation = { type: 'list', allowBlank: false, formulae: [`"${UO_REG.map(([c]) => c).join(',')}"`] };
   });
@@ -138,12 +147,12 @@ export async function buildWorkbook(source: Buffer, o: BuildOptions): Promise<Bu
     if (line.section !== section) {
       section = line.section;
       fk.mergeCells(`A${r}:H${r}`);
-      put(fk, `A${r}`, section, { font: F_B, fill: FILL_SUB });
+      put(fk, `A${r}`, txt(section), { font: F_B, fill: FILL_SUB });
       r += 1;
     }
     FROW[line.key] = r;
     put(fk, `A${r}`, line.key, { font: F_S, align: CENTER });
-    put(fk, `B${r}`, line.name, { align: WRAP });
+    put(fk, `B${r}`, txt(line.name), { align: WRAP });
     const vals = o.facts.lines[line.key] ?? [];
     for (let i = 0; i < 4; i += 1) {
       const col = 'CDEF'[i]!;
@@ -151,7 +160,7 @@ export async function buildWorkbook(source: Buffer, o: BuildOptions): Promise<Bu
       else put(fk, `${col}${r}`, typeof vals[i] === 'number' ? round(vals[i] as number) : null, { fill: FILL_IN, fmt: NUM });
     }
     put(fk, `G${r}`, line.kind === 'balance' ? `=F${r}` : line.kind === 'count' ? `=IFERROR(AVERAGE(C${r}:F${r}),"")` : `=SUM(C${r}:F${r})`, { font: F_B, fmt: NUM });
-    put(fk, `H${r}`, o.notes?.[line.key] ?? (line.derived ? 'Ўзи йиғилади' : line.kind === 'balance' ? 'Бухгалтерия баланси; «Жами» — 4-чорак' : line.kind === 'count' ? 'Чорак ўртачаси, киши; «Жами» — ўртача' : ''), {
+    put(fk, `H${r}`, txt(o.notes?.[line.key]) ?? (line.derived ? 'Ўзи йиғилади' : line.kind === 'balance' ? 'Бухгалтерия баланси; «Жами» — 4-чорак' : line.kind === 'count' ? 'Чорак ўртачаси, киши; «Жами» — ўртача' : ''), {
       font: F_S,
       align: WRAP,
     });
@@ -176,7 +185,7 @@ export async function buildWorkbook(source: Buffer, o: BuildOptions): Promise<Bu
     REGIONS.forEach((reg, i) => {
       const rr = top + 2 + i;
       FH_ROW[`${qn}:${i}`] = rr;
-      put(fh, `A${rr}`, reg.name);
+      put(fh, `A${rr}`, txt(reg.name));
       GROUPS.forEach((_, j) => {
         const v = o.facts.regions[qn - 1]?.[i]?.[j];
         put(fh, `${CL(2 + j)}${rr}`, typeof v === 'number' ? round(v) : null, { fill: FILL_IN, fmt: NUM });
@@ -214,7 +223,7 @@ export async function buildWorkbook(source: Buffer, o: BuildOptions): Promise<Bu
     const font = level === 0 ? F_B : F_N;
     const fl = level === 0 ? FILL_SUB : undefined;
     put(ws, `A${rr}`, num ?? '', { font, fill: fl, align: CENTER });
-    put(ws, `B${rr}`, name, { font, fill: fl, align: { wrapText: true, vertical: 'middle', indent: level === 0 ? 0 : 2 } });
+    put(ws, `B${rr}`, txt(name), { font, fill: fl, align: { wrapText: true, vertical: 'middle', indent: level === 0 ? 0 : 2 } });
     put(ws, `C${rr}`, prior ? `=${prior}` : null, { font, fill: fl, fmt: NUM });
     put(ws, `D${rr}`, annual ? `=${annual}` : null, { font, fill: fl, fmt: NUM });
     put(ws, `E${rr}`, planQ ? `=${per(planQ[0]!, planQ[1]!, planQ[2]!, planQ[3]!)}` : null, { font, fill: fl, fmt: NUM });
