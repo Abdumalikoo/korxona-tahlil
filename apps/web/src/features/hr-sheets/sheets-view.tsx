@@ -124,8 +124,8 @@ function SheetPanel({ sheet, onChanged, onOpenPerson }: { sheet: HrSheetInfo; on
   const rows = useAsync(() => hrSheetsApi.rows(sheet.code, { q: q || undefined, unit: unit || undefined, page, limit: 50 }), [sheet.code, q, unit, page, sheet.current?.uploadedAt]);
 
   async function handleFile(file: File) {
-    if (!/\.xlsx$/i.test(file.name)) {
-      setToast({ message: 'Faqat Excel (.xlsx) fayl yuklang', tone: 'error' });
+    if (!/\.(xlsx|xltx)$/i.test(file.name)) {
+      setToast({ message: 'Faqat Excel (.xlsx yoki .xltx) fayl yuklang', tone: 'error' });
       return;
     }
     setUploading(true);
@@ -224,7 +224,7 @@ function SheetPanel({ sheet, onChanged, onOpenPerson }: { sheet: HrSheetInfo; on
       <input
         ref={inputRef}
         type="file"
-        accept=".xlsx"
+        accept=".xlsx,.xltx"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

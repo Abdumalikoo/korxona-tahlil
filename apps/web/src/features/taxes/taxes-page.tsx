@@ -276,7 +276,7 @@ export function TaxesPage() {
       <PageHeader title="Soliqlar" description={`Hamma soliqlar bir joyda · ${formatPeriod(period)}`} />
       <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
         {/* Amallar — hamma Manba sahifasida bir xil joyda */}
-        {isAdmin && <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />}
+        {isAdmin && <input ref={fileRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />}
         <SourceActions
           upload={{ label: "Excel'dan yuklash", onClick: () => fileRef.current?.click(), loading: busy, hint: `${formatPeriod(period)} soliqlari (shablon shaklida)` }}
           template={{ label: 'Excel shablon', onClick: () => void taxesApi.template(period).catch((e) => setToast({ message: errorMessage(e), tone: 'error' })) }}

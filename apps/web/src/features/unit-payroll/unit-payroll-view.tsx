@@ -102,8 +102,8 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
   }
 
   async function handleFile(file: File) {
-    if (!/\.xlsx$/i.test(file.name)) {
-      setToast({ message: 'Faqat Excel (.xlsx) fayl yuklang', tone: 'error' });
+    if (!/\.(xlsx|xltx)$/i.test(file.name)) {
+      setToast({ message: 'Faqat Excel (.xlsx yoki .xltx) fayl yuklang', tone: 'error' });
       return;
     }
     setUploading(true);
@@ -211,7 +211,7 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
       <input
         ref={inputRef}
         type="file"
-        accept=".xlsx"
+        accept=".xlsx,.xltx"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];

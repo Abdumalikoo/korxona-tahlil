@@ -120,7 +120,7 @@ export function HpUpload() {
             title="Excel faylni shu yerga tashlang yoki bosing"
             hint={
               <>
-                Faqat .xlsx, ko‘pi bilan 10 MB. {kind === 'ALL' ? 'Varaqlar nomi (Daromad_Tarixi, Xodimlar_Tarixi …) yoki sarlavhalari bo‘yicha aniqlanadi.' : `Fayl «${KIND_TEXT[kind]}» sifatida o‘qiladi.`}
+                Faqat .xlsx yoki .xltx, ko‘pi bilan 10 MB. {kind === 'ALL' ? 'Varaqlar nomi (Daromad_Tarixi, Xodimlar_Tarixi …) yoki sarlavhalari bo‘yicha aniqlanadi.' : `Fayl «${KIND_TEXT[kind]}» sifatida o‘qiladi.`}
               </>
             }
           />

@@ -65,8 +65,8 @@ export function ImportDialog({ onClose, onImported }: Props) {
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
-    if (!/\.xlsx$/i.test(file.name)) {
-      setError('Faqat .xlsx fayl — Excel\'da «Excel kitobi (.xlsx)» sifatida saqlang');
+    if (!/\.(xlsx|xltx)$/i.test(file.name)) {
+      setError('Faqat .xlsx yoki .xltx fayl — Excel\'da «Excel kitobi (.xlsx)» sifatida saqlang');
       return;
     }
     setAnalyzing(true);
@@ -187,7 +187,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
               <input
                 ref={inputRef}
                 type="file"
-                accept=".xlsx"
+                accept=".xlsx,.xltx"
                 className="hidden"
                 onChange={(event) => handleFile(event.target.files?.[0])}
               />

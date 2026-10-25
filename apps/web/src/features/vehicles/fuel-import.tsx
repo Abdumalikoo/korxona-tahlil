@@ -204,7 +204,7 @@ export function FuelImportDialog({ onClose, onDone, initialAnalysis }: { onClose
                 <span className="text-sm font-semibold text-heading">{busy ? 'Tekshirilmoqda…' : file ? file.name : 'Faylni shu yerga tashlang yoki tanlang'}</span>
                 <span className="text-xs text-(--color-text-muted)">.xls yoki .xlsx · 10 MB gacha</span>
               </button>
-              <input ref={input} type="file" accept=".xls,.xlsx" className="hidden" onChange={(e) => void pickFile(e.target.files?.[0])} />
+              <input ref={input} type="file" accept=".xls,.xlsx,.xltx" className="hidden" onChange={(e) => void pickFile(e.target.files?.[0])} />
               <div className="rounded-xl bg-(--color-surface-muted) px-4 py-3 text-xs text-(--color-text-muted)">
                 <p className="mb-1 font-semibold text-heading">Fayl shakli (doim shunday)</p>
                 <p>«Период с … по …» · «Продажи по датам»: Дата | АЗС | ГСМ | Количество | Цена | Сумма | В т.ч. НДС | В т.ч. Акциз</p>
@@ -362,7 +362,7 @@ export function FuelImportDialog({ onClose, onDone, initialAnalysis }: { onClose
               <button type="button" disabled={busy} onClick={() => input.current?.click()} className="text-xs text-brand-700 hover:underline">
                 Boshqa fayl
               </button>
-              <input ref={input} type="file" accept=".xls,.xlsx" className="hidden" onChange={(e) => void pickFile(e.target.files?.[0])} />
+              <input ref={input} type="file" accept=".xls,.xlsx,.xltx" className="hidden" onChange={(e) => void pickFile(e.target.files?.[0])} />
               <label className="ml-auto flex items-center gap-2 text-xs text-(--color-text-muted)">
                 To&apos;lov usuli
                 <select value={method} onChange={(e) => setMethod(e.target.value as VehiclePaymentMethod)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm">

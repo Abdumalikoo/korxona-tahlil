@@ -73,8 +73,8 @@ export function UnitBankView({ unit }: { unit: EntryUnit }) {
   }
 
   async function handleFile(file: File) {
-    if (!/\.xlsx$/i.test(file.name)) {
-      setToast({ message: "Faqat Excel (.xlsx) fayl yuklang — bank dasturidan «Excel» qilib oling", tone: 'error' });
+    if (!/\.(xlsx|xltx)$/i.test(file.name)) {
+      setToast({ message: "Faqat Excel (.xlsx yoki .xltx) fayl yuklang — bank dasturidan «Excel» qilib oling", tone: 'error' });
       return;
     }
     setUploading(true);
@@ -161,7 +161,7 @@ export function UnitBankView({ unit }: { unit: EntryUnit }) {
       <input
         ref={inputRef}
         type="file"
-        accept=".xlsx"
+        accept=".xlsx,.xltx"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

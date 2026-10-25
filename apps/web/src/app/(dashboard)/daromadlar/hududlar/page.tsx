@@ -81,7 +81,7 @@ export default function RegionalIncomePage() {
   }
 
   async function handleFile(file: File) {
-    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+    if (!/\.(xlsx|xltx|xls)$/i.test(file.name)) {
       setToast({ message: 'Faqat Excel fayl yuklang', tone: 'error' });
       return;
     }
@@ -232,7 +232,7 @@ export default function RegionalIncomePage() {
                 <input
                   ref={inputRef}
                   type="file"
-                  accept=".xlsx,.xls"
+                  accept=".xlsx,.xltx,.xls"
                   className="hidden"
                   onChange={(event) => {
                     const file = event.target.files?.[0];

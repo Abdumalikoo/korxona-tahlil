@@ -83,7 +83,7 @@ export function InternetPage({ initialAnalysis = null }: { initialAnalysis?: Ana
       />
       <div className="space-y-4 p-4 md:p-6">
         {/* Amallar — hamma Manba sahifasida bir xil joyda */}
-        {isAdmin && <input ref={input} type="file" accept=".xlsx" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />}
+        {isAdmin && <input ref={input} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />}
         <SourceActions
           upload={{ label: "To'lovlar faylini yuklash", onClick: () => input.current?.click(), loading: busy === 'Fayl o‘qilmoqda', disabled: !!busy && busy !== 'Fayl o‘qilmoqda' }}
           template={{ label: 'Shablon', onClick: () => template(false), disabled: !!busy }}

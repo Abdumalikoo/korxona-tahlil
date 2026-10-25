@@ -155,7 +155,7 @@ export function QuarterlyReport() {
           <div className="flex flex-wrap gap-2">
             {canEdit && (
               <>
-                <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
+                <input ref={fileRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
                 <Button variant="secondary" loading={busy === 'upload'} onClick={() => fileRef.current?.click()}>
                   {hasPlan ? 'Rejani almashtirish' : 'Reja faylini yuklash'}
                 </Button>

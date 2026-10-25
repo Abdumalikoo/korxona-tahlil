@@ -142,7 +142,7 @@ export class BplanService {
     const year = clampYear(yearRaw);
     if (!file?.buffer?.length) throw new BadRequestException('Fayl tanlanmagan');
     if (file.size > MAX_FILE) throw new BadRequestException('Fayl 8 MB dan katta');
-    if (!/\.xlsx$/i.test(file.originalname ?? '')) throw new BadRequestException('Faqat .xlsx fayl (Excel 2007+)');
+    if (!/\.(xlsx|xltx)$/i.test(file.originalname ?? '')) throw new BadRequestException('Faqat .xlsx yoki .xltx fayl (Excel 2007+)');
     const wb = new ExcelJS.Workbook();
     await assertSafeXlsx(file.buffer);
     try {

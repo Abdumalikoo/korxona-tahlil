@@ -91,7 +91,7 @@ export function StaffPage() {
             <Button variant="secondary" onClick={() => void download('/regional-data/staff/template', 'Shtat-va-maosh.xlsx').catch((e) => setToast({ message: errorMessage(e), tone: 'error' }))}>
               Excel shablon
             </Button>
-            <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => void onFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => void onFile(e.target.files?.[0])} />
             <Button onClick={() => fileRef.current?.click()}>Excel&apos;dan yuklash</Button>
           </div>
         }

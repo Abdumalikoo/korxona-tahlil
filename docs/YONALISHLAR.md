@@ -755,3 +755,6 @@ Hudud va bo'limlar tarkib fayli har oy o'zgarishi mumkin (masalan, maydan butunl
 
 ### Xarajatlar siyosatida — komponent bo'yicha summa
 «Ish haqi qismlari (bayram, choraklik …)» ro'yxatida har komponent yonida tanlangan davr bo'yicha: hudud xodimlariga qancha (va siyosat bo'yicha qayerga yoziladi — Markaz xarajatiga yoki hududda), Markaz xodimlariga qancha, har yo'nalishda (Tax free …) qancha. Bo'lim siyosati sahifasida avvalgidek — har ish haqi qismi summasi va qayerga ajratilgani.
+
+## .xltx (Excel shabloni) fayllari
+Hamma Excel yuklash joylarida (soliq hisoboti, umumiy va bo'lim ish haqi, ish haqi tarkibi, Hududchi vedomosti, ijara, bank, internet, asosiy vositalar, hudud rejasi, biznes-reja va boshqalar) **.xlsx** bilan birga **.xltx** ham qabul qilinadi — tuzilmasi bir xil, xavfsizlik tekshiruvi (ZIP bomba) ham o'sha.

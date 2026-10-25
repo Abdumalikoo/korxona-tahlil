@@ -46,8 +46,8 @@ export function AssetImportDialog({
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
-    if (!/\.xlsx$/i.test(file.name)) {
-      setError('Faqat .xlsx fayl');
+    if (!/\.(xlsx|xltx)$/i.test(file.name)) {
+      setError('Faqat .xlsx yoki .xltx fayl');
       return;
     }
     setBusy('analyze');
@@ -57,7 +57,7 @@ export function AssetImportDialog({
       const a = await analyzeAssetImport(file);
       setAnalysis(a);
       setMapping(Object.fromEntries(a.places.map((p) => [p.placeText, p.target])));
-      setBatch(`${a.fileName.replace(/\.xlsx$/i, '')} · ${new Date().toISOString().slice(0, 10).split('-').reverse().join('.')}`);
+      setBatch(`${a.fileName.replace(/\.(xlsx|xltx)$/i, '')} · ${new Date().toISOString().slice(0, 10).split('-').reverse().join('.')}`);
     } catch (e) {
       setError(errorMessage(e, 'Faylni tekshirib bo‘lmadi'));
     } finally {
@@ -122,7 +122,7 @@ export function AssetImportDialog({
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
           <div className="flex flex-col items-center justify-center rounded-(--radius-control) border-2 border-dashed border-(--color-line-strong) p-4 text-center">
-            <input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => void handleFile(e.target.files?.[0])} />
+            <input ref={inputRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => void handleFile(e.target.files?.[0])} />
             {busy === 'analyze' ? (
               <p className="flex items-center gap-2 text-sm text-(--color-text-muted)">
                 <IconSpinner className="size-4 animate-spin" /> Tekshirilmoqda…

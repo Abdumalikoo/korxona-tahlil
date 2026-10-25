@@ -426,8 +426,8 @@ export function UnitEntriesView({ unit, kind }: { unit: EntryUnit; kind: EntryKi
   }
 
   async function handleFile(file: File) {
-    if (!/\.xlsx$/i.test(file.name)) {
-      setToast({ message: 'Faqat Excel (.xlsx) fayl yuklang', tone: 'error' });
+    if (!/\.(xlsx|xltx)$/i.test(file.name)) {
+      setToast({ message: 'Faqat Excel (.xlsx yoki .xltx) fayl yuklang', tone: 'error' });
       return;
     }
     setUploading(true);
@@ -542,7 +542,7 @@ export function UnitEntriesView({ unit, kind }: { unit: EntryUnit; kind: EntryKi
           </>
         }
       />
-      <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => e.target.files?.[0] && void handleFile(e.target.files[0])} />
+      <input ref={fileRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => e.target.files?.[0] && void handleFile(e.target.files[0])} />
 
       {/* Xulosa: jami va oylar */}
       {data && (

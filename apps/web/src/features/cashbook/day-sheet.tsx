@@ -321,7 +321,7 @@ export function CashDaySheet({ adminView = false }: { adminView?: boolean }) {
           <div className="flex flex-wrap gap-2">
             {!readOnlyAdmin && (
               <>
-                <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => void onFile(e.target.files?.[0])} />
+                <input ref={fileRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => void onFile(e.target.files?.[0])} />
                 <Button variant="secondary" loading={importing} onClick={() => fileRef.current?.click()} title="To'ldirilgan shablonni yuklang — kataklar to'ldiriladi, tekshirib saqlaysiz">
                   Excel&apos;dan to&apos;ldirish
                 </Button>

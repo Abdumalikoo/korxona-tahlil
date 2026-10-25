@@ -60,7 +60,7 @@ export function Dropzone({ onFile, busy, title, hint, tone = 'brand' }: { onFile
         busy && 'cursor-wait opacity-70',
       )}
     >
-      <input ref={ref} type="file" accept=".xlsx" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
+      <input ref={ref} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
       <span className={cn('flex size-14 items-center justify-center rounded-full text-2xl text-white shadow-md', tone === 'emerald' ? 'bg-emerald-500' : 'bg-brand-600')}>{busy ? '…' : '⇪'}</span>
       <p className="text-lg font-bold text-heading">{busy ? "Fayl o'qilmoqda…" : title}</p>
       <p className="max-w-xl text-sm text-(--color-text-muted)">{hint}</p>

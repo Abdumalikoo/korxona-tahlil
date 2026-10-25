@@ -346,7 +346,7 @@ export interface CheckedFile {
 }
 
 export async function readWorkbook(buffer: Buffer, fileName: string, wanted: ImportKind | 'ALL', refs: Refs): Promise<CheckedFile> {
-  if (!/\.xlsx$/i.test(fileName)) throw new BadRequestException("Faqat .xlsx fayl qabul qilinadi (makrosli .xlsm va eski .xls emas)");
+  if (!/\.(xlsx|xltx)$/i.test(fileName)) throw new BadRequestException("Faqat .xlsx yoki .xltx fayl qabul qilinadi (makrosli .xlsm va eski .xls emas)");
   if (buffer.length < 100 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) throw new BadRequestException('Fayl Excel (.xlsx) formatida emas');
   if (buffer.includes(Buffer.from('vbaProject.bin'))) throw new BadRequestException('Faylda makros bor — qabul qilinmaydi. Makrossiz .xlsx sifatida saqlang');
   const wb = new ExcelJS.Workbook();

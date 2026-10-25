@@ -113,8 +113,8 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
   }
 
   async function handleFile(file: File, sheet?: string) {
-    if (!/\.xlsx$/i.test(file.name)) {
-      setToast({ message: 'Faqat .xlsx formatidagi Excel fayl yuklang', tone: 'error' });
+    if (!/\.(xlsx|xltx)$/i.test(file.name)) {
+      setToast({ message: 'Faqat .xlsx yoki .xltx formatidagi Excel fayl yuklang', tone: 'error' });
       return;
     }
 
@@ -280,7 +280,7 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
                 <input
                   ref={inputRef}
                   type="file"
-                  accept=".xlsx"
+                  accept=".xlsx,.xltx"
                   className="hidden"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
