@@ -254,7 +254,13 @@ export interface UnitPlaceRow {
   fullName: string;
   group: 'HERE' | 'TARKIB_HERE';
   manba: { unit: string | null; unitLabel: string | null; departmentId: string | null; departmentName: string | null };
-  tarkib: { deptName: string; departmentId: string | null; departmentName: string | null; unit: string | null; unitLabel: string | null; skipped: boolean; guessed: boolean } | null;
+  /** source: GENERAL — umumiy tarkibdagi bo'lim; UNIT — yo'nalishning o'z tarkibi */
+  tarkib: { deptName: string; departmentId: string | null; departmentName: string | null; unit: string | null; unitLabel: string | null; skipped: boolean; guessed: boolean; source: 'GENERAL' | 'UNIT' } | null;
+  /** Umumiy soliq hisobotida (Xarajatlar › Ish haqi) */
+  soliqTiyin: string | null;
+  /** Ish haqi tarkibida jami; manbasi: GENERAL yoki yo'nalish kodi */
+  tarkibTiyin: string | null;
+  tarkibSource: string | null;
   status: UnitPlaceStatus;
   fix: { unit: string; unitLabel: string; departmentName: string; at: string; by: string } | null;
   amountTiyin: string | null;

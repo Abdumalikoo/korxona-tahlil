@@ -1336,12 +1336,12 @@ export class UnitPayrollService {
   async saved(unit: string, period: string) {
     this.assertPeriod(period);
     const committed = (await this.batchesOf(unit, period)).filter((b) => b.status === 'COMMITTED');
-    const byPin = new Map<string, { pinfl: string; fullName: string; amount: bigint; batches: { id: string; fileName: string }[] }>();
+    const byPin = new Map<string, { pinfl: string; fullName: string; amount: bigint; batches: { id: string; fileName: string; general?: boolean }[] }>();
     for (const b of committed) {
       for (const r of b.rows ?? []) {
         const x = byPin.get(r.pinfl) ?? { pinfl: r.pinfl, fullName: r.fullName, amount: 0n, batches: [] };
         x.amount += BigInt(r.amountTiyin);
-        x.batches.push({ id: b.id, fileName: b.fileName });
+        x.batches.push({ id: b.id, fileName: b.fileName, ...(b.origin === 'GENERAL' ? { general: true } : {}) });
         byPin.set(r.pinfl, x);
       }
     }
@@ -1357,6 +1357,9 @@ export class UnitPayrollService {
           position: names.get(x.pinfl)?.position ?? null,
           amountTiyin: x.amount.toString(),
           batches: x.batches,
+          /** Qayerdan: umumiy vedomostdan (soliq hisoboti) va/yoki shu sahifada yuklangan */
+          fromGeneral: x.batches.some((b) => b.general),
+          fromUnit: x.batches.some((b) => !b.general),
           inRegistry: names.has(x.pinfl),
           ...(other && other !== unit ? { otherUnit: other, otherUnitLabel: entryUnitLabel(other) } : {}),
         };

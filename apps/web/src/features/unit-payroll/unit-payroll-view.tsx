@@ -1135,7 +1135,8 @@ function SavedCard({
 
   const [pf, setPf] = useState<PlaceFilter>('ALL');
   const [autoBusy, setAutoBusy] = useState(false);
-  const [autoConfirm, setAutoConfirm] = useState(false);
+  /** Tarkibdagidek o'tkaziladiganlar (tasdiqlash oynasi) */
+  const [autoTargets, setAutoTargets] = useState<string[] | null>(null);
   const rows = data?.rows ?? [];
   const term = q.trim().toLowerCase();
   const withPlaces = Boolean(places?.hasTarkib);
@@ -1157,26 +1158,43 @@ function SavedCard({
     onChanged();
   };
 
-  /** Farqlilarni tarkibdagi joyiga (summasi bilan, faqat shu oy) — har joy alohida */
+  /** Faqat umumiy soliq hisobotidan kelgan (shu yerda yuklanmagan) va umumiy tarkibda bo'limi bor — umumiy oqim ichida */
+  const viaGeneral = (r: (typeof rows)[number]) => Boolean(r.fromGeneral && !r.fromUnit && placeBy.get(r.pinfl)?.tarkib?.source === 'GENERAL');
+  const autoRows = rows.filter((r) => autoTargets?.includes(r.pinfl));
+
+  /**
+   * Farqlilarni tarkibdagi joyiga (faqat shu oy):
+   *  • umumiy soliq hisobotidan kelganlar — «miya»da shu oy joyi tarkibdagidek, umumiy vedomost qayta taqsimlanadi;
+   *  • shu yerda yuklanganlar — summasi bilan o'sha joyga o'tkaziladi (har joy alohida).
+   */
   async function moveAllToTarkib() {
     setAutoBusy(true);
     try {
+      const list = autoRows;
+      const general = list.filter(viaGeneral);
+      let moved = 0;
+      let sum = 0n;
+      let redistributed = false;
+      if (general.length) {
+        const r = (await compositionApi.fixPlaces(period, general.map((x) => x.pinfl))).data;
+        moved += r.fixed;
+        redistributed = r.redistributed;
+        sum += general.reduce((t, x) => t + BigInt(x.amountTiyin), 0n);
+      }
       const groups = new Map<string, { choice: MoveChoice; pinfls: string[] }>();
-      for (const r of farqRows) {
+      for (const r of list.filter((x) => !viaGeneral(x))) {
         const c = tarkibChoice(r.pinfl)!;
         const k = `${c.target}:${c.place.departmentId ?? ''}`;
         const g = groups.get(k) ?? { choice: c, pinfls: [] };
         g.pinfls.push(r.pinfl);
         groups.set(k, g);
       }
-      let moved = 0;
-      let sum = 0n;
       for (const g of groups.values()) {
         const r = (await unitPayrollApi.moveRows(unit.code, period, { pinfls: g.pinfls, target: g.choice.target, place: g.choice.place, onlyThisMonth: true, withAmount: true })).data;
         moved += r.moved;
         sum += BigInt(r.totalTiyin);
       }
-      onToast({ message: `${moved} xodim ${formatPeriod(period)} uchun ish haqi tarkibidagi joyiga o'tkazildi · ${formatTiyin(sum.toString())} so'm · keyingi oydan yana shu yerda`, tone: 'success' });
+      onToast({ message: `${moved} xodim ${formatPeriod(period)} uchun ish haqi tarkibidagi joyiga o'tkazildi · ${formatTiyin(sum.toString())} so'm${redistributed ? ' · umumiy soliq hisoboti qayta taqsimlandi' : ''} · keyingi oydan yana shu yerda`, tone: 'success' });
       setSel(new Set());
       placesChanged();
     } catch (err) {
@@ -1184,7 +1202,7 @@ function SavedCard({
       placesChanged();
     } finally {
       setAutoBusy(false);
-      setAutoConfirm(false);
+      setAutoTargets(null);
     }
   }
   const picked = rows.filter((r) => sel.has(r.pinfl));
@@ -1249,7 +1267,7 @@ function SavedCard({
         </label>
         {(term || pf !== 'ALL') && <span className="text-xs text-(--color-text-muted)">{shown.length} ta · {formatTiyin(shownTotal.toString())} so&apos;m</span>}
         {isAdmin && withPlaces && farqRows.length > 0 && (
-          <Button size="sm" variant="secondary" onClick={() => setAutoConfirm(true)} title="Har biri ish haqi tarkibidagi joyiga — summasi bilan, faqat shu oy">
+          <Button size="sm" variant="secondary" onClick={() => setAutoTargets(farqRows.map((r) => r.pinfl))} title="Har biri ish haqi tarkibidagi joyiga — summasi bilan, faqat shu oy">
             Farqlilarni tarkibdagidek o&apos;tkazish ({farqRows.length})
           </Button>
         )}
@@ -1328,6 +1346,12 @@ function SavedCard({
                       {r.position ? ` · ${r.position}` : ''}
                       {r.batches.length > 1 ? ` · ${r.batches.length} ta yuklashda` : ''}
                     </p>
+                    {(r.fromGeneral || r.fromUnit) && (
+                      <span className="mt-0.5 mr-1 inline-flex gap-1 text-[10.5px]">
+                        {r.fromGeneral && <span className="whitespace-nowrap rounded-full bg-brand-50 px-1.5 py-0.5 text-brand-700" title="Xarajatlar › Ish haqi sahifasida yuklangan umumiy soliq hisobotidan (miya bo'yicha shu bo'limga tushgan)">umumiy hisobotdan</span>}
+                        {r.fromUnit && <span className="whitespace-nowrap rounded-full bg-(--color-surface-sunken) px-1.5 py-0.5 text-(--color-text-muted)" title="Shu sahifada yuklangan vedomostdan">shu yerda</span>}
+                      </span>
+                    )}
                     {r.otherUnitLabel && (
                       <span className="mt-0.5 inline-block rounded-full bg-(--color-warn-soft) px-1.5 py-0.5 text-[10.5px] text-(--color-warn)" title="Ko'chishlar tarixi bo'yicha shu oyda boshqa bo'limda">
                         bu oyda: {r.otherUnitLabel}
@@ -1360,6 +1384,11 @@ function SavedCard({
                         >
                           Bo&apos;lim
                         </button>
+                        {withPlaces && placeBy.get(r.pinfl)?.status === 'FARQ' && tarkibChoice(r.pinfl) && (
+                          <button type="button" onClick={() => setAutoTargets([r.pinfl])} className="rounded px-1.5 py-0.5 text-xs font-medium text-(--color-warn) hover:bg-(--color-warn-soft)" title="Shu oy uchun ish haqi tarkibidagi joyiga">
+                            Tarkibdagidek
+                          </button>
+                        )}
                         <button type="button" onClick={() => setConfirmDel([r.pinfl])} className="rounded px-1.5 py-0.5 text-xs text-(--color-text-muted) hover:bg-(--color-expense-soft) hover:text-(--color-expense)" title="Shu oy ish haqidan olib tashlash">
                           O&apos;chirish
                         </button>
@@ -1395,13 +1424,13 @@ function SavedCard({
         onCancel={() => setConfirmDel(null)}
       />
       <ConfirmDialog
-        open={autoConfirm}
+        open={autoTargets !== null}
         title="Ish haqi tarkibidagidek o'tkazish"
-        message={`${farqRows.length} xodim ${formatPeriod(period)} uchun ish haqi tarkibida yozilgan bo'limga o'tkaziladi — summasi bilan (${formatTiyin(farqRows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n).toString())} so'm), faqat shu oy; keyingi oydan yana ${unit.label}da.`}
+        message={`${autoRows.length === 1 ? autoRows[0]!.fullName : `${autoRows.length} xodim`}: ${formatPeriod(period)} uchun ish haqi tarkibida yozilgan bo'limga o'tadi — summasi bilan (${formatTiyin(autoRows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n).toString())} so'm), faqat shu oy; keyingi oydan yana ${unit.label}da.${autoRows.some(viaGeneral) ? ' Umumiy soliq hisobotidan kelganlar — umumiy vedomost qayta taqsimlanadi (summa o‘zgarmaydi).' : ''}`}
         confirmLabel="O'tkazish"
         loading={autoBusy}
         onConfirm={() => void moveAllToTarkib()}
-        onCancel={() => setAutoConfirm(false)}
+        onCancel={() => setAutoTargets(null)}
       />
     </Card>
   );

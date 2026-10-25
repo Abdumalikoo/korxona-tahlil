@@ -447,6 +447,40 @@ export class CompositionPlaceService {
     };
   }
 
+  /** Shu oy hamma yuklanganlar: umumiy soliq hisoboti, umumiy tarkib va yo'nalishlar tarkibi (xodim bo'yicha) */
+  private async sources(period: string) {
+    const general = new Map<string, bigint>();
+    const grouped = await this.prisma.payrollEntry
+      .groupBy({ by: ['employeePinfl'], where: { period, deletedAt: null, batch: { status: 'COMMITTED' } }, _sum: { baseTiyin: true } })
+      .catch(() => [] as { employeePinfl: string; _sum: { baseTiyin: bigint | null } }[]);
+    for (const g of grouped) general.set(g.employeePinfl, g._sum.baseTiyin ?? 0n);
+    // Umumiy soliq hisobotidan yo'nalishlarga (miya bo'yicha) yozilganlar ham — o'sha hisobotning o'zi
+    const gb = await this.prisma.payrollBatch.findFirst({ where: { period, status: 'COMMITTED', scope: 'ALL' }, orderBy: { createdAt: 'desc' }, select: { id: true } }).catch(() => null);
+    if (gb) for (const r of await this.units.generalRows(period, gb.id).catch(() => [])) general.set(r.pinfl, (general.get(r.pinfl) ?? 0n) + BigInt(r.amountTiyin));
+    const tarkib = new Map<string, { total: bigint; source: string }>();
+    const batch = await this.prisma.salaryCompositionBatch.findFirst({ where: { period, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true } });
+    if (batch) for (const r of await this.prisma.salaryCompositionRow.findMany({ where: { batchId: batch.id }, select: { employeePinfl: true, totalTiyin: true } })) tarkib.set(r.employeePinfl, { total: r.totalTiyin, source: 'GENERAL' });
+    const unitTarkib = new Map<string, string>();
+    const unitRows = await this.prisma.setting.findMany({ where: { key: { in: PAYROLL_UNITS.map((u) => `unit.composition.${u}.${period}`) } }, select: { key: true, value: true } });
+    for (const row of unitRows) {
+      const u = row.key.split('.')[2]!;
+      const list = ((row.value as { batches?: { cancelledAt: string | null; createdAt: string; rows?: { pinfl?: string; totalTiyin?: string }[] }[] } | null)?.batches ?? []).filter((b) => !b.cancelledAt);
+      const active = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      for (const r of active?.rows ?? []) {
+        if (!r.pinfl || !/^\d{14}$/.test(r.pinfl)) continue;
+        if (!unitTarkib.has(r.pinfl)) unitTarkib.set(r.pinfl, u);
+        if (!tarkib.has(r.pinfl)) {
+          try {
+            tarkib.set(r.pinfl, { total: BigInt(r.totalTiyin ?? '0'), source: u });
+          } catch {
+            /* noto'g'ri qiymat */
+          }
+        }
+      }
+    }
+    return { general, tarkib, unitTarkib };
+  }
+
   /**
    * Bo'lim sahifasi (Tax free …): shu oy «Manbada» (miyadagi asl joyi) va «Ish haqi tarkibida» (yuklangan tarkibdagi
    * bo'lim) yonma-yon. Ikki guruh: manbada shu bo'limdagilar va tarkibda shu bo'limda, manbada boshqa joydagilar.
@@ -456,17 +490,26 @@ export class CompositionPlaceService {
     const fixIds = new Set(Object.values(month.fixes).flatMap((f) => f.moveIds ?? []));
     // Manba (asl) — tarkib bo'yicha qilingan ko'chishlarsiz
     const asl = membership(moves.filter((m) => !fixIds.has(m.id)));
-    const hasTarkib = Object.keys(month.depts).length > 0;
+    // Hamma yuklanganlar bir-biriga ulanadi: umumiy tarkib (bo'limlari bilan) + yo'nalishlarning o'z tarkibi;
+    // summalar — umumiy soliq hisoboti va bo'limlarda yuklangan vedomostlar
+    const sums = await this.sources(period);
+    const hasTarkib = Object.keys(month.depts).length > 0 || sums.unitTarkib.size > 0;
     const tarkibOf = (p: string) => {
       const name = month.depts[p];
-      if (!name) return null;
+      if (!name) {
+        const own = sums.unitTarkib.get(p);
+        if (!own) return null;
+        // Umumiy tarkibda bo'limi yo'q, lekin yo'nalishning o'z tarkibida bor — o'sha yo'nalish
+        return { deptName: `${entryUnitLabel(own)} tarkibi`, departmentId: null, departmentName: null, unit: own, unitLabel: entryUnitLabel(own), skipped: false, guessed: false, source: 'UNIT' as const };
+      }
       const r = resolve(name);
-      return { deptName: name, departmentId: r.option?.id ?? null, departmentName: r.option?.name ?? null, unit: r.option?.unit ?? null, unitLabel: r.option?.unitLabel ?? null, skipped: r.skipped, guessed: r.guessed };
+      return { deptName: name, departmentId: r.option?.id ?? null, departmentName: r.option?.name ?? null, unit: r.option?.unit ?? null, unitLabel: r.option?.unitLabel ?? null, skipped: r.skipped, guessed: r.guessed, source: 'GENERAL' as const };
     };
     const pins = new Set<string>(staff.filter((s) => s.active).map((s) => s.pinfl));
     for (const f of Object.values(month.fixes)) if (f.unit === unit || f.fromUnit === unit) pins.add(f.pinfl);
     // Markaz — alohida ro'yxati yo'q: tarkibdagi hamma xodim tekshiriladi (manbada Markazda bo'lganlar qoladi)
     for (const p of Object.keys(month.depts)) if (unit === 'CENTER' || tarkibOf(p)?.unit === unit) pins.add(p);
+    for (const [p, u] of sums.unitTarkib) if (u === unit) pins.add(p);
     const list = [...pins];
     const [cur, names, paid] = await Promise.all([
       this.miya(list, period, month),
@@ -488,7 +531,14 @@ export class CompositionPlaceService {
       else if (!t.unit) status = 'UNKNOWN';
       else status = t.unit === mUnit && (t.unit !== 'CENTER' || t.departmentId === mDeptId) ? 'MOS' : 'FARQ';
       const amount = paid?.get(p);
+      const soliq = sums.general.get(p);
+      const tk = sums.tarkib.get(p);
       return {
+        /** Umumiy soliq hisobotida (Xarajatlar › Ish haqi) */
+        soliqTiyin: soliq !== undefined ? soliq.toString() : null,
+        /** Ish haqi tarkibida jami (umumiy yoki yo'nalish tarkibi) */
+        tarkibTiyin: tk ? tk.total.toString() : null,
+        tarkibSource: tk ? tk.source : null,
         pinfl: p,
         fullName: names.get(p)?.fullName ?? c.fullName ?? fix?.fullName ?? p,
         group: (mUnit === unit ? 'HERE' : 'TARKIB_HERE') as 'HERE' | 'TARKIB_HERE',

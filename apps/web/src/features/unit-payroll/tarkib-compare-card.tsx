@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { compositionApi, readCompositionDepts, type PlaceOption, type UnitPlaceRow, type UnitPlaces, type UnitPlaceStatus } from '@/features/salary-composition/api';
 import { errorMessage } from '@/lib/error-message';
-import { formatDateTime, formatPeriod } from '@/lib/format';
+import { formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useRef, useState } from 'react';
 
@@ -59,7 +59,9 @@ export function TarkibCell({ row }: { row: UnitPlaceRow | undefined }) {
       </Badge>
       {row.tarkib.unit && (
         <span className="block text-[10.5px] text-(--color-text-muted)">
-          tarkibda: «{row.tarkib.deptName}»{row.tarkib.guessed ? ' · taxminiy' : ''}
+          {row.tarkib.source === 'UNIT' ? `${row.tarkib.deptName}da` : `umumiy tarkibda: «${row.tarkib.deptName}»`}
+          {row.tarkib.guessed ? ' · taxminiy' : ''}
+          {row.tarkibTiyin ? ` · ${formatTiyin(row.tarkibTiyin)}` : ''}
         </span>
       )}
       {row.fix && <span className="block text-[10.5px] text-brand-700">shu oy → {placeText(row.fix.unit, row.fix.unitLabel, row.fix.departmentName)}</span>}
@@ -201,7 +203,7 @@ export function TarkibHereRows({ period, unitCode, unitLabel, rows, isAdmin, col
   const [target, setTarget] = useState<{ kind: 'fix' | 'revert'; pinfls: string[]; label: string } | null>(null);
   const [busy, setBusy] = useState(false);
   if (!rows.length) return null;
-  const fixable = rows.filter((r) => r.status === 'FARQ');
+  const fixable = rows.filter((r) => r.status === 'FARQ' && r.tarkib?.source === 'GENERAL');
 
   async function run() {
     if (!target) return;
@@ -230,7 +232,7 @@ export function TarkibHereRows({ period, unitCode, unitLabel, rows, isAdmin, col
           <span className="font-semibold text-heading">
             Ish haqi tarkibida — {unitLabel}, manbada boshqa joyda: {rows.length} ta
           </span>
-          <span className="text-(--color-text-muted)"> · ish haqi umumiy vedomostda manbadagi joyida turibdi</span>
+          <span className="text-(--color-text-muted)"> · ish haqi umumiy soliq hisobotida manbadagi joyida hisoblangan</span>
           {isAdmin && fixable.length > 1 && (
             <button type="button" onClick={() => setTarget({ kind: 'fix', pinfls: fixable.map((r) => r.pinfl), label: `${fixable.length} xodim` })} className="ml-2 rounded px-1.5 py-0.5 font-medium text-brand-700 hover:bg-brand-50">
               Hammasini {unitLabel}ga o‘tkazish
@@ -252,9 +254,18 @@ export function TarkibHereRows({ period, unitCode, unitLabel, rows, isAdmin, col
           <td className="px-2 py-1.5">
             <TarkibCell row={r} />
           </td>
-          <td className="px-2 py-1.5 text-right text-xs text-(--color-text-muted)">—</td>
           <td className="px-2 py-1.5 text-right">
-            {isAdmin && r.status === 'FARQ' && (
+            {r.soliqTiyin && r.soliqTiyin !== '0' ? (
+              <>
+                <span className="money block">{formatTiyin(r.soliqTiyin)}</span>
+                <span className="block text-[10.5px] text-(--color-text-muted)">umumiy soliq hisobotida</span>
+              </>
+            ) : (
+              <span className="text-xs text-(--color-text-muted)">—</span>
+            )}
+          </td>
+          <td className="px-2 py-1.5 text-right">
+            {isAdmin && r.status === 'FARQ' && r.tarkib?.source === 'GENERAL' && (
               <button type="button" onClick={() => setTarget({ kind: 'fix', pinfls: [r.pinfl], label: r.fullName })} className="rounded px-1.5 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-50" title={`Shu oy uchun ${unitLabel}ga (tarkibdagidek)`}>
                 O‘tkazish
               </button>

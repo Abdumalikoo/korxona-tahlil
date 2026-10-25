@@ -166,6 +166,17 @@ async function tarkib(rows) {
   assert.strictEqual((await places.view(PER)).batchId, c2.batchId);
   cmp = await places.compare(PER, 'TAX_FREE');
   assert.deepStrictEqual([cmp.hasTarkib, cmp.rows.find((r) => r.pinfl === P.A).status], [true, 'FARQ']);
+  // Hammasi ulangan: umumiy soliq hisoboti va umumiy tarkib summalari ham shu qatorda
+  const rA = cmp.rows.find((r) => r.pinfl === P.A);
+  assert.deepStrictEqual([rA.soliqTiyin, rA.tarkibTiyin, rA.tarkibSource, rA.tarkib.source], [String(so(1_000_000)), String(so(1_000_000)), 'GENERAL', 'GENERAL']);
+  // Yo'nalishning o'z tarkibi (Tax free tarkibida, manbada Markaz) — ham o'qiladi
+  const PE = '45555555555555';
+  emp(PE, 'Epsilon Tarkibda', 'dA');
+  T.setting.push({ key: `unit.composition.TAX_FREE.${PER}`, value: { batches: [{ id: 'ub1', period: PER, createdAt: new Date().toISOString(), cancelledAt: null, rows: [{ pinfl: PE, fullName: 'Epsilon Tarkibda', totalTiyin: String(so(500_000)), items: {} }] }] } });
+  const ce = (await places.compare(PER, 'TAX_FREE')).rows.find((r) => r.pinfl === PE);
+  assert.deepStrictEqual([ce.group, ce.status, ce.tarkib.source, ce.tarkib.unit, ce.tarkibTiyin, ce.tarkibSource], ['TARKIB_HERE', 'FARQ', 'UNIT', 'TAX_FREE', String(so(500_000)), 'TAX_FREE']);
+  T.setting.splice(T.setting.findIndex((x) => x.key === `unit.composition.TAX_FREE.${PER}`), 1);
+
   // Tanilmagan nom bo'lim sahifasidan tanlanadi
   await places.learnNames({ 'Moliya-iqtisod': 'dA' });
   const cc2 = await places.compare(PER, 'CENTER');

@@ -196,7 +196,10 @@ export interface UnitSavedRow {
   fullName: string;
   position: string | null;
   amountTiyin: string;
-  batches: { id: string; fileName: string }[];
+  batches: { id: string; fileName: string; general?: boolean }[];
+  /** Umumiy vedomostdan (soliq hisoboti) kelgan / shu sahifada yuklangan */
+  fromGeneral?: boolean;
+  fromUnit?: boolean;
   inRegistry: boolean;
   /** Shu oyda boshqa bo'limda (ko'chishlar bo'yicha) */
   otherUnit?: string;
