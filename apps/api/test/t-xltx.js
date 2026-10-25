@@ -3,7 +3,8 @@
 require('reflect-metadata');
 const assert = require('assert');
 const ExcelJS = require('exceljs');
-const JSZip = require('jszip');
+// jszip — exceljs ichida (pnpm'da API'ning o'z bog'liqligi emas)
+const JSZip = require(require.resolve('jszip', { paths: [require('path').dirname(require.resolve('exceljs'))] }));
 const fakeDb = require('./fakedb');
 const { AuditService } = require('../dist/modules/audit/audit.service');
 const { PayrollService } = require('../dist/modules/payroll/payroll.service');

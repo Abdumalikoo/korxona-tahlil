@@ -1,5 +1,10 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { json, urlencoded } from 'express';
+import { createRequire } from 'node:module';
+
+// express — API'ning o'z bog'liqligi emas (pnpm'da faqat @nestjs/platform-express ichida bor), shuning uchun
+// o'sha paket joylashgan joydan topiladi: har qanday o'rnatish tuzilmasida ishlaydi.
+const fromNest = createRequire(require.resolve('@nestjs/platform-express'));
+const { json, urlencoded } = fromNest('express') as typeof import('express');
 
 // ═══════════════════════════════════════════════════════════
 // So'rov tanasi (JSON / forma) hajmi chegarasi — manzil bo'yicha.
