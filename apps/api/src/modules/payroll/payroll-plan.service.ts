@@ -43,6 +43,8 @@ export interface PlanRow {
   locked: { unit: string; label: string; amountTiyin: string } | null;
   /** Saqlab bo'lmasa — sababi */
   problem: string | null;
+  /** Soliq hisobotidan: oylik (4-ilova) va boshqa daromad (5-ilova) */
+  parts?: { salaryTiyin: string; otherTiyin: string };
 }
 
 interface InputRow {
@@ -175,15 +177,25 @@ export class PayrollPlanService {
     };
   }
 
-  /** Fayl tahlili + reja */
-  async analyze(period: string, file: Express.Multer.File) {
-    const a = await this.payroll.analyze(period, file);
+  /** Fayl tahlili + reja. format: auto (shablon yoki soliq hisoboti), ndfl — faqat soliq hisoboti */
+  async analyze(period: string, file: Express.Multer.File, format: 'auto' | 'ndfl' = 'auto') {
+    const a = await this.payroll.analyze(period, file, format);
+    // Soliq hisobotida F.I.Sh. bor — reestrda yo'q xodimni bo'limga yozishda ism so'ralmaydi
+    const nameOf = (pinfl: string) => a.ndflPeople.get(pinfl)?.fullName ?? undefined;
     const rows: InputRow[] = [
-      ...a.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: String(r.amountTiyin) })),
-      ...a.missing.map((m) => ({ pinfl: m.pinfl, amountTiyin: String(m.amountTiyin ?? '0'), rowIndex: m.rowIndex })),
+      ...a.rows.map((r) => ({ pinfl: r.pinfl, amountTiyin: String(r.amountTiyin), fullName: nameOf(r.pinfl) })),
+      ...a.missing.map((m) => ({ pinfl: m.pinfl, amountTiyin: String(m.amountTiyin ?? '0'), rowIndex: m.rowIndex, fullName: nameOf(m.pinfl) })),
     ];
     const plan = await this.plan(period, rows);
+    // Har xodim: oylik (4-ilova) va boshqa daromad (5-ilova) — ekranda ko'rsatish uchun
+    if (a.ndfl) {
+      for (const r of plan.rows) {
+        const p = a.ndflPeople.get(r.pinfl);
+        if (p) r.parts = { salaryTiyin: p.salaryTiyin.toString(), otherTiyin: p.otherTiyin.toString() };
+      }
+    }
     return {
+      ndfl: a.ndfl,
       fileName: a.fileName,
       totalRows: a.totalRows,
       invalidRows: a.invalidRows,

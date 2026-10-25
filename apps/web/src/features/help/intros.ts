@@ -17,6 +17,31 @@ const EXPENSE_SRC = "Xarajatlar bo'limidagi yozuvlar";
 const BOTH_SRC = "Daromadlar va Xarajatlar bo'limlaridagi yozuvlar";
 
 export const INTROS: Record<string, PageIntro> = {
+  '/': {
+    what: 'Tanlangan davrdagi daromad, xarajat va natija bir qarashda.',
+    from: BOTH_SRC,
+    how: "Daromad, Xarajat yoki Tahlil kartochkasini bosing — ichiga kirib boriladigan jadvallar ochiladi. Davrni yuqoridagi «Davr» tugmasidan o'zgartiring.",
+  },
+  '/tahlil/daromad': {
+    what: 'Daromad qayerdan va qancha keldi: Markaz va hududlar, moddalar, bo‘limlar, mijozlar, oylar; o‘tgan davr va o‘tgan yilga nisbatan.',
+    from: INCOME_SRC,
+    how: '▸ belgisi — qator ichini ochadi; istalgan summa bosilsa — uni tashkil qilgan aniq yozuvlar ochiladi. Grafiklar sahifa oxirida.',
+  },
+  '/tahlil/xarajat': {
+    what: 'Pul nimaga sarflandi: guruhlar va moddalar, Markaz va hududlar, bo‘limlar, kontragentlar, oylar; o‘tgan davr va o‘tgan yilga nisbatan.',
+    from: EXPENSE_SRC,
+    how: '▸ belgisi — qator ichini ochadi; istalgan summa bosilsa — uni tashkil qilgan aniq yozuvlar ochiladi. Grafiklar sahifa oxirida.',
+  },
+  '/tahlil/umumiy': {
+    what: 'Korxona foydada ishlayaptimi: foyda, rentabellik, foyda nima uchun o‘zgargani va xavfli holatlar.',
+    from: BOTH_SRC,
+    how: '«Natija jadvali» — oylar bo‘yicha foyda va zarar hamda Markaz va hududlar natijasi (summalar bosiladi); boshqa yorliqlar — dinamika, samaradorlik va tarkib.',
+  },
+  '/solishtirma': {
+    what: 'Hududlar va Markaz yonma-yon: kim qancha daromad keltirdi, qancha xarajat qildi va natijasi.',
+    from: `${BOTH_SRC}, Xodimlar bo'limi`,
+    how: "Viloyatni bosing — tumanlar, tumanni bosing — xizmatlar va xodimlar ochiladi. Markaz — yuqoridagi «Markaz» yorlig'ida.",
+  },
   '/hudud-reja': {
     what: "Kelasi oy uchun statistik prognoz: jami, hududlar, xizmatlar va xodimlar rejasi; prognoz aniqligi (tarixiy test) va ma'lumotlar to'liqligi.",
     from: "Hududlar tushumi (dasturdagi) va «Ma'lumotlarni yuklash»dagi Excel tarixlari, xizmatlar katalogi va tariflar",
@@ -46,31 +71,6 @@ export const INTROS: Record<string, PageIntro> = {
     what: "Hudud prognozining xodimlarga taqsimoti: xizmatlar bo'yicha tarixiy ulush va ish kunlari; taqsimlanmagan qism alohida ko'rsatiladi.",
     from: "Xodimlar_Tarixi va Xodim_Xizmatlari (yuklangan), Xodimlar bo'limi",
     how: "Taqsimlanmagan summani «Xodimga biriktirish» bilan o'tkazing; hudud yig'indisi o'zgarmaydi.",
-  },
-  '/': {
-    what: 'Tanlangan davrdagi daromad, xarajat va natija bir qarashda.',
-    from: BOTH_SRC,
-    how: "Daromad, Xarajat yoki Tahlil kartochkasini bosing — ichiga kirib boriladigan jadvallar ochiladi. Davrni yuqoridagi «Davr» tugmasidan o'zgartiring.",
-  },
-  '/tahlil/daromad': {
-    what: 'Daromad qayerdan va qancha keldi: Markaz va hududlar, moddalar, bo‘limlar, mijozlar, oylar; o‘tgan davr va o‘tgan yilga nisbatan.',
-    from: INCOME_SRC,
-    how: '▸ belgisi — qator ichini ochadi; istalgan summa bosilsa — uni tashkil qilgan aniq yozuvlar ochiladi. Grafiklar sahifa oxirida.',
-  },
-  '/tahlil/xarajat': {
-    what: 'Pul nimaga sarflandi: guruhlar va moddalar, Markaz va hududlar, bo‘limlar, kontragentlar, oylar; o‘tgan davr va o‘tgan yilga nisbatan.',
-    from: EXPENSE_SRC,
-    how: '▸ belgisi — qator ichini ochadi; istalgan summa bosilsa — uni tashkil qilgan aniq yozuvlar ochiladi. Grafiklar sahifa oxirida.',
-  },
-  '/tahlil/umumiy': {
-    what: 'Korxona foydada ishlayaptimi: foyda, rentabellik, foyda nima uchun o‘zgargani va xavfli holatlar.',
-    from: BOTH_SRC,
-    how: '«Natija jadvali» — oylar bo‘yicha foyda va zarar hamda Markaz va hududlar natijasi (summalar bosiladi); boshqa yorliqlar — dinamika, samaradorlik va tarkib.',
-  },
-  '/solishtirma': {
-    what: 'Hududlar va Markaz yonma-yon: kim qancha daromad keltirdi, qancha xarajat qildi va natijasi.',
-    from: `${BOTH_SRC}, Xodimlar bo'limi`,
-    how: "Viloyatni bosing — tumanlar, tumanni bosing — xizmatlar va xodimlar ochiladi. Markaz — yuqoridagi «Markaz» yorlig'ida.",
   },
   '/solishtirma/umumiy': {
     what: "Butun korxona bitta ekranda: Markaz va barcha hududlar bir jadvalda — daromad, xarajat tarkibi, natija, rentabellik va Markazni qoplash.",
@@ -166,6 +166,11 @@ export const INTROS: Record<string, PageIntro> = {
     what: 'Oylik ish haqi qaydnomasi: yuklash, tekshiruv va xarajatlarga yozish.',
     from: 'Yuklangan Excel qaydnoma, Xodimlar bo‘limi',
     how: 'Shablonni yuklab oling → to‘ldiring → «Yuklash». Xatolar ko‘rsatiladi, keyin saqlanadi.',
+  },
+  '/xarajatlar/soliq-hisoboti': {
+    what: "Soliq hisobotining o'zi (JShDS hisob-kitobi): 4-ilova — oylik, 5-ilova — ta'til puli va boshqa daromadlar.",
+    from: 'Soliq idorasiga topshirilgan Excel hisobot',
+    how: "Faqat «hisobot davrida hisoblangan» summa olinadi; ikkala ilovadagi summa PINFL bo'yicha qo'shiladi. Keyin — Ish haqidagidek bo'limlarga taqsimot va saqlash.",
   },
   '/xarajatlar/tarkib': {
     what: 'Ish haqi tarkibi: har xodim bo‘yicha komponentlar (oklad, ustama, mukofot…).',

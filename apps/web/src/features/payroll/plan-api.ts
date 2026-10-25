@@ -29,6 +29,35 @@ export interface PlanRow {
   target: PlanTarget;
   locked: { unit: string; label: string; amountTiyin: string } | null;
   problem: string | null;
+  /** Soliq hisobotidan: oylik (4-ilova) va boshqa daromad (5-ilova) */
+  parts?: { salaryTiyin: string; otherTiyin: string };
+}
+
+export interface NdflSheetSummary {
+  name: string;
+  kind: 'SALARY' | 'OTHER';
+  label: string;
+  rows: number;
+  people: number;
+  monthTiyin: string;
+  cumulativeTiyin: string;
+  taxMonthTiyin: string;
+  corrected: number;
+  zeroMonth: number;
+  types: { code: string; label: string; rows: number; monthTiyin: string }[];
+}
+
+/** Soliq hisoboti xulosasi (fayl soliq hisoboti bo'lsa) */
+export interface NdflSummary {
+  sheets: NdflSheetSummary[];
+  people: number;
+  inBoth: number;
+  monthOverCumulative: number;
+  periodHint: string | null;
+  periodMismatch: boolean;
+  salaryTiyin: string;
+  otherTiyin: string;
+  taxTiyin: string;
 }
 
 export interface PlanSummary {
@@ -55,6 +84,7 @@ export interface PlanAnalysis extends PlanResult {
   duplicates: string[];
   hasPrevious: boolean;
   previousCount: number;
+  ndfl: NdflSummary | null;
 }
 
 export interface PlanCommitResult {
@@ -71,11 +101,12 @@ export type PlanInputRow = Pick<PlanRow, 'pinfl' | 'amountTiyin' | 'target' | 'f
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
 export const planApi = {
-  async analyze(period: string, file: File): Promise<PlanAnalysis> {
+  /** format: auto — shablon yoki soliq hisoboti; ndfl — faqat soliq hisoboti */
+  async analyze(period: string, file: File, format: 'auto' | 'ndfl' = 'auto'): Promise<PlanAnalysis> {
     const form = new FormData();
     form.append('file', file);
     const token = getToken();
-    const res = await fetch(`${BASE}/payroll-plan/analyze?period=${period}`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: form });
+    const res = await fetch(`${BASE}/payroll-plan/analyze?period=${period}&format=${format}`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: form });
     if (!res.ok) {
       let msg = "Faylni tahlil qilib bo'lmadi";
       try {

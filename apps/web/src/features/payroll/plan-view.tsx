@@ -282,6 +282,11 @@ export function PlanView({
                   </Td>
                   <Td money>
                     {r.amountTiyin === '0' ? <span className="text-(--color-warn)">hisoblanmagan</span> : <Money tiyin={r.amountTiyin} tone="expense" />}
+                    {r.parts && r.parts.otherTiyin !== '0' && (
+                      <span className="block text-[11px] text-(--color-text-muted)" title="Soliq hisoboti: 4-ilova (oylik) + 5-ilova (boshqa daromadlar)">
+                        oylik {formatTiyin(r.parts.salaryTiyin)} + boshqa {formatTiyin(r.parts.otherTiyin)}
+                      </span>
+                    )}
                   </Td>
                   <Td>
                     {r.locked ? (

@@ -723,3 +723,15 @@ Bo'lim sahifasi › Ish haqi › saqlangan ro'yxatda xodim(lar)ni belgilab «Bos
 - **Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari** — o'sha bo'lim ish haqi vedomostiga (avvalgidek).
 - **Qo'mita pullari ro'yxatda yo'q** — u ish haqi emas, ish haqi unga o'tkazilmaydi (server ham rad etadi). Bo'limlar o'rtasidagi ko'chirishda ham Qo'mita tanlanmaydi.
 - Tanlangan joy noto'g'ri bo'lsa (yopilgan bo'lim, boshqa viloyatning tumani) — saqlanmaydi, sababi ko'rsatiladi.
+
+## Xarajatlar › Soliq hisoboti (JShDS hisob-kitobi to'g'ridan-to'g'ri)
+«Ish haqi» yonidagi yorliq. Soliq idorasiga topshirilgan Excel hisobotning o'zi yuklanadi — qayta shablonga ko'chirish shart emas.
+- **4-ilova** (odatda «list01») — mehnatga haq to'lash tarzidagi daromadlar (oylik).
+- **5-ilova** (odatda «list02») — mulkiy, moddiy naf tarzidagi va boshqa daromadlar (ta'til puli va h.k.). Bir xodimning bir nechta daromadi alohida qatorlarda bo'lsa — qo'shiladi.
+- Olinadigan summa — **«шундан, ҳисобот даврида ҳисобланган … даромадлар»** (shu oyniki). **«Жами ҳисобланган …»** — yil boshidan o'sib boruvchi, **olinmaydi** (faqat ma'lumot uchun ko'rsatiladi).
+- Bir xodim ikkala ilovada bo'lsa — **PINFL bo'yicha qo'shiladi** (oylik + boshqa daromad); jadvalda «oylik … + boshqa …» deb ko'rinadi.
+- Soliq idorasi to'g'rilagan PINFL («Правильный ПИНФЛ») bo'lsa — o'sha olinadi. «ЖАМИ» qatori, ustun raqamlari va izoh qatorlari o'tkaziladi.
+- Ustunlar sarlavha matnidan topiladi (kirill va lotin yozuvida) — ustunlar tartibi o'zgarsa ham o'qiladi.
+- Fayl nomidagi oy (masalan «NDFL_yanvar_2026») tanlangan oydan farq qilsa — ogohlantiriladi.
+- Keyingi qadamlar Ish haqidagidek: bo'limlarga taqsimot (bo'limga avval yuklanganlar olinmaydi), bo'limni o'zgartirish, saqlash — umumiy vedomost bo'lib yoziladi. Reestrda yo'q bo'lim xodimining F.I.Sh. hisobotdan olinadi.
+- «Ish haqi» yorlig'iga soliq hisoboti tashlansa ham taniladi.

@@ -12,11 +12,11 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 export class PayrollPlanController {
   constructor(private readonly plans: PayrollPlanService) {}
 
-  /** Fayl: har xodim qayerga yoziladi (hech narsa saqlanmaydi) */
+  /** Fayl: har xodim qayerga yoziladi (hech narsa saqlanmaydi). ?format=ndfl — faqat soliq hisoboti */
   @Post('analyze')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@Query('period') period: string, @UploadedFile() file: Express.Multer.File) {
-    return { data: await this.plans.analyze(period, file) };
+  async analyze(@Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File) {
+    return { data: await this.plans.analyze(period, file, format === 'ndfl' ? 'ndfl' : 'auto') };
   }
 
   /** O'zgartirilgan taqsimot bo'yicha qayta hisoblash (hech narsa saqlanmaydi) */

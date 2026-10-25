@@ -32,6 +32,7 @@ const REL = {
   salaryCompositionRow: { batch: { model: 'salaryCompositionBatch', key: 'batchId' } },
 };
 const DEFAULTS = {
+  payrollEntry: () => ({ baseTiyin: 0n, bonusTiyin: 0n, vacationTiyin: 0n, deductionTiyin: 0n, taxTiyin: 0n, totalTiyin: 0n, workedDays: null, deletedAt: null }),
   leaseMonthClose: () => ({ closedAt: new Date(Date.now() + seq), cancelledAt: null, leaseCount: 0, totalTiyin: 0n, closedById: null }),
   lease: () => ({ deletedAt: null, districtId: null, departmentId: null, airportName: null, endPeriod: null, vatIncluded: true }),
   stockDoc: () => ({ deletedAt: null, createdAt: new Date(Date.now() + seq), fromDepartmentId: null, fromRegionCode: null, fromHolderPinfl: null, fromHolderName: null }),

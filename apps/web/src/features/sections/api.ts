@@ -104,6 +104,7 @@ export const SECTION_NAV: Record<SectionKind, KindNav> = {
           { href: '/xarajatlar/doimiy', label: "Ro'yxat" },
           { href: '/xarajatlar/tahlil', label: 'Tahlil' },
           { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
+          { href: '/xarajatlar/soliq-hisoboti', label: 'Soliq hisoboti' },
           { href: '/xarajatlar/tarkib', label: 'Ish haqi tarkibi' },
           { href: '/xarajatlar/ijara', label: 'Ijara' },
         ],

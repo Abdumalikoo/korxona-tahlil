@@ -110,6 +110,7 @@ export const MENU: NavItem[] = [
       { label: 'Doimiy', href: '/xarajatlar/doimiy', description: "Muntazam xarajatlar ro'yxati" },
       { label: 'Boshqa', href: '/xarajatlar/boshqa', description: 'Bir martalik xarajatlar' },
       { label: 'Ish haqi', href: '/xarajatlar/ish-haqi', description: 'Ish haqi vedomostlari' },
+      { label: 'Soliq hisoboti', href: '/xarajatlar/soliq-hisoboti', description: "JShDS hisob-kitobi (4 va 5-ilova) to'g'ridan-to'g'ri: shu oy oylik va boshqa daromadlar" },
       { label: 'Ish haqi tarkibi', href: '/xarajatlar/tarkib', description: "Ish haqi komponentlar bo'yicha" },
       { label: 'Ijara', href: '/xarajatlar/ijara', description: "Ijara shartnomalari va to'lovlar" },
       { label: 'Internet', href: '/xarajatlar/internet', description: "Internet shartnomalari: kimga to'lanadi, qayerga biriktiriladi, oylik to'lovlar" },

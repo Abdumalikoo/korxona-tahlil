@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TaxesService } from '../taxes/taxes.service';
 import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { isNdflWorkbook, parseNdfl, type NdflResult } from './ndfl.parser';
 
 const CENTRAL_REGION = 0;
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
@@ -404,7 +405,11 @@ export class PayrollService {
 
   // ═══════════ Tahlil — bazaga hech narsa yozilmaydi ═══════════
 
-  async analyze(period: string, file: Express.Multer.File) {
+  /**
+   * format: auto — soliq hisoboti (4/5-ilova) bo'lsa o'shani, aks holda PINFL + summa shablonini o'qiydi;
+   * ndfl — faqat soliq hisoboti (boshqa fayl — xato).
+   */
+  async analyze(period: string, file: Express.Multer.File, format: 'auto' | 'ndfl' = 'auto') {
     this.assertPeriod(period);
 
     if (!file) {
@@ -415,6 +420,13 @@ export class PayrollService {
     await assertSafeXlsx(file.buffer);
     await workbook.xlsx.load(file.buffer as unknown as ArrayBuffer);
 
+    // Soliq hisoboti — to'g'ridan-to'g'ri: shu oy (hisobot davri) daromadlari, 4 va 5-ilova PINFL bo'yicha qo'shiladi
+    let ndfl: NdflResult | null = null;
+    if (isNdflWorkbook(workbook)) ndfl = parseNdfl(workbook, file.originalname ?? '');
+    else if (format === 'ndfl') {
+      throw new BadRequestException("Bu fayl soliq hisoboti emas: «ЖШ ШИР» va «ҳисобот даврида ҳисобланган … даромадлар» ustunli varaq (4 yoki 5-ilova) topilmadi");
+    }
+
     const sheet = workbook.worksheets[0];
     if (!sheet) {
       throw new BadRequestException('Faylda varaq topilmadi');
@@ -424,7 +436,10 @@ export class PayrollService {
     const invalidRows: { rowIndex: number; reason: string }[] = [];
     const duplicates: string[] = [];
 
-    sheet.eachRow((row, rowIndex) => {
+    if (ndfl) {
+      for (const p of ndfl.people) parsed.set(p.pinfl, { rowIndex: p.rowIndex, amountTiyin: p.salaryTiyin + p.otherTiyin });
+      for (const bad of ndfl.invalid) invalidRows.push({ rowIndex: bad.rowIndex, reason: `${bad.sheet}: ${bad.reason}` });
+    } else sheet.eachRow((row, rowIndex) => {
       if (rowIndex === 1) return;
 
       const rawPinfl = this.cellValue(row.getCell(1).value);
@@ -535,6 +550,22 @@ export class PayrollService {
         pinfl: item.employee.pinfl,
         amountTiyin: item.amountTiyin,
       })),
+      /** Soliq hisoboti bo'lsa — varaqlar bo'yicha xulosa (aks holda null) */
+      ndfl: ndfl
+        ? {
+            sheets: ndfl.sheets,
+            people: ndfl.people.length,
+            inBoth: ndfl.inBoth,
+            monthOverCumulative: ndfl.monthOverCumulative,
+            periodHint: ndfl.periodHint,
+            periodMismatch: Boolean(ndfl.periodHint && ndfl.periodHint !== period),
+            salaryTiyin: ndfl.people.reduce((a, p) => a + p.salaryTiyin, 0n),
+            otherTiyin: ndfl.people.reduce((a, p) => a + p.otherTiyin, 0n),
+            taxTiyin: ndfl.people.reduce((a, p) => a + p.taxTiyin, 0n),
+          }
+        : null,
+      /** Ichki: xodim bo'yicha F.I.Sh. va oylik / boshqa daromad (JSON javobga tushmaydi — Map) */
+      ndflPeople: new Map((ndfl?.people ?? []).map((p) => [p.pinfl, p])),
     };
   }
 
