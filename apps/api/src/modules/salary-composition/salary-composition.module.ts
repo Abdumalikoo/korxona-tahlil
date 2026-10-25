@@ -11,6 +11,6 @@ import { SalaryStructureService } from './salary-composition.structure';
   imports: [PayrollModule, UnitPayrollModule],
   controllers: [SalaryCompositionController],
   providers: [SalaryCompositionService, SalaryStructureService, CompositionReconcileService],
-  exports: [SalaryCompositionService, SalaryStructureService],
+  exports: [SalaryCompositionService, SalaryStructureService, CompositionReconcileService],
 })
 export class SalaryCompositionModule {}

@@ -6,6 +6,7 @@ import { KIND_LABELS, purposeMonth, type PayoutKind } from '../acc-23106/acc2310
 import { readStore, STORE_KEY } from '../acc-23106/acc23106.store';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CompositionReconcileService } from '../salary-composition/salary-composition.reconcile';
 import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 
 // ═══════════════════════════════════════════════════════════
@@ -15,14 +16,20 @@ import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.
 //  • Shartnoma asosida ishlovchi:  FOT − daromad solig'i (12%)                       = 23106
 //  • Asosiy shtat (Markaz, hudud): FOT − daromad solig'i (12%) − kasaba uyushmasi (2%) = 23106
 //  Masalan, 10 000 000 so'm: shartnoma — 10 000 000 − 1 200 000 = 8 800 000; shtat — … − 200 000 = 8 600 000.
-// FOT — ish haqi tarkibidagi jami (bo'lmasa — soliq hisobotidagi «hisobot davrida hisoblangan» summa; yo'nalishlarda —
-// o'sha bo'lim ish haqi vedomosti). Xodim turi — shu oy joylashuvi (natijalar fayli), bo'lmasa Xodimlar bazasidan.
+// FOT — FAQAT soliq hisoboti («hisobot davrida hisoblangan»; yo'nalishlarda — o'sha bo'lim ish haqi vedomosti):
+// tarkib boshqacha bo'lsa ham FOT soliq hisobotidan ortiq ham, kam ham bo'lmaydi. Tarkib — faqat taqqoslash uchun:
+// Markaz tablosida tarkib soliq hisobotidan farq qilsa, farqni shu yerda komponentga yo'naltirish mumkin (bayram puli,
+// mukofot …) — tarkib soliq hisobotiga tenglashadi (Ish haqi tarkibi › uchlik nazorat bilan bir xil, bekor qilinadi).
+// Ikki tablo: Markaz (Markaz xodimlari, yo'nalishlar) va Hududlar (faqat soliq hisoboti bo'yicha).
+// Xodim turi — shu oy joylashuvi (natijalar fayli), bo'lmasa Xodimlar bazasidan.
 // 23106 — shu oy uchun to'langanlar (izohdagi «… oyi uchun», bo'lmasa buyruq oyi; yoki — to'langan oy), xizmat
 // safaridan tashqari: ish haqi, avans, bayram, mukofot, moddiy yordam, ta'til …
 // Foizlar va ruxsat etilgan farq — sozlanadi (settings «payroll.solishtirma»). Hech narsa yozilmaydi — faqat nazorat.
 // ═══════════════════════════════════════════════════════════
 
 export const SETTINGS_KEY = 'payroll.solishtirma';
+/** Tasdiqlar: oy → tablo → tasdiqlangan xodimlar (o'sha paytdagi summalar bilan) */
+export const CONFIRM_KEY = 'payroll.solishtirma.confirm';
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export interface SolishtirmaSettings {
@@ -36,8 +43,8 @@ export interface SolishtirmaSettings {
 const DEFAULTS: SolishtirmaSettings = { taxPct: 12, unionPct: 2, toleranceSum: 1000 };
 
 export type BankMonthMode = 'ACCRUAL' | 'PAID';
-/** FOT manbasi: tarkib (bo'lmasa soliq hisoboti) yoki soliq hisoboti (bo'lmasa tarkib) */
-export type FotMode = 'TARKIB' | 'SOLIQ';
+/** Tablo: Markaz (Markaz xodimlari, yo'nalishlar, joyi noma'lumlar) yoki Hududlar */
+export type SolTab = 'CENTER' | 'REGION';
 export type SolState = 'OK' | 'LESS' | 'MORE' | 'NO_BANK' | 'NO_FOT';
 export type GroupKey = 'CENTER_SHTAT' | 'CENTER_SHARTNOMA' | 'REGION_SHTAT' | 'REGION_SHARTNOMA' | 'UNIT' | 'UNKNOWN';
 
@@ -51,6 +58,24 @@ const GROUP_LABELS: Record<GroupKey, string> = {
 };
 
 const abs = (v: bigint) => (v < 0n ? -v : v);
+
+/** Bir tablo tasdig'i: kim, qachon, qaysi xodimlar (summalari bilan — keyin o'zgarsa «o'zgargan» deb ko'rinadi) */
+export interface TabConfirm {
+  at: string;
+  by: string;
+  count: number;
+  totalTiyin: string;
+  rows: Record<string, { soliq: string; tarkib: string | null; bank: string }>;
+}
+type ConfirmStore = Record<string, Partial<Record<'CENTER' | 'REGION', TabConfirm>>>;
+
+function readConfirm(raw: unknown): ConfirmStore {
+  const v = (raw as { periods?: unknown } | null)?.periods;
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as ConfirmStore) : {};
+}
+
+const CATEGORY_LABELS: Record<string, string> = { ASOSIY: 'Asosiy ish haqi', TATIL: "Ta'til va kasallik", PREMIYA: 'Premiyalar', KOMPENSATSIYA: 'Kompensatsiyalar', USTAMA: 'Ustamalar', JARIMA: 'Jarimalar', BOSHQA: 'Boshqa' };
+const CATEGORY_ORDER = ['ASOSIY', 'TATIL', 'PREMIYA', 'KOMPENSATSIYA', 'USTAMA', 'BOSHQA', 'JARIMA'];
 /** Foiz (bir necha xonali kasr ham) → tiyin, yaxlitlash bilan */
 const pct = (base: bigint, p: number) => (base * BigInt(Math.round(p * 10000)) + 500000n) / 1000000n;
 
@@ -66,6 +91,7 @@ export class PayrollSolishtirmaService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Optional() private readonly unitPayroll?: UnitPayrollService,
+    @Optional() private readonly reconcile?: CompositionReconcileService,
   ) {}
 
   async settings(): Promise<SolishtirmaSettings> {
@@ -152,10 +178,10 @@ export class PayrollSolishtirmaService {
 
   // ═══════════ Solishtirma ═══════════
 
-  async view(period: string, modeRaw?: string, fotRaw?: string) {
+  async view(period: string, modeRaw?: string, tabRaw?: string) {
     if (!PERIOD_RE.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
     const mode: BankMonthMode = modeRaw === 'PAID' ? 'PAID' : 'ACCRUAL';
-    const fotMode: FotMode = fotRaw === 'SOLIQ' ? 'SOLIQ' : 'TARKIB';
+    const tab: SolTab = tabRaw === 'REGION' ? 'REGION' : 'CENTER';
     const [set, f, bank] = await Promise.all([this.settings(), this.fot(period), this.bank(period, mode)]);
     const tol = BigInt(Math.round(set.toleranceSum * 100));
     const pinfls = [...new Set([...f.tarkib.keys(), ...f.soliq.keys(), ...bank.by.keys()])];
@@ -171,7 +197,7 @@ export class PayrollSolishtirmaService {
     const staff = ((await this.prisma.setting.findUnique({ where: { key: 'unit.staff' } }))?.value ?? {}) as Record<string, { pinfl?: string; fullName?: string }[]>;
     for (const list of Object.values(staff)) for (const s of Array.isArray(list) ? list : []) if (s?.pinfl && s.fullName && !staffNames.has(s.pinfl)) staffNames.set(s.pinfl, s.fullName);
 
-    const rows = pinfls.map((pinfl) => {
+    const allRows = pinfls.map((pinfl) => {
       const e = empBy.get(pinfl);
       const loc = locBy.get(pinfl);
       const t = f.tarkib.get(pinfl);
@@ -181,12 +207,11 @@ export class PayrollSolishtirmaService {
       const typeRaw = (loc?.employmentType ?? e?.employmentType ?? null) as string | null;
       const type: 'SHTAT' | 'SHARTNOMA' = typeRaw === 'SHARTNOMA' ? 'SHARTNOMA' : 'SHTAT';
       const group: GroupKey = unit ? 'UNIT' : regionCode === null ? 'UNKNOWN' : regionCode === 0 ? (type === 'SHTAT' ? 'CENTER_SHTAT' : 'CENTER_SHARTNOMA') : type === 'SHTAT' ? 'REGION_SHTAT' : 'REGION_SHARTNOMA';
-      const first = fotMode === 'SOLIQ' ? s : t;
-      const second = fotMode === 'SOLIQ' ? t : s;
-      const fot = first?.total ?? second?.total ?? null;
-      const fotSource: 'TARKIB' | 'SOLIQ' | null = first ? fotMode : second ? (fotMode === 'SOLIQ' ? 'TARKIB' : 'SOLIQ') : null;
-      // Tarkib ≠ soliq hisoboti (ikkalasi bor bo'lsa)
-      const tsDiff = t && s ? s.total - t.total : null;
+      // FOT — faqat soliq hisoboti
+      const fot = s?.total ?? null;
+      const fotSource: 'SOLIQ' | null = s ? 'SOLIQ' : null;
+      // Soliq hisoboti − tarkib (tarkib bo'lmasa — butun soliq summasi; soliq bo'lmasa — minus tarkib)
+      const tsDiff = t || s ? (s?.total ?? 0n) - (t?.total ?? 0n) : null;
       const tax = fot === null ? null : pct(fot, set.taxPct);
       const union = fot === null ? null : type === 'SHTAT' ? pct(fot, set.unionPct) : 0n;
       const expected = fot === null ? null : fot - tax! - union!;
@@ -217,10 +242,10 @@ export class PayrollSolishtirmaService {
         else if (near(diff!, tax!)) hint = "Farq daromad solig'iga teng — soliqsiz to'langan bo'lishi mumkin";
         else if (state === 'LESS' && !parts.has('ISH_HAQI')) hint = "Bu oy uchun ish haqi to'lovi ko'chirmada yo'q — qoldiq keyingi oy to'langan yoki boshqa hisobdan o'tgan bo'lishi mumkin";
         else if (state === 'LESS') hint = "Bankdan kam to'langan — avans/qoldiqning bir qismi boshqa oyda, yoki boshqa ushlanma (aliment, qarz …) bor";
-        else hint = "Bankdan ko'p to'langan — boshqa oy puli shu oyga kirgan, yoki FOT'da bu to'lov yo'q (tarkibni tekshiring)";
+        else hint = "Bankdan ko'p to'langan — boshqa oy puli shu oyga kirgan, yoki bu to'lov soliq hisobotida yo'q";
       }
       if (state === 'NO_BANK') hint = mode === 'ACCRUAL' ? "23106 da shu oy uchun to'lov yo'q (boshqa hisob raqamidan to'langan bo'lishi mumkin)" : "23106 da shu oy to'langan pul yo'q";
-      if (state === 'NO_FOT') hint = "23106 da to'lov bor, lekin ish haqi tarkibida ham, soliq hisobotida ham yo'q";
+      if (state === 'NO_FOT') hint = t ? "Soliq hisobotida yo'q — tarkibda bor (soliq hisoboti asosiy: tarkibdagi summa olinmaydi)" : "23106 da to'lov bor, lekin soliq hisobotida ham, ish haqi tarkibida ham yo'q";
 
       return {
         pinfl,
@@ -238,8 +263,22 @@ export class PayrollSolishtirmaService {
         fotSource,
         tarkibTiyin: t ? t.total.toString() : null,
         soliqTiyin: s ? s.total.toString() : null,
-        /** Soliq hisoboti − tarkib (ikkalasi bo'lsa) */
+        /** Soliq hisoboti − tarkib */
         tarkibSoliqDiffTiyin: tsDiff === null ? null : tsDiff.toString(),
+        /** Markaz tablosi: tarkib kategoriyalari (belgisi bilan) */
+        categories: [] as { category: string; label: string; tiyin: string }[],
+        /** «To'g'ri» deb tasdiqlash mumkinmi (Markaz: tarkib = soliq hisoboti; Hududlar: 23106 = kutilgan) */
+        confirmable: false,
+        /** Tasdiq holati: CONFIRMED — tasdiqlangan va o'zgarmagan; CHANGED — tasdiqdan keyin summa o'zgargan */
+        confirm: null as null | 'CONFIRMED' | 'CHANGED',
+        /** Markaz tablosi: tarkib farqini komponentga yo'naltirish (to'ldiriladi pastda) */
+        tarkibFix: null as null | {
+          unit: string | null;
+          canAllocate: boolean;
+          diffTiyin: string;
+          suggestion: { componentCode: string; componentName: string; amountTiyin: string; confidence: 'STRONG' | 'WEAK'; reason: string } | null;
+          adjustments: { id: string; componentName: string; amountTiyin: string }[];
+        },
         taxTiyin: tax === null ? null : tax.toString(),
         unionTiyin: union === null ? null : union.toString(),
         expectedTiyin: expected === null ? null : expected.toString(),
@@ -251,8 +290,75 @@ export class PayrollSolishtirmaService {
       };
     });
 
+    const isRegion = (r: { group: GroupKey }) => r.group === 'REGION_SHTAT' || r.group === 'REGION_SHARTNOMA';
+    const tabStat = (list: typeof allRows) => ({ employees: list.length, problems: list.filter((r) => r.state !== 'OK').length, tarkibDiff: list.filter((r) => r.tarkibSoliqDiffTiyin !== null && abs(BigInt(r.tarkibSoliqDiffTiyin)) > tol).length });
+    const tabs = { CENTER: tabStat(allRows.filter((r) => !isRegion(r))), REGION: tabStat(allRows.filter(isRegion)) };
+    const rows = allRows.filter((r) => (tab === 'REGION' ? isRegion(r) : !isRegion(r)));
+
+    // Markaz tablosi: tarkib farqi → qayerga (uchlik nazorat tavsiyasi bilan)
+    let components: { code: string; name: string; category: string; categoryLabel: string; sign: number }[] = [];
+    const fixScopes: { unit: string | null; label: string; compositionUploaded: boolean }[] = [];
+    const compBy = new Map<string, { category: string; sign: number }>();
+    // Kategoriyalar uchun: nofaol komponentlar ham (eski tarkibda bo'lishi mumkin)
+    for (const c of await this.prisma.salaryComponent.findMany({ select: { code: true, category: true, sign: true } })) compBy.set(c.code, { category: c.category, sign: c.sign });
+    if (tab === 'CENTER' && this.reconcile) {
+      const scopes = [null, ...new Set(rows.map((r) => r.unit).filter((u): u is string => Boolean(u)))];
+      for (const u of scopes) {
+        const rv = await this.reconcile.view(period, u ?? undefined).catch(() => null);
+        if (!rv) continue;
+        if (!components.length) components = rv.components;
+        for (const c of rv.components) compBy.set(c.code, c);
+        fixScopes.push({ unit: u, label: u ? entryUnitLabel(u) : 'Markaz', compositionUploaded: rv.compositionUploaded });
+        const by = new Map(rv.rows.map((x) => [x.pinfl, x]));
+        for (const r of rows) {
+          if ((r.unit ?? null) !== u) continue;
+          const d = r.tarkibSoliqDiffTiyin === null ? 0n : BigInt(r.tarkibSoliqDiffTiyin);
+          const x = by.get(r.pinfl);
+          if (x) {
+            const acc = new Map<string, bigint>();
+            for (const [code, v] of Object.entries(x.items)) {
+              const c = compBy.get(code);
+              const cat = c?.category ?? 'BOSHQA';
+              acc.set(cat, (acc.get(cat) ?? 0n) + ((c?.sign ?? 1) < 0 ? -BigInt(v) : BigInt(v)));
+            }
+            r.categories = CATEGORY_ORDER.filter((k) => acc.get(k)).map((k) => ({ category: k, label: CATEGORY_LABELS[k] ?? k, tiyin: acc.get(k)!.toString() }));
+          }
+          if (abs(d) <= tol && !x?.adjustments.length) continue;
+          r.tarkibFix = {
+            unit: u,
+            canAllocate: rv.compositionUploaded && abs(d) > tol,
+            diffTiyin: d.toString(),
+            suggestion: x?.suggestion && x.suggestion.amountTiyin === d.toString() ? x.suggestion : null,
+            adjustments: (x?.adjustments ?? []).map((a) => ({ id: a.id, componentName: a.componentName, amountTiyin: a.amountTiyin })),
+          };
+        }
+      }
+    }
+
     const order: Record<SolState, number> = { LESS: 0, MORE: 1, NO_BANK: 2, NO_FOT: 3, OK: 4 };
     rows.sort((a, b) => order[a.state] - order[b.state] || (abs(BigInt(b.diffTiyin ?? b.bankTiyin)) > abs(BigInt(a.diffTiyin ?? a.bankTiyin)) ? 1 : -1) || a.fullName.localeCompare(b.fullName));
+
+    // Tasdiq: tasdiqlash mumkinlar va saqlangan tasdiq bilan solishtirish
+    const tabConfirm = readConfirm((await this.prisma.setting.findUnique({ where: { key: CONFIRM_KEY } }))?.value ?? null)[period]?.[tab] ?? null;
+    for (const r of rows) {
+      const tsOk = r.tarkibTiyin !== null && r.soliqTiyin !== null && abs(BigInt(r.tarkibSoliqDiffTiyin ?? '0')) <= tol;
+      r.confirmable = tab === 'CENTER' ? tsOk : r.state === 'OK' && r.soliqTiyin !== null;
+      const snap = tabConfirm?.rows[r.pinfl];
+      if (snap) r.confirm = snap.soliq === (r.soliqTiyin ?? '') && snap.tarkib === r.tarkibTiyin && snap.bank === r.bankTiyin ? 'CONFIRMED' : 'CHANGED';
+    }
+    const matched = rows.filter((r) => r.confirmable);
+    const catAcc = new Map<string, bigint>();
+    for (const r of matched) for (const c of r.categories) catAcc.set(c.category, (catAcc.get(c.category) ?? 0n) + BigInt(c.tiyin));
+    const matchedInfo = {
+      count: matched.length,
+      soliqTiyin: matched.reduce((x, r) => x + BigInt(r.soliqTiyin ?? '0'), 0n).toString(),
+      bankTiyin: matched.reduce((x, r) => x + BigInt(r.bankTiyin), 0n).toString(),
+      bankOk: matched.filter((r) => r.state === 'OK').length,
+      categories: CATEGORY_ORDER.filter((k) => catAcc.get(k)).map((k) => ({ category: k, label: CATEGORY_LABELS[k] ?? k, tiyin: catAcc.get(k)!.toString() })),
+      byGroup: (Object.keys(GROUP_LABELS) as GroupKey[]).map((g) => ({ key: g, label: GROUP_LABELS[g], count: matched.filter((r) => r.group === g).length, soliqTiyin: matched.filter((r) => r.group === g).reduce((x, r) => x + BigInt(r.soliqTiyin ?? '0'), 0n).toString() })).filter((g) => g.count > 0),
+      confirmed: tabConfirm ? { at: tabConfirm.at, by: tabConfirm.by, count: tabConfirm.count, totalTiyin: tabConfirm.totalTiyin, changed: rows.filter((r) => r.confirm === 'CHANGED').length, missing: Object.keys(tabConfirm.rows).filter((p) => !rows.some((r) => r.pinfl === p)).length } : null,
+      unconfirmed: matched.filter((r) => r.confirm !== 'CONFIRMED').length,
+    };
 
     const groups = (Object.keys(GROUP_LABELS) as GroupKey[])
       .map((g) => {
@@ -296,7 +402,13 @@ export class PayrollSolishtirmaService {
       period,
       label: monthLabel(period),
       mode,
-      fotMode,
+      /** Eski web bilan moslik: FOT doim soliq hisobotidan */
+      fotMode: 'SOLIQ' as const,
+      tab,
+      tabs,
+      components,
+      fixScopes,
+      matched: matchedInfo,
       settings: set,
       sources: { tarkib: f.tarkibUploaded, soliq: f.soliqUploaded, bank: bank.uploaded },
       summary: {
@@ -317,5 +429,59 @@ export class PayrollSolishtirmaService {
       regions: [...regionAcc.entries()].sort((a, b) => b[1].problems - a[1].problems || a[0].localeCompare(b[0])).map(([name, x]) => ({ name, employees: x.employees, problems: x.problems, expectedTiyin: x.expected.toString(), bankTiyin: x.bank.toString(), diffTiyin: (x.bank - x.expected).toString() })),
       rows,
     };
+  }
+
+  // ═══════════ Tasdiqlash: mos kelganlar «to'g'ri» ═══════════
+
+  /**
+   * Tablo bo'yicha mos kelgan xodimlarni «to'g'ri» deb tasdiqlash (pinfls berilmasa — hamma mos kelganlar).
+   * O'sha paytdagi summalar saqlanadi: keyin soliq hisoboti, tarkib yoki 23106 o'zgarsa — «o'zgargan» deb ko'rinadi.
+   * Avvalgi tasdiq bo'lsa — yangi xodimlar qo'shiladi (eski tasdiqlanganlar yangilanadi).
+   */
+  async confirm(period: string, tabRaw: string | undefined, mode: string | undefined, body: { pinfls?: unknown }, userId: string) {
+    const tab: SolTab = tabRaw === 'REGION' ? 'REGION' : 'CENTER';
+    const v = await this.view(period, mode, tab);
+    const want = Array.isArray(body?.pinfls) ? new Set(body.pinfls.map(String)) : null;
+    const list = v.rows.filter((r) => r.confirmable && (!want || want.has(r.pinfl)));
+    if (want) {
+      const bad = [...want].filter((p) => !v.rows.some((r) => r.pinfl === p && r.confirmable));
+      if (bad.length) throw new BadRequestException(`${bad.length} xodim mos emas (yoki topilmadi) — faqat mos kelganlar tasdiqlanadi`);
+    }
+    if (!list.length) throw new BadRequestException("Tasdiqlash uchun mos kelgan xodim yo'q");
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null);
+    const out = await runExclusive(`setting:${CONFIRM_KEY}`, async () => {
+      const store = readConfirm((await this.prisma.setting.findUnique({ where: { key: CONFIRM_KEY } }))?.value ?? null);
+      const prev = store[period]?.[tab];
+      const rows: TabConfirm['rows'] = { ...(prev?.rows ?? {}) };
+      for (const r of list) rows[r.pinfl] = { soliq: r.soliqTiyin ?? '', tarkib: r.tarkibTiyin, bank: r.bankTiyin };
+      const total = Object.values(rows).reduce((x, r) => x + BigInt(r.soliq || '0'), 0n);
+      const entry: TabConfirm = { at: new Date().toISOString(), by: user?.fullName ?? '', count: Object.keys(rows).length, totalTiyin: total.toString(), rows };
+      store[period] = { ...(store[period] ?? {}), [tab]: entry };
+      // Eng ko'pi 36 oy saqlanadi
+      const keys = Object.keys(store).sort();
+      for (const k of keys.slice(0, Math.max(0, keys.length - 36))) delete store[k];
+      const value = { periods: store } as unknown as object;
+      await this.prisma.setting.upsert({ where: { key: CONFIRM_KEY }, create: { key: CONFIRM_KEY, value }, update: { value } });
+      return entry;
+    });
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'payroll_solishtirma', entityId: `${tab}:${period}`, summary: `Ish haqi solishtirma ${monthLabel(period)} (${tab === 'CENTER' ? 'Markaz' : 'Hududlar'}): ${list.length} xodim «to'g'ri» deb tasdiqlandi (jami tasdiqlangan ${out.count})` });
+    return { success: true as const, confirmed: list.length, total: out.count };
+  }
+
+  async cancelConfirm(period: string, tabRaw: string | undefined, userId: string) {
+    if (!PERIOD_RE.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    const tab: SolTab = tabRaw === 'REGION' ? 'REGION' : 'CENTER';
+    const removed = await runExclusive(`setting:${CONFIRM_KEY}`, async () => {
+      const store = readConfirm((await this.prisma.setting.findUnique({ where: { key: CONFIRM_KEY } }))?.value ?? null);
+      const prev = store[period]?.[tab];
+      if (!prev) throw new BadRequestException('Bu oy uchun tasdiq yo\'q');
+      delete store[period]![tab];
+      if (!Object.keys(store[period]!).length) delete store[period];
+      const value = { periods: store } as unknown as object;
+      await this.prisma.setting.upsert({ where: { key: CONFIRM_KEY }, create: { key: CONFIRM_KEY, value }, update: { value } });
+      return prev.count;
+    });
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'payroll_solishtirma', entityId: `${tab}:${period}`, summary: `Ish haqi solishtirma ${monthLabel(period)} (${tab === 'CENTER' ? 'Markaz' : 'Hududlar'}): tasdiq bekor qilindi (${removed} xodim)` });
+    return { success: true as const, removed };
   }
 }

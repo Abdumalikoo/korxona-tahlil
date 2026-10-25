@@ -6,6 +6,7 @@ import { api, type ApiResponse } from '@/lib/api';
 
 export type BankMonthMode = 'ACCRUAL' | 'PAID';
 export type FotMode = 'TARKIB' | 'SOLIQ';
+export type SolTab = 'CENTER' | 'REGION';
 export type SolState = 'OK' | 'LESS' | 'MORE' | 'NO_BANK' | 'NO_FOT';
 export type GroupKey = 'CENTER_SHTAT' | 'CENTER_SHARTNOMA' | 'REGION_SHTAT' | 'REGION_SHARTNOMA' | 'UNIT' | 'UNKNOWN';
 
@@ -31,8 +32,21 @@ export interface SolRow {
   fotSource: 'TARKIB' | 'SOLIQ' | null;
   tarkibTiyin: string | null;
   soliqTiyin: string | null;
-  /** Soliq hisoboti − tarkib (ikkalasi bo'lsa) */
+  /** Soliq hisoboti − tarkib */
   tarkibSoliqDiffTiyin?: string | null;
+  /** Markaz: tarkib kategoriyalari */
+  categories?: { category: string; label: string; tiyin: string }[];
+  /** «To'g'ri» deb tasdiqlash mumkinmi */
+  confirmable?: boolean;
+  confirm?: 'CONFIRMED' | 'CHANGED' | null;
+  /** Markaz: tarkib farqini komponentga yo'naltirish */
+  tarkibFix?: {
+    unit: string | null;
+    canAllocate: boolean;
+    diffTiyin: string;
+    suggestion: { componentCode: string; componentName: string; amountTiyin: string; confidence: 'STRONG' | 'WEAK'; reason: string } | null;
+    adjustments: { id: string; componentName: string; amountTiyin: string }[];
+  } | null;
   taxTiyin: string | null;
   unionTiyin: string | null;
   expectedTiyin: string | null;
@@ -66,6 +80,20 @@ export interface SolView {
   mode: BankMonthMode;
   /** Eski API'da bo'lmaydi */
   fotMode?: FotMode;
+  tab?: SolTab;
+  tabs?: Record<SolTab, { employees: number; problems: number; tarkibDiff: number }>;
+  components?: { code: string; name: string; category: string; categoryLabel: string; sign: number }[];
+  fixScopes?: { unit: string | null; label: string; compositionUploaded: boolean }[];
+  matched?: {
+    count: number;
+    soliqTiyin: string;
+    bankTiyin: string;
+    bankOk: number;
+    categories: { category: string; label: string; tiyin: string }[];
+    byGroup: { key: GroupKey; label: string; count: number; soliqTiyin: string }[];
+    confirmed: { at: string; by: string; count: number; totalTiyin: string; changed: number; missing: number } | null;
+    unconfirmed: number;
+  };
   settings: SolishtirmaSettings;
   sources: { tarkib: boolean; soliq: boolean; bank: boolean };
   summary: { employees: number; ok: number; less: number; more: number; noBank: number; noFot: number; tarkibSoliqDiff: number; fotTiyin: string; expectedTiyin: string; bankTiyin: string; unknownType: number };
@@ -75,6 +103,9 @@ export interface SolView {
 }
 
 export const solishtirmaApi = {
-  view: (period: string, bankMonth: BankMonthMode, fot: FotMode) => api.get<ApiResponse<SolView>>('/payroll-solishtirma', { params: { period, bankMonth, fot } }),
+  view: (period: string, bankMonth: BankMonthMode, tab: SolTab) => api.get<ApiResponse<SolView>>('/payroll-solishtirma', { params: { period, bankMonth, tab } }),
+  confirm: (period: string, tab: SolTab, bankMonth: BankMonthMode, pinfls?: string[]) =>
+    api.post<ApiResponse<{ success: true; confirmed: number; total: number }>>(`/payroll-solishtirma/confirm?period=${period}&tab=${tab}&bankMonth=${bankMonth}`, pinfls ? { pinfls } : {}),
+  cancelConfirm: (period: string, tab: SolTab) => api.post<ApiResponse<{ success: true; removed: number }>>(`/payroll-solishtirma/confirm/cancel?period=${period}&tab=${tab}`),
   saveSettings: (s: SolishtirmaSettings) => api.put<ApiResponse<SolishtirmaSettings>>('/payroll-solishtirma/settings', s),
 };
