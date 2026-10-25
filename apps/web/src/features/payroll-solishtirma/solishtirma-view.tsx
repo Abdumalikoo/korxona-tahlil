@@ -394,11 +394,11 @@ export function SolishtirmaView() {
                   </div>
                   <p className="mt-0.5 text-[11px] text-(--color-text-muted)">{g.rule} · {g.employees} xodim</p>
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-                    <dt className="text-(--color-text-muted)">FOT (soliq hisoboti)</dt>
+                    <dt className="text-(--color-text-muted)">Soliq hisoboti</dt>
                     <dd className="money text-right">{formatTiyin(g.fotTiyin)}</dd>
                     {isCenter && (
                       <>
-                        <dt className="text-(--color-text-muted)">Tarkibda</dt>
+                        <dt className="text-(--color-text-muted)">Ish haqi tarkibi</dt>
                         <dd className={cn('money text-right', (() => { const d = big(g.tarkibTiyin) - big(g.fotTiyin); const t = tol * BigInt(Math.max(1, g.employees)); return d > t || d < -t; })() && 'text-(--color-warn)')}>{formatTiyin(g.tarkibTiyin ?? '0')}</dd>
                       </>
                     )}
@@ -507,8 +507,8 @@ export function SolishtirmaView() {
                 <thead className="sticky top-0 z-[1] bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold">Xodim</th>
-                    <th className="w-32 px-2 py-2 text-right font-semibold">FOT (soliq hisoboti)</th>
-                    {isCenter && <th className="w-32 px-2 py-2 text-right font-semibold">Tarkib</th>}
+                    <th className="w-36 px-2 py-2 text-right font-semibold" title="Soliq hisobotidagi «hisobot davrida hisoblangan» summa — hisob shu summadan">Soliq hisoboti</th>
+                    {isCenter && <th className="w-32 px-2 py-2 text-right font-semibold">Ish haqi tarkibi</th>}
                     <th className="w-28 px-2 py-2 text-right font-semibold">Soliq {st.taxPct}%</th>
                     <th className="w-28 px-2 py-2 text-right font-semibold">Kasaba</th>
                     <th className="w-32 px-2 py-2 text-right font-semibold">Kutilgan</th>
@@ -682,7 +682,7 @@ function PersonRows({
         {isCenter && (
           <td className="money px-2 py-2 text-right">
             {r.tarkibTiyin === null ? (
-              <span className="text-[11px] text-(--color-text-faint)">tarkibda yo‘q</span>
+              <span className="text-[11px] text-(--color-text-faint)">ish haqi tarkibida yo‘q</span>
             ) : (
               <span className={tarkibDiffers ? 'text-(--color-warn)' : 'text-(--color-text-muted)'}>{formatTiyin(r.tarkibTiyin)}</span>
             )}
