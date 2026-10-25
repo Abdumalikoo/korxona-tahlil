@@ -32,7 +32,7 @@ export interface SolRow {
   tarkibTiyin: string | null;
   soliqTiyin: string | null;
   /** Soliq hisoboti − tarkib (ikkalasi bo'lsa) */
-  tarkibSoliqDiffTiyin: string | null;
+  tarkibSoliqDiffTiyin?: string | null;
   taxTiyin: string | null;
   unionTiyin: string | null;
   expectedTiyin: string | null;
@@ -51,8 +51,8 @@ export interface SolGroup {
   ok: number;
   problems: number;
   fotTiyin: string;
-  tarkibTiyin: string;
-  soliqTiyin: string;
+  tarkibTiyin?: string;
+  soliqTiyin?: string;
   taxTiyin: string;
   unionTiyin: string;
   expectedTiyin: string;
@@ -64,7 +64,8 @@ export interface SolView {
   period: string;
   label: string;
   mode: BankMonthMode;
-  fotMode: FotMode;
+  /** Eski API'da bo'lmaydi */
+  fotMode?: FotMode;
   settings: SolishtirmaSettings;
   sources: { tarkib: boolean; soliq: boolean; bank: boolean };
   summary: { employees: number; ok: number; less: number; more: number; noBank: number; noFot: number; tarkibSoliqDiff: number; fotTiyin: string; expectedTiyin: string; bankTiyin: string; unknownType: number };

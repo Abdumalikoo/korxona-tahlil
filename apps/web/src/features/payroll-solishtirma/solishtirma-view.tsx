@@ -30,6 +30,16 @@ const STATE: Record<SolState, { label: string; tone: 'income' | 'expense' | 'war
 };
 
 type StateFilter = 'PROBLEM' | SolState | 'ALL';
+
+/** Xavfsiz BigInt: API eski bo'lsa yoki maydon yo'q bo'lsa — 0 (sahifa yiqilmasin) */
+function big(x: string | null | undefined): bigint {
+  if (x === null || x === undefined || x === '') return 0n;
+  try {
+    return BigInt(x);
+  } catch {
+    return 0n;
+  }
+}
 const PAGE = 100;
 
 export function SolishtirmaView() {
@@ -81,6 +91,9 @@ export function SolishtirmaView() {
   if (data.error) return <Card><ErrorState message={data.error} onRetry={data.reload} /></Card>;
   if (!v) return null;
   const st = v.settings;
+  /** API eski versiyada bo'lsa — fotMode kelmaydi */
+  const apiStale = v.fotMode === undefined;
+  const shownFot: FotMode = v.fotMode ?? 'TARKIB';
   const s = v.summary;
   const problems = s.less + s.more + s.noBank + s.noFot;
   const stateCounts = (k: StateFilter) => {
@@ -97,6 +110,11 @@ export function SolishtirmaView() {
           description="Har xodim: ish haqi fondi (FOT) − daromad solig‘i − kasaba uyushmasi (faqat asosiy shtat) = 23106 dan qo‘lga to‘langan summa"
         />
         <CardBody className="space-y-4">
+          {apiStale && (
+            <p className="rounded-(--radius-control) border border-(--color-warn) bg-(--color-warn-soft) px-3 py-2 text-sm text-(--color-warn)">
+              API eski versiyada ishlayapti — yangi ustunlar ko‘rinmaydi. API’ni qayta yig‘ib ishga tushiring: <code>pnpm --filter api build</code>, keyin <code>node dist\main.js</code>.
+            </p>
+          )}
           <div className="grid gap-3 md:grid-cols-2">
             <Rule title="Asosiy shtat (Markaz va hududlar)" formula={`FOT − ${st.taxPct}% soliq − ${st.unionPct}% kasaba = 23106`} example={`10 000 000 − ${formatTiyin(String(Math.round(10_000_000 * st.taxPct)))} − ${formatTiyin(String(Math.round(10_000_000 * st.unionPct)))} = ${formatTiyin(String(Math.round(10_000_000 * (100 - st.taxPct - st.unionPct))))}`} />
             <Rule title="Shartnoma asosida" formula={`FOT − ${st.taxPct}% soliq = 23106`} example={`10 000 000 − ${formatTiyin(String(Math.round(10_000_000 * st.taxPct)))} = ${formatTiyin(String(Math.round(10_000_000 * (100 - st.taxPct))))}`} />
@@ -162,7 +180,7 @@ export function SolishtirmaView() {
           {/* Bo'limchalar */}
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {v.groups.map((g) => {
-              const diff = BigInt(g.diffTiyin);
+              const diff = big(g.diffTiyin);
               return (
                 <button
                   key={g.key}
@@ -179,10 +197,10 @@ export function SolishtirmaView() {
                   </div>
                   <p className="mt-0.5 text-[11px] text-(--color-text-muted)">{g.rule} · {g.employees} xodim</p>
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-                    <dt className="text-(--color-text-muted)">FOT ({v.fotMode === 'TARKIB' ? 'tarkib' : 'soliq hisoboti'})</dt>
+                    <dt className="text-(--color-text-muted)">FOT ({shownFot === 'TARKIB' ? 'tarkib' : 'soliq hisoboti'})</dt>
                     <dd className="money text-right">{formatTiyin(g.fotTiyin)}</dd>
-                    <dt className="text-(--color-text-muted)">{v.fotMode === 'TARKIB' ? 'Soliq hisobotida' : 'Tarkibda'}</dt>
-                    <dd className={cn('money text-right', (() => { const d = BigInt(v.fotMode === 'TARKIB' ? g.soliqTiyin : g.tarkibTiyin) - BigInt(g.fotTiyin); const t = BigInt(Math.round(st.toleranceSum * 100)) * BigInt(g.employees); return d > t || d < -t; })() && 'text-(--color-warn)')}>{formatTiyin(v.fotMode === 'TARKIB' ? g.soliqTiyin : g.tarkibTiyin)}</dd>
+                    <dt className="text-(--color-text-muted)">{shownFot === 'TARKIB' ? 'Soliq hisobotida' : 'Tarkibda'}</dt>
+                    <dd className={cn('money text-right', (() => { const d = big(shownFot === 'TARKIB' ? g.soliqTiyin : g.tarkibTiyin) - big(g.fotTiyin); const t = BigInt(Math.round(st.toleranceSum * 100)) * BigInt(g.employees); return d > t || d < -t; })() && 'text-(--color-warn)')}>{formatTiyin((shownFot === 'TARKIB' ? g.soliqTiyin : g.tarkibTiyin) ?? '0')}</dd>
                     <dt className="text-(--color-text-muted)">Kutilgan (qo‘lga)</dt>
                     <dd className="money text-right">{formatTiyin(g.expectedTiyin)}</dd>
                     <dt className="text-(--color-text-muted)">23106</dt>
@@ -222,7 +240,7 @@ export function SolishtirmaView() {
                         <td className={cn('money px-2 py-1.5 text-right', x.problems && 'text-(--color-expense)')}>{x.problems}</td>
                         <td className="money px-2 py-1.5 text-right">{formatTiyin(x.expectedTiyin)}</td>
                         <td className="money px-2 py-1.5 text-right">{formatTiyin(x.bankTiyin)}</td>
-                        <td className={cn('money px-5 py-1.5 text-right', BigInt(x.diffTiyin) < 0n ? 'text-(--color-expense)' : BigInt(x.diffTiyin) > 0n ? 'text-(--color-warn)' : 'text-(--color-income)')}>{formatTiyin(x.diffTiyin)}</td>
+                        <td className={cn('money px-5 py-1.5 text-right', big(x.diffTiyin) < 0n ? 'text-(--color-expense)' : big(x.diffTiyin) > 0n ? 'text-(--color-warn)' : 'text-(--color-income)')}>{formatTiyin(x.diffTiyin)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -273,8 +291,8 @@ export function SolishtirmaView() {
                 <thead className="sticky top-0 z-[1] bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold">Xodim</th>
-                    <th className="w-32 px-2 py-2 text-right font-semibold">FOT ({v.fotMode === 'TARKIB' ? 'tarkib' : 'soliq'})</th>
-                    <th className="w-32 px-2 py-2 text-right font-semibold">{v.fotMode === 'TARKIB' ? 'Soliq hisoboti' : 'Tarkib'}</th>
+                    <th className="w-32 px-2 py-2 text-right font-semibold">FOT ({shownFot === 'TARKIB' ? 'tarkib' : 'soliq'})</th>
+                    <th className="w-32 px-2 py-2 text-right font-semibold">{shownFot === 'TARKIB' ? 'Soliq hisoboti' : 'Tarkib'}</th>
                     <th className="w-28 px-2 py-2 text-right font-semibold">Soliq {st.taxPct}%</th>
                     <th className="w-28 px-2 py-2 text-right font-semibold">Kasaba</th>
                     <th className="w-32 px-2 py-2 text-right font-semibold">Kutilgan</th>
@@ -285,7 +303,7 @@ export function SolishtirmaView() {
                 </thead>
                 <tbody>
                   {slice.map((r) => (
-                    <PersonRow key={r.pinfl} r={r} fotMode={v.fotMode} tol={BigInt(Math.round(st.toleranceSum * 100))} />
+                    <PersonRow key={r.pinfl} r={r} fotMode={shownFot} tol={BigInt(Math.round(st.toleranceSum * 100))} />
                   ))}
                   {!slice.length && (
                     <tr>
@@ -323,7 +341,7 @@ export function SolishtirmaView() {
 
 function PersonRow({ r, fotMode, tol }: { r: SolRow; fotMode: FotMode; tol: bigint }) {
   const st = STATE[r.state];
-  const diff = r.diffTiyin === null ? null : BigInt(r.diffTiyin);
+  const diff = r.diffTiyin === null || r.diffTiyin === undefined ? null : big(r.diffTiyin);
   const dash = <span className="text-(--color-text-faint)">—</span>;
   return (
     <tr className={cn('border-t border-(--color-line) align-top', r.state === 'LESS' || r.state === 'NO_BANK' ? 'bg-(--color-expense-soft)/20' : r.state === 'MORE' || r.state === 'NO_FOT' ? 'bg-(--color-warn-soft)/30' : '')}>
@@ -351,7 +369,7 @@ function PersonRow({ r, fotMode, tol }: { r: SolRow; fotMode: FotMode; tol: bigi
           const other = fotMode === 'TARKIB' ? r.soliqTiyin : r.tarkibTiyin;
           if (other === null) return <span className="text-[11px] text-(--color-text-faint)">{fotMode === 'TARKIB' ? 'yo‘q' : 'tarkib yo‘q'}</span>;
           // Ko'rsatilgan ustun − FOT: tarkib rejimida (soliq − tarkib), soliq rejimida (tarkib − soliq)
-          const raw = r.tarkibSoliqDiffTiyin === null ? 0n : BigInt(r.tarkibSoliqDiffTiyin);
+          const raw = big(r.tarkibSoliqDiffTiyin);
           const d = fotMode === 'TARKIB' ? raw : -raw;
           const differs = d > tol || d < -tol;
           return (
