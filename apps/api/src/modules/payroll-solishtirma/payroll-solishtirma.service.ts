@@ -291,8 +291,17 @@ export class PayrollSolishtirmaService {
     });
 
     const isRegion = (r: { group: GroupKey }) => r.group === 'REGION_SHTAT' || r.group === 'REGION_SHARTNOMA';
-    const tabStat = (list: typeof allRows) => ({ employees: list.length, problems: list.filter((r) => r.state !== 'OK').length, tarkibDiff: list.filter((r) => r.tarkibSoliqDiffTiyin !== null && abs(BigInt(r.tarkibSoliqDiffTiyin)) > tol).length });
-    const tabs = { CENTER: tabStat(allRows.filter((r) => !isRegion(r))), REGION: tabStat(allRows.filter(isRegion)) };
+    // Tasdiqlar (ikkala tablo): tasdiqlangan va o'zgarmagan xodim — umumiy hisobdan chiqadi
+    const confirmStore = readConfirm((await this.prisma.setting.findUnique({ where: { key: CONFIRM_KEY } }))?.value ?? null)[period] ?? {};
+    const sameAsSnap = (r: (typeof allRows)[number], k: SolTab) => {
+      const snap = confirmStore[k]?.rows[r.pinfl];
+      return snap ? (snap.soliq === (r.soliqTiyin ?? '') && snap.tarkib === r.tarkibTiyin && snap.bank === r.bankTiyin ? 'CONFIRMED' : 'CHANGED') : null;
+    };
+    const tabStat = (list: typeof allRows, k: SolTab) => {
+      const open = list.filter((r) => sameAsSnap(r, k) !== 'CONFIRMED');
+      return { employees: list.length, confirmed: list.length - open.length, problems: open.filter((r) => r.state !== 'OK').length, tarkibDiff: open.filter((r) => r.tarkibSoliqDiffTiyin !== null && abs(BigInt(r.tarkibSoliqDiffTiyin)) > tol).length };
+    };
+    const tabs = { CENTER: tabStat(allRows.filter((r) => !isRegion(r)), 'CENTER'), REGION: tabStat(allRows.filter(isRegion), 'REGION') };
     const rows = allRows.filter((r) => (tab === 'REGION' ? isRegion(r) : !isRegion(r)));
 
     // Markaz tablosi: tarkib farqi → qayerga (uchlik nazorat tavsiyasi bilan)
@@ -339,12 +348,11 @@ export class PayrollSolishtirmaService {
     rows.sort((a, b) => order[a.state] - order[b.state] || (abs(BigInt(b.diffTiyin ?? b.bankTiyin)) > abs(BigInt(a.diffTiyin ?? a.bankTiyin)) ? 1 : -1) || a.fullName.localeCompare(b.fullName));
 
     // Tasdiq: tasdiqlash mumkinlar va saqlangan tasdiq bilan solishtirish
-    const tabConfirm = readConfirm((await this.prisma.setting.findUnique({ where: { key: CONFIRM_KEY } }))?.value ?? null)[period]?.[tab] ?? null;
+    const tabConfirm = confirmStore[tab] ?? null;
     for (const r of rows) {
       const tsOk = r.tarkibTiyin !== null && r.soliqTiyin !== null && abs(BigInt(r.tarkibSoliqDiffTiyin ?? '0')) <= tol;
       r.confirmable = tab === 'CENTER' ? tsOk : r.state === 'OK' && r.soliqTiyin !== null;
-      const snap = tabConfirm?.rows[r.pinfl];
-      if (snap) r.confirm = snap.soliq === (r.soliqTiyin ?? '') && snap.tarkib === r.tarkibTiyin && snap.bank === r.bankTiyin ? 'CONFIRMED' : 'CHANGED';
+      r.confirm = sameAsSnap(r, tab);
     }
     const matched = rows.filter((r) => r.confirmable);
     const catAcc = new Map<string, bigint>();
@@ -360,9 +368,11 @@ export class PayrollSolishtirmaService {
       unconfirmed: matched.filter((r) => r.confirm !== 'CONFIRMED').length,
     };
 
+    // Umumiy hisob (bo'limchalar, xulosa, hududlar) — tasdiqlanganlarsiz
+    const open = rows.filter((r) => r.confirm !== 'CONFIRMED');
     const groups = (Object.keys(GROUP_LABELS) as GroupKey[])
       .map((g) => {
-        const list = rows.filter((r) => r.group === g);
+        const list = open.filter((r) => r.group === g);
         const sum = (k: 'fotTiyin' | 'tarkibTiyin' | 'soliqTiyin' | 'taxTiyin' | 'unionTiyin' | 'expectedTiyin' | 'bankTiyin' | 'diffTiyin') => list.reduce((s, r) => s + BigInt(r[k] ?? '0'), 0n).toString();
         return {
           key: g,
@@ -386,7 +396,7 @@ export class PayrollSolishtirmaService {
 
     // Hududlar kesimi (hudud xodimlari)
     const regionAcc = new Map<string, { employees: number; problems: number; expected: bigint; bank: bigint }>();
-    for (const r of rows) {
+    for (const r of open) {
       if (r.group !== 'REGION_SHTAT' && r.group !== 'REGION_SHARTNOMA') continue;
       const k = r.regionName ?? '—';
       const x = regionAcc.get(k) ?? { employees: 0, problems: 0, expected: 0n, bank: 0n };
@@ -397,7 +407,7 @@ export class PayrollSolishtirmaService {
       regionAcc.set(k, x);
     }
 
-    const count = (s: SolState) => rows.filter((r) => r.state === s).length;
+    const count = (s: SolState) => open.filter((r) => r.state === s).length;
     return {
       period,
       label: monthLabel(period),
@@ -412,18 +422,20 @@ export class PayrollSolishtirmaService {
       settings: set,
       sources: { tarkib: f.tarkibUploaded, soliq: f.soliqUploaded, bank: bank.uploaded },
       summary: {
-        employees: rows.length,
+        employees: open.length,
+        /** «To'g'ri» deb tasdiqlangan (umumiy hisobdan chiqqan) */
+        confirmed: rows.length - open.length,
         ok: count('OK'),
         less: count('LESS'),
         more: count('MORE'),
         noBank: count('NO_BANK'),
         noFot: count('NO_FOT'),
         /** Tarkibi soliq hisobotidan farq qiladigan xodimlar (ikkalasi bor) */
-        tarkibSoliqDiff: rows.filter((r) => r.tarkibSoliqDiffTiyin !== null && (BigInt(r.tarkibSoliqDiffTiyin) > tol || BigInt(r.tarkibSoliqDiffTiyin) < -tol)).length,
-        fotTiyin: rows.reduce((s, r) => s + BigInt(r.fotTiyin ?? '0'), 0n).toString(),
-        expectedTiyin: rows.reduce((s, r) => s + BigInt(r.expectedTiyin ?? '0'), 0n).toString(),
-        bankTiyin: rows.reduce((s, r) => s + BigInt(r.bankTiyin), 0n).toString(),
-        unknownType: rows.filter((r) => r.fotTiyin !== null && !r.typeKnown).length,
+        tarkibSoliqDiff: open.filter((r) => r.tarkibSoliqDiffTiyin !== null && (BigInt(r.tarkibSoliqDiffTiyin) > tol || BigInt(r.tarkibSoliqDiffTiyin) < -tol)).length,
+        fotTiyin: open.reduce((s, r) => s + BigInt(r.fotTiyin ?? '0'), 0n).toString(),
+        expectedTiyin: open.reduce((s, r) => s + BigInt(r.expectedTiyin ?? '0'), 0n).toString(),
+        bankTiyin: open.reduce((s, r) => s + BigInt(r.bankTiyin), 0n).toString(),
+        unknownType: open.filter((r) => r.fotTiyin !== null && !r.typeKnown).length,
       },
       groups,
       regions: [...regionAcc.entries()].sort((a, b) => b[1].problems - a[1].problems || a[0].localeCompare(b[0])).map(([name, x]) => ({ name, employees: x.employees, problems: x.problems, expectedTiyin: x.expected.toString(), bankTiyin: x.bank.toString(), diffTiyin: (x.bank - x.expected).toString() })),

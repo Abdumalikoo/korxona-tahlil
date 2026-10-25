@@ -104,10 +104,14 @@ async function statement(rows) {
   assert.deepStrictEqual([c1.confirmed, c1.total], [4, 4]);
   v = await svc.view('2026-01');
   assert.deepStrictEqual([r(P.E).confirm, r(P.X).confirm, v.matched.unconfirmed, v.matched.confirmed.count, v.matched.confirmed.changed], ['CONFIRMED', null, 0, 4, 0]);
+  // Tasdiqlanganlar umumiy hisobdan chiqdi
+  assert.deepStrictEqual([v.summary.confirmed, v.summary.employees, v.tabs.CENTER.confirmed, v.tabs.CENTER.problems], [4, 1, 4, 1], 'faqat X qoldi');
+  assert.deepStrictEqual(v.groups.map((g) => g.key), ['UNKNOWN']);
   // Soliq hisoboti keyin o'zgardi → «o'zgargan»
   T.payrollEntry.find((x) => x.employeePinfl === P.E).baseTiyin = so(4_100_000);
   v = await svc.view('2026-01');
   assert.deepStrictEqual([r(P.E).confirm, r(P.E).confirmable, v.matched.confirmed.changed], ['CHANGED', false, 1]);
+  assert.deepStrictEqual([v.summary.confirmed, v.summary.employees], [3, 2], "o'zgargan — umumiy ro'yxatga qaytdi");
 
   // ── Hududlar tablosi ──
   let h = await svc.view('2026-01', 'ACCRUAL', 'REGION');

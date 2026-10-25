@@ -34,7 +34,7 @@ const STATE: Record<SolState, { label: string; tone: 'income' | 'expense' | 'war
   NO_FOT: { label: "Soliq hisobotida yo'q", tone: 'warn' },
 };
 
-type StateFilter = 'PROBLEM' | 'TARKIB' | 'UNCONFIRMED' | SolState | 'ALL';
+type StateFilter = 'PROBLEM' | 'TARKIB' | 'CONFIRMED' | SolState | 'ALL';
 type Choice = { code: string; amount: string };
 const PAGE = 100;
 
@@ -88,6 +88,9 @@ export function SolishtirmaView() {
   const [askConfirm, setAskConfirm] = useState(false);
   const [askCancel, setAskCancel] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  /** «Soliq hisoboti = ish haqi tarkibi» bo'limida belgilanganlar */
+  const [okPicked, setOkPicked] = useState<Set<string>>(new Set());
+  const [okQ, setOkQ] = useState('');
 
   // Yangi ma'lumot: tanlovlar — tavsiya (bo'lsa) va farq summasi
   const [seen, setSeen] = useState<SolView | null>(null);
@@ -97,6 +100,8 @@ export function SolishtirmaView() {
     for (const r of v.rows) if (r.tarkibFix?.canAllocate) c[r.pinfl] = { code: r.tarkibFix.suggestion?.componentCode ?? '', amount: toInput(r.tarkibFix.diffTiyin) };
     setChoices(c);
     setPicked(new Set());
+    // Mos kelgan, hali tasdiqlanmaganlar — hammasi belgilangan holda
+    setOkPicked(new Set(v.rows.filter((r) => r.confirmable && r.confirm !== 'CONFIRMED').map((r) => r.pinfl)));
   }
 
   function switchTab(t: SolTab) {
@@ -112,10 +117,12 @@ export function SolishtirmaView() {
     const t = q.trim().toLowerCase();
     return v.rows.filter((r) => {
       if (group !== 'ALL' && r.group !== group) return false;
+      // «To'g'ri» deb tasdiqlanganlar umumiy ro'yxatdan chiqadi (faqat «Tasdiqlanganlar»da ko'rinadi)
+      if (state === 'CONFIRMED') return r.confirm === 'CONFIRMED' && (!t || r.fullName.toLowerCase().includes(t) || r.pinfl.includes(t));
+      if (r.confirm === 'CONFIRMED') return false;
       if (state === 'PROBLEM' && r.state === 'OK' && !r.tarkibFix?.canAllocate) return false;
       if (state === 'TARKIB' && !r.tarkibFix?.canAllocate) return false;
-      if (state === 'UNCONFIRMED' && (!r.confirmable || r.confirm === 'CONFIRMED')) return false;
-      if (state !== 'PROBLEM' && state !== 'ALL' && state !== 'TARKIB' && state !== 'UNCONFIRMED' && r.state !== state) return false;
+      if (state !== 'PROBLEM' && state !== 'ALL' && state !== 'TARKIB' && r.state !== state) return false;
       return !t || r.fullName.toLowerCase().includes(t) || r.pinfl.includes(t) || (r.regionName ?? '').toLowerCase().includes(t) || (r.unitLabel ?? '').toLowerCase().includes(t);
     });
   }, [v, group, state, q]);
@@ -183,7 +190,7 @@ export function SolishtirmaView() {
   async function doConfirm() {
     setConfirming(true);
     try {
-      const r = (await solishtirmaApi.confirm(period, tab, mode)).data;
+      const r = (await solishtirmaApi.confirm(period, tab, mode, okList.filter((x) => okPicked.has(x.pinfl)).map((x) => x.pinfl))).data;
       setToast({ message: `Tasdiqlandi: ${r.confirmed} xodim «to'g'ri» (jami tasdiqlangan ${r.total})`, tone: 'success' });
       data.reload();
     } catch (err) {
@@ -224,15 +231,21 @@ export function SolishtirmaView() {
   const strong = fixRows.filter((r) => r.tarkibFix?.suggestion?.confidence === 'STRONG' && ready(r));
   const m = v.matched;
   const counts = (k: StateFilter) => {
-    const list = group === 'ALL' ? v.rows : v.rows.filter((r) => r.group === group);
+    const all = group === 'ALL' ? v.rows : v.rows.filter((r) => r.group === group);
+    if (k === 'CONFIRMED') return all.filter((r) => r.confirm === 'CONFIRMED').length;
+    const list = all.filter((r) => r.confirm !== 'CONFIRMED');
     if (k === 'ALL') return list.length;
     if (k === 'PROBLEM') return list.filter((r) => r.state !== 'OK' || r.tarkibFix?.canAllocate).length;
     if (k === 'TARKIB') return list.filter((r) => r.tarkibFix?.canAllocate).length;
-    if (k === 'UNCONFIRMED') return list.filter((r) => r.confirmable && r.confirm !== 'CONFIRMED').length;
     return list.filter((r) => r.state === k).length;
   };
-  const chips: StateFilter[] = isCenter ? ['PROBLEM', 'TARKIB', 'LESS', 'MORE', 'NO_BANK', 'NO_FOT', 'UNCONFIRMED', 'OK', 'ALL'] : ['PROBLEM', 'LESS', 'MORE', 'NO_BANK', 'NO_FOT', 'UNCONFIRMED', 'OK', 'ALL'];
-  const chipLabel = (k: StateFilter) => (k === 'PROBLEM' ? 'Farq chiqqanlar' : k === 'TARKIB' ? 'Tarkib farqi' : k === 'UNCONFIRMED' ? 'Tasdiqlanmagan' : k === 'ALL' ? 'Hammasi' : STATE[k].label);
+  const chips: StateFilter[] = isCenter ? ['PROBLEM', 'TARKIB', 'LESS', 'MORE', 'NO_BANK', 'NO_FOT', 'OK', 'ALL', 'CONFIRMED'] : ['PROBLEM', 'LESS', 'MORE', 'NO_BANK', 'NO_FOT', 'OK', 'ALL', 'CONFIRMED'];
+  const chipLabel = (k: StateFilter) => (k === 'PROBLEM' ? 'Farq chiqqanlar' : k === 'TARKIB' ? 'Tarkib farqi' : k === 'CONFIRMED' ? '✓ Tasdiqlanganlar' : k === 'ALL' ? 'Hammasi' : STATE[k].label);
+  // Mos kelganlar (Markaz: soliq hisoboti = ish haqi tarkibi; Hududlar: 23106 = kutilgan), hali tasdiqlanmagan
+  const okList = v.rows.filter((r) => r.confirmable && r.confirm !== 'CONFIRMED');
+  const okShown = okList.filter((r) => { const t = okQ.trim().toLowerCase(); return !t || r.fullName.toLowerCase().includes(t) || r.pinfl.includes(t); });
+  const okChosen = okList.filter((r) => okPicked.has(r.pinfl));
+  const okTotal = okChosen.reduce((x, r) => x + big(r.soliqTiyin), 0n);
   const colCount = isCenter ? 9 : 8;
 
   return (
@@ -305,6 +318,7 @@ export function SolishtirmaView() {
                 <span className="text-base font-semibold text-heading">{label}</span>
                 {t && (t.problems ? <Badge tone="expense">{t.problems} farq</Badge> : <Badge tone="income">mos</Badge>)}
                 {k === 'CENTER' && t?.tarkibDiff ? <Badge tone="warn">{t.tarkibDiff} tarkib farqi</Badge> : null}
+                {t?.confirmed ? <Badge tone="income">✓ {t.confirmed}</Badge> : null}
               </span>
               <span className="mt-0.5 block text-xs text-(--color-text-muted)">
                 {sub}
@@ -322,19 +336,19 @@ export function SolishtirmaView() {
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <Box label="Mos" value={String(s.ok)} sub={`${s.employees} xodimdan`} tone="income" />
+            <Box label="Mos" value={String(s.ok)} sub={`${s.employees} xodimdan${s.confirmed ? ` · yana ${s.confirmed} tasi tasdiqlangan` : ''}`} tone="income" />
             <Box label="Bankdan kam" value={String(s.less)} sub="23106 kutilganidan kam" tone={s.less ? 'expense' : 'neutral'} />
             <Box label="Bankdan ko‘p" value={String(s.more)} sub="23106 kutilganidan ko‘p" tone={s.more ? 'warn' : 'neutral'} />
             <Box label="23106 da yo‘q" value={String(s.noBank)} sub="soliq hisobotida bor, to‘lov yo‘q" tone={s.noBank ? 'expense' : 'neutral'} />
             <Box label="Soliq hisobotida yo‘q" value={String(s.noFot)} sub="to‘lov yoki tarkib bor, soliqda yo‘q" tone={s.noFot ? 'warn' : 'neutral'} />
           </div>
 
-          {/* Mos kelganlar: kategoriyalar va tasdiq */}
+          {/* Mos kelganlar: alohida bo'lim — belgilab «to'g'ri» deb tasdiqlash; tasdiqlanganlar umumiy ro'yxatdan chiqadi */}
           {m && (
-            <Card>
+            <Card className="overflow-hidden">
               <CardHeader
-                title={isCenter ? 'Mos kelganlar: tarkib = soliq hisoboti' : 'Mos kelganlar: 23106 = kutilgan'}
-                description={`${m.count} xodim · soliq hisoboti ${formatTiyin(m.soliqTiyin)} so'm${isCenter ? ` · 23106 ham mos: ${m.bankOk}` : ''}`}
+                title={isCenter ? 'Soliq hisoboti bilan ish haqi tarkibi bir xil' : '23106 kutilganiga teng'}
+                description={`Tasdiqlashni kutmoqda: ${okList.length} xodim · tasdiqlangan: ${m.confirmed?.count ?? 0}. Belgilab «to‘g‘ri» deb tasdiqlang — tasdiqlanganlar umumiy ro‘yxatdan chiqadi`}
               />
               <CardBody className="space-y-3">
                 {isCenter && m.categories.length > 0 && <CategoryBars cats={m.categories} />}
@@ -347,30 +361,107 @@ export function SolishtirmaView() {
                     ))}
                   </div>
                 )}
-                <div className="flex flex-wrap items-center gap-3 rounded-(--radius-control) bg-(--color-surface-muted) px-3 py-2.5 text-sm">
-                  {m.confirmed ? (
-                    <span>
-                      <Badge tone="income">tasdiqlangan</Badge> {m.confirmed.count} xodim · <span className="money">{formatTiyin(m.confirmed.totalTiyin)}</span> so‘m · {formatDateTime(m.confirmed.at)} · {m.confirmed.by}
-                      {m.confirmed.changed > 0 && <span className="text-(--color-warn)"> · {m.confirmed.changed} tasi keyin o‘zgargan — qayta tekshiring</span>}
-                      {m.confirmed.missing > 0 && <span className="text-(--color-text-muted)"> · {m.confirmed.missing} tasi endi ro‘yxatda yo‘q</span>}
-                    </span>
-                  ) : (
-                    <span className="text-(--color-text-muted)">Hali tasdiqlanmagan</span>
-                  )}
-                  {isAdmin && (
-                    <span className="ml-auto flex gap-2">
-                      {m.confirmed && (
-                        <Button size="sm" variant="ghost" className="text-(--color-text-muted) hover:text-(--color-expense)" onClick={() => setAskCancel(true)} disabled={confirming}>
-                          Tasdiqni bekor qilish
-                        </Button>
-                      )}
-                      <Button size="sm" onClick={() => setAskConfirm(true)} disabled={!m.unconfirmed || confirming} loading={confirming && askConfirm}>
-                        {m.unconfirmed ? `Mos kelganlarni «to‘g‘ri» deb tasdiqlash (${m.unconfirmed})` : 'Hammasi tasdiqlangan'}
+                {m.confirmed && (
+                  <p className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge tone="income">✓ tasdiqlangan</Badge> {m.confirmed.count} xodim · <span className="money">{formatTiyin(m.confirmed.totalTiyin)}</span> so‘m · {formatDateTime(m.confirmed.at)} · {m.confirmed.by}
+                    {m.confirmed.changed > 0 && <span className="text-(--color-warn)">· {m.confirmed.changed} tasi keyin o‘zgargan — umumiy ro‘yxatga qaytdi</span>}
+                    {isAdmin && (
+                      <Button size="sm" variant="ghost" className="ml-auto text-(--color-text-muted) hover:text-(--color-expense)" onClick={() => setAskCancel(true)} disabled={confirming}>
+                        Tasdiqni bekor qilish
                       </Button>
-                    </span>
-                  )}
-                </div>
+                    )}
+                  </p>
+                )}
               </CardBody>
+              {okList.length > 0 ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 border-y border-(--color-line) px-5 py-2.5">
+                    {isAdmin && (
+                      <label className="flex items-center gap-2 text-sm font-medium text-heading">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-brand-600"
+                          checked={okChosen.length === okList.length}
+                          ref={(el) => {
+                            if (el) el.indeterminate = okChosen.length > 0 && okChosen.length < okList.length;
+                          }}
+                          onChange={() => setOkPicked(okChosen.length === okList.length ? new Set() : new Set(okList.map((r) => r.pinfl)))}
+                        />
+                        Hammasini belgilash
+                      </label>
+                    )}
+                    <span className="text-xs text-(--color-text-muted)">
+                      belgilangan {okChosen.length} / {okList.length} · <span className="money">{formatTiyin(okTotal.toString())}</span> so‘m
+                    </span>
+                    <label className="relative ml-auto">
+                      <IconSearch className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-(--color-text-faint)" />
+                      <input value={okQ} onChange={(e) => setOkQ(e.target.value)} placeholder="F.I.Sh. yoki PINFL" className="h-8 w-52 rounded-(--radius-control) border border-(--color-line-strong) bg-white pr-3 pl-8 text-sm focus:border-brand-600 focus:outline-none" />
+                    </label>
+                    {isAdmin && (
+                      <Button size="sm" onClick={() => setAskConfirm(true)} disabled={!okChosen.length || confirming} loading={confirming && askConfirm}>
+                        Belgilanganlarni «to‘g‘ri» deb tasdiqlash ({okChosen.length})
+                      </Button>
+                    )}
+                  </div>
+                  <div className="max-h-[420px] overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 z-[1] bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
+                        <tr>
+                          {isAdmin && <th className="w-10 px-3 py-2" />}
+                          <th className="px-2 py-2 text-left font-semibold">Xodim</th>
+                          <th className="w-36 px-2 py-2 text-right font-semibold">Soliq hisoboti</th>
+                          {isCenter && <th className="w-36 px-2 py-2 text-right font-semibold">Ish haqi tarkibi</th>}
+                          {isCenter && <th className="px-2 py-2 text-left font-semibold">Kategoriyalar</th>}
+                          <th className="w-36 px-2 py-2 text-right font-semibold">Kutilgan</th>
+                          <th className="w-36 px-2 py-2 text-right font-semibold">23106</th>
+                          <th className="w-40 px-3 py-2 text-left font-semibold">Holat</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {okShown.map((r) => (
+                          <tr key={r.pinfl} className="border-t border-(--color-line) align-top">
+                            {isAdmin && (
+                              <td className="px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  aria-label="Tasdiqlashga belgilash"
+                                  className="size-4 accent-brand-600"
+                                  checked={okPicked.has(r.pinfl)}
+                                  onChange={() =>
+                                    setOkPicked((p) => {
+                                      const n = new Set(p);
+                                      if (n.has(r.pinfl)) n.delete(r.pinfl);
+                                      else n.add(r.pinfl);
+                                      return n;
+                                    })
+                                  }
+                                />
+                              </td>
+                            )}
+                            <td className="px-2 py-2">
+                              <span className="block font-medium text-heading">{r.fullName}</span>
+                              <span className="text-[11px] text-(--color-text-muted)">
+                                <span className="money">{r.pinfl}</span> · {r.employmentType === 'SHTAT' ? 'shtat' : 'shartnoma'} · {r.unitLabel ?? r.regionName ?? 'joyi noma’lum'}
+                              </span>
+                              {r.confirm === 'CHANGED' && <span className="block text-[11px] text-(--color-warn)">tasdiqdan keyin o‘zgargan — qayta tasdiqlang</span>}
+                            </td>
+                            <td className="money px-2 py-2 text-right font-medium">{formatTiyin(r.soliqTiyin ?? '0')}</td>
+                            {isCenter && <td className="money px-2 py-2 text-right text-(--color-text-muted)">{formatTiyin(r.tarkibTiyin ?? '0')}</td>}
+                            {isCenter && <td className="px-2 py-2 text-[11px] text-(--color-text-muted)">{(r.categories ?? []).map((c) => `${c.label.toLowerCase()} ${formatTiyin(c.tiyin)}`).join(' · ') || '—'}</td>}
+                            <td className="money px-2 py-2 text-right">{formatTiyin(r.expectedTiyin ?? '0')}</td>
+                            <td className="money px-2 py-2 text-right">{r.bank.length ? formatTiyin(r.bankTiyin) : '—'}</td>
+                            <td className="px-3 py-2">
+                              <Badge tone={STATE[r.state].tone}>{STATE[r.state].label}</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <p className="border-t border-(--color-line) px-5 py-3 text-sm text-(--color-text-muted)">{m.confirmed ? 'Hammasi tasdiqlangan ✓' : 'Hozircha mos kelgan xodim yo‘q'}</p>
+              )}
             </Card>
           )}
 
@@ -595,7 +686,7 @@ export function SolishtirmaView() {
       <ConfirmDialog
         open={askConfirm}
         title="«To‘g‘ri» deb tasdiqlash"
-        message={`${m?.unconfirmed ?? 0} xodim (${isCenter ? 'tarkib = soliq hisoboti' : '23106 = kutilgan'}) shu oy uchun to'g'ri deb tasdiqlanadi. Keyin summalari o'zgarsa — «o'zgargan» deb ko'rsatiladi.`}
+        message={`${okChosen.length} xodim (${isCenter ? 'soliq hisoboti = ish haqi tarkibi' : '23106 = kutilgan'}, ${formatTiyin(okTotal.toString())} so'm) shu oy uchun «to'g'ri» deb tasdiqlanadi va umumiy ro'yxatdan chiqadi («✓ Tasdiqlanganlar»da ko'rinadi). Keyin summalari o'zgarsa — umumiy ro'yxatga qaytadi.`}
         confirmLabel="Tasdiqlash"
         loading={confirming}
         onConfirm={() => void doConfirm()}

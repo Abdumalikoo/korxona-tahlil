@@ -81,7 +81,7 @@ export interface SolView {
   /** Eski API'da bo'lmaydi */
   fotMode?: FotMode;
   tab?: SolTab;
-  tabs?: Record<SolTab, { employees: number; problems: number; tarkibDiff: number }>;
+  tabs?: Record<SolTab, { employees: number; confirmed?: number; problems: number; tarkibDiff: number }>;
   components?: { code: string; name: string; category: string; categoryLabel: string; sign: number }[];
   fixScopes?: { unit: string | null; label: string; compositionUploaded: boolean }[];
   matched?: {
@@ -96,7 +96,7 @@ export interface SolView {
   };
   settings: SolishtirmaSettings;
   sources: { tarkib: boolean; soliq: boolean; bank: boolean };
-  summary: { employees: number; ok: number; less: number; more: number; noBank: number; noFot: number; tarkibSoliqDiff: number; fotTiyin: string; expectedTiyin: string; bankTiyin: string; unknownType: number };
+  summary: { employees: number; confirmed?: number; ok: number; less: number; more: number; noBank: number; noFot: number; tarkibSoliqDiff: number; fotTiyin: string; expectedTiyin: string; bankTiyin: string; unknownType: number };
   groups: SolGroup[];
   regions: { name: string; employees: number; problems: number; expectedTiyin: string; bankTiyin: string; diffTiyin: string }[];
   rows: SolRow[];
