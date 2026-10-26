@@ -50,6 +50,47 @@ export class BankAnalysisController {
     return { data: await this.service.group(key, from, to, account || null) };
   }
 
+  @Get('options')
+  async options(@Query('dir') dir: string, @Query('unit') unit?: string) {
+    return { data: await this.service.options(dir, unit) };
+  }
+
+  /** To'lovga o'z izohingiz (yo'naltirilgan bo'lsa — yozuv izohi ham) */
+  @Roles(UserRole.ADMIN)
+  @Post('notes')
+  @HttpCode(HttpStatus.OK)
+  async notes(@Body() body: { items?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.notes(body, userId) };
+  }
+
+  /** Yo'naltirishdan oldin: takror yozuvlar bormi */
+  @Roles(UserRole.ADMIN)
+  @Post('route/check')
+  @HttpCode(HttpStatus.OK)
+  async check(@Body() body: { items?: unknown }) {
+    return { data: await this.service.check(body) };
+  }
+
+  /** Chiqim — xarajat, kirim — daromad bo'lib yoziladi */
+  @Roles(UserRole.ADMIN)
+  @Post('route')
+  @HttpCode(HttpStatus.OK)
+  async route(@Body() body: { items?: unknown; place?: unknown; categoryCode?: unknown; section?: unknown; description?: unknown; force?: unknown; skipDuplicates?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.route(body, userId) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('route/cancel')
+  @HttpCode(HttpStatus.OK)
+  async unroute(@Body() body: { ids?: unknown; batch?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.unroute(body, userId) };
+  }
+
+  @Get('posts')
+  async posts() {
+    return { data: await this.service.posts() };
+  }
+
   @Get('batches')
   async batches() {
     return { data: await this.service.batches() };

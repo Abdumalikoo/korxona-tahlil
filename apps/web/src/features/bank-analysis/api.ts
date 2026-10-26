@@ -6,7 +6,7 @@ import { api, getToken, type ApiResponse } from '@/lib/api';
 // ═══════════════════════════════════════════════════════════
 
 export type BankDir = 'OUT' | 'IN';
-export type BankKind = 'SOLIQ' | 'ISH_HAQI' | 'BANK' | 'KOMMUNAL' | 'ALOQA' | 'IJARA' | 'YOQILGI' | 'XARID' | 'XIZMAT' | 'KREDIT' | 'QAYTARISH' | 'ICHKI' | 'TUSHUM' | 'BOSHQA';
+export type BankKind = 'SOLIQ' | 'ISH_HAQI' | 'BANK' | 'KOMMUNAL' | 'ALOQA' | 'IJARA' | 'YOQILGI' | 'XARID' | 'XIZMAT' | 'KREDIT' | 'DEPOZIT' | 'QAYTARISH' | 'ICHKI' | 'TUSHUM' | 'BOSHQA';
 
 export interface BankRow {
   id: string;
@@ -35,12 +35,18 @@ export interface BankGroup {
   sharePct: number;
   avgTiyin: string;
   byMonth: Record<string, string>;
+  countByMonth: Record<string, number>;
   cumulative: string[];
   activeMonths: number;
   regular: boolean;
   firstDate: string;
   lastDate: string;
   changePct: number | null;
+  /** Xarajat / daromadga yo'naltirilgani */
+  postedCount: number;
+  postedTiyin: string;
+  /** Faqat yuklashdan oldingi tahlilda: guruh qatorlari */
+  rowIds?: string[];
 }
 
 export interface BankAccount {
@@ -57,7 +63,7 @@ export interface BankAnalysis {
   rows: BankRow[];
   invalid: { rowIndex: number; reason: string }[];
   invalidCount: number;
-  preview: BankGroup[];
+  groups: BankGroup[];
 }
 
 export interface BankSeries {
@@ -90,15 +96,89 @@ export interface BankView {
   accounts: BankAccount[];
   account: string | null;
   series: BankSeries[];
-  totals: { rows: number; outTiyin: string; inTiyin: string; netTiyin: string; groups: number; regularOut: number; monthsWithData: number };
+  totals: { rows: number; outTiyin: string; inTiyin: string; netTiyin: string; groups: number; regularOut: number; monthsWithData: number; posted: { count: number; outTiyin: string; inTiyin: string } };
   kinds: BankKindTotal[];
   groups: BankGroup[];
 }
 
+export interface BankRowPost {
+  id: string;
+  batch: string;
+  place: string;
+  categoryLabel: string;
+  section: 'DOIMIY' | 'BOSHQA';
+  description: string;
+  entryType: 'EXPENSE' | 'INCOME';
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface BankGroupRow extends BankRow {
+  account: string;
+  accountLabel: string;
+  /** Sizning izohingiz */
+  note: string | null;
+  noteBy: string | null;
+  post: BankRowPost | null;
+}
+
 export interface BankGroupRows {
   key: string;
-  rows: (BankRow & { account: string; accountLabel: string })[];
+  rows: BankGroupRow[];
   totalTiyin: string;
+}
+
+export interface BankItem {
+  account: string;
+  rowId: string;
+}
+
+export interface BankRoutePlace {
+  unit: string;
+  departmentId?: string;
+  regionCode?: number;
+  districtId?: string;
+}
+
+export interface BankOptions {
+  dir: BankDir;
+  unit: string | null;
+  limited: boolean;
+  categories: { code: string; label: string; group: string | null }[];
+}
+
+export interface BankDuplicate {
+  account: string;
+  rowId: string;
+  docDate: string;
+  amountTiyin: string;
+  purpose: string;
+  matches: { id: string; date: string; description: string | null; categoryLabel: string; source: string }[];
+}
+
+export interface BankCheck {
+  count: number;
+  totalTiyin: string;
+  dirs: BankDir[];
+  already: string[];
+  duplicates: BankDuplicate[];
+}
+
+export interface BankPostBatch {
+  batch: string;
+  createdAt: string;
+  createdBy: string;
+  dir: BankDir;
+  entryType: 'EXPENSE' | 'INCOME';
+  place: string;
+  categoryLabel: string;
+  section: 'DOIMIY' | 'BOSHQA';
+  count: number;
+  live: number;
+  totalTiyin: string;
+  liveTiyin: string;
+  months: string[];
+  cancelReason: string | null;
 }
 
 export interface BankBatch {
@@ -140,8 +220,15 @@ export const bankAnalysisApi = {
   group: (key: string, from: string, to: string, account?: string | null) => api.get<ApiResponse<BankGroupRows>>('/bank-analysis/group', { params: { key, from, to, ...(account ? { account } : {}) } }),
   batches: () => api.get<ApiResponse<BankBatch[]>>('/bank-analysis/batches'),
   commit: (body: { fileName: string; account: string; months: string[]; rows: BankRow[] }) =>
-    api.post<ApiResponse<{ success: true; batchId: string; account: string; months: string[]; saved: number; replacedMonths: string[]; outTiyin: string; inTiyin: string }>>('/bank-analysis/commit', body),
-  cancel: (id: string) => api.post<ApiResponse<{ success: true; months: string[] }>>(`/bank-analysis/batches/${encodeURIComponent(id)}/cancel`),
+    api.post<ApiResponse<{ success: true; batchId: string; account: string; months: string[]; saved: number; replacedMonths: string[]; outTiyin: string; inTiyin: string; droppedPosts: number }>>('/bank-analysis/commit', body),
+  cancel: (id: string) => api.post<ApiResponse<{ success: true; months: string[]; droppedPosts: number }>>(`/bank-analysis/batches/${encodeURIComponent(id)}/cancel`),
+  options: (dir: BankDir, unit?: string) => api.get<ApiResponse<BankOptions>>('/bank-analysis/options', { params: { dir, ...(unit ? { unit } : {}) } }),
+  notes: (items: (BankItem & { comment: string })[]) => api.post<ApiResponse<{ success: true; saved: number; cleared: number; entries: number }>>('/bank-analysis/notes', { items }),
+  check: (items: BankItem[]) => api.post<ApiResponse<BankCheck>>('/bank-analysis/route/check', { items }),
+  route: (body: { items: BankItem[]; place: BankRoutePlace; categoryCode: string; section: 'DOIMIY' | 'BOSHQA'; description?: string; force?: boolean; skipDuplicates?: boolean }) =>
+    api.post<ApiResponse<{ success: true; batch: string | null; count: number; totalTiyin: string; skipped: number; entryType: 'EXPENSE' | 'INCOME'; place: string }>>('/bank-analysis/route', body),
+  unroute: (body: { ids?: string[]; batch?: string }) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string }>>('/bank-analysis/route/cancel', body),
+  posts: () => api.get<ApiResponse<BankPostBatch[]>>('/bank-analysis/posts'),
 };
 
 export async function analyzeBankStatement(file: File): Promise<BankAnalysis> {

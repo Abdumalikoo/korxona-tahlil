@@ -114,6 +114,90 @@ async function file(rows, acct = '20208000900100012345') {
   await assert.rejects(svc.cancel(c.batchId, 'adm'), /allaqachon/);
   await assert.rejects(svc.view('2026-03', '2026-01'), /keyin/);
 
+  // ── Turlar: tashkilot nomidagi «soliq» so'zi turini belgilamaydi; hisoblararo o'tkazma, depozit ──
+  const ORG = "'SOLIQ-SERVIS' AKSIYADORLIK JAMIYATI";
+  assert.strictEqual(R.kindOf('OUT', "00634 2026 yil yanvar oyi uchun oylik ish haqi to'landi.", ORG), 'ISH_HAQI');
+  assert.strictEqual(R.kindOf('IN', "00642 Ikkilamchi hisob raqamdan asosiy hisob raqamga o'tkazma", ORG), 'ICHKI');
+  assert.strictEqual(R.kindOf('IN', '00642 Переброска денежных средств', ORG), 'ICHKI');
+  assert.strictEqual(R.kindOf('IN', "00642 Virtual kassa h/r dan asosiy hisob raqamga o'tkazma", ORG), 'ICHKI');
+  assert.strictEqual(R.kindOf('OUT', "00622 shartnomaga asosan depozitga yo'naltirilgan mablag'", 'Bank AJ'), 'DEPOZIT');
+  assert.strictEqual(R.kindOf('IN', '4001~202883501~Государственный налоговый комитет', 'Государственный налоговый комитет'), 'TUSHUM', 'kirim — soliq emas');
+  assert.strictEqual(R.kindOf('OUT', 'Задолженность по Налог на доходы физических лиц', 'Казначейство'), 'SOLIQ');
+  assert.strictEqual(R.kindOf('OUT', "rouming operatori to'lovi", 'AJ X'), 'ALOQA');
+
+  // ── 2-bosqich: izoh, yo'naltirish (chiqim → xarajat, kirim → daromad), takror, bekor ──
+  T.department.push({ id: 'dAUP', name: 'AUP', index: 1, isActive: true });
+  T.region.push({ code: 0, name: 'Markaz', isActive: true }, { code: 7, name: 'Viloyat-7', isActive: true });
+  T.category.push({ code: 'KOMM', label: 'Kommunal', parentCode: null, isLeaf: true, isActive: true, order: 1 }, { code: 'GRP', label: 'Guruh', parentCode: null, isLeaf: false, isActive: true, order: 2 });
+  T.incomeCategory.push({ code: 'XIZ', label: 'Xizmat', isActive: true, order: 1 });
+  const b2 = await svc.analyze(await file([
+    { d: '10.05.2026', no: '501', name: 'ЭЛЕКТР', inn: '300000001', out: 2_000_000, p: 'Оплата за электроэнергию за май' },
+    { d: '11.05.2026', no: '502', name: 'ЭЛЕКТР', inn: '300000001', out: 500_000, p: 'Оплата за электроэнергию за май 2026' },
+    { d: '12.05.2026', no: '503', name: 'MIJOZ', inn: '300000003', in: 7_000_000, p: 'Оплата за услуги' },
+  ], '20208000900100077777'));
+  assert.ok(b2.groups.every((g) => Array.isArray(g.rowIds)), 'oldindan ko‘rish: har guruh qatorlari bilan');
+  const elG = b2.groups.find((g) => g.kind === 'KOMMUNAL');
+  assert.strictEqual(elG.rowIds.length, 2);
+  assert.deepStrictEqual(elG.countByMonth, { '2026-05': 2 });
+  const s2 = await svc.commit({ fileName: 'may.xlsx', account: 'Hisob …77777', months: ['2026-05'], rows: b2.rows }, 'adm');
+  const ACC = s2.account;
+  let grp = await svc.group(elG.key, '2026-05', '2026-05', ACC);
+  assert.strictEqual(grp.rows.length, 2);
+  const [e1, e2] = grp.rows;
+  await svc.notes({ items: [{ account: ACC, rowId: e1.id, comment: 'AUP binosi elektr — may' }] }, 'adm');
+  grp = await svc.group(elG.key, '2026-05', '2026-05', ACC);
+  assert.strictEqual(grp.rows[0].note, 'AUP binosi elektr — may');
+
+  // Shu sana va summada qo'lda kiritilgan xarajat bor → ogohlantiriladi
+  T.expense.push({ id: 'old1', date: new Date('2026-05-11T12:00:00+05:00'), period: '2026-05', amountTiyin: so(500_000), categoryCode: 'KOMM', description: 'qo‘lda', source: 'MANUAL', deletedAt: null, createdById: 'adm' });
+  const ck = await svc.check({ items: [{ account: ACC, rowId: e1.id }, { account: ACC, rowId: e2.id }] });
+  assert.strictEqual(ck.duplicates.length, 1);
+  assert.strictEqual(ck.duplicates[0].rowId, e2.id);
+  const place = { unit: 'CENTER', departmentId: 'dAUP' };
+  await assert.rejects(svc.route({ items: [{ account: ACC, rowId: e1.id }, { account: ACC, rowId: e2.id }], place, categoryCode: 'KOMM' }, 'adm'), /allaqachon bor/);
+  await assert.rejects(svc.route({ items: [{ account: ACC, rowId: e1.id }], place, categoryCode: 'GRP' }, 'adm'), /ichki modda/);
+  const rt = await svc.route({ items: [{ account: ACC, rowId: e1.id }, { account: ACC, rowId: e2.id }], place, categoryCode: 'KOMM', section: 'DOIMIY', description: 'Elektr energiya', skipDuplicates: true }, 'adm');
+  assert.deepStrictEqual([rt.count, rt.skipped, rt.place], [1, 1, 'Markaz › AUP']);
+  const ex = T.expense.find((e) => e.id !== 'old1' && !e.deletedAt);
+  assert.deepStrictEqual([String(ex.amountTiyin), ex.regionCode, ex.departmentId, ex.categoryCode, ex.description, ex.documentNo, ex.section], [s(2_000_000), 0, 'dAUP', 'KOMM', 'AUP binosi elektr — may', '501', 'DOIMIY'], 'izohingiz bilan, Markaz › AUP');
+  await assert.rejects(svc.route({ items: [{ account: ACC, rowId: e1.id }], place, categoryCode: 'KOMM' }, 'adm'), /allaqachon yo.naltirilgan/);
+  // Izoh o'zgarsa — xarajat izohi ham
+  await svc.notes({ items: [{ account: ACC, rowId: e1.id, comment: 'AUP elektr (tuzatildi)' }] }, 'adm');
+  assert.strictEqual(ex.description, 'AUP elektr (tuzatildi)');
+  // force — baribir yoziladi
+  const rt2 = await svc.route({ items: [{ account: ACC, rowId: e2.id }], place: { unit: 'REGION', regionCode: 7 }, categoryCode: 'KOMM', force: true }, 'adm');
+  assert.strictEqual(rt2.count, 1);
+  assert.strictEqual(T.expense.find((e) => e.documentNo === '502').regionCode, 7);
+  // Chiqim va kirim birga — rad; kirim → daromad
+  const inG = (await svc.view('2026-05', '2026-05', ACC)).groups.find((g) => g.dir === 'IN');
+  const inRow = (await svc.group(inG.key, '2026-05', '2026-05', ACC)).rows[0];
+  await assert.rejects(svc.route({ items: [{ account: ACC, rowId: inRow.id }], place, categoryCode: 'KOMM' }, 'adm'), /Daromad turi/);
+  const ri = await svc.route({ items: [{ account: ACC, rowId: inRow.id }], place: { unit: 'TAX_FREE' }, categoryCode: 'XIZ' }, 'adm');
+  assert.strictEqual(ri.entryType, 'INCOME');
+  const incE = T.income.find((x) => !x.deletedAt);
+  assert.deepStrictEqual([String(incE.amountTiyin), String(incE.paidTiyin), incE.segment, incE.clientName], [s(7_000_000), s(7_000_000), 'TAX_FREE', 'MIJOZ']);
+  let vv = await svc.view('2026-05', '2026-05', ACC);
+  assert.strictEqual(vv.totals.posted.count, 3);
+  assert.strictEqual(vv.groups.find((g) => g.kind === 'KOMMUNAL').postedCount, 2);
+  // Bekor qilish — yozuv o'chadi
+  await svc.unroute({ batch: ri.batch }, 'adm');
+  assert.ok(incE.deletedAt, 'daromad o‘chirildi');
+  // Oy qayta yuklandi, 502 yo'q → uning xarajati o'chadi; 501 qoladi
+  const b3 = await svc.analyze(await file([{ d: '10.05.2026', no: '501', name: 'ЭЛЕКТР', inn: '300000001', out: 2_000_000, p: 'Оплата за электроэнергию за май' }], '20208000900100077777'));
+  const s3 = await svc.commit({ fileName: 'may2.xlsx', account: 'Hisob …77777', months: ['2026-05'], rows: b3.rows }, 'adm');
+  assert.strictEqual(s3.droppedPosts, 1);
+  assert.ok(T.expense.find((e) => e.documentNo === '502').deletedAt);
+  assert.ok(!ex.deletedAt, 'o‘sha to‘lov — yo‘naltirish saqlanadi');
+  // Ko'chirma bekor qilindi → qolgan xarajat ham o'chadi
+  const c3 = await svc.cancel(s3.batchId, 'adm');
+  assert.strictEqual(c3.droppedPosts, 1);
+  assert.ok(ex.deletedAt);
+  assert.ok(!T.expense.find((e) => e.id === 'old1').deletedAt, 'qo‘lda kiritilgan yozuvga tegilmadi');
+  const hist = await svc.posts();
+  assert.ok(hist.length >= 3 && hist.every((h) => h.live === 0));
+  const op = await svc.options('OUT', 'CENTER');
+  assert.deepStrictEqual(op.categories.map((c) => c.code), ['KOMM'], 'faqat ichki moddalar');
+
   console.log('t-bank-analysis: OK');
 })().catch((e) => {
   console.error(e);

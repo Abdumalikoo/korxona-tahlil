@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Drawer } from '@/components/ui/drawer';
 import { IconAlert, IconSearch, IconSpinner, IconUpload } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
@@ -14,10 +13,11 @@ import { downloadAcc23106Template } from '@/features/acc-23106/api';
 import { MonthRangeCard, useMonthRange } from '@/features/units/month-range';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
-import { formatCompact, formatDate, formatDateTime, formatPeriod, formatPeriodShort, formatTiyin } from '@/lib/format';
+import { formatCompact, formatDateTime, formatPeriod, formatPeriodShort, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
+import { GroupDrawer, PostsHistory, PreviewGroups } from './bank-analysis-parts';
 import { analyzeBankStatement, bankAnalysisApi, type BankAnalysis, type BankBatch, type BankDir, type BankGroup, type BankKind, type BankSeries, type BankView } from './api';
 
 // ═══════════════════════════════════════════════════════════
@@ -51,6 +51,7 @@ export function BankAnalysisView() {
 
   const view = useAsync(() => (range.error ? Promise.resolve(null) : bankAnalysisApi.view(range.from, range.to, account).then((r) => r.data)), [range.from, range.to, range.error, account]);
   const batches = useAsync(() => bankAnalysisApi.batches().then((r) => r.data), []);
+  const posts = useAsync(() => bankAnalysisApi.posts().then((r) => r.data), []);
 
   function reset() {
     setAnalysis(null);
@@ -86,7 +87,8 @@ export function BankAnalysisView() {
       const months = [...picked];
       const rows = analysis.rows.filter((r) => picked.has(r.docDate.slice(0, 7)));
       const r = (await bankAnalysisApi.commit({ fileName: analysis.fileName, account: accountName.trim() || analysis.account.suggested, months, rows })).data;
-      setToast({ message: `Saqlandi: ${r.saved} ta qator · chiqim ${formatTiyin(r.outTiyin)} · kirim ${formatTiyin(r.inTiyin)}${r.replacedMonths.length ? ` · ${r.replacedMonths.length} oy almashtirildi` : ''}`, tone: 'success' });
+      setToast({ message: `Saqlandi: ${r.saved} ta qator · chiqim ${formatTiyin(r.outTiyin)} · kirim ${formatTiyin(r.inTiyin)}${r.replacedMonths.length ? ` · ${r.replacedMonths.length} oy almashtirildi` : ''}${r.droppedPosts ? ` · yangi ko'chirmada yo'q ${r.droppedPosts} ta to'lovning yozuvi o'chirildi` : ''}`, tone: 'success' });
+      posts.reload();
       range.include(months);
       reset();
       view.reload();
@@ -103,9 +105,10 @@ export function BankAnalysisView() {
     setCancelling(true);
     try {
       const r = (await bankAnalysisApi.cancel(cancelTarget.id)).data;
-      setToast({ message: r.months.length ? `Bekor qilindi: ${r.months.map(formatPeriod).join(', ')}` : 'Bekor qilindi (oylari keyin almashtirilgan edi)', tone: 'success' });
+      setToast({ message: `${r.months.length ? `Bekor qilindi: ${r.months.map(formatPeriod).join(', ')}` : 'Bekor qilindi (oylari keyin almashtirilgan edi)'}${r.droppedPosts ? ` · ${r.droppedPosts} ta yo'naltirilgan yozuv o'chirildi` : ''}`, tone: 'success' });
       view.reload();
       batches.reload();
+      posts.reload();
     } catch (err) {
       setToast({ message: errorMessage(err, 'Bekor qilishda xatolik'), tone: 'error' });
     } finally {
@@ -242,22 +245,7 @@ export function BankAnalysisView() {
               )}
             </CardBody>
           </Card>
-          <Card className="overflow-hidden">
-            <CardHeader title="Eng katta guruhlar (oldindan ko'rish)" description="O'xshash to'lovlar bitta guruhda — saqlangandan keyin oyma-oy tahlil pastda" />
-            <ul className="divide-y divide-(--color-line) text-sm">
-              {analysis.preview.map((g) => (
-                <li key={g.key} className="flex flex-wrap items-center gap-2 px-5 py-2">
-                  <Badge tone={g.dir === 'OUT' ? 'expense' : 'income'}>{DIR_LABEL[g.dir]}</Badge>
-                  <Badge tone="brand">{g.kindLabel}</Badge>
-                  <span className="min-w-0 flex-1 truncate font-medium text-heading" title={g.samples[0]}>
-                    {g.counterparty} <span className="font-normal text-(--color-text-muted)">· {g.samples[0]}</span>
-                  </span>
-                  <span className="text-xs text-(--color-text-muted)">{g.count} ta</span>
-                  <Money tiyin={g.totalTiyin} tone={g.dir === 'OUT' ? 'expense' : 'income'} />
-                </li>
-              ))}
-            </ul>
-          </Card>
+          <PreviewGroups analysis={analysis} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={reset} disabled={saving}>
               Boshqa fayl
@@ -289,10 +277,13 @@ export function BankAnalysisView() {
       ) : view.error ? (
         <ErrorState message={view.error} onRetry={view.reload} />
       ) : v && v.totals.rows > 0 ? (
-        <Analysis v={v} rangeText={range.text} />
+        <Analysis v={v} rangeText={range.text} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
       ) : (
         <EmptyState title={`${range.text || 'Tanlangan davr'} uchun ko'chirma saqlanmagan`} hint="upload" />
       )}
+
+      {/* Yo'naltirishlar tarixi */}
+      <PostsHistory list={posts.data ?? []} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
 
       {/* Tarix */}
       {(batches.data?.length ?? 0) > 0 && (
@@ -348,11 +339,13 @@ export function BankAnalysisView() {
 
 // ═══════════ Tahlil ═══════════
 
-function Analysis({ v, rangeText }: { v: BankView; rangeText: string }) {
+function Analysis({ v, rangeText, isAdmin, onToast, onChanged }: { v: BankView; rangeText: string; isAdmin: boolean; onToast: (t: ToastState) => void; onChanged: () => void }) {
   const [dir, setDir] = useState<BankDir>('OUT');
   const [kind, setKind] = useState<BankKind | null>(null);
   const [mode, setMode] = useState<Mode>('MONTH');
-  const [open, setOpen] = useState<BankGroup | null>(null);
+  // Ochilgan guruh — kaliti bo'yicha (ma'lumot yangilansa ham ochiq qoladi)
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const open = openKey ? (v.groups.find((g) => g.key === openKey) ?? null) : null;
   const missing = v.series.filter((m) => !m.count).map((m) => m.period);
   const kinds = v.kinds.filter((k) => k.dir === dir);
 
@@ -364,6 +357,12 @@ function Analysis({ v, rangeText }: { v: BankView; rangeText: string }) {
         <Box label="Kirim − chiqim" value={formatTiyin(v.totals.netTiyin)} sub="tanlangan davr bo‘yicha" tone={BigInt(v.totals.netTiyin) < 0n ? 'expense' : 'income'} />
         <Box label="Muntazam chiqimlar" value={String(v.totals.regularOut)} sub={`har oy (kamida 60% oyda) takrorlanadi · ${v.totals.rows} ta qator`} />
       </div>
+      {v.totals.posted.count > 0 && (
+        <p className="text-xs text-(--color-text-muted)">
+          Yo&apos;naltirilgan: <b className="text-heading">{v.totals.posted.count}</b> ta to&apos;lov · xarajatga <span className="money text-(--color-expense)">{formatTiyin(v.totals.posted.outTiyin)}</span> · daromadga{' '}
+          <span className="money text-(--color-income)">{formatTiyin(v.totals.posted.inTiyin)}</span>
+        </p>
+      )}
       {missing.length > 0 && (
         <p className="flex items-center gap-1.5 text-xs text-(--color-warn)">
           <IconAlert className="size-3.5" />
@@ -410,9 +409,9 @@ function Analysis({ v, rangeText }: { v: BankView; rangeText: string }) {
         <KindTrend kinds={kinds} months={v.months} active={kind} />
       </div>
 
-      <GroupsTable v={v} dir={dir} onDir={(d) => { setDir(d); setKind(null); }} kind={kind} onKind={setKind} mode={mode} onMode={setMode} onOpen={setOpen} />
+      <GroupsTable v={v} dir={dir} onDir={(d) => { setDir(d); setKind(null); }} kind={kind} onKind={setKind} mode={mode} onMode={setMode} onOpen={(g) => setOpenKey(g.key)} />
 
-      <GroupDrawer group={open} v={v} onClose={() => setOpen(null)} />
+      <GroupDrawer key={openKey ?? 'none'} group={open} v={v} isAdmin={isAdmin} onToast={onToast} onChanged={onChanged} onClose={() => setOpenKey(null)} />
     </div>
   );
 }
@@ -533,6 +532,11 @@ function GroupsTable({ v, dir, onDir, kind, onKind, mode, onMode, onOpen }: { v:
                     <Badge tone="brand" className="px-1.5 py-0 text-[10px]">
                       {g.kindLabel}
                     </Badge>
+                    {g.postedCount > 0 && (
+                      <Badge tone={g.postedCount === g.count ? 'income' : 'warn'} className="px-1.5 py-0 text-[10px]">
+                        yo‘naltirilgan {g.postedCount}/{g.count}
+                      </Badge>
+                    )}
                     {g.regular && (
                       <Badge tone="neutral" className="px-1.5 py-0 text-[10px]">
                         muntazam · {g.activeMonths} oy
@@ -592,67 +596,6 @@ function GroupsTable({ v, dir, onDir, kind, onKind, mode, onMode, onOpen }: { v:
         </div>
       )}
     </Card>
-  );
-}
-
-/** Guruh ichidagi har to'lov: sana, hujjat, oluvchi, summa, izoh (aynan o'zidek) */
-function GroupDrawer({ group, v, onClose }: { group: BankGroup | null; v: BankView; onClose: () => void }) {
-  const rows = useAsync(() => (group ? bankAnalysisApi.group(group.key, v.from, v.to, v.account).then((r) => r.data) : Promise.resolve(null)), [group?.key, v.from, v.to, v.account]);
-  const tone = group?.dir === 'OUT' ? 'expense' : 'income';
-  return (
-    <Drawer open={group !== null} onClose={onClose} title={group?.counterparty ?? ''} description={group ? `${group.kindLabel} · ${group.count} ta · ${formatTiyin(group.totalTiyin)} so'm · ${formatDate(group.firstDate)} – ${formatDate(group.lastDate)}` : undefined} width="xl">
-      {group && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <MiniStat label="O'rtacha (faol oyda)" value={formatTiyin(group.avgTiyin)} />
-            <MiniStat label="Faol oylar" value={`${group.activeMonths} / ${v.months.length}`} />
-            <MiniStat label="Ulushi" value={`${group.sharePct.toFixed(1)}%`} />
-          </div>
-          <div className="overflow-x-auto rounded-(--radius-control) border border-(--color-line)">
-            <table className="w-full text-xs">
-              <thead className="bg-(--color-surface-muted) text-[10px] uppercase tracking-wide text-(--color-text-muted)">
-                <tr>
-                  <th className="px-2 py-1.5 text-left font-semibold">Oy</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">Shu oy</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">O‘sib boruvchi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {v.months.map((p, i) => (
-                  <tr key={p} className="border-t border-(--color-line)">
-                    <td className="px-2 py-1">{formatPeriod(p)}</td>
-                    <td className="money px-2 py-1 text-right">{group.byMonth[p] && group.byMonth[p] !== '0' ? formatTiyin(group.byMonth[p]!) : '—'}</td>
-                    <td className="money px-2 py-1 text-right text-(--color-text-muted)">{formatTiyin(group.cumulative[i] ?? '0')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {rows.loading && !rows.data ? (
-            <LoadingState />
-          ) : rows.error ? (
-            <ErrorState message={rows.error} onRetry={rows.reload} />
-          ) : (
-            <ul className="divide-y divide-(--color-line) rounded-(--radius-control) border border-(--color-line) text-sm">
-              {(rows.data?.rows ?? []).map((r) => (
-                <li key={`${r.account}:${r.id}`} className="px-3 py-2">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="money font-medium">{formatDate(r.docDate)}</span>
-                    <span className="money text-[11px] text-(--color-text-muted)">№ {r.docNo || '—'}</span>
-                    {v.accounts.length > 1 && <Badge tone="neutral" className="px-1.5 py-0 text-[10px]">{r.accountLabel}</Badge>}
-                    <span className="min-w-0 flex-1 truncate text-xs text-(--color-text-muted)" title={r.accountName}>
-                      {r.accountName}
-                    </span>
-                    <Money tiyin={r.amountTiyin} tone={tone} />
-                  </span>
-                  <p className="mt-1 text-xs leading-snug text-(--color-text)">{r.purpose || '—'}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </Drawer>
   );
 }
 
@@ -769,15 +712,6 @@ function Box({ label, value, sub, tone = 'neutral' }: { label: string; value: st
       <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">{label}</p>
       <p className={cn('money mt-1.5 text-xl font-semibold', c)}>{value}</p>
       <p className="mt-0.5 text-xs text-(--color-text-muted)">{sub}</p>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-(--radius-control) border border-(--color-line) px-3 py-2">
-      <p className="text-[10px] uppercase tracking-wide text-(--color-text-muted)">{label}</p>
-      <p className="money mt-0.5 font-semibold text-heading">{value}</p>
     </div>
   );
 }
