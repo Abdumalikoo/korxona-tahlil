@@ -18,6 +18,7 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
 import { GroupDrawer, PostsHistory, PreviewGroups } from './bank-analysis-parts';
+import { PivotReport } from './pivot-report';
 import { SourceProvider, useSource, type AnalysisSource } from './source';
 import { PATTERN_LABEL, type BankPattern, type BankAnalysis, type BankBatch, type BankDir, type BankGroup, type BankKind, type BankSeries, type BankView } from './api';
 
@@ -394,12 +395,40 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [openMonth, setOpenMonth] = useState<string | null>(null);
   const [pattern, setPattern] = useState<BankPattern | null>(null);
+  // «Tahlil» (grafik, turlar, guruhlar) yoki «Hisobot» (modda › kontragent › xizmat, oylar kesimida)
+  const [tab, setTab] = useState<'ANALYSIS' | 'REPORT'>('ANALYSIS');
+  const [rev, setRev] = useState(0);
+  const changed = () => {
+    setRev((x) => x + 1);
+    onChanged();
+  };
   const open = openKey ? (v.groups.find((g) => g.key === openKey) ?? null) : null;
   const missing = v.series.filter((m) => !m.count).map((m) => m.period);
   const kinds = v.kinds.filter((k) => k.dir === dir);
 
+  const drawer = <GroupDrawer key={`${openKey ?? 'none'}|${openMonth ?? ''}`} month={openMonth} group={open} v={v} isAdmin={isAdmin} onToast={onToast} onChanged={changed} onClose={() => setOpenKey(null)} />;
+  const tabs = (
+    <div className="flex items-center gap-1 border-b border-(--color-line)">
+      {(['ANALYSIS', 'REPORT'] as const).map((t) => (
+        <button key={t} type="button" onClick={() => setTab(t)} className={cn('-mb-px border-b-2 px-4 py-2 text-sm font-medium', tab === t ? 'border-brand-600 text-brand-800' : 'border-transparent text-(--color-text-muted) hover:text-heading')}>
+          {t === 'ANALYSIS' ? 'Tahlil' : 'Hisobot (modda › kontragent › xizmat)'}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (tab === 'REPORT')
+    return (
+      <div className="space-y-4">
+        {tabs}
+        <PivotReport from={v.from} to={v.to} account={v.account} defaultDir={dir} isAdmin={isAdmin} onToast={onToast} reloadKey={rev} onOpenGroup={(k) => { setOpenKey(k); setOpenMonth(null); }} />
+        {drawer}
+      </div>
+    );
+
   return (
     <div className="space-y-4">
+      {tabs}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Box label="Chiqim" value={formatTiyin(v.totals.outTiyin)} sub={`${rangeText} · ${v.groups.filter((g) => g.dir === 'OUT').length} guruh`} tone="expense" />
         <Box label="Kirim" value={formatTiyin(v.totals.inTiyin)} sub={`${v.groups.filter((g) => g.dir === 'IN').length} guruh`} tone="income" />
@@ -460,7 +489,7 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
 
       <GroupsTable v={v} dir={dir} onDir={(d) => { setDir(d); setKind(null); }} kind={kind} onKind={setKind} mode={mode} onMode={setMode} pattern={pattern} onPattern={setPattern} onOpen={(g, m) => { setOpenKey(g.key); setOpenMonth(m ?? null); }} />
 
-      <GroupDrawer key={`${openKey ?? 'none'}|${openMonth ?? ''}`} month={openMonth} group={open} v={v} isAdmin={isAdmin} onToast={onToast} onChanged={onChanged} onClose={() => setOpenKey(null)} />
+      {drawer}
     </div>
   );
 }

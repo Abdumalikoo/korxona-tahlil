@@ -10,6 +10,7 @@ import { assertUnitCategory, readUnitCategories, unitList } from '../../common/s
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseBankStatement, parseDate, text } from '../unit-bank/unit-bank.service';
+import { buildPivot, parsePivotQuery, pivotWorkbook } from './bank-analysis.pivot';
 import { accountKey, accountLabel, accountTail, BANK_KIND_LABEL, counterpartyKey, groupKey, kindOf, purposeKey, rowId, type BankDir, type BankKind } from './bank-analysis.rules';
 
 // ═══════════════════════════════════════════════════════════
@@ -125,6 +126,8 @@ export interface BankPost {
 interface GroupMeta {
   name: string | null;
   kind: BankKind | null;
+  /** Hisobot moddasi (o'zingiz bergan: «Moshina uchun xarajatlar» …) */
+  category?: string | null;
   at: string;
   by: string;
 }
@@ -464,6 +467,8 @@ export class BankAnalysisService {
         counterparty: cp === 'person' ? `Jismoniy shaxslar (${people} kishi)` : name,
         /** Siz bergan nom (bo'lmasa — null) */
         name: m?.name ?? null,
+        /** Hisobot moddasi (siz bergan) */
+        category: m?.category ?? null,
         autoKind,
         kindEdited: Boolean(m?.kind && m.kind !== autoKind),
         pattern,
@@ -575,6 +580,24 @@ export class BankAnalysisService {
     return months;
   }
 
+  /** Hisobot (pivot): darajalar (modda › kontragent › xizmat …), ustunlarda oylar; filtrlar bilan */
+  async pivot(from: string, to: string, account: string | null, raw: Record<string, unknown>) {
+    const months = this.range(from, to);
+    const store = await this.store();
+    const acc = account && store.accounts[account] ? account : null;
+    const groups = this.groups(this.rowsIn(store, months, acc), months, this.postedMap(store), false, store.groups);
+    return { from: months[0]!, to: months[months.length - 1]!, ...buildPivot(groups, months, parsePivotQuery(raw)) };
+  }
+
+  /** Hisobot — Excel */
+  async pivotExcel(from: string, to: string, account: string | null, raw: Record<string, unknown>) {
+    const p = await this.pivot(from, to, account, raw);
+    const span = p.months.length > 1 ? `${monthLabel(p.from)} – ${monthLabel(p.to)}` : monthLabel(p.from);
+    const what = p.dir === 'OUT' ? 'chiqimlar' : 'kirimlar';
+    const buffer = await pivotWorkbook(p, `${this.sourceLabel}: ${what} hisoboti · ${span} (so'm)`);
+    return { buffer, filename: `${this.entity === 'bank_analysis' ? 'bank' : 'faktura'}-hisobot-${p.dir === 'OUT' ? 'chiqim' : 'kirim'}-${p.from}_${p.to}.xlsx` };
+  }
+
   /** Bitta guruh: har to'lov — sana, hujjat, oluvchi, summa, izohi (aynan o'zidek), sizning izohingiz, yo'naltirilgani */
   async group(key: string, from: string, to: string, account?: string | null) {
     if (typeof key !== 'string' || !key || key.length > 400) throw new BadRequestException("Guruh noto'g'ri");
@@ -678,20 +701,51 @@ export class BankAnalysisService {
    * O'xshashlik kaliti bo'yicha saqlanadi — keyingi oylarda yuklangan shu to'lovlarga ham qo'llanadi.
    * Yo'naltirishda izoh: to'lovga yozilgan izoh → umumiy izoh → shu nom → bankdagi izoh.
    */
-  async groupMeta(body: { key?: unknown; name?: unknown; kind?: unknown }, userId: string) {
+  async groupMeta(body: { key?: unknown; name?: unknown; kind?: unknown; category?: unknown }, userId: string) {
     const key = typeof body?.key === 'string' ? body.key : '';
     if (!key || key.length > 400) throw new BadRequestException("Guruh noto'g'ri");
     const name = typeof body?.name === 'string' ? body.name.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
     const kind = typeof body?.kind === 'string' && body.kind in BANK_KIND_LABEL ? (body.kind as BankKind) : null;
     if (body?.kind !== undefined && body.kind !== null && body.kind !== '' && !kind) throw new BadRequestException("Tur noto'g'ri");
+    const category = typeof body?.category === 'string' ? body.category.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
     const by = await this.userName(userId);
     await runExclusive(`setting:${this.key}`, async () => {
       const store = await this.store();
-      if (!name && !kind) delete store.groups[key];
-      else store.groups[key] = { name: name || null, kind, at: new Date().toISOString(), by };
+      // category berilmasa (eski so'rov) — avvalgisi saqlanadi
+      const cat = body?.category === undefined ? (store.groups[key]?.category ?? '') : category;
+      if (!name && !kind && !cat) delete store.groups[key];
+      else store.groups[key] = { name: name || null, kind, category: cat || null, at: new Date().toISOString(), by };
       await this.save(store);
     });
-    return { success: true as const, key, name: name || null, kind };
+    return { success: true as const, key, name: name || null, kind, category: category || null };
+  }
+
+  /** Bir nechta guruhga bitta hisobot moddasi (bo'sh — olib tashlanadi): { keys, category } */
+  async groupCategory(body: { keys?: unknown; category?: unknown }, userId: string) {
+    const keys = Array.isArray(body?.keys) ? [...new Set(body.keys.filter((k): k is string => typeof k === 'string' && k.length > 0 && k.length <= 400))].slice(0, 2000) : [];
+    if (!keys.length) throw new BadRequestException('Guruhlarni tanlang');
+    const category = typeof body?.category === 'string' ? body.category.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+    const by = await this.userName(userId);
+    await runExclusive(`setting:${this.key}`, async () => {
+      const store = await this.store();
+      const at = new Date().toISOString();
+      for (const k of keys) {
+        const g = store.groups[k] ?? { name: null, kind: null, at, by };
+        g.category = category || null;
+        g.at = at;
+        g.by = by;
+        if (!g.name && !g.kind && !g.category) delete store.groups[k];
+        else store.groups[k] = g;
+      }
+      await this.save(store);
+    });
+    return { success: true as const, count: keys.length, category: category || null };
+  }
+
+  /** Hisobot moddalari ro'yxati (avval berilganlar) */
+  async categories(): Promise<string[]> {
+    const store = await this.store();
+    return [...new Set(Object.values(store.groups).map((g) => g.category).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b));
   }
 
   /** Turlar ro'yxati (guruh turini o'zgartirish uchun) */

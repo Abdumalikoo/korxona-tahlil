@@ -11,6 +11,7 @@ const { BankAnalysisService } = require('../dist/modules/bank-analysis/bank-anal
 const { CounterpartyService } = require('../dist/modules/bank-analysis/counterparty.service');
 const { serviceMonth, parseInvoiceRows } = require('../dist/modules/bank-analysis/invoice-analysis.parse');
 const { readSheetRows } = require('../dist/common/files/xlsx-stream');
+const { cleanService } = require('../dist/modules/bank-analysis/bank-analysis.pivot');
 
 const OUR = '300000100';
 const HEAD = ['№', 'ID', 'Вид документ', 'ТИП документ', 'СТАТУС', 'Номер документ', 'Дата документ', 'Договор номер', 'Договор дата', 'Дата отправки', 'Продавец (ИНН или ПИНФЛ)', 'Продавец (наименование)', 'Продавец (расчётный счёт)', 'Продавец (МФО банка)', 'Продавец (код филиала)', 'Продавец (название филиала)', 'Покупатель (ИНН или ПИНФЛ)', 'Покупатель (наименование)', 'Покупатель (расчётный счёт)', 'Покупатель (МФО банка)', 'Покупатель (код филиала)', 'Покупатель (название филиала)', 'ПРИМЕЧАНИЕ', '№', 'Примечание к товару (работе, услуге)', 'Идентификационный код и название по Единому электронному национальному каталогу товаров (услуг)', 'Единица измерения', 'Маркировка', 'Количество', 'Цена', 'Ставка акциз', 'Сумма акциз', 'Стоимость поставки', 'НДС ставка', 'НДС сумма', 'Стоимость поставки с учётом НДС', 'Происхождение товара', 'Покупатель (подписант)', 'Покупатель (время подписи)', 'Покупатель (хост)', 'Покупатель (IP)'];
@@ -54,6 +55,11 @@ const s = (n) => String(so(n));
   assert.strictEqual(serviceMonth('Ofis mebeli', '2026-07-15'), '2026-07');
   assert.strictEqual(serviceMonth('Смарт-карталар ўқиш қурилмаси', '2026-06-10'), '2026-06', '«смарт» ichidagi «март» — oy emas');
   assert.strictEqual(serviceMonth('Майонез', '2026-06-10'), '2026-06');
+  assert.strictEqual(cleanService('ПРОПУСК ПО НОВОЙ СИСТЕМЕ за сентябрь 2026 г.'), 'ПРОПУСК ПО НОВОЙ СИСТЕМЕ');
+  assert.strictEqual(cleanService('Аренда помещения с 01.06.2026г до 30.06.2026г'), 'Аренда помещения');
+  assert.strictEqual(cleanService('сентабр ойи учун ижара тўлови ҳисобланди'), 'ижара тўлови ҳисобланди');
+  assert.strictEqual(cleanService('Оплата за услуги по счет-фактуре №5 от 03.01.2026'), 'Оплата за услуги по счет-фактуре №5');
+  assert.strictEqual(cleanService('Смарт-карталар ўқиш қурилмаси'), 'Смарт-карталар ўқиш қурилмаси');
   assert.strictEqual(invoiceKind('OUT', { ikpu: '10713007006000000 - Возмещение затрат (расходов) за услуги электроэнергии', purpose: 'электроэнергия за май' }, 'X'), 'KOMMUNAL');
   assert.strictEqual(invoiceKind('OUT', { ikpu: '10701001001000000 - Услуги по аренде зданий и сооружений', purpose: 'Аренда помещения' }, 'X'), 'IJARA');
   assert.strictEqual(invoiceKind('OUT', { ikpu: '09401001030000000 - Стулья (всех видов)', purpose: 'Stul' }, 'X'), 'XARID');
@@ -141,6 +147,41 @@ const s = (n) => String(so(n));
   const el2 = v.groups.find((g) => g.counterparty === E[1]);
   assert.deepStrictEqual([el2.count, el2.byMonth['2026-07'], el2.byMonth['2026-08']], [2, s(1_300_000), '0'], 'Отказ — olib tashlandi, iyul yangilandi');
   assert.ok(v.groups.some((g) => g.counterparty === A[1]), 'faylda yo‘qlar qoldi');
+
+  // ── Hisobot (pivot): modda › kontragent › xizmat, oylar ustunlarda ──
+  const air = v.groups.filter((g) => g.counterparty === A[1]);
+  await inv.groupCategory({ keys: air.map((g) => g.key), category: 'Aeroport (Tax free)' }, 'adm');
+  await inv.groupMeta({ key: air.find((g) => g.kind === 'IJARA').key, name: 'Aeroport ijarasi', kind: '' }, 'adm');
+  assert.deepStrictEqual(await inv.categories(), ['Aeroport (Tax free)']);
+  let pv = await inv.pivot('2026-06', '2026-09', null, { dir: 'OUT' });
+  const top = pv.rows.find((r) => r.label === 'Aeroport (Tax free)');
+  assert.ok(top, 'o‘z moddasi bo‘yicha');
+  assert.strictEqual(top.children.length, 1, 'bir INN — bitta kontragent qatori');
+  assert.deepStrictEqual([top.children[0].inn, top.children[0].children.length], [A[0], 3]);
+  assert.ok(top.children[0].children.some((x) => x.label === 'Aeroport ijarasi' && x.groupKey), 'xizmat — siz bergan nom, ochish kaliti bilan');
+  assert.strictEqual(top.byMonth['2026-08'], s(2_620_800));
+  assert.strictEqual(pv.total.totalTiyin, pv.rows.reduce((t, r) => t + BigInt(r.totalTiyin), 0n).toString(), 'jami = qatorlar');
+  const kom = pv.rows.find((r) => r.label === 'Kommunal');
+  assert.ok(kom && kom.children[0].inn === E[0], 'moddasi yo‘q — tur bo‘yicha');
+  // Filtrlar: INN qidiruv, eng kam summa, darajalar tartibi
+  pv = await inv.pivot('2026-06', '2026-09', null, { dir: 'OUT', q: E[0] });
+  assert.deepStrictEqual(pv.rows.map((r) => r.label), ['Kommunal']);
+  pv = await inv.pivot('2026-06', '2026-09', null, { dir: 'OUT', min: '2000000' });
+  assert.ok(pv.rows.flatMap((r) => r.children).every((c) => BigInt(c.totalTiyin) >= so(2_000_000)));
+  pv = await inv.pivot('2026-06', '2026-09', null, { dir: 'OUT', levels: 'counterparty,service', patterns: 'ONCE' });
+  assert.deepStrictEqual([pv.levels, pv.rows.map((r) => r.label).sort()], [['counterparty', 'service'], [A[1], M[1]].sort()], 'faqat bir martaliklar (davrda bitta oyda)');
+  pv = await inv.pivot('2026-06', '2026-09', null, { dir: 'IN' });
+  assert.strictEqual(pv.total.totalTiyin, s(11_200_000));
+  // Excel
+  const xl = await inv.pivotExcel('2026-06', '2026-09', null, { dir: 'OUT' });
+  const wbx = new ExcelJS.Workbook();
+  await wbx.xlsx.load(xl.buffer);
+  const sh = wbx.worksheets[0];
+  assert.deepStrictEqual([sh.getCell(3, 1).value, sh.getCell(3, 2).value, sh.getCell(3, 3).value], ['T/p', 'Xarajatlar izohi', 'Umumiy']);
+  const labels = [];
+  sh.eachRow((r, i) => i > 3 && labels.push(String(r.getCell(2).value).trim()));
+  assert.ok(labels.includes('Aeroport (Tax free)') && labels.includes('Aeroport ijarasi') && labels[labels.length - 1] === 'JAMI');
+  assert.ok(xl.filename.startsWith('faktura-hisobot-chiqim'));
 
   // Tanlab yo'naltirish — faqat foydalanuvchi xohlasa
   T.department.push({ id: 'dA', name: 'AUP', isActive: true });

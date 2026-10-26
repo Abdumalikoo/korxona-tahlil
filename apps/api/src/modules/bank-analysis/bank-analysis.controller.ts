@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
@@ -54,13 +55,42 @@ export class BankAnalysisController {
   @Roles(UserRole.ADMIN)
   @Post('groups/meta')
   @HttpCode(HttpStatus.OK)
-  async groupMeta(@Body() body: { key?: unknown; name?: unknown; kind?: unknown }, @CurrentUser('id') userId: string) {
+  async groupMeta(@Body() body: { key?: unknown; name?: unknown; kind?: unknown; category?: unknown }, @CurrentUser('id') userId: string) {
     return { data: await this.service.groupMeta(body, userId) };
   }
 
   @Get('kinds')
   kinds() {
     return { data: this.service.kinds() };
+  }
+
+  /** Hisobot (pivot): ?from&to&dir=OUT|IN&levels=category,counterparty,service&kinds=&categories=&patterns=&q=&min= */
+  @Personal()
+  @Get('pivot')
+  async pivot(@Query('from') from: string, @Query('to') to: string, @Query('account') account: string | undefined, @Query() raw: Record<string, unknown>) {
+    return { data: await this.service.pivot(from, to, account || null, raw) };
+  }
+
+  @Personal()
+  @Get('pivot/excel')
+  async pivotExcel(@Query('from') from: string, @Query('to') to: string, @Query('account') account: string | undefined, @Query() raw: Record<string, unknown>, @Res() response: Response) {
+    const { buffer, filename } = await this.service.pivotExcel(from, to, account || null, raw);
+    response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    response.send(buffer);
+  }
+
+  /** Bir nechta guruhga hisobot moddasi */
+  @Roles(UserRole.ADMIN)
+  @Post('groups/category')
+  @HttpCode(HttpStatus.OK)
+  async groupCategory(@Body() body: { keys?: unknown; category?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.groupCategory(body, userId) };
+  }
+
+  @Get('categories')
+  async categories() {
+    return { data: await this.service.categories() };
   }
 
   @Get('options')

@@ -69,6 +69,8 @@ export interface BankGroup {
   counterparty: string;
   /** Siz bergan nom */
   name: string | null;
+  /** Hisobot moddasi (siz bergan) */
+  category: string | null;
   autoKind: BankKind;
   kindEdited: boolean;
   pattern: BankPattern;
@@ -267,6 +269,61 @@ async function readError(response: Response, fallback: string): Promise<string> 
   }
 }
 
+export type PivotLevel = 'category' | 'kind' | 'counterparty' | 'service';
+export const PIVOT_LEVEL_LABEL: Record<PivotLevel, string> = { category: 'Hisobot moddasi', kind: 'Tur', counterparty: 'Kontragent (INN)', service: 'Xizmat / izoh' };
+
+export interface PivotNode {
+  id: string;
+  level: PivotLevel;
+  label: string;
+  inn: string | null;
+  comment: string | null;
+  count: number;
+  groups: number;
+  totalTiyin: string;
+  byMonth: Record<string, string>;
+  groupKey: string | null;
+  keys: string[];
+  children: PivotNode[];
+}
+
+export interface PivotData {
+  from: string;
+  to: string;
+  months: string[];
+  dir: BankDir;
+  levels: PivotLevel[];
+  rows: PivotNode[];
+  total: { totalTiyin: string; byMonth: Record<string, string>; groups: number; count: number };
+  facets: { kinds: { code: BankKind; label: string }[]; categories: string[] };
+}
+
+export interface PivotParams {
+  from: string;
+  to: string;
+  account?: string | null;
+  dir: BankDir;
+  levels: PivotLevel[];
+  kinds?: string[];
+  categories?: string[];
+  patterns?: string[];
+  q?: string;
+  min?: string;
+}
+
+const pivotQuery = (p: PivotParams) => ({
+  from: p.from,
+  to: p.to,
+  dir: p.dir,
+  levels: p.levels.join(','),
+  ...(p.account ? { account: p.account } : {}),
+  ...(p.kinds?.length ? { kinds: p.kinds.join(',') } : {}),
+  ...(p.categories?.length ? { categories: p.categories.join(',') } : {}),
+  ...(p.patterns?.length ? { patterns: p.patterns.join(',') } : {}),
+  ...(p.q ? { q: p.q } : {}),
+  ...(p.min ? { min: p.min } : {}),
+});
+
 type CommitResult = { success: true; batchId: string; account: string; months: string[]; saved: number; replacedMonths: string[]; outTiyin: string; inTiyin: string; droppedPosts: number; invoices?: number; updatedInvoices?: number; removedRows?: number };
 
 /** Tahlil API — bank ko'chirmasi (/bank-analysis) va schyot-fakturalar (/invoice-analysis) bir xil yo'llar bilan */
@@ -277,7 +334,25 @@ export function makeAnalysisApi(base: '/bank-analysis' | '/invoice-analysis') {
     batches: () => api.get<ApiResponse<BankBatch[]>>(`${base}/batches`),
     commit: (body: { fileName: string; account?: string; months?: string[]; rows: BankRow[]; allIds?: string[]; org?: { inn: string; name: string } }) => api.post<ApiResponse<CommitResult>>(`${base}/commit`, body),
     cancel: (id: string) => api.post<ApiResponse<{ success: true; months: string[]; droppedPosts: number; removedRows?: number }>>(`${base}/batches/${encodeURIComponent(id)}/cancel`),
-    groupMeta: (body: { key: string; name: string; kind: BankKind | null }) => api.post<ApiResponse<{ success: true; key: string; name: string | null; kind: BankKind | null }>>(`${base}/groups/meta`, body),
+    groupMeta: (body: { key: string; name: string; kind: BankKind | null; category?: string }) => api.post<ApiResponse<{ success: true; key: string; name: string | null; kind: BankKind | null; category: string | null }>>(`${base}/groups/meta`, body),
+    groupCategory: (keys: string[], category: string) => api.post<ApiResponse<{ success: true; count: number; category: string | null }>>(`${base}/groups/category`, { keys, category }),
+    categories: () => api.get<ApiResponse<string[]>>(`${base}/categories`),
+    pivot: (p: PivotParams) => api.get<ApiResponse<PivotData>>(`${base}/pivot`, { params: pivotQuery(p) }),
+    /** Hisobot — Excel faylini yuklab olish */
+    pivotExcel: async (p: PivotParams): Promise<void> => {
+      const qs = new URLSearchParams(pivotQuery(p) as Record<string, string>).toString();
+      const response = await fetch(`${BASE}${base}/pivot/excel?${qs}`, { headers: authHeaders() });
+      if (!response.ok) throw new Error(await readError(response, "Excel'ni yuklab bo'lmadi"));
+      const name = decodeURIComponent(/filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'hisobot.xlsx');
+      const url = URL.createObjectURL(await response.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
     options: (dir: BankDir, unit?: string) => api.get<ApiResponse<BankOptions>>(`${base}/options`, { params: { dir, ...(unit ? { unit } : {}) } }),
     notes: (items: (BankItem & { comment: string })[]) => api.post<ApiResponse<{ success: true; saved: number; cleared: number; entries: number }>>(`${base}/notes`, { items }),
     check: (items: BankItem[]) => api.post<ApiResponse<BankCheck>>(`${base}/route/check`, { items }),

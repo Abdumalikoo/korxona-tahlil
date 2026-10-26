@@ -409,19 +409,22 @@ function GroupMetaEditor({ group, onToast, onSaved }: { group: BankGroup; onToas
   const { api } = useSource();
   const [name, setName] = useState(group.name ?? '');
   const [kind, setKind] = useState<BankKind | ''>(group.kindEdited ? group.kind : '');
+  const [category, setCategory] = useState(group.category ?? '');
   const [busy, setBusy] = useState(false);
-  const dirty = name.trim() !== (group.name ?? '') || (kind || null) !== (group.kindEdited ? group.kind : null);
+  const known = useAsync(() => api.categories().then((r) => r.data), [api]);
+  const dirty = name.trim() !== (group.name ?? '') || (kind || null) !== (group.kindEdited ? group.kind : null) || category.trim() !== (group.category ?? '');
   const autoLabel = KIND_OPTIONS.find((k) => k.code === group.autoKind)?.label ?? group.autoKind;
 
   async function save(reset = false) {
     setBusy(true);
     try {
-      await api.groupMeta({ key: group.key, name: reset ? '' : name.trim(), kind: reset ? null : kind || null });
+      await api.groupMeta({ key: group.key, name: reset ? '' : name.trim(), kind: reset ? null : kind || null, category: reset ? '' : category.trim() });
       if (reset) {
         setName('');
         setKind('');
+        setCategory('');
       }
-      onToast({ message: reset ? 'Guruh nomi va turi avtomatikka qaytarildi' : 'Guruh nomi saqlandi — keyingi oylarda ham qo‘llanadi', tone: 'success' });
+      onToast({ message: reset ? 'Guruh nomi, turi va moddasi avtomatikka qaytarildi' : 'Saqlandi — keyingi oylarda ham qo‘llanadi', tone: 'success' });
       onSaved();
     } catch (err) {
       onToast({ message: errorMessage(err, 'Saqlab bo‘lmadi'), tone: 'error' });
@@ -432,7 +435,7 @@ function GroupMetaEditor({ group, onToast, onSaved }: { group: BankGroup; onToas
 
   return (
     <div className="space-y-2 rounded-(--radius-control) border border-brand-200 bg-brand-50/40 p-3 text-xs">
-      <p className="font-semibold text-heading">Xarajat nomi va turi</p>
+      <p className="font-semibold text-heading">Nomi, turi va hisobot moddasi</p>
       <div className="flex flex-wrap items-center gap-2">
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={200} placeholder={`Nomi (masalan: AUP binosi elektr energiyasi) — hozir: ${group.counterparty}`} className={cn(INPUT, 'min-w-64 flex-1')} aria-label="Guruh nomi" />
         <select value={kind} onChange={(e) => setKind(e.target.value as BankKind | '')} className={INPUT} aria-label="Turi">
@@ -443,16 +446,22 @@ function GroupMetaEditor({ group, onToast, onSaved }: { group: BankGroup; onToas
             </option>
           ))}
         </select>
+        <input list={`cat-${group.key.length}`} value={category} onChange={(e) => setCategory(e.target.value)} maxLength={120} placeholder="Hisobot moddasi (masalan: Moshina uchun xarajatlar)" className={cn(INPUT, 'w-72')} aria-label="Hisobot moddasi" />
+        <datalist id={`cat-${group.key.length}`}>
+          {(known.data ?? []).map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
         <Button size="sm" loading={busy} disabled={!dirty} onClick={() => void save()}>
           Saqlash
         </Button>
-        {(group.name || group.kindEdited) && (
+        {(group.name || group.kindEdited || group.category) && (
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save(true)}>
             Avtomatikka qaytarish
           </Button>
         )}
       </div>
-      <p className="text-(--color-text-faint)">Nom o&apos;xshash to&apos;lovlar guruhiga beriladi (keyingi ko&apos;chirmalarda ham). Yo&apos;naltirishda yozuv izohi: to&apos;lovga yozilgan izoh → umumiy izoh → shu nom → bankdagi izoh.</p>
+      <p className="text-(--color-text-faint)">Nom va modda o&apos;xshash to&apos;lovlar guruhiga beriladi (keyingi yuklashlarda ham); modda — «Hisobot»dagi yuqori qator. Yo&apos;naltirishda yozuv izohi: to&apos;lovga yozilgan izoh → umumiy izoh → shu nom → bankdagi izoh.</p>
     </div>
   );
 }
