@@ -450,6 +450,120 @@ export class PayrollSolishtirmaService {
    * O'sha paytdagi summalar saqlanadi: keyin soliq hisoboti, tarkib yoki 23106 o'zgarsa — «o'zgargan» deb ko'rinadi.
    * Avvalgi tasdiq bo'lsa — yangi xodimlar qo'shiladi (eski tasdiqlanganlar yangilanadi).
    */
+  /**
+   * Bitta xodim — manbadagi hamma yuklangan narsa (faqat shu xodimniki): soliq hisoboti (qaysi fayl, qayerda, qancha),
+   * ish haqi tarkibi (komponentlar, yo'naltirishlar) va 23106 (har to'lov: sana, hujjat, summa, izoh; shu oyga
+   * olinganmi va nega). Hisob-kitob — solishtirma qatoridagidek.
+   */
+  async person(period: string, pinflRaw: string, modeRaw?: string) {
+    if (!PERIOD_RE.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    const pinfl = String(pinflRaw ?? '').replace(/\D/g, '');
+    if (!/^\d{14}$/.test(pinfl)) throw new BadRequestException("PINFL noto'g'ri");
+    const mode: BankMonthMode = modeRaw === 'PAID' ? 'PAID' : 'ACCRUAL';
+    // Solishtirma qatori (Markaz yoki Hududlar tablosida)
+    let row = (await this.view(period, mode, 'CENTER')).rows.find((r) => r.pinfl === pinfl) ?? null;
+    if (!row) row = (await this.view(period, mode, 'REGION')).rows.find((r) => r.pinfl === pinfl) ?? null;
+    const emp = await this.prisma.employee.findUnique({ where: { pinfl }, select: { fullName: true, employmentType: true, position: true, regionCode: true, department: { select: { name: true } } } }).catch(() => null);
+
+    // ── Soliq hisoboti ──
+    const entries = await this.prisma.payrollEntry.findMany({ where: { period, employeePinfl: pinfl, deletedAt: null }, select: { baseTiyin: true, batchId: true } });
+    const pbIds = [...new Set(entries.map((e) => e.batchId).filter((x): x is string => Boolean(x)))];
+    const pbs = pbIds.length ? await this.prisma.payrollBatch.findMany({ where: { id: { in: pbIds } }, select: { id: true, fileName: true, status: true, scope: true, createdAt: true } }) : [];
+    const soliq: { where: string; fileName: string; at: string | null; tiyin: string; counted: boolean; note: string | null }[] = [];
+    for (const e of entries) {
+      const b = pbs.find((x) => x.id === e.batchId);
+      if (!b) continue;
+      soliq.push({ where: b.scope === 'REGIONS' ? 'Hududlar vedomosti' : 'Umumiy soliq hisoboti (Xarajatlar › Ish haqi)', fileName: b.fileName ?? '—', at: b.createdAt ? new Date(b.createdAt).toISOString() : null, tiyin: e.baseTiyin.toString(), counted: b.status === 'COMMITTED', note: b.status === 'COMMITTED' ? null : 'bekor qilingan yuklash' });
+    }
+    if (this.unitPayroll && typeof this.unitPayroll.allBatches === 'function') {
+      for (const u of await this.unitPayroll.allBatches(period)) {
+        if (u.batch.status !== 'COMMITTED') continue;
+        for (const r of u.batch.rows ?? []) {
+          if (r.pinfl !== pinfl) continue;
+          soliq.push({ where: `${entryUnitLabel(u.unit)} — ${u.batch.origin === 'GENERAL' ? 'umumiy soliq hisobotidan (miya bo‘yicha)' : 'shu bo‘lim sahifasida yuklangan'}`, fileName: u.batch.fileName, at: u.batch.createdAt, tiyin: String(r.amountTiyin), counted: true, note: null });
+        }
+      }
+    }
+
+    // ── Ish haqi tarkibi ──
+    const comps = await this.prisma.salaryComponent.findMany({ select: { code: true, name: true, category: true, sign: true } });
+    const compBy = new Map(comps.map((c) => [c.code, c]));
+    const tarkib: { where: string; fileName: string; at: string | null; totalTiyin: string; items: { code: string; name: string; category: string; categoryLabel: string; tiyin: string; sign: number }[] }[] = [];
+    const gb = await this.prisma.salaryCompositionBatch.findFirst({ where: { period, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, fileName: true, createdAt: true } });
+    if (gb) {
+      const gr = await this.prisma.salaryCompositionRow.findFirst({ where: { batchId: gb.id, employeePinfl: pinfl }, select: { id: true, totalTiyin: true } });
+      if (gr) {
+        const items = await this.prisma.salaryCompositionItem.findMany({ where: { rowId: gr.id }, select: { componentCode: true, amountTiyin: true } });
+        tarkib.push({ where: 'Umumiy ish haqi tarkibi', fileName: gb.fileName ?? '—', at: new Date(gb.createdAt).toISOString(), totalTiyin: gr.totalTiyin.toString(), items: items.map((i) => this.item(compBy, i.componentCode, i.amountTiyin)) });
+      }
+    }
+    const unitComp = await this.prisma.setting.findMany({ where: { key: { in: PAYROLL_UNITS.map((u) => `unit.composition.${u}.${period}`) } }, select: { key: true, value: true } });
+    for (const rowS of unitComp) {
+      const u = rowS.key.split('.')[2]!;
+      const list = ((rowS.value as { batches?: { fileName?: string; cancelledAt: string | null; createdAt: string; rows?: { pinfl?: string; totalTiyin?: string; items?: Record<string, string> }[] }[] } | null)?.batches ?? []).filter((b) => !b.cancelledAt);
+      const active = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      const r = active?.rows?.find((x) => x.pinfl === pinfl);
+      if (r) tarkib.push({ where: `${entryUnitLabel(u)} ish haqi tarkibi`, fileName: active!.fileName ?? '—', at: active!.createdAt, totalTiyin: String(r.totalTiyin ?? '0'), items: Object.entries(r.items ?? {}).map(([code, v]) => this.item(compBy, code, BigInt(v))) });
+    }
+    const adjRaw = ((await this.prisma.setting.findUnique({ where: { key: 'salary.composition.adjust' } }))?.value as { items?: { pinfl: string; period: string; componentName: string; amountTiyin: string; status: string; note?: string | null; createdAt: string; createdBy?: string }[] } | null)?.items ?? [];
+    const adjustments = adjRaw.filter((a) => a.pinfl === pinfl && a.period === period && a.status === 'APPLIED').map((a) => ({ componentName: a.componentName, tiyin: a.amountTiyin, note: a.note ?? null, at: a.createdAt, by: a.createdBy ?? '' }));
+
+    // ── 23106 (hamma oylar; shu xodim) ──
+    const store = readStore((await this.prisma.setting.findUnique({ where: { key: STORE_KEY } }))?.value ?? null);
+    const bank: { month: string; fileName: string; docDate: string; procDate: string | null; docNo: string; tiyin: string; kind: string; kindLabel: string; purpose: string; accrual: string; forMonth: string; orderNo: string | null; orderDate: string | null; account: string; matchBy: string | null; counted: boolean; reason: string | null }[] = [];
+    for (const [m, st] of Object.entries(store.months)) {
+      for (const r of st.rows ?? []) {
+        const d = (r.inn ?? '').replace(/\D/g, '');
+        const pp = r.pinfl ?? (/^\d{14}$/.test(d) ? d : null);
+        if (pp !== pinfl) continue;
+        const forMonth = mode === 'PAID' ? r.docDate.slice(0, 7) : (purposeMonth(r.purpose ?? '', r.docDate) ?? r.accrual);
+        const counted = r.kind !== 'SAFAR' && forMonth === period;
+        bank.push({
+          month: m,
+          fileName: st.fileName,
+          docDate: r.docDate,
+          procDate: r.procDate,
+          docNo: r.docNo,
+          tiyin: r.debitTiyin,
+          kind: r.kind,
+          kindLabel: KIND_LABELS[r.kind] ?? r.kind,
+          purpose: (r.purpose ?? '').slice(0, 500),
+          accrual: r.accrual,
+          forMonth,
+          orderNo: r.orderNo,
+          orderDate: r.orderDate,
+          account: r.accountName,
+          matchBy: r.matchBy,
+          counted,
+          reason: r.kind === 'SAFAR' ? 'xizmat safari — ish haqiga kirmaydi' : counted ? null : `${monthLabel(forMonth)} uchun`,
+        });
+      }
+    }
+    bank.sort((a, b) => Number(b.counted) - Number(a.counted) || b.docDate.localeCompare(a.docDate));
+    const countedSum = bank.filter((b) => b.counted).reduce((x, b) => x + BigInt(b.tiyin), 0n);
+    return {
+      period,
+      monthLabel: monthLabel(period),
+      mode,
+      pinfl,
+      fullName: row?.fullName ?? emp?.fullName ?? pinfl,
+      employee: emp ? { position: emp.position, department: emp.department?.name ?? null, employmentType: emp.employmentType } : null,
+      row,
+      soliq,
+      soliqTiyin: soliq.filter((x) => x.counted).reduce((x, s) => x + BigInt(s.tiyin), 0n).toString(),
+      tarkib,
+      adjustments,
+      bank,
+      bankCountedTiyin: countedSum.toString(),
+    };
+  }
+
+  private item(compBy: Map<string, { code: string; name: string; category: string; sign: number }>, code: string, amount: bigint) {
+    const c = compBy.get(code);
+    const cat = c?.category ?? 'BOSHQA';
+    return { code, name: c?.name ?? code, category: cat, categoryLabel: CATEGORY_LABELS[cat] ?? cat, tiyin: amount.toString(), sign: c?.sign ?? 1 };
+  }
+
   async confirm(period: string, tabRaw: string | undefined, mode: string | undefined, body: { pinfls?: unknown }, userId: string) {
     const tab: SolTab = tabRaw === 'REGION' ? 'REGION' : 'CENTER';
     const v = await this.view(period, mode, tab);

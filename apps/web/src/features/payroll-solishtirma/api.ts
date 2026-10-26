@@ -102,10 +102,28 @@ export interface SolView {
   rows: SolRow[];
 }
 
+/** Bitta xodim — manbadagi hamma yuklangan narsa */
+export interface SolPerson {
+  period: string;
+  monthLabel: string;
+  mode: BankMonthMode;
+  pinfl: string;
+  fullName: string;
+  employee: { position: string | null; department: string | null; employmentType: string } | null;
+  row: SolRow | null;
+  soliq: { where: string; fileName: string; at: string | null; tiyin: string; counted: boolean; note: string | null }[];
+  soliqTiyin: string;
+  tarkib: { where: string; fileName: string; at: string | null; totalTiyin: string; items: { code: string; name: string; category: string; categoryLabel: string; tiyin: string; sign: number }[] }[];
+  adjustments: { componentName: string; tiyin: string; note: string | null; at: string; by: string }[];
+  bank: { month: string; fileName: string; docDate: string; procDate: string | null; docNo: string; tiyin: string; kind: string; kindLabel: string; purpose: string; accrual: string; forMonth: string; orderNo: string | null; orderDate: string | null; account: string; matchBy: string | null; counted: boolean; reason: string | null }[];
+  bankCountedTiyin: string;
+}
+
 export const solishtirmaApi = {
   view: (period: string, bankMonth: BankMonthMode, tab: SolTab) => api.get<ApiResponse<SolView>>('/payroll-solishtirma', { params: { period, bankMonth, tab } }),
   confirm: (period: string, tab: SolTab, bankMonth: BankMonthMode, pinfls?: string[]) =>
     api.post<ApiResponse<{ success: true; confirmed: number; total: number }>>(`/payroll-solishtirma/confirm?period=${period}&tab=${tab}&bankMonth=${bankMonth}`, pinfls ? { pinfls } : {}),
   cancelConfirm: (period: string, tab: SolTab) => api.post<ApiResponse<{ success: true; removed: number }>>(`/payroll-solishtirma/confirm/cancel?period=${period}&tab=${tab}`),
+  person: (period: string, pinfl: string, bankMonth: BankMonthMode) => api.get<ApiResponse<SolPerson>>('/payroll-solishtirma/person', { params: { period, pinfl, bankMonth } }),
   saveSettings: (s: SolishtirmaSettings) => api.put<ApiResponse<SolishtirmaSettings>>('/payroll-solishtirma/settings', s),
 };

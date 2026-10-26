@@ -15,6 +15,7 @@ import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
+import { PersonDrawer, type PersonFocus } from './person-drawer';
 import { solishtirmaApi, type BankMonthMode, type GroupKey, type SolishtirmaSettings, type SolRow, type SolState, type SolTab, type SolView } from './api';
 
 // ═══════════════════════════════════════════════════════════
@@ -79,6 +80,8 @@ export function SolishtirmaView() {
   const [editing, setEditing] = useState<{ taxPct: string; unionPct: string; toleranceSum: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  /** Bosilgan xodim — manbadagi hamma ma'lumoti */
+  const [person, setPerson] = useState<{ pinfl: string; focus: PersonFocus } | null>(null);
   // Tarkib farqini yo'naltirish
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -439,17 +442,19 @@ export function SolishtirmaView() {
                               </td>
                             )}
                             <td className="px-2 py-2">
-                              <span className="block font-medium text-heading">{r.fullName}</span>
+                              <button type="button" className="block text-left font-medium text-heading hover:text-brand-700 hover:underline" onClick={() => setPerson({ pinfl: r.pinfl, focus: 'soliq' })}>
+                                {r.fullName}
+                              </button>
                               <span className="text-[11px] text-(--color-text-muted)">
                                 <span className="money">{r.pinfl}</span> · {r.employmentType === 'SHTAT' ? 'shtat' : 'shartnoma'} · {r.unitLabel ?? r.regionName ?? 'joyi noma’lum'}
                               </span>
                               {r.confirm === 'CHANGED' && <span className="block text-[11px] text-(--color-warn)">tasdiqdan keyin o‘zgargan — qayta tasdiqlang</span>}
                             </td>
-                            <td className="money px-2 py-2 text-right font-medium">{formatTiyin(r.soliqTiyin ?? '0')}</td>
-                            {isCenter && <td className="money px-2 py-2 text-right text-(--color-text-muted)">{formatTiyin(r.tarkibTiyin ?? '0')}</td>}
+                            <td className="money cursor-pointer hover:bg-brand-50/60 hover:underline decoration-dotted underline-offset-2 px-2 py-2 text-right font-medium" onClick={() => setPerson({ pinfl: r.pinfl, focus: 'soliq' })}>{formatTiyin(r.soliqTiyin ?? '0')}</td>
+                            {isCenter && <td className="money cursor-pointer hover:bg-brand-50/60 hover:underline decoration-dotted underline-offset-2 px-2 py-2 text-right text-(--color-text-muted)" onClick={() => setPerson({ pinfl: r.pinfl, focus: 'tarkib' })}>{formatTiyin(r.tarkibTiyin ?? '0')}</td>}
                             {isCenter && <td className="px-2 py-2 text-[11px] text-(--color-text-muted)">{(r.categories ?? []).map((c) => `${c.label.toLowerCase()} ${formatTiyin(c.tiyin)}`).join(' · ') || '—'}</td>}
                             <td className="money px-2 py-2 text-right">{formatTiyin(r.expectedTiyin ?? '0')}</td>
-                            <td className="money px-2 py-2 text-right">{r.bank.length ? formatTiyin(r.bankTiyin) : '—'}</td>
+                            <td className="money cursor-pointer hover:bg-brand-50/60 hover:underline decoration-dotted underline-offset-2 px-2 py-2 text-right" onClick={() => setPerson({ pinfl: r.pinfl, focus: 'bank' })}>{r.bank.length ? formatTiyin(r.bankTiyin) : '—'}</td>
                             <td className="px-3 py-2">
                               <Badge tone={STATE[r.state].tone}>{STATE[r.state].label}</Badge>
                             </td>
@@ -613,6 +618,7 @@ export function SolishtirmaView() {
                     <PersonRows
                       key={r.pinfl}
                       r={r}
+                      onOpen={(focus) => setPerson({ pinfl: r.pinfl, focus })}
                       isCenter={isCenter}
                       tol={tol}
                       canAct={isAdmin}
@@ -702,6 +708,7 @@ export function SolishtirmaView() {
         onConfirm={() => void doCancel()}
         onCancel={() => setAskCancel(false)}
       />
+      <PersonDrawer period={period} mode={mode} pinfl={person?.pinfl ?? null} focus={person?.focus ?? 'bank'} onClose={() => setPerson(null)} />
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
     </>
   );
@@ -722,8 +729,11 @@ function PersonRows({
   disabled,
   byCategory,
   onAllocate,
+  onOpen,
 }: {
   r: SolRow;
+  /** Katakcha bosilganda — xodimning manbadagi hamma ma'lumoti */
+  onOpen: (focus: PersonFocus) => void;
   isCenter: boolean;
   tol: bigint;
   canAct: boolean;
@@ -749,7 +759,9 @@ function PersonRows({
     <>
       <tr className={cn('border-t border-(--color-line) align-top', r.state === 'LESS' || r.state === 'NO_BANK' ? 'bg-(--color-expense-soft)/20' : r.state === 'MORE' || r.state === 'NO_FOT' ? 'bg-(--color-warn-soft)/30' : '')}>
         <td className="px-3 py-2">
-          <span className="block font-medium text-heading">{r.fullName}</span>
+          <button type="button" className="block text-left font-medium text-heading hover:text-brand-700 hover:underline" onClick={() => onOpen('soliq')} title="Manbadagi hamma ma'lumot">
+            {r.fullName}
+          </button>
           <span className="flex flex-wrap items-center gap-1 text-[11px] text-(--color-text-muted)">
             <span className="money">{r.pinfl}</span>
             {(r.typeKnown || r.fotTiyin !== null) && (
@@ -766,12 +778,12 @@ function PersonRows({
             <span className="mt-0.5 block text-[10px] text-(--color-text-faint)">{r.categories!.map((c) => `${c.label.toLowerCase()} ${formatTiyin(c.tiyin)}`).join(' · ')}</span>
           )}
         </td>
-        <td className="money px-2 py-2 text-right font-medium">
+        <td className="money cursor-pointer hover:bg-brand-50/60 hover:underline decoration-dotted underline-offset-2 px-2 py-2 text-right font-medium" onClick={() => onOpen('soliq')} title="Soliq hisoboti — qaysi faylda, qancha">
           {r.fotTiyin === null ? dash : formatTiyin(r.fotTiyin)}
           {r.unit && r.fotTiyin !== null && <span className="block text-[10px] font-normal text-(--color-text-faint)">bo‘lim ish haqidan</span>}
         </td>
         {isCenter && (
-          <td className="money px-2 py-2 text-right">
+          <td className="money cursor-pointer hover:bg-brand-50/60 hover:underline decoration-dotted underline-offset-2 px-2 py-2 text-right" onClick={() => onOpen('tarkib')} title="Ish haqi tarkibi — komponentlar">
             {r.tarkibTiyin === null ? (
               <span className="text-[11px] text-(--color-text-faint)">ish haqi tarkibida yo‘q</span>
             ) : (
@@ -788,7 +800,7 @@ function PersonRows({
         <td className="money px-2 py-2 text-right text-(--color-text-muted)">{r.taxTiyin === null ? dash : formatTiyin(r.taxTiyin)}</td>
         <td className="money px-2 py-2 text-right text-(--color-text-muted)">{r.unionTiyin === null ? dash : r.unionTiyin === '0' ? <span className="text-(--color-text-faint)">ushlanmaydi</span> : formatTiyin(r.unionTiyin)}</td>
         <td className="money px-2 py-2 text-right font-medium text-heading">{r.expectedTiyin === null ? dash : formatTiyin(r.expectedTiyin)}</td>
-        <td className="px-2 py-2 text-right">
+        <td className="cursor-pointer hover:bg-brand-50/60 hover:underline decoration-dotted underline-offset-2 px-2 py-2 text-right" onClick={() => onOpen('bank')} title="23106 — har to'lov: sana, hujjat, izoh">
           <span className="money font-medium text-heading">{r.bank.length ? formatTiyin(r.bankTiyin) : dash}</span>
           {r.bank.length > 0 && (
             <span className="block text-[10px] text-(--color-text-muted)" title={r.bank.map((b) => `${b.label}: ${b.dates.map(formatDate).join(', ')}`).join(' · ')}>

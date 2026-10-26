@@ -135,6 +135,20 @@ async function statement(rows) {
   v = await svc.view('2026-01', 'PAID');
   assert.deepStrictEqual([r(P.A).bankTiyin, r(P.A).state], [String(so(4_880_000)), 'LESS']);
 
+  // ── Bitta xodim: manbadagi hamma narsa (faqat uniki) ──
+  const pa = await svc.person('2026-01', P.A, 'ACCRUAL');
+  assert.deepStrictEqual([pa.fullName, pa.row.pinfl, pa.soliq.length, pa.soliq[0].tiyin, pa.soliq[0].counted], ['Alfa Shtatov', P.A, 1, String(so(10_000_000)), true]);
+  assert.deepStrictEqual([pa.tarkib.length, pa.tarkib[0].items.map((i) => [i.code, i.tiyin])], [1, [['OKLAD', String(so(9_000_000))], ['BAYRAM', String(so(1_000_000))]]]);
+  assert.ok(pa.adjustments.some((x) => x.tiyin === String(so(1_000_000))), "yo'naltirilgan bayram puli ham ko'rinadi");
+  assert.ok(pa.bank.length >= 3, "23106 dagi hamma to'lovi");
+  assert.ok(pa.bank.every((b) => b.docDate && b.docNo && b.purpose !== undefined));
+  assert.ok(pa.bank.some((b) => b.kind === 'SAFAR' && !b.counted && /safari/.test(b.reason)), 'xizmat safari — olinmagani va nega');
+  assert.strictEqual(pa.bankCountedTiyin, pa.row.bankTiyin, 'shu oyga olinganlar jami = qatordagi bank');
+  assert.ok(!JSON.stringify(pa).includes(P.B), 'boshqa xodim ma’lumoti yo‘q');
+  const pt = await svc.person('2026-01', P.T, 'ACCRUAL');
+  assert.deepStrictEqual([pt.tarkib[0].where, pt.tarkib[0].totalTiyin], ['Tax free ish haqi tarkibi', String(so(2_000_000))], "(oldin 200 ming yo'naltirilgan)");
+  await assert.rejects(svc.person('2026-01', '123'), /PINFL/);
+
   // ── Sozlamalar ──
   await assert.rejects(svc.saveSettings({ taxPct: 'abc', unionPct: 2, toleranceSum: 1000 }, 'adm'), /noto'g'ri/);
   await svc.saveSettings({ taxPct: 12, unionPct: '1', toleranceSum: 1000 }, 'adm');

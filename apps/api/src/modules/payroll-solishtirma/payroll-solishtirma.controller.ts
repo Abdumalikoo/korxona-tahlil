@@ -15,6 +15,13 @@ export class PayrollSolishtirmaController {
     return { data: await this.service.view(period, bankMonth, tab) };
   }
 
+  /** Bitta xodim — manbadagi hamma ma'lumot: ?period&pinfl&bankMonth */
+  @Personal()
+  @Get('person')
+  async person(@Query('period') period: string, @Query('pinfl') pinfl: string, @Query('bankMonth') bankMonth?: string) {
+    return { data: await this.service.person(period, pinfl, bankMonth) };
+  }
+
   @Get('settings')
   async settings() {
     return { data: await this.service.settings() };
