@@ -274,6 +274,8 @@ export interface UnitPlaces {
   rows: UnitPlaceRow[];
   counts: { total: number; mos: number; farq: number; fixed: number; noTarkib: number; unknown: number; tarkibHere: number };
   batch: { id: string; fileName: string | null; createdAt: string } | null;
+  /** Bo'limlar yo'q bo'lganda: fayl arxivdami va o'qish natijasi */
+  source?: { archived: boolean; note: string | null } | null;
   /** Tanilmagan tarkib nomlari — tanlash uchun */
   unmapped: { name: string; count: number }[];
   options: PlaceOption[];
@@ -328,6 +330,8 @@ export interface CommitResult {
   rememberedColumns?: number;
   /** Tarkibdagi bo'limlar: nechta bo'lim, nechta xodimning shu oy joyi o'zgartirildi */
   places?: { departments: number; fixed: number; moved: number; redistributed: boolean; warnings: string[] } | null;
+  /** Tarkib saqlandi, lekin bo'limlar yozilmadi — sabab (bo'limlar keyin arxivdagi fayldan o'qiladi) */
+  placesError?: string | null;
 }
 
 export interface CompositionBatch {

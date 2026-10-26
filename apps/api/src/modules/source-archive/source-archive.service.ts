@@ -259,6 +259,31 @@ export class SourceArchiveService implements OnApplicationBootstrap {
     });
   }
 
+  /**
+   * Saqlangan yuklashning fayli: bog'langan bo'lsa — o'sha; bo'lmasa (saqlashda bog'lanmay qolgan) — shu oy, shu nomli
+   * kutayotgan tahlil fayli shu yuklashga bog'lanadi va bog'liqliklar qo'llanadi. Topilmasa — null (fayl arxivda yo'q).
+   */
+  async adopt(kind: SourceKind, q: { period: string; refId: string; fileName?: string | null; unit?: string | null }): Promise<SourceEntry | null> {
+    const linked = await this.find(kind, { refId: q.refId });
+    if (linked) {
+      const links = await this.runLinkers(linked);
+      return { ...linked, links };
+    }
+    const adopted = await this.mutate(kind, (list) => {
+      const cand = list
+        .filter((e) => e.status === 'PENDING' && e.periods.includes(q.period) && (e.unit ?? null) === (q.unit ?? null) && (!q.fileName || e.fileName === q.fileName))
+        .sort((a, b) => b.at.localeCompare(a.at))[0];
+      if (!cand) return null;
+      cand.status = 'LINKED';
+      cand.refId = q.refId;
+      cand.linkedAt = new Date().toISOString();
+      return { ...cand };
+    });
+    if (!adopted) return null;
+    const links = await this.runLinkers(adopted);
+    return { ...adopted, links };
+  }
+
   /** Yuklash bekor qilindi — fayl arxivda qoladi, holati CANCELLED */
   async cancel(kind: SourceKind, refId: string): Promise<number> {
     try {

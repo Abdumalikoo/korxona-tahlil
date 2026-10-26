@@ -146,7 +146,11 @@ export function PlacesBar({ period, places, isAdmin, filter, onFilter, onChanged
         <span className="min-w-0 flex-1">
           <b className="text-heading">Manbada | Ish haqi tarkibida</b> —{' '}
           {places.batch
-            ? `${formatPeriod(period)} ish haqi tarkibida${places.batch.fileName ? ` («${places.batch.fileName}», ${formatDateTime(places.batch.createdAt)})` : ''} xodimlarning bo‘limi yo‘q: bu tarkib fayllar arxividan oldin yuklangan, fayli saqlanmagan. O‘sha faylni bir marta tanlang — faqat bo‘lim ustuni o‘qiladi (tarkib va summalar o‘zgarmaydi), fayl shu tarkib bilan arxivga olinadi va boshqa so‘ralmaydi.`
+            ? `${formatPeriod(period)} ish haqi tarkibida${places.batch.fileName ? ` («${places.batch.fileName}», ${formatDateTime(places.batch.createdAt)})` : ''} xodimlarning bo‘limi yo‘q: ${
+                places.source?.archived
+                  ? `fayl arxivda bor, lekin bo‘limlar o‘qilmadi${places.source.note ? ` — ${places.source.note}` : ''}. Faylda bo‘lim ustuni («Hududi», «Bo‘lim», «Подразделение») bormi — tekshiring; boshqa (bo‘limli) faylni tanlasangiz, faqat bo‘lim ustuni o‘qiladi.`
+                  : 'bu tarkibning fayli arxivda yo‘q (arxivdan oldin yuklangan). O‘sha faylni bir marta tanlang — faqat bo‘lim ustuni o‘qiladi (tarkib va summalar o‘zgarmaydi), fayl arxivga olinadi va boshqa so‘ralmaydi.'
+              }`
             : `${formatPeriod(period)} uchun ish haqi tarkibi yuklanmagan (Xarajatlar › Ish haqi tarkibi) — yuklangach, har xodimning tarkibdagi bo‘limi shu jadvalda chiqadi.`}
         </span>
         {places.batch && fileBtn}

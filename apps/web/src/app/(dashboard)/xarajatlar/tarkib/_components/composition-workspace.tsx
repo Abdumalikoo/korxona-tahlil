@@ -182,6 +182,7 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
           (data.rememberedColumns ? ` · ${data.rememberedColumns} ta ustun moslashi eslab qolindi` : '') +
           (data.places?.fixed ? ` · ${data.places.fixed} xodimning shu oy joyi tarkibdagidek qilindi${data.places.redistributed ? ' (ish haqi qayta taqsimlandi)' : ''}` : '') +
           (data.places?.warnings?.length ? ` · diqqat: ${data.places.warnings[0]}${data.places.warnings.length > 1 ? ` (+${data.places.warnings.length - 1})` : ''}` : '') +
+          (data.placesError ? ` · bo‘limlar yozilmadi: ${data.placesError} — bo‘lim sahifasi ochilganda arxivdagi fayldan o‘qiladi` : '') +
           (data.centerTiyin && data.centerTiyin !== '0'
             ? ` · bayram/choraklik ${formatTiyin(data.centerTiyin, { currency: true })} (${data.centerEmployees ?? 0} hudud xodimi) Markaz hisobiga o'tdi`
             : ''),

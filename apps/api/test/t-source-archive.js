@@ -85,17 +85,18 @@ async function tarkib(rows, name = 'tarkib-fevral.xlsx') {
   const ra = cmp.rows.find((r) => r.pinfl === P.A);
   assert.deepStrictEqual([ra.status, ra.manba.unit, ra.tarkib.departmentName], ['FARQ', 'TAX_FREE', 'Call markaz']);
   let e = (await archive.list('salary-composition')).entries[0];
-  assert.deepStrictEqual([e.links.depts.version, e.links.depts.ok], [1, true]);
+  const V = archive.linkersOf('salary-composition')[0].version;
+  assert.deepStrictEqual([e.links.depts.version, e.links.depts.ok], [V, true]);
   assert.match(e.links.depts.note, /3 xodim/);
   // Qayta ishga tushish — takrorlanmaydi
   assert.strictEqual((await archive.backfill()).files, 0);
 
   // Bog'liqlik versiyasi oshsa — yana qo'llanadi
   const l = archive.linkersOf('salary-composition')[0];
-  archive.register({ ...l, version: 2 });
+  archive.register({ ...l, version: V + 1 });
   assert.strictEqual((await archive.backfill()).files, 1);
   e = (await archive.list('salary-composition')).entries[0];
-  assert.deepStrictEqual([e.links.depts.version, e.links.depts.note.startsWith("Bo'limlar bog'langan")], [2, true]);
+  assert.deepStrictEqual([e.links.depts.version, e.links.depts.note.startsWith("Bo'limlar bog'langan")], [V + 1, true]);
   archive.register(l);
 
   // ── 3) Yangi yuklash (bog'liqlik bor): saqlanganda darhol qo'llanadi ──
@@ -115,6 +116,21 @@ async function tarkib(rows, name = 'tarkib-fevral.xlsx') {
   // Bekor qilingan tarkib fayli — bog'liqlik qo'llanmaydi (joriy tarkibni buzmaydi)
   assert.strictEqual((await archive.backfill(undefined, true)).failed, 0);
   assert.strictEqual((await places.compare(PER, 'CENTER')).rows.find((r) => r.pinfl === P.A).tarkib.departmentName, 'AUP');
+
+  // ── 3b) Saqlashda bo'limlar yozilmay qolgan (xato bo'lgan) va fayl bog'lanmagan — bo'lim sahifasi ochilganda o'zi tuzaladi ──
+  const P3 = '2026-03';
+  const f3 = await tarkib([{ pinfl: P.A, name: 'Alfa Kochgan', dept: 'Call markaz', sum: 1_000_000 }, { pinfl: P.C, name: 'Gamma Joyida', dept: 'Call markaz', sum: 3_000_000 }], 'aprel-oyi-uchun.xlsx');
+  const a3 = await comp.analyze(P3, f3);
+  await archive.hold('salary-composition', f3, { userId: 'adm', periods: [P3], unit: null, sheet: a3.sheetName });
+  await comp.commit({ period: P3, fileName: f3.originalname, userId: 'adm', rows: commitRows(a3) });
+  const placesA = new CompositionPlaceService(db.client, audit, units, pay, plan, archive);
+  const c3 = await placesA.compare(P3, 'TAX_FREE');
+  assert.deepStrictEqual([c3.hasTarkib, c3.source.archived], [true, true], 'arxivdagi fayldan bo‘limlar o‘qildi');
+  assert.strictEqual(c3.rows.find((r) => r.pinfl === P.A).tarkib.departmentName, 'Call markaz');
+  // Fayli arxivda yo'q tarkib — aniq aytiladi
+  await comp.commit({ period: '2026-05', fileName: 'yoq.xlsx', userId: 'adm', rows: commitRows(a3) });
+  const c5 = await placesA.compare('2026-05', 'TAX_FREE');
+  assert.deepStrictEqual([c5.hasTarkib, c5.source.archived], [false, false]);
 
   // ── 4) Bitta fayldan bir necha yuklash (oylar) — har biriga bog'lanadi ──
   const fu = { buffer: Buffer.from('bolim vedomosti'), originalname: 'taxfree-yanvar-mart.xlsx' };

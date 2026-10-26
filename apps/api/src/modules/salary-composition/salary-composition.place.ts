@@ -8,6 +8,7 @@ import { PayrollPlanService } from '../payroll/payroll-plan.service';
 import { COMPOSITION_PLACE_KEY, PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PAYROLL_UNITS, UnitPayrollService, membership } from '../unit-payroll/unit-payroll.service';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 
 // ═══════════════════════════════════════════════════════════
 // Ish haqi tarkibi › «Tarkibdagi bo'limlar» — xodim o'sha oyda qaysi bo'limda ishlagani (tarkib faylidan).
@@ -30,7 +31,7 @@ const SKIP = 'SKIP';
 const MAX_LEARNED = 500;
 
 /** Bo'lim ustuni sarlavhasi */
-const DEPT_HEADER_RE = /^(hududi|худуди|bo.?limi?|булими?|bo.?linma(si)?|бўлинма(си)?|отдел|подразделение|bo.?lim nomi|структурное подразделение)$/iu;
+const DEPT_HEADER_RE = /^(hududi?|худуди?|bo.?limi?|bo.?limlar|булими?|бўлими?|bo.?linma(si)?|бўлинма(си)?|отдел|подразделение|структурное подразделение|ish joyi|иш жойи)(?:[\s/().,:;-].{0,40})?$/iu;
 
 const TR: Record<string, string> = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'j', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'x', ц: 's', ч: 'ch', ш: 'sh', щ: 'sh', ъ: '', ы: 'i', ь: '', э: 'e', ю: 'yu', я: 'ya', ў: 'o', қ: 'q', ғ: 'g', ҳ: 'h' };
 
@@ -175,7 +176,19 @@ export class CompositionPlaceService {
     private readonly units: UnitPayrollService,
     @Optional() private readonly payroll?: PayrollService,
     @Optional() private readonly plan?: PayrollPlanService,
+    @Optional() private readonly archive?: SourceArchiveService,
   ) {}
+
+  /**
+   * Shu oy saqlangan tarkibda bo'limlar yo'q bo'lsa — arxivdagi o'sha faylidan o'qiladi (qayta yuklashsiz).
+   * Natija: fayl arxivdami va o'qish natijasi (masalan, «Faylda bo'lim ustuni yo'q»).
+   */
+  private async repairDepts(period: string): Promise<{ archived: boolean; note: string | null }> {
+    const batch = await this.prisma.salaryCompositionBatch.findFirst({ where: { period, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, fileName: true } });
+    if (!batch || !this.archive) return { archived: false, note: null };
+    const e = await this.archive.adopt('salary-composition', { period, refId: batch.id, fileName: batch.fileName, unit: null }).catch(() => null);
+    return { archived: Boolean(e), note: e?.links?.depts?.note ?? null };
+  }
 
   private async learned(): Promise<Record<string, string>> {
     const v = (await this.prisma.setting.findUnique({ where: { key: DEPT_NAMES_KEY } }))?.value as { map?: Record<string, string> } | null;
@@ -493,6 +506,9 @@ export class CompositionPlaceService {
    * bo'lim) yonma-yon. Ikki guruh: manbada shu bo'limdagilar va tarkibda shu bo'limda, manbada boshqa joydagilar.
    */
   async compare(period: string, unit: string) {
+    // Bo'limlar yo'q — arxivdagi fayldan (bo'lsa) o'zi o'qiladi
+    let source: { archived: boolean; note: string | null } | null = null;
+    if (!Object.keys((await this.month(period)).depts).length) source = await this.repairDepts(period);
     const [month, resolve, staff, moves] = await Promise.all([this.month(period), this.resolver(), this.units.staffOf(unit, period), this.units.allMoves()]);
     const fixIds = new Set(Object.values(month.fixes).flatMap((f) => f.moveIds ?? []));
     // Manba (asl) — tarkib bo'yicha qilingan ko'chishlarsiz
@@ -569,6 +585,8 @@ export class CompositionPlaceService {
     return {
       /** Shu oy saqlangan umumiy tarkib (bo'limlari bormi — hasTarkib) */
       batch: batch ? { id: batch.id, fileName: batch.fileName, createdAt: batch.createdAt } : null,
+      /** Bo'limlar yo'q bo'lganda: tarkib fayli arxivdami va o'qish natijasi */
+      source,
       unmapped,
       options: unmapped.length ? await this.options() : [],
       period,

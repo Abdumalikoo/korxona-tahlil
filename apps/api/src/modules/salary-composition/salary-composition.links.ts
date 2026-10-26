@@ -6,7 +6,7 @@ import { SalaryCompositionService } from './salary-composition.service';
 
 // ═══════════════════════════════════════════════════════════
 // Ish haqi tarkibi fayllari uchun «bog'liqliklar» (arxivdagi fayldan qo'shimcha ma'lumot):
-//  • depts (v1) — tarkibdagi bo'lim ustuni → shu oy xodimlarning tarkibdagi bo'limi (Manbada | Ish haqi tarkibida).
+//  • depts (v2) — tarkibdagi bo'lim ustuni → shu oy xodimlarning tarkibdagi bo'limi (Manbada | Ish haqi tarkibida).
 // Yangi bog'liqlik kerak bo'lsa — shu yerga qo'shiladi: API ishga tushganda arxivdagi eski fayllarga ham o'zi qo'llanadi.
 // ═══════════════════════════════════════════════════════════
 
@@ -25,7 +25,8 @@ export class CompositionSourceLinks implements OnModuleInit {
     this.archive?.register({
       kind: 'salary-composition',
       name: 'depts',
-      version: 1,
+      // v2: bo'lim ustuni sarlavhasi kengroq taniladi («Hudud», «Bo'lim nomi», «Hududi (bo'lim)» …)
+      version: 2,
       label: "Tarkibdagi bo'limlar (xodim shu oy qaysi bo'limda)",
       run: async (entry, file) => {
         if (entry.unit) return { ok: true, note: "Bo'lim tarkibi — bo'lim ustuni kerak emas" };

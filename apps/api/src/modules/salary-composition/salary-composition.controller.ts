@@ -202,9 +202,18 @@ export class SalaryCompositionController {
     // Saqlandi — tasdiqlangan ustun moslashlari eslab qolinadi (keyingi oy shu sarlavhalar o'zi taniladi)
     const remembered = await this.composition.rememberColumns(body.columns).catch(() => 0);
     // Tarkibdagi bo'limlar: moslik eslab qolinadi, belgilangan xodimlarning shu oy joyi tarkibdagidek
-    const places = unit ? null : await this.places.apply(period, data.batchId, body.rows.map((r) => ({ pinfl: String(r.pinfl ?? ''), fullName: r.fullName ? String(r.fullName) : null, dept: typeof r.dept === 'string' ? r.dept : null })), body.places, userId);
+    // (xato bo'lsa ham tarkib saqlangan — bo'limlar keyin arxivdagi fayldan o'qiladi, xato javobda aytiladi)
+    let placesError: string | null = null;
+    const places = unit
+      ? null
+      : await this.places
+          .apply(period, data.batchId, body.rows.map((r) => ({ pinfl: String(r.pinfl ?? ''), fullName: r.fullName ? String(r.fullName) : null, dept: typeof r.dept === 'string' ? r.dept : null })), body.places, userId)
+          .catch((e: Error) => {
+            placesError = e.message;
+            return null;
+          });
     await this.archive.link('salary-composition', { userId, fileName: body.fileName ?? 'tarkib.xlsx', refId: data.batchId, periods: [period], unit: unit ?? null });
-    return { data: { ...data, rememberedColumns: remembered, places } };
+    return { data: { ...data, rememberedColumns: remembered, places, placesError } };
   }
 
   /** Yuklashni bekor qilish */
