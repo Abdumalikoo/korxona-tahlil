@@ -6,6 +6,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TaxesService } from '../taxes/taxes.service';
 import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { runExclusive } from '../../common/locks';
+import type { UnitMove } from '../unit-payroll/unit-payroll.service';
 import { isNdflWorkbook, parseNdfl, type NdflResult } from './ndfl.parser';
 
 const CENTRAL_REGION = 0;
@@ -55,6 +57,16 @@ export interface LocationRef {
  * settings «salary.composition.place.<oy>» → fixes[pinfl].departmentId. Faqat shu oy uchun.
  */
 export const COMPOSITION_PLACE_KEY = (period: string) => `salary.composition.place.${period}`;
+
+/** Umumiy yuklash «miya»ga yozgan ko'chishlar (yuklashda bo'limi o'zgartirilganlar): batchId → ko'chishlar */
+export const BATCH_MOVES_KEY = 'payroll.batchMoves';
+export interface BatchMoves {
+  moveIds: string[];
+  displaced: UnitMove[];
+}
+
+/** Shu oy ish haqi yozuvlarini o'zgartiradigan amallar navbati (qayta yuklash, taqsimlash, guruhlash, bekor qilish) */
+export const payrollLock = (period: string) => `payroll:${period}`;
 
 export interface ExpenseGroup {
   key: string;
@@ -618,8 +630,17 @@ export class PayrollService {
     missing: MissingRow[];
     /** ALL — umumiy (administrator), REGIONS — hududlar vedomosti (Hududchi) */
     scope?: 'ALL' | 'REGIONS';
+    /** Almashtirishni chaqiruvchi o'zi qiladi (yangi yuklash to'liq saqlangandan keyin) — bu yerda eskilarga tegilmaydi */
+    deferReplace?: boolean;
   }) {
-    const { period, userId, replacePrevious, fileName, missing } = params;
+    this.assertPeriod(params.period);
+    return runExclusive(payrollLock(params.period), () => this.commitNow(params));
+  }
+
+  private async commitNow(params: { period: string; rows: PayrollRow[]; userId: string; replacePrevious: boolean; fileName: string; missing: MissingRow[]; scope?: 'ALL' | 'REGIONS'; deferReplace?: boolean }) {
+    const { period, userId, fileName, missing } = params;
+    const deferred = params.deferReplace === true;
+    const replacePrevious = params.replacePrevious && !deferred;
     const scope = params.scope ?? 'ALL';
     this.assertPeriod(period);
 
@@ -675,9 +696,11 @@ export class PayrollService {
       )
       .digest('hex');
 
+    const replacedIds: string[] = [];
     const result = await this.prisma.$transaction(
       async (tx) => {
         let replaced = 0;
+        replacedIds.length = 0;
 
         // Bir xodim bir oyda ikki vedomostda (umumiy va hudud) bo'lmasin — ish haqi ikki marta sanalmasin
         const overlap = await tx.payrollEntry.findMany({
@@ -720,10 +743,11 @@ export class PayrollService {
               data: { status: 'CANCELLED' },
             });
             replaced = ids.length;
+            replacedIds.push(...ids);
           }
         }
 
-        if (!replacePrevious) {
+        if (!replacePrevious && !deferred) {
           const dup = await tx.payrollBatch.findFirst({
             where: { period, fileHash, status: 'COMMITTED', scope },
             select: { id: true },
@@ -802,6 +826,12 @@ export class PayrollService {
       },
       { timeout: 60_000 },
     );
+    // Almashtirilgan yuklashlardan bo'limlarga yozilganlar ham bekor (aks holda xodimlar ikki marta sanaladi);
+    // ular yozgan ko'chishlar yangi yuklashga o'tadi
+    for (const id of replacedIds) {
+      if (this.unitPayroll) await this.unitPayroll.cancelByGeneral(id, period, userId);
+      await this.carryMoves(id, result.batchId);
+    }
 
     // Hudud xodimlari: bayram, choraklik pullar (ish haqi tarkibidan) — Markaz hisobiga, sof oylik — hududga
     const split = await this.regroup(period).catch((error: unknown) => {
@@ -910,6 +940,10 @@ export class PayrollService {
    */
   async regroup(period: string): Promise<RegroupReport> {
     this.assertPeriod(period);
+    return runExclusive(payrollLock(period), () => this.regroupNow(period));
+  }
+
+  private async regroupNow(period: string): Promise<RegroupReport> {
 
     const [batches, locations, shares] = await Promise.all([
       this.prisma.payrollBatch.findMany({
@@ -1114,7 +1148,17 @@ export class PayrollService {
 
   // ═══════════ Bekor qilish ═══════════
 
-  async cancel(batchId: string) {
+  /**
+   * Bekor qilish. keepMoves — almashtirishda (yangi yuklash eski ko'chishlarni oladi); aks holda shu yuklash «miya»ga
+   * yozgan ko'chishlar ham olib tashlanadi va ular o'rniga yozilganlar tiklanadi.
+   */
+  async cancel(batchId: string, opts: { keepMoves?: boolean; userId?: string } = {}) {
+    const found = await this.prisma.payrollBatch.findUnique({ where: { id: batchId }, select: { period: true } });
+    if (!found) throw new NotFoundException('Yuklash topilmadi');
+    return runExclusive(payrollLock(found.period), () => this.cancelNow(batchId, opts));
+  }
+
+  private async cancelNow(batchId: string, opts: { keepMoves?: boolean; userId?: string }) {
     const batch = await this.prisma.payrollBatch.findUnique({ where: { id: batchId } });
 
     if (!batch) {
@@ -1136,10 +1180,65 @@ export class PayrollService {
       }),
     ]);
     this.retax(batch.period);
-    // Shu yuklashdan bo'limlarga avtomatik yozilganlar ham bekor
-    const units = this.unitPayroll ? await this.unitPayroll.cancelByGeneral(batchId, batch.period, batch.uploadedById).catch(() => 0) : 0;
+    // Shu yuklashdan bo'limlarga avtomatik yozilganlar ham bekor (xato yashirilmaydi — aks holda ikki marta sanaladi)
+    const units = this.unitPayroll ? await this.unitPayroll.cancelByGeneral(batchId, batch.period, opts.userId ?? batch.uploadedById) : 0;
+    if (!opts.keepMoves) await this.dropBatchMoves(batchId, opts.userId ?? batch.uploadedById);
 
     return { success: true as const, unitBatchesCancelled: units };
+  }
+
+  // ═══════════ Yuklash yozgan ko'chishlar ═══════════
+
+  private async batchMoves(): Promise<Record<string, BatchMoves>> {
+    const v = (await this.prisma.setting.findUnique({ where: { key: BATCH_MOVES_KEY } }))?.value as { batches?: Record<string, BatchMoves> } | null;
+    return v?.batches && typeof v.batches === 'object' ? v.batches : {};
+  }
+
+  private async saveBatchMoves(all: Record<string, BatchMoves>) {
+    const value = { batches: all } as object;
+    await this.prisma.setting.upsert({ where: { key: BATCH_MOVES_KEY }, create: { key: BATCH_MOVES_KEY, value }, update: { value } });
+  }
+
+  /** Yuklash yozgan ko'chishlarni eslab qolish */
+  async rememberMoves(batchId: string, moveIds: string[], displaced: UnitMove[]) {
+    if (!moveIds.length) return;
+    await runExclusive(`setting:${BATCH_MOVES_KEY}`, async () => {
+      const all = await this.batchMoves();
+      const cur = all[batchId] ?? { moveIds: [], displaced: [] };
+      all[batchId] = { moveIds: [...cur.moveIds, ...moveIds], displaced: [...cur.displaced, ...displaced] };
+      await this.saveBatchMoves(all);
+    });
+  }
+
+  /** Almashtirishda: eski yuklash ko'chishlari yangisiga o'tadi */
+  private async carryMoves(fromId: string, toId: string) {
+    await runExclusive(`setting:${BATCH_MOVES_KEY}`, async () => {
+      const all = await this.batchMoves();
+      const from = all[fromId];
+      if (!from) return;
+      const to = all[toId] ?? { moveIds: [], displaced: [] };
+      all[toId] = { moveIds: [...to.moveIds, ...from.moveIds], displaced: [...to.displaced, ...from.displaced] };
+      delete all[fromId];
+      await this.saveBatchMoves(all);
+    });
+  }
+
+  /** Bekor qilishda: yuklash yozgan ko'chishlar olib tashlanadi, ular o'rniga yozilganlar tiklanadi */
+  private async dropBatchMoves(batchId: string, userId: string) {
+    const mv = await runExclusive(`setting:${BATCH_MOVES_KEY}`, async () => {
+      const all = await this.batchMoves();
+      const x = all[batchId];
+      if (!x) return null;
+      delete all[batchId];
+      await this.saveBatchMoves(all);
+      return x;
+    });
+    if (mv && this.unitPayroll) await this.unitPayroll.undoMoves(mv.moveIds, mv.displaced, userId, 'umumiy vedomost yuklashi bekor qilindi');
+  }
+
+  /** Almashtirishda chaqiruvchi uchun: eski yuklash ko'chishlari yangisiga */
+  async transferMoves(fromId: string, toId: string) {
+    await this.carryMoves(fromId, toId);
   }
 
   // ═══════════ Topilmaganlar Excel ═══════════

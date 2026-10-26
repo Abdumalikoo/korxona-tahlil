@@ -8,7 +8,7 @@ import { monthLabel, monthsBetween } from '../../common/period';
 import { ensurePayrollPartCategories, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
 import { hrPeople, hrUnitStaff } from '../hr-sheets/hr-sheets.store';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
-import { Exclusive } from '../../common/locks';
+import { Exclusive, runExclusive } from '../../common/locks';
 import { somToTiyin } from '../../common/money';
 import { listBlock, ObjectMap, shapeOf } from '../../common/settings/shape';
 import { assertAmount } from '../../common/validation/amount';
@@ -154,7 +154,28 @@ export interface UnitPayrollBatch {
   origin?: 'GENERAL';
   /** Umumiy vedomost yuklashi (bekor qilinsa — bu ham bekor bo'ladi); hamma qatorlar bo'limga tushsa — null */
   generalBatchId?: string | null;
+  /** Shu yuklash «miya»ga yozgan ko'chishlar (boshqa bo'limdan kelganlar) — yuklash bekor qilinsa, olib tashlanadi */
+  moveIds?: string[];
+  /** Ko'chishlar o'rniga yozilgan (ustidan yozilgan) avvalgilari — bekor qilinganda tiklanadi */
+  displacedMoves?: UnitMove[];
+  /** Shu yuklash bo'lim ro'yxatiga qo'shgan yangi xodimlar — yuklash bekor qilinsa, boshqa yuklashda bo'lmasa olib tashlanadi */
+  staffAdded?: string[];
 }
+
+/** Bo'limdan boshqa joyga summasi bilan o'tkazilganlar — manba yuklash bekor qilinsa yoki almashtirilsa, bular ham bekor */
+interface MovedRecord {
+  id: string;
+  at: string;
+  pinfls: string[];
+  sourceBatchIds: string[];
+  targetUnit: string | null;
+  targetBatchId: string | null;
+  expenseIds: string[];
+  moveIds: string[];
+  displaced: UnitMove[];
+  undoneAt: string | null;
+}
+const movedKey = (unit: string, period: string) => `unit.payroll.moved.${unit}.${period}`;
 
 /** Ish haqi sahifasi bor bo'limlar (umumiy vedomostdan avtomatik taqsimlanadi) */
 export const PAYROLL_UNITS = ['TAX_FREE', 'FERMER', 'BUXGALTERIYA', 'MARKSHEYDER'] as const;
@@ -409,7 +430,7 @@ export class UnitPayrollService {
    * Shu oyda shu xodimga boshqa ko'chish bo'lsa — almashtiriladi. «from» dagi bo'limi allaqachon shu bo'lsa — rad etiladi.
    */
   @Exclusive('unit-payroll')
-  async addMove(body: { pinfl?: unknown; unit?: unknown; from?: unknown; note?: unknown; fullName?: unknown }, userId: string, source: UnitMove['source'] = 'MANUAL'): Promise<UnitMove> {
+  async addMove(body: { pinfl?: unknown; unit?: unknown; from?: unknown; note?: unknown; fullName?: unknown }, userId: string, source: UnitMove['source'] = 'MANUAL'): Promise<UnitMove & { displaced: UnitMove | null }> {
     const pinfl = parsePinfl(body?.pinfl);
     if (!pinfl) throw new BadRequestException("PINFL 14 ta raqam bo'lishi kerak");
     const unit = typeof body?.unit === 'string' && ENTRY_UNIT_CODES.includes(body.unit) ? body.unit : null;
@@ -434,9 +455,35 @@ export class UnitPayrollService {
       createdAt: new Date().toISOString(),
       createdBy: userId,
     };
+    // Shu oyda boshlangan avvalgi ko'chish o'rniga yoziladi — u qaytarish uchun javobda beriladi (yo'qolmasin)
+    const displaced = all.find((m) => m.pinfl === pinfl && m.from === from) ?? null;
     await this.writeSetting(MOVES_KEY, { moves: [...foreignMoves(raw), ...rest, move] });
     await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_move', entityId: pinfl, summary: `${fullName}: ${monthLabel(from)}dan «${entryUnitLabel(unit)}» bo'limida${before ? ` (oldin — ${entryUnitLabel(before)})` : ''}${source === 'UPLOAD' ? ' · vedomostdan' : ''}` });
-    return move;
+    return { ...move, displaced };
+  }
+
+  /**
+   * Ko'chishlarni bekor qilish (bo'lsa) va ular o'rniga yozilgan avvalgilarini tiklash — bitta yozuvda.
+   * Avvalgisi tiklanmaydi, agar o'sha oyda boshqa ko'chish allaqachon bor bo'lsa.
+   */
+  @Exclusive('unit-payroll')
+  async undoMoves(ids: string[], displaced: UnitMove[], userId: string, reason: string): Promise<{ removed: number; restored: number }> {
+    if (!ids.length && !displaced.length) return { removed: 0, restored: 0 };
+    const raw = await this.readShaped(MOVES_KEY, 'moves');
+    const all = readMoves(raw);
+    const drop = new Set(ids);
+    const kept = all.filter((m) => !drop.has(m.id));
+    const removed = all.length - kept.length;
+    let restored = 0;
+    for (const d of displaced) {
+      if (!d || kept.some((m) => m.id === d.id || (m.pinfl === d.pinfl && m.from === d.from))) continue;
+      kept.push(d);
+      restored += 1;
+    }
+    if (!removed && !restored) return { removed: 0, restored: 0 };
+    await this.writeSetting(MOVES_KEY, { moves: [...foreignMoves(raw), ...kept] });
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_move', entityId: 'batch', summary: `«Miya»: ${removed} ta ko'chish olib tashlandi${restored ? `, ${restored} tasi avvalgi holatiga tiklandi` : ''} — ${reason}` });
+    return { removed, restored };
   }
 
   @Exclusive('unit-payroll')
@@ -627,7 +674,7 @@ export class UnitPayrollService {
   private async inGeneral(period: string, pinfls: string[]): Promise<Set<string>> {
     if (!pinfls.length) return new Set();
     const rows = await this.prisma.payrollEntry
-      .findMany({ where: { period, employeePinfl: { in: pinfls }, batch: { status: 'COMMITTED' } }, select: { employeePinfl: true } })
+      .findMany({ where: { period, employeePinfl: { in: pinfls }, deletedAt: null, batch: { status: 'COMMITTED' } }, select: { employeePinfl: true } })
       .catch(() => [] as { employeePinfl: string }[]);
     const out = new Set(rows.map((r) => r.employeePinfl));
     // Umumiy soliq hisobotidan bo'limlarga (miya bo'yicha) yozilganlar ham — o'sha hisobotda bor
@@ -1112,7 +1159,7 @@ export class UnitPayrollService {
     body: { rows?: unknown; fileName?: unknown },
     replacePrevious: boolean,
     userId: string,
-    opts: { origin?: 'GENERAL'; generalBatchId?: string | null } = {},
+    opts: { origin?: 'GENERAL'; generalBatchId?: string | null; skipGeneralCheck?: boolean } = {},
   ) {
     this.assertPeriod(period);
     if (!Array.isArray(body?.rows) || body.rows.length === 0) throw new BadRequestException("Saqlash uchun ma'lumot yo'q");
@@ -1138,7 +1185,7 @@ export class UnitPayrollService {
 
     // Shu oy umumiy vedomostda bor xodimlar olinmaydi — ish haqi ikki marta sanalmasin
     const skippedInGeneral: string[] = [];
-    if (opts.origin !== 'GENERAL') {
+    if (opts.origin !== 'GENERAL' && !opts.skipGeneralCheck) {
       const general = await this.inGeneral(period, [...merged.keys()]);
       for (const p of general) {
         merged.delete(p);
@@ -1181,15 +1228,25 @@ export class UnitPayrollService {
         const now = new Date().toISOString();
         let replaced = 0;
 
+        // Almashtirish — faqat o'sha turdagi yuklashlar: qo'lda yuklash umumiy soliq hisobotidan kelgan qatorlarni
+        // o'chirmaydi (aks holda ularning ish haqi xarajatdan yo'qoladi) va aksincha
+        const sameKind = committed.filter((b) => (opts.origin === 'GENERAL' ? b.origin === 'GENERAL' : b.origin !== 'GENERAL'));
+        const replacedIds: string[] = [];
+        const carriedMoves: string[] = [];
+        const carriedStaff: string[] = [];
         if (replacePrevious) {
-          const ids = committed.map((b) => b.expenseId).filter((id): id is string => Boolean(id));
+          const ids = sameKind.map((b) => b.expenseId).filter((id): id is string => Boolean(id));
           if (ids.length) await tx.expense.updateMany({ where: { id: { in: ids }, deletedAt: null }, data: { deletedAt: new Date() } });
-          for (const b of committed) {
+          for (const b of sameKind) {
             b.status = 'CANCELLED';
             b.cancelledAt = now;
+            replacedIds.push(b.id);
+            // Avvalgi yuklash yozgan ko'chishlar — yangisiga o'tadi (xodim joyi o'zgarmaydi)
+            carriedMoves.push(...(b.moveIds ?? []));
+            carriedStaff.push(...(b.staffAdded ?? []));
           }
-          replaced = committed.length;
-        } else if (committed.some((b) => b.fileHash === fileHash)) {
+          replaced = sameKind.length;
+        } else if (opts.origin !== 'GENERAL' && sameKind.some((b) => b.fileHash === fileHash)) {
           throw new BadRequestException("Bu vedomost shu oy uchun allaqachon saqlangan (xuddi shu ma'lumotlar). Ikki marta yozilmaydi");
         }
 
@@ -1220,11 +1277,13 @@ export class UnitPayrollService {
         // «Miya»: yangi PINFL'lar bo'lim ro'yxatiga, ketgan deb belgilanganlar qaytadi
         let newStaff = 0;
         let returned = 0;
+        const staffAdded: string[] = [];
         for (const r of rows) {
           const known = byPinfl.get(r.pinfl);
           const own = ownBy.get(r.pinfl);
           if (!known) {
             staff.push({ pinfl: r.pinfl, fullName: r.fullName, position: names.get(r.pinfl)?.position ?? null, active: true, addedAt: now, source: 'UPLOAD', leftAt: null });
+            staffAdded.push(r.pinfl);
             newStaff += 1;
           } else if (own && !own.active) {
             own.active = true;
@@ -1250,6 +1309,8 @@ export class UnitPayrollService {
           expenseId,
           rows,
           ...(opts.origin === 'GENERAL' ? { origin: 'GENERAL' as const, generalBatchId: opts.generalBatchId ?? null } : {}),
+          ...(carriedMoves.length ? { moveIds: carriedMoves } : {}),
+          ...(staffAdded.length || carriedStaff.length ? { staffAdded: [...new Set([...carriedStaff, ...staffAdded])] } : {}),
         };
         const value = { batches: [...batches, batch] } as object;
         await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
@@ -1258,10 +1319,12 @@ export class UnitPayrollService {
         allStaff[unit] = staff;
         await tx.setting.upsert({ where: { key: STAFF_KEY }, create: { key: STAFF_KEY, value: allStaff as object }, update: { value: allStaff as object } });
 
-        return { batchId: batch.id, expenseId, replaced, newStaff, returned };
+        return { batchId: batch.id, expenseId, replaced, replacedIds, newStaff, returned };
       },
       { timeout: 60_000 },
     );
+    // Qo'lda yuklash almashtirildi — undan boshqa joyga o'tkazilgan summalar ham bekor (manbasi endi yo'q)
+    if (result.replacedIds.length && opts.origin !== 'GENERAL') await this.undoMoved(unit, period, null, userId, 'vedomost almashtirildi');
 
     await this.audit.log({
       userId,
@@ -1274,14 +1337,22 @@ export class UnitPayrollService {
     // «Miya»: shu oyda boshqa bo'limda bo'lgan xodim shu bo'lim vedomostida (summa bilan) — shu oydan shu bo'limga ko'chadi
     const at = membership(await this.allMoves());
     let movedIn = 0;
+    const movedIds: string[] = [];
+    const movedDisplaced: UnitMove[] = [];
     for (const [pinfl, v] of merged) {
       if (v.amount <= 0n) continue;
       const other = at(pinfl, period);
       if (other && other !== unit) {
-        await this.addMove({ pinfl, unit, from: period, fullName: v.fullName ?? undefined }, userId, 'UPLOAD').catch(() => null);
+        const m = await this.addMove({ pinfl, unit, from: period, fullName: v.fullName ?? undefined }, userId, 'UPLOAD').catch(() => null);
+        if (m) {
+          movedIds.push(m.id);
+          if (m.displaced) movedDisplaced.push(m.displaced);
+        }
         movedIn += 1;
       }
     }
+    // Yozilgan ko'chishlar — yuklashda (bekor qilinsa — olib tashlanadi, o'rniga yozilganlari tiklanadi)
+    if (movedIds.length) await this.patchBatch(unit, period, result.batchId, (b) => ({ ...b, moveIds: [...(b.moveIds ?? []), ...movedIds], ...(movedDisplaced.length ? { displacedMoves: movedDisplaced } : {}) }));
 
     // Ish haqi qismlari (siyosat bo'yicha) — qayta ajratiladi
     await this.splitComponents(unit, period).catch(() => null);
@@ -1338,8 +1409,75 @@ export class UnitPayrollService {
       return b;
     });
     await this.audit.log({ userId, action: 'DELETE', entity: 'unit_payroll', entityId: `${unit}:${period}:${id}`, summary: `${entryUnitLabel(unit)} ish haqi ${period} bekor qilindi: ${out.fileName}` });
+    // Shu yuklash yozgan «miya» ko'chishlari va undan boshqa joyga o'tkazilgan summalar — bekor
+    await this.undoMoves(out.moveIds ?? [], out.displacedMoves ?? [], userId, `${entryUnitLabel(unit)} yuklashi bekor qilindi`).catch(() => null);
+    await this.undoMoved(unit, period, id, userId, 'manba yuklash bekor qilindi').catch(() => null);
+    await this.dropAddedStaff(unit, out.staffAdded ?? [], id).catch(() => null);
     await this.splitComponents(unit, period).catch(() => null);
     return { success: true as const, id };
+  }
+
+  /**
+   * Yuklash bekor qilindi: u bo'lim ro'yxatiga qo'shgan xodimlar — boshqa saqlangan yuklashlarda (istalgan oy) bo'lmasa —
+   * ro'yxatdan olib tashlanadi (aks holda keyingi oylarda ham shu bo'limda hisoblanadi)
+   */
+  private async dropAddedStaff(unit: string, pinfls: string[], batchId: string) {
+    if (!pinfls.length) return;
+    const rows = await this.prisma.setting.findMany({ where: { key: { startsWith: `unit.payroll.${unit}.` } }, select: { key: true, value: true } });
+    const still = new Set<string>();
+    for (const r of rows) {
+      if (!/\.\d{4}-\d{2}$/.test(r.key)) continue;
+      for (const b of readBatches(r.value)) if (b.status === 'COMMITTED' && b.id !== batchId) for (const x of b.rows ?? []) still.add(x.pinfl);
+    }
+    const drop = new Set(pinfls.filter((p) => !still.has(p)));
+    if (!drop.size) return;
+    const items = await this.ownStaff(unit);
+    const kept = items.filter((i) => !(drop.has(i.pinfl) && i.source === 'UPLOAD'));
+    if (kept.length !== items.length) await this.saveStaff(unit, kept);
+  }
+
+  /** Bitta yuklash yozuvini yangilash (settings ichida) */
+  private async patchBatch(unit: string, period: string, id: string, fn: (b: UnitPayrollBatch) => UnitPayrollBatch): Promise<void> {
+    const key = payrollKey(unit, period);
+    await this.prisma.$transaction(async (tx) => {
+      const batches = readBatches(shapeOf(key, (await tx.setting.findUnique({ where: { key } }))?.value ?? null, listBlock('batches')));
+      const i = batches.findIndex((b) => b.id === id);
+      if (i < 0) return;
+      batches[i] = fn(batches[i]!);
+      const value = { batches } as object;
+      await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    });
+  }
+
+  private async movedList(unit: string, period: string): Promise<MovedRecord[]> {
+    const v = (await this.prisma.setting.findUnique({ where: { key: movedKey(unit, period) } }))?.value as { items?: MovedRecord[] } | null;
+    return Array.isArray(v?.items) ? v!.items : [];
+  }
+
+  private async saveMoved(unit: string, period: string, items: MovedRecord[]) {
+    const key = movedKey(unit, period);
+    const value = { items: items.slice(-500) } as object;
+    await this.prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  }
+
+  /**
+   * Boshqa joyga o'tkazilgan summalarni bekor qilish (manba yuklash bekor qilindi yoki almashtirildi):
+   * o'tkazilgan xarajatlar Savatga, maqsad bo'lim yuklashi bekor, ko'chishlar olib tashlanadi. batchId null — shu oy hammasi.
+   */
+  @Exclusive('unit-payroll')
+  async undoMoved(unit: string, period: string, batchId: string | null, userId: string, reason: string): Promise<number> {
+    const items = await this.movedList(unit, period);
+    const todo = items.filter((r) => !r.undoneAt && (batchId === null || r.sourceBatchIds.includes(batchId)));
+    if (!todo.length) return 0;
+    for (const r of todo) {
+      if (r.expenseIds.length) await this.prisma.expense.updateMany({ where: { id: { in: r.expenseIds }, deletedAt: null }, data: { deletedAt: new Date() } });
+      if (r.targetUnit && r.targetBatchId) await this.cancel(r.targetUnit, period, r.targetBatchId, userId).catch(() => null);
+      await this.undoMoves(r.moveIds, r.displaced ?? [], userId, reason).catch(() => null);
+      r.undoneAt = new Date().toISOString();
+    }
+    await this.saveMoved(unit, period, items);
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_payroll', entityId: `${unit}:${period}`, summary: `${entryUnitLabel(unit)} ${period}: boshqa joyga o'tkazilgan ${todo.length} ta yozuv bekor qilindi — ${reason}` });
+    return todo.length;
   }
 
   // ═══════════ Saqlangan ish haqi — xodimlar bo'yicha (ko'rish, o'chirish, boshqa bo'limga o'tkazish) ═══════════
@@ -1521,53 +1659,96 @@ export class UnitPayrollService {
       const [y, m] = period.split('-').map(Number) as [number, number];
       return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
     })();
-    // «Miya»
-    for (const r of current) {
-      const before = membership(await this.allMoves());
-      const nextUnitBefore = before(r.pinfl, next);
-      if (before(r.pinfl, period) !== target) await this.addMove({ pinfl: r.pinfl, unit: target, from: period, fullName: r.fullName, note: `${entryUnitLabel(unit)} ish haqidan o'tkazildi` }, userId);
-      if (onlyThisMonth) {
-        const hasNext = (await this.allMoves()).some((m) => m.pinfl === r.pinfl && m.from === next);
-        if (!hasNext && (nextUnitBefore === undefined || nextUnitBefore === unit)) {
-          await this.addMove({ pinfl: r.pinfl, unit, from: next, fullName: r.fullName, note: `${monthLabel(period)}dan keyin qaytdi` }, userId).catch(() => null);
-        }
+    // Faqat shu sahifada qo'lda yuklangan qatorlar va ular qaysi yuklashlarda
+    const manualBatches = (await this.batchesOf(unit, period)).filter((b) => b.status === 'COMMITTED' && b.origin !== 'GENERAL' && (b.rows ?? []).some((r) => pins.has(r.pinfl)));
+    const amounts = new Map<string, { pinfl: string; fullName: string; amountTiyin: bigint }>();
+    for (const b of manualBatches)
+      for (const r of b.rows ?? []) {
+        if (!pins.has(r.pinfl)) continue;
+        const x = amounts.get(r.pinfl) ?? { pinfl: r.pinfl, fullName: r.fullName, amountTiyin: 0n };
+        x.amountTiyin += BigInt(r.amountTiyin);
+        amounts.set(r.pinfl, x);
       }
-    }
-    // Ish haqidan olib tashlash (faqat shu sahifada yuklangan qatorlar)
-    const dropped = await this.dropRows(unit, period, pins, true);
-    const total = dropped.reduce((s, d) => s + d.amountTiyin, 0n);
-    // Summani o'tkazish
+    const plannedTotal = [...amounts.values()].reduce((x, d) => x + d.amountTiyin, 0n);
+    const record: MovedRecord = { id: randomUUID(), at: new Date().toISOString(), pinfls: [...amounts.keys()], sourceBatchIds: manualBatches.map((b) => b.id), targetUnit: null, targetBatchId: null, expenseIds: [], moveIds: [], displaced: [], undoneAt: null };
+
+    // Bir butun amal: xato bo'lsa — qilinganlari orqaga qaytariladi (summa yo'qolmaydi)
+    const rollback = async () => {
+      if (record.expenseIds.length) await this.prisma.expense.updateMany({ where: { id: { in: record.expenseIds }, deletedAt: null }, data: { deletedAt: new Date() } }).catch(() => null);
+      if (record.targetUnit && record.targetBatchId) await this.cancel(record.targetUnit, period, record.targetBatchId, userId).catch(() => null);
+      await this.undoMoves(record.moveIds, record.displaced, userId, "o'tkazish bajarilmadi — orqaga").catch(() => null);
+    };
+    let dropped: { pinfl: string; fullName: string; amountTiyin: bigint }[] = [];
     let created = 0;
-    if (withAmount && total > 0n) {
-      const paid = dropped.filter((d) => d.amountTiyin > 0n);
-      if (isSegment(target)) {
-        await this.commit(target, period, { rows: paid.map((d) => ({ pinfl: d.pinfl, amountTiyin: d.amountTiyin.toString(), fullName: d.fullName })), fileName: `${entryUnitLabel(unit)}dan o'tkazildi` }, false, userId);
-        created = 1;
-      } else {
-        for (const d of paid) {
-          const e = empBy.get(d.pinfl);
-          await this.prisma.expense.create({
-            data: {
-              date: this.periodEndDate(period),
-              period,
-              amountTiyin: d.amountTiyin,
-              categoryCode: PAYROLL_CATEGORY,
-              segment: null,
-              regionCode: target === 'CENTER' ? 0 : (place.regionCode ?? e!.regionCode),
-              districtId: target === 'REGION' ? place.districtId : null,
-              departmentId: target === 'CENTER' ? (place.departmentId ?? e?.departmentId ?? null) : null,
-              description: `Ish haqi — ${d.fullName} (${entryUnitLabel(unit)}dan o'tkazildi${place.label ? `: ${place.label}` : ''}, ${monthLabel(period)})`.slice(0, 500),
-              documentNo: d.pinfl,
-              paymentMethod: 'BANK',
-              paymentStatus: 'PAID',
-              source: 'IMPORT',
-              section: 'DOIMIY',
-              createdById: userId,
-            },
-          });
-          created += 1;
+    try {
+      // «Miya»
+      for (const r of current) {
+        const before = membership(await this.allMoves());
+        const nextUnitBefore = before(r.pinfl, next);
+        if (before(r.pinfl, period) !== target) {
+          const m = await this.addMove({ pinfl: r.pinfl, unit: target, from: period, fullName: r.fullName, note: `${entryUnitLabel(unit)} ish haqidan o'tkazildi` }, userId);
+          record.moveIds.push(m.id);
+          if (m.displaced) record.displaced.push(m.displaced);
+        }
+        if (onlyThisMonth) {
+          const hasNext = (await this.allMoves()).some((m) => m.pinfl === r.pinfl && m.from === next);
+          if (!hasNext && (nextUnitBefore === undefined || nextUnitBefore === unit)) {
+            const back = await this.addMove({ pinfl: r.pinfl, unit, from: next, fullName: r.fullName, note: `${monthLabel(period)}dan keyin qaytdi` }, userId).catch(() => null);
+            if (back) record.moveIds.push(back.id);
+          }
         }
       }
+      // Avval maqsadga yoziladi, keyin shu yerdan olinadi
+      if (withAmount && plannedTotal > 0n) {
+        const paid = [...amounts.values()].filter((d) => d.amountTiyin > 0n);
+        if (isSegment(target)) {
+          const r = await this.commit(target, period, { rows: paid.map((d) => ({ pinfl: d.pinfl, amountTiyin: d.amountTiyin.toString(), fullName: d.fullName })), fileName: `${entryUnitLabel(unit)}dan o'tkazildi (${new Date().toISOString().slice(0, 16).replace('T', ' ')})` }, false, userId, { skipGeneralCheck: true });
+          record.targetUnit = target;
+          record.targetBatchId = r.batchId;
+          created = 1;
+        } else {
+          const ids = await this.prisma.$transaction(async (tx) => {
+            const out: string[] = [];
+            for (const d of paid) {
+              const e = empBy.get(d.pinfl);
+              const x = await tx.expense.create({
+                data: {
+                  date: this.periodEndDate(period),
+                  period,
+                  amountTiyin: d.amountTiyin,
+                  categoryCode: PAYROLL_CATEGORY,
+                  segment: null,
+                  regionCode: target === 'CENTER' ? 0 : (place.regionCode ?? e!.regionCode),
+                  districtId: target === 'REGION' ? place.districtId : null,
+                  departmentId: target === 'CENTER' ? (place.departmentId ?? e?.departmentId ?? null) : null,
+                  description: `Ish haqi — ${d.fullName} (${entryUnitLabel(unit)}dan o'tkazildi${place.label ? `: ${place.label}` : ''}, ${monthLabel(period)})`.slice(0, 500),
+                  documentNo: d.pinfl,
+                  paymentMethod: 'BANK',
+                  paymentStatus: 'PAID',
+                  source: 'IMPORT',
+                  section: 'DOIMIY',
+                  createdById: userId,
+                },
+                select: { id: true },
+              });
+              out.push(x.id);
+            }
+            return out;
+          });
+          record.expenseIds.push(...ids);
+          created = ids.length;
+        }
+      }
+      // Ish haqidan olib tashlash (faqat shu sahifada yuklangan qatorlar)
+      dropped = await this.dropRows(unit, period, pins, true);
+    } catch (e) {
+      await rollback();
+      throw e;
+    }
+    const total = dropped.reduce((x, d) => x + d.amountTiyin, 0n);
+    if (withAmount) {
+      const list = await this.movedList(unit, period);
+      await this.saveMoved(unit, period, [...list, record]);
     }
     await this.splitComponents(unit, period).catch(() => null);
     await this.audit.log({
@@ -1626,6 +1807,11 @@ export class UnitPayrollService {
 
   /** Shu oy uchun ajratish: { parts: komponent → summa, moved: jami ajratilgan } */
   async splitComponents(unit: string, period: string): Promise<{ parts: Record<string, string>; movedTiyin: string }> {
+    // Navbat bilan: bir vaqtda ikki marta ishlasa — ajratilgan xarajatlar ikki marta yozilmasin
+    return runExclusive(`unit-split:${unit}:${period}`, () => this.splitComponentsNow(unit, period));
+  }
+
+  private async splitComponentsNow(unit: string, period: string): Promise<{ parts: Record<string, string>; movedTiyin: string }> {
     if (!isSegment(unit) || !PERIOD_RE.test(period)) return { parts: {}, movedTiyin: '0' };
     const splitKey = `unit.payroll.split.${unit}.${period}`;
     const [policy, batches, compRow, prevSplit] = await Promise.all([

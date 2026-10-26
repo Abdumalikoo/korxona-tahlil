@@ -91,7 +91,9 @@ const pay = (kind, pinfl, net, accrual = '2026-03', date = '2026-03-20') => ({ n
   assert.deepStrictEqual([r(P.A).state, r(P.A).items.PREMIYA_BOSHQA, r(P.A).tarkibTiyin], ['DIFF', undefined, String(so(4_000_000))]);
   await assert.rejects(rec.undo(adjA.id, 'adm'), /allaqachon/);
   const adjC = v.history.find((h) => h.pinfl === P.C && h.status === 'APPLIED');
-  await rec.undo(adjC.id, 'adm');
+  // Ikki marta bir vaqtda bosilsa — faqat bittasi bajariladi (ikki marta ayirilmaydi)
+  const both = await Promise.allSettled([rec.undo(adjC.id, 'adm'), rec.undo(adjC.id, 'adm')]);
+  assert.deepStrictEqual(both.map((x) => x.status).sort(), ['fulfilled', 'rejected']);
   assert.ok(!T.salaryCompositionRow.some((x) => x.employeePinfl === P.C), "yaratilgan qator o'chdi");
   assert.strictEqual(T.salaryCompositionBatch.find((b) => !b.cancelledAt).employeeCount, 4);
 

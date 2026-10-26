@@ -3,7 +3,9 @@ import { entryUnitLabel } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isPayrollUnit, PAYROLL_UNITS, UnitPayrollService, type PayrollUnit } from '../unit-payroll/unit-payroll.service';
-import { PayrollService, type MissingRow } from './payroll.service';
+import { PayrollService, payrollLock, type MissingRow } from './payroll.service';
+import { runExclusive } from '../../common/locks';
+import type { UnitMove } from '../unit-payroll/unit-payroll.service';
 import { assertAmount } from '../../common/validation/amount';
 import { hrPeople } from '../hr-sheets/hr-sheets.store';
 
@@ -234,6 +236,11 @@ export class PayrollPlanService {
    * (manbasi: umumiy vedomost). Biror qadam xato bersa — shu saqlashda yaratilganlar bekor qilinadi.
    */
   async commit(period: string, body: { rows?: unknown; fileName?: unknown; strict?: unknown }, replacePrevious: boolean, userId: string) {
+    // Shu oy ish haqi yozuvlari navbat bilan (ikki qayta taqsimlash bir vaqtda ishlamasin)
+    return runExclusive(payrollLock(period), () => this.commitNow(period, body, replacePrevious, userId));
+  }
+
+  private async commitNow(period: string, body: { rows?: unknown; fileName?: unknown; strict?: unknown }, replacePrevious: boolean, userId: string) {
     const fileName = typeof body?.fileName === 'string' && body.fileName.trim() ? body.fileName.trim().slice(0, 200) : 'ish-haqi.xlsx';
     const plan = await this.plan(period, (body?.rows ?? []) as InputRow[], { strict: body?.strict === true });
     const blocking = plan.rows.filter((r) => isPayrollUnit(r.target) && !r.fullName);
@@ -245,24 +252,28 @@ export class PayrollPlanService {
     // Almashtirish: avvalgi umumiy yuklashlar (va ulardan bo'limlarga yozilganlar) — yangisi saqlangandan keyin bekor
     const prevIds = replacePrevious ? (await this.prisma.payrollBatch.findMany({ where: { period, status: 'COMMITTED', scope: 'ALL' }, select: { id: true } })).map((b) => b.id) : [];
 
+    // Avvalgi umumiy vedomostdan yaratilgan, lekin umumiy yuklashga bog'lanmagan bo'lim yuklashlari (hamma qator
+    // bo'limlarga tushgan) — ular ham almashtiriladi
+    const prevStray = replacePrevious
+      ? (await this.units.allBatches(period)).filter((u) => u.batch.status === 'COMMITTED' && u.batch.origin === 'GENERAL' && !u.batch.generalBatchId)
+      : [];
+
+    // Tartib: AVVAL yangisi to'liq saqlanadi, KEYIN eskisi bekor qilinadi. Yozish o'rtada xato bersa — yangidan
+    // yozilganlari bekor, eskisi joyida qoladi (oy ish haqisiz qolmaydi).
     const created: { unit: string; batchId: string }[] = [];
     let generalResult: Awaited<ReturnType<PayrollService['commit']>> | null = null;
     try {
       if (general.length) {
         const missing: MissingRow[] = plan.rows.filter((r) => r.target === 'SKIP' && !r.inRegistry && !r.locked).map((r) => ({ rowIndex: r.rowIndex ?? 0, pinfl: r.pinfl }));
-        // Umumiy vedomost o'zi avvalgi umumiy yuklashlarni almashtiradi (bitta tranzaksiyada)
         generalResult = await this.payroll.commit({
           period,
           rows: general.map((r) => ({ pinfl: r.pinfl, amountTiyin: BigInt(r.amountTiyin) })),
           userId,
           replacePrevious,
+          deferReplace: true,
           fileName,
           missing,
         });
-        for (const id of prevIds) await this.units.cancelByGeneral(id, period, userId);
-      } else {
-        // Umumiy qism bo'sh — avvalgi umumiy yuklashlar baribir almashtiriladi
-        for (const id of prevIds) await this.payroll.cancel(id);
       }
       for (const { unit, rows } of byUnit) {
         const r = await this.units.commit(
@@ -276,24 +287,35 @@ export class PayrollPlanService {
         created.push({ unit, batchId: r.batchId });
       }
     } catch (e) {
-      // Orqaga: shu saqlashda yaratilganlar bekor
+      // Orqaga: shu saqlashda yaratilganlar bekor, eskisiga tegilmagan
       for (const c of created) await this.units.cancel(c.unit, period, c.batchId, userId).catch(() => null);
-      if (generalResult) await this.payroll.cancel(generalResult.batchId).catch(() => null);
+      if (generalResult) await this.payroll.cancel(generalResult.batchId, { keepMoves: true, userId }).catch(() => null);
       throw e;
     }
+    // Yangisi saqlandi — endi eskilari (ulardan bo'limlarga yozilganlar bilan) bekor; ularning ko'chishlari yangisiga
+    for (const id of prevIds) {
+      await this.payroll.cancel(id, { keepMoves: true, userId });
+      if (generalResult) await this.payroll.transferMoves(id, generalResult.batchId);
+    }
+    for (const u of prevStray) await this.units.cancel(u.unit, period, u.batch.id, userId).catch(() => null);
 
     // «Miya»: bo'limi o'zgartirilganlar — shu oydan yangi bo'limida
     let moved = 0;
+    const moveIds: string[] = [];
+    const displaced: UnitMove[] = [];
     for (const r of plan.rows) {
       if (r.locked || r.target === 'SKIP' || r.target === r.suggested) continue;
       const to = r.target === 'GENERAL' ? (await this.registryUnit(r.pinfl)) : r.target;
       if (!to || to === r.unitNow) continue;
-      const ok = await this.units.addMove({ pinfl: r.pinfl, unit: to, from: period, fullName: r.fullName ?? undefined, note: 'Umumiy vedomost yuklashda bo‘limi o‘zgartirildi' }, userId, 'UPLOAD').then(
-        () => true,
-        () => false,
-      );
-      if (ok) moved += 1;
+      const m = await this.units.addMove({ pinfl: r.pinfl, unit: to, from: period, fullName: r.fullName ?? undefined, note: 'Umumiy vedomost yuklashda bo‘limi o‘zgartirildi' }, userId, 'UPLOAD').catch(() => null);
+      if (m) {
+        moved += 1;
+        moveIds.push(m.id);
+        if (m.displaced) displaced.push(m.displaced);
+      }
     }
+    // Yuklash yozgan ko'chishlar — yuklash bekor qilinsa, olib tashlanadi (o'rniga yozilganlari tiklanadi)
+    if (generalResult && moveIds.length) await this.payroll.rememberMoves(generalResult.batchId, moveIds, displaced);
 
     const unitsOut = byUnit.map(({ unit, rows }) => ({ unit, label: entryUnitLabel(unit), employees: rows.length, totalTiyin: rows.reduce((s, r) => s + BigInt(r.amountTiyin), 0n).toString() }));
     await this.audit
@@ -309,7 +331,7 @@ export class PayrollPlanService {
     return {
       success: true as const,
       general: generalResult
-        ? { batchId: generalResult.batchId, employees: generalResult.employees, zeroCount: generalResult.zeroCount, totalTiyin: generalResult.totalTiyin.toString(), expensesCreated: generalResult.expensesCreated, replacedPrevious: generalResult.replacedPrevious }
+        ? { batchId: generalResult.batchId, employees: generalResult.employees, zeroCount: generalResult.zeroCount, totalTiyin: generalResult.totalTiyin.toString(), expensesCreated: generalResult.expensesCreated, replacedPrevious: generalResult.replacedPrevious || prevIds.length > 0 }
         : null,
       units: unitsOut,
       skipped: plan.summary.skipped.count,
@@ -324,17 +346,25 @@ export class PayrollPlanService {
    * qaysi bo'limga tushishi o'zgaradi. Umumiy vedomost saqlanmagan bo'lsa — null (keyin saqlanganda o'zi to'g'ri tushadi).
    */
   async redistribute(period: string, userId: string) {
-    const batch = await this.prisma.payrollBatch.findFirst({ where: { period, status: 'COMMITTED', scope: 'ALL' }, orderBy: { createdAt: 'desc' }, select: { id: true, fileName: true } });
-    if (!batch) return null;
-    const entries = await this.prisma.payrollEntry.findMany({ where: { batchId: batch.id, deletedAt: null }, select: { employeePinfl: true, baseTiyin: true } });
-    const toUnits = await this.units.generalRows(period, batch.id);
+    return runExclusive(payrollLock(period), async () => {
+    // Shu oy HAMMA saqlangan umumiy yuklashlar (bittasigina emas) — aks holda boshqa fayldagilar yo'qoladi
+    const batches = await this.prisma.payrollBatch.findMany({ where: { period, status: 'COMMITTED', scope: 'ALL' }, orderBy: { createdAt: 'desc' }, select: { id: true, fileName: true } });
+    const stray = (await this.units.allBatches(period)).filter((u) => u.batch.status === 'COMMITTED' && u.batch.origin === 'GENERAL' && !u.batch.generalBatchId);
+    if (!batches.length && !stray.length) return null;
+    const batch = batches[0] ?? { id: '', fileName: stray[0]!.batch.fileName.replace(/ \(umumiy vedomostdan\)$/, '') };
+    const ids = batches.map((b) => b.id);
+    const entries = ids.length ? await this.prisma.payrollEntry.findMany({ where: { batchId: { in: ids }, deletedAt: null }, select: { employeePinfl: true, baseTiyin: true, totalTiyin: true, bonusTiyin: true } }) : [];
+    const toUnits = [...(await Promise.all(ids.map((id) => this.units.generalRows(period, id)))).flat(), ...stray.flatMap((u) => (u.batch.rows ?? []).map((r) => ({ unit: u.unit, pinfl: r.pinfl, fullName: r.fullName, amountTiyin: String(r.amountTiyin) })))];
+    // Eski yozuvlarda baseTiyin = 0 bo'lishi mumkin — to'liq summa = hududda qolgani + Markazga o'tgani
+    const full = (e: { baseTiyin: bigint; totalTiyin: bigint; bonusTiyin: bigint }) => (e.baseTiyin === 0n && e.totalTiyin + e.bonusTiyin > 0n ? e.totalTiyin + e.bonusTiyin : e.baseTiyin);
     const rows: InputRow[] = [
-      ...entries.map((e) => ({ pinfl: e.employeePinfl, amountTiyin: e.baseTiyin.toString() })),
+      ...entries.map((e) => ({ pinfl: e.employeePinfl, amountTiyin: full(e).toString() })),
       ...toUnits.map((r) => ({ pinfl: r.pinfl, amountTiyin: r.amountTiyin, fullName: r.fullName })),
     ];
     if (!rows.length) return null;
     const base = (batch.fileName ?? 'ish-haqi.xlsx').replace(/ \(qayta taqsimlandi\)$/, '');
     return this.commit(period, { rows, fileName: `${base} (qayta taqsimlandi)`.slice(0, 200) }, true, userId);
+    });
   }
 
   /** Umumiyga o'tkazilganda — Xodimlar bazasidagi joyi bo'yicha Markaz yoki Hududlar */

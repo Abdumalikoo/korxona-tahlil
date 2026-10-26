@@ -424,6 +424,8 @@ export class CompositionReconcileService {
         return this.prisma.$transaction(async (tx) => {
           const list = readAdjust((await tx.setting.findUnique({ where: { key: ADJUST_KEY } }))?.value ?? null);
           const cur = list.find((x) => x.id === id)!;
+          // Navbat ichida qayta tekshiriladi — ikki marta bosilsa, ikki marta ayirilmasin
+          if (!cur || cur.status !== 'APPLIED') throw new BadRequestException("Bu o'tkazish allaqachon bekor qilingan");
           let stale = false;
           if (unit) {
             const key = `unit.composition.${unit}.${a.period}`;

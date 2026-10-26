@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { PayrollPlanService } from './payroll-plan.service';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -10,13 +11,19 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 @Roles(UserRole.ADMIN)
 @Controller('payroll-plan')
 export class PayrollPlanController {
-  constructor(private readonly plans: PayrollPlanService) {}
+  constructor(
+    private readonly plans: PayrollPlanService,
+    private readonly archive: SourceArchiveService,
+  ) {}
 
   /** Fayl: har xodim qayerga yoziladi (hech narsa saqlanmaydi). ?format=ndfl — faqat soliq hisoboti */
   @Post('analyze')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async analyze(@Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File) {
-    return { data: await this.plans.analyze(period, file, format === 'ndfl' ? 'ndfl' : 'auto') };
+  async analyze(@Query('period') period: string, @Query('format') format: string, @UploadedFile() file: Express.Multer.File, @CurrentUser('id') userId: string) {
+    const data = await this.plans.analyze(period, file, format === 'ndfl' ? 'ndfl' : 'auto');
+    // Soliq hisoboti fayli arxivga — saqlanganda shu yuklash bilan bog'lanadi
+    await this.archive.hold('payroll', file, { userId, periods: [period] });
+    return { data };
   }
 
   /** O'zgartirilgan taqsimot bo'yicha qayta hisoblash (hech narsa saqlanmaydi) */
@@ -30,6 +37,9 @@ export class PayrollPlanController {
   @Post('commit')
   @HttpCode(HttpStatus.OK)
   async commit(@Query('period') period: string, @Query('replace') replace: string, @Body() body: { rows?: unknown; fileName?: unknown; strict?: unknown }, @CurrentUser('id') userId: string) {
-    return { data: await this.plans.commit(period, body, replace === 'true', userId) };
+    const data = await this.plans.commit(period, body, replace === 'true', userId);
+    const refId = data.general?.batchId ?? null;
+    if (refId) await this.archive.link('payroll', { userId, fileName: typeof body?.fileName === 'string' ? body.fileName : null, refId, periods: [period] });
+    return { data };
   }
 }
