@@ -97,7 +97,7 @@ export async function downloadRegionalTemplate(period: string): Promise<void> {
   const match = /filename="?([^";]+)"?/.exec(disposition);
   const filename = match?.[1]
     ? decodeURIComponent(match[1])
-    : `Hududiy-daromadlar-tumanlar-${period}.xlsx`;
+    : `Hududiy-daromadlar-xizmatlar-${period}.xlsx`;
 
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);

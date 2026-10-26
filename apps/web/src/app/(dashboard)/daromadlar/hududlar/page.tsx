@@ -169,7 +169,7 @@ export default function RegionalIncomePage() {
             disabled: Boolean(analysis),
             hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : 'To‘ldirilgan Excel fayl (bitta varaq, hududlar ustunlarda)',
           }}
-          template={{ label: 'Shablon (tumanlar kesimida)', onClick: () => void handleTemplate(), loading: downloading }}
+          template={{ label: 'Shablon (xizmatlar kesimida)', onClick: () => void handleTemplate(), loading: downloading }}
           deleteData={{
             target: 'INCOME',
             scope: { regional: true, ...(selectedRegion ? { regionCode: Number(selectedRegion) } : {}) },
@@ -492,15 +492,6 @@ function AnalysisView({
         </div>
       )}
 
-      {analysis.districtRows === 0 && (
-        <div className="flex items-start gap-2.5 rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
-          <IconAlert className="mt-0.5 size-4 shrink-0 text-(--color-warn)" />
-          <p className="text-sm text-(--color-warn)">
-            Faylda tuman kesimi yo&rsquo;q &mdash; tushum faqat viloyatlar bo&rsquo;yicha saqlanadi.
-            Tumanlar bo&rsquo;yicha ko&rsquo;rish uchun yangi shablondan foydalaning.
-          </p>
-        </div>
-      )}
 
       {analysis.unknownPlaces.length > 0 && (
         <Card className="overflow-hidden">

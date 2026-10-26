@@ -23,6 +23,15 @@ const REGIONAL_SERVICE_CODE = /^SRV_\d{2}$/;
 /** Viloyat varag'idagi "tumansiz" ustun: viloyatning o'ziga tegishli tushum */
 const UNASSIGNED_LABEL = "Tumanga bo'linmagan";
 
+/**
+ * Shablon oxiridagi raqamsiz qo'shimcha qatorlar (bepul xizmatlar).
+ * Ma'lumot uchun — o'qishda jamiga qo'shilmaydi.
+ */
+const EXTRA_TEMPLATE_ROWS = [
+  'Jismoniy shaxslarning jami yillik daromadi to\u2018g\u2018risidagi deklaratsiyani tuzish va soliq organlariga yuborish(Bepul)',
+  "PF-95 bo'yicha bepul xizmat",
+];
+
 export interface ParsedRow {
   regionCode: number;
   regionName: string;
@@ -213,18 +222,17 @@ export class RegionalIncomeService {
   // ═══════════ Shablon ═══════════
 
   /**
-   * Tuman kesimidagi shablon: har bir viloyat — alohida varaq.
-   * Ustunlar: №, Xizmat turi, Ko'rsatkich, Jami (formula), tumanlar, "Tumanga bo'linmagan".
-   * Qatorlar: har bir xizmat — "Soni" va "Summasi"; oxirida Jami.
+   * Respublika bo'yicha xizmatlar kesimidagi shablon (bitta varaq):
+   *  1-2 qator — sarlavha va davr;
+   *  3-4 qator — "Xizmat nomi", "O'lchov birligi", "Jami Respublika bo'yicha", "shundan," → viloyatlar;
+   *  5-6 qator — "Jami ko'rsatilgan xizmatlar" (Soni / Summasi, formula);
+   *  keyin har bir xizmat — ikki qator (Soni / Summasi), oxirida raqamsiz qo'shimcha qatorlar
+   *  (bepul xizmatlar — o'qishda jamiga qo'shilmaydi).
    */
   async buildTemplate(period: string): Promise<{ buffer: Buffer; filename: string }> {
     this.assertPeriod(period);
 
-    const [regions, districts, services] = await Promise.all([
-      this.loadRegions(),
-      this.loadDistricts(),
-      this.loadServices(),
-    ]);
+    const [regions, services] = await Promise.all([this.loadRegions(), this.loadServices()]);
 
     if (regions.length === 0 || services.length === 0) {
       throw new BadRequestException('Hududlar yoki xizmat turlari topilmadi');
@@ -235,149 +243,121 @@ export class RegionalIncomeService {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Korxona tahlil';
 
-    const thin = { style: 'thin' as const, color: { argb: 'FF94A3B8' } };
+    const sheet = workbook.addWorksheet('Sheet1', { views: [{ state: 'frozen', xSplit: 4, ySplit: 6 }] });
+
+    const thin = { style: 'thin' as const };
     const border = { top: thin, left: thin, bottom: thin, right: thin };
-    const headerFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFF1F5F9' } };
-    const totalFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFE2E8F0' } };
-    const noDistrictFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFF7E6' } };
+    const totalFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFD9EAD3' } };
+    const center = { horizontal: 'center' as const, vertical: 'middle' as const, wrapText: true };
 
-    const usedNames = new Set<string>();
+    const FIRST_COL = 5;
+    const lastCol = FIRST_COL + regions.length - 1;
+    const letter = (col: number) => sheet.getColumn(col).letter;
 
-    for (const region of regions) {
-      const regionDistricts = districts.filter((d) => d.regionCode === region.code);
+    sheet.getColumn(1).width = 6;
+    sheet.getColumn(2).width = 40;
+    sheet.getColumn(3).width = 15;
+    sheet.getColumn(4).width = 25;
+    for (let col = FIRST_COL; col <= lastCol; col++) sheet.getColumn(col).width = 14;
 
-      let name = this.sheetName(region.name);
-      for (let n = 2; usedNames.has(name.toLowerCase()); n++) name = this.sheetName(`${region.name} ${n}`);
-      usedNames.add(name.toLowerCase());
+    // 1-2 qatorlar: sarlavha va davr
+    sheet.mergeCells(1, 2, 1, lastCol);
+    const title = sheet.getCell(1, 2);
+    title.value = `"Soliq-servis" AJ tomonidan ko'rsatilgan xizmatlar soni to'g'risida ma'lumot`;
+    title.font = { bold: true, size: 14 };
+    title.alignment = center;
+    sheet.getRow(1).height = 30;
 
-      const sheet = workbook.addWorksheet(name, { views: [{ state: 'frozen', xSplit: 4, ySplit: 3 }] });
+    sheet.mergeCells(2, 2, 2, lastCol);
+    const subtitle = sheet.getCell(2, 2);
+    subtitle.value = `Xizmatlar bo'yicha hisobot (${from} dan ${to} gacha)`;
+    subtitle.font = { bold: true };
+    subtitle.alignment = center;
 
-      // Ustunlar: tumanlar + oxirida "Tumanga bo'linmagan"
-      const targets = [...regionDistricts.map((d) => d.name), UNASSIGNED_LABEL];
-      const FIRST_COL = 5;
-      const lastCol = FIRST_COL + targets.length - 1;
-      const letter = (col: number) => sheet.getColumn(col).letter;
+    // 3-4 qatorlar: ustun sarlavhalari
+    const headers: [number, string][] = [
+      [2, 'Xizmat nomi'],
+      [3, "O'lchov birligi"],
+      [4, "Jami Respublika bo'yicha"],
+    ];
+    for (const [col, label] of headers) {
+      sheet.mergeCells(3, col, 4, col);
+      sheet.getCell(3, col).value = label;
+    }
+    sheet.mergeCells(3, FIRST_COL, 3, lastCol);
+    sheet.getCell(3, FIRST_COL).value = 'shundan,';
 
-      sheet.getColumn(1).width = 5;
-      sheet.getColumn(2).width = 55;
-      sheet.getColumn(3).width = 11;
-      sheet.getColumn(4).width = 16;
-      for (let col = FIRST_COL; col <= lastCol; col++) sheet.getColumn(col).width = 13;
+    regions.forEach((region, index) => {
+      const cell = sheet.getCell(4, FIRST_COL + index);
+      cell.value = region.name;
+      cell.font = { bold: true, size: 10 };
+      cell.alignment = { ...center, textRotation: 90 };
+    });
+    sheet.getRow(4).height = 129;
 
-      // 1-qator: sarlavha (viloyat nomi bilan — o'qishda varaq shu bo'yicha ham taniladi)
-      sheet.mergeCells(1, 1, 1, lastCol);
-      const title = sheet.getCell(1, 1);
-      title.value = `${region.name} — xizmatlar bo'yicha hisobot, tumanlar kesimida (${from} dan ${to} gacha)`;
-      title.font = { bold: true, size: 12 };
-      title.alignment = { horizontal: 'center', vertical: 'middle' };
-      sheet.getRow(1).height = 24;
-
-      // 2-3 qatorlar: ustun sarlavhalari
-      const headers: [number, string][] = [
-        [1, '№'],
-        [2, 'Xizmat turi'],
-        [3, "Ko'rsatkich"],
-        [4, `Jami ${region.name} bo'yicha`],
-      ];
-      for (const [col, label] of headers) {
-        sheet.mergeCells(2, col, 3, col);
-        sheet.getCell(2, col).value = label;
-      }
-
-      sheet.mergeCells(2, FIRST_COL, 2, lastCol);
-      sheet.getCell(2, FIRST_COL).value = 'shundan, tumanlar:';
-
-      targets.forEach((label, index) => {
-        const cell = sheet.getCell(3, FIRST_COL + index);
-        cell.value = label;
-        cell.alignment = { textRotation: 90, horizontal: 'center', vertical: 'middle', wrapText: true };
-      });
-
-      sheet.getRow(2).height = 20;
-      sheet.getRow(3).height = 150;
-
-      for (let row = 2; row <= 3; row++) {
-        for (let col = 1; col <= lastCol; col++) {
-          const cell = sheet.getCell(row, col);
+    for (let row = 3; row <= 4; row++) {
+      for (let col = 2; col <= lastCol; col++) {
+        const cell = sheet.getCell(row, col);
+        cell.border = border;
+        if (!(row === 4 && col >= FIRST_COL)) {
           cell.font = { bold: true };
-          cell.fill = row === 3 && col === lastCol ? noDistrictFill : headerFill;
-          cell.border = border;
-          if (!(row === 3 && col >= FIRST_COL)) {
-            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-          }
-        }
-      }
-
-      // Xizmatlar: har biri ikki qator
-      const FIRST_DATA_ROW = 4;
-      let rowIndex = FIRST_DATA_ROW;
-
-      services.forEach((service, index) => {
-        const soniRow = rowIndex;
-        const summaRow = rowIndex + 1;
-
-        sheet.mergeCells(soniRow, 1, summaRow, 1);
-        sheet.getCell(soniRow, 1).value = index + 1;
-
-        sheet.mergeCells(soniRow, 2, summaRow, 2);
-        sheet.getCell(soniRow, 2).value = service.label;
-
-        sheet.getCell(soniRow, 3).value = 'Soni';
-        sheet.getCell(summaRow, 3).value = 'Summasi';
-
-        for (const row of [soniRow, summaRow]) {
-          const total = sheet.getCell(row, 4);
-          total.value = { formula: `SUM(${letter(FIRST_COL)}${row}:${letter(lastCol)}${row})` };
-          total.fill = headerFill;
-          total.font = { bold: true };
-
-          for (let col = 1; col <= lastCol; col++) {
-            const cell = sheet.getCell(row, col);
-            cell.border = border;
-            if (col >= 4) cell.numFmt = '#,##0';
-            if (col === lastCol) cell.fill = noDistrictFill;
-          }
-        }
-
-        sheet.getCell(soniRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
-        sheet.getCell(soniRow, 2).alignment = { vertical: 'middle', wrapText: true };
-
-        rowIndex += 2;
-      });
-
-      const lastDataRow = rowIndex - 1;
-
-      // Jami qatorlari
-      const totalSoni = rowIndex;
-      const totalSumma = rowIndex + 1;
-
-      sheet.mergeCells(totalSoni, 1, totalSumma, 1);
-      sheet.mergeCells(totalSoni, 2, totalSumma, 2);
-      sheet.getCell(totalSoni, 2).value = 'Jami';
-      sheet.getCell(totalSoni, 2).alignment = { vertical: 'middle' };
-      sheet.getCell(totalSoni, 3).value = 'Soni';
-      sheet.getCell(totalSumma, 3).value = 'Summasi';
-
-      for (let col = 4; col <= lastCol; col++) {
-        const range = `${letter(col)}$${FIRST_DATA_ROW}:${letter(col)}$${lastDataRow}`;
-        const labels = `$C$${FIRST_DATA_ROW}:$C$${lastDataRow}`;
-        sheet.getCell(totalSoni, col).value = { formula: `SUMIF(${labels},"Soni",${range})` };
-        sheet.getCell(totalSumma, col).value = { formula: `SUMIF(${labels},"Summasi",${range})` };
-      }
-
-      for (const row of [totalSoni, totalSumma]) {
-        for (let col = 1; col <= lastCol; col++) {
-          const cell = sheet.getCell(row, col);
-          cell.font = { bold: true };
-          cell.fill = totalFill;
-          cell.border = border;
-          if (col >= 4) cell.numFmt = '#,##0';
+          cell.alignment = center;
         }
       }
     }
 
+    // Xizmatlar va qo'shimcha qatorlar — har biri ikki qator (Soni / Summasi)
+    const FIRST_SERVICE_ROW = 7;
+    const items: { number: number | null; label: string }[] = [
+      ...services.map((service, index) => ({ number: index + 1, label: service.label })),
+      ...EXTRA_TEMPLATE_ROWS.map((label) => ({ number: null, label })),
+    ];
+
+    const pair = (soniRow: number, number: number | string | null, label: string, bold: boolean) => {
+      const summaRow = soniRow + 1;
+      sheet.mergeCells(soniRow, 1, summaRow, 1);
+      sheet.mergeCells(soniRow, 2, summaRow, 2);
+      if (number !== null) sheet.getCell(soniRow, 1).value = number;
+      sheet.getCell(soniRow, 2).value = label;
+      sheet.getCell(soniRow, 3).value = 'Soni';
+      sheet.getCell(summaRow, 3).value = 'Summasi';
+
+      for (const row of [soniRow, summaRow]) {
+        for (let col = 1; col <= lastCol; col++) {
+          const cell = sheet.getCell(row, col);
+          cell.border = border;
+          if (bold) cell.font = { bold: true };
+          if (col >= 4) cell.numFmt = '#,##0';
+          if (col === 3) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          if (col === 4) cell.fill = totalFill;
+        }
+      }
+      sheet.getCell(soniRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      sheet.getCell(soniRow, 2).alignment = bold ? center : { horizontal: 'left', vertical: 'middle', wrapText: true };
+    };
+
+    // 5-6: Jami ko'rsatilgan xizmatlar (faqat raqamli xizmatlar yig'indisi)
+    pair(5, '№', "Jami ko'rsatilgan xizmatlar", true);
+    const lastServiceRow = FIRST_SERVICE_ROW + services.length * 2 - 1;
+    for (let col = 4; col <= lastCol; col++) {
+      const range = `${letter(col)}$${FIRST_SERVICE_ROW}:${letter(col)}$${lastServiceRow}`;
+      const labels = `$C$${FIRST_SERVICE_ROW}:$C$${lastServiceRow}`;
+      sheet.getCell(5, col).value = { formula: `SUMIF(${labels},"Soni",${range})` };
+      sheet.getCell(6, col).value = { formula: `SUMIF(${labels},"Summasi",${range})` };
+      for (const row of [5, 6]) sheet.getCell(row, col).fill = totalFill;
+    }
+
+    let rowIndex = FIRST_SERVICE_ROW;
+    for (const item of items) {
+      pair(rowIndex, item.number, item.label, false);
+      for (const row of [rowIndex, rowIndex + 1]) {
+        sheet.getCell(row, 4).value = { formula: `SUM(${letter(FIRST_COL)}${row}:${letter(lastCol)}${row})` };
+      }
+      rowIndex += 2;
+    }
+
     const data = await workbook.xlsx.writeBuffer();
-    return { buffer: Buffer.from(data), filename: `Hududiy-daromadlar-tumanlar-${period}.xlsx` };
+    return { buffer: Buffer.from(data), filename: `Hududiy-daromadlar-xizmatlar-${period}.xlsx` };
   }
 
   // ═══════════ O'qish: ustun sarlavhalarini topish ═══════════
@@ -407,7 +387,7 @@ export class RegionalIncomeService {
   private isServiceHeader(raw: string): boolean {
     const key = this.normalize(raw);
     return (
-      ['№', 'xizmat turi', 'korsatkich', 'shundan,', 'shundan', 'shundan, tumanlar:'].includes(key) ||
+      ['№', 'xizmat turi', 'xizmat nomi', 'olchov birligi', 'korsatkich', 'shundan,', 'shundan', 'shundan, tumanlar:'].includes(key) ||
       key.startsWith('jami') ||
       key.startsWith('xizmatlar')
     );
@@ -659,9 +639,19 @@ export class RegionalIncomeService {
       const labelCol = indicatorCol - 1;
       const numberCol = indicatorCol - 2;
 
-      const resolveService = (row: ExcelJS.Row): ServiceRef | 'skip' | null => {
+      // Xizmatlar raqamlangan bo'lsa — raqamsiz qatorlar qo'shimcha (bepul) ma'lumot, jamiga kirmaydi
+      let numbered = false;
+      for (let rowIndex = header.row + 1; rowIndex <= sheet.rowCount && !numbered; rowIndex++) {
+        const row = sheet.getRow(rowIndex);
+        if (this.normalize(this.text(row.getCell(indicatorCol).value)) !== 'soni') continue;
+        const number = this.parseNumber(this.cellValue(row.getCell(numberCol).value));
+        numbered = number !== null && Number.isInteger(number) && number >= 1;
+      }
+
+      const resolveService = (row: ExcelJS.Row): ServiceRef | 'skip' | 'extra' | null => {
         const label = this.text(row.getCell(labelCol).value);
         if (this.normalize(label).startsWith('jami')) return 'skip';
+        if (numbered && String(this.cellValue(row.getCell(numberCol).value) ?? '').trim() === '') return 'extra';
 
         const byName = matchService(label);
         if (byName) return byName;
@@ -680,6 +670,14 @@ export class RegionalIncomeService {
 
         const service = resolveService(row);
         if (service === 'skip') continue;
+        if (service === 'extra') {
+          const filled = [...header.columns.keys()].some((col) => (this.parseNumber(this.cellValue(row.getCell(col).value)) ?? 0) > 0);
+          if (filled) {
+            const label = this.text(row.getCell(labelCol).value) || '(nomsiz)';
+            unknownHeaders.push(`${sheet.name}: "${label}" — raqamsiz qo'shimcha qator, jamiga qo'shilmadi`);
+          }
+          continue;
+        }
 
         if (!service) {
           // Bir xizmat ikki qator — faqat bir marta qayd etamiz
