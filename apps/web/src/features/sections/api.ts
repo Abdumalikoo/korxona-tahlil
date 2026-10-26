@@ -108,6 +108,8 @@ export const SECTION_NAV: Record<SectionKind, KindNav> = {
           { href: '/xarajatlar/tarkib', label: 'Ish haqi tarkibi' },
           { href: '/xarajatlar/23106', label: '23106' },
           { href: '/xarajatlar/bank-kochirma', label: 'Bank ko‘chirmasi' },
+          { href: '/xarajatlar/fakturalar', label: 'Schyot-fakturalar' },
+          { href: '/xarajatlar/kontragentlar', label: 'Kontragentlar' },
           { href: '/xarajatlar/ish-haqi-solishtirma', label: 'Ish haqi solishtirma' },
           { href: '/xarajatlar/ijara', label: 'Ijara' },
         ],
@@ -138,6 +140,9 @@ export const SECTION_NAV: Record<SectionKind, KindNav> = {
           { href: '/daromadlar/tahlil', label: 'Tahlil' },
           { href: '/daromadlar/hududlar', label: 'Hududlar' },
           { href: '/daromadlar/natijalar', label: 'Natijalar' },
+          { href: '/daromadlar/bank-kochirma', label: 'Bank ko‘chirmasi' },
+          { href: '/daromadlar/fakturalar', label: 'Schyot-fakturalar' },
+          { href: '/daromadlar/kontragentlar', label: 'Kontragentlar' },
         ],
       },
       BOSHQA: {

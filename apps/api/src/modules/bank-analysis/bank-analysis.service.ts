@@ -33,7 +33,7 @@ export const BANK_ANALYSIS_KEY = 'bank.analysis.store';
 const MAX_ROWS = 30000;
 const MAX_ITEMS = 3000;
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-const cap = (v: unknown, n: number) => text(v).slice(0, n);
+export const cap = (v: unknown, n: number) => text(v).slice(0, n);
 const dayDate = (day: string) => new Date(`${day.slice(0, 10)}T12:00:00+05:00`);
 
 export interface BankAnRow {
@@ -52,7 +52,7 @@ export interface BankAnRow {
   purpose: string;
 }
 
-interface AccountMonth {
+export interface AccountMonth {
   batchId: string;
   fileName: string;
   savedAt: string;
@@ -60,7 +60,7 @@ interface AccountMonth {
   rows: BankAnRow[];
 }
 
-interface Account {
+export interface Account {
   key: string;
   label: string;
   months: Record<string, AccountMonth>;
@@ -121,57 +121,104 @@ export interface BankPost {
   cancelReason: string | null;
 }
 
-interface Store {
+/** Guruhga foydalanuvchi bergan nom va tur (o'xshashlik kaliti bo'yicha — keyingi oylarda ham qo'llanadi) */
+interface GroupMeta {
+  name: string | null;
+  kind: BankKind | null;
+  at: string;
+  by: string;
+}
+
+/** Takrorlanishi: muntazam (≥60% oyda, kamida 3), bir martalik (bitta oyda), vaqti-vaqti bilan */
+export type BankPattern = 'REGULAR' | 'ONCE' | 'IRREGULAR';
+
+export interface Store {
   accounts: Record<string, Account>;
   batches: BankAnBatch[];
   /** `${hisob}:${qator}` → izoh */
   notes: Record<string, BankNote>;
   posts: BankPost[];
+  /** guruh kaliti → nom / tur */
+  groups: Record<string, GroupMeta>;
 }
 
-function readStore(raw: unknown): Store {
+export function readStore(raw: unknown): Store {
   const v = (raw ?? {}) as Partial<Store>;
   return {
     accounts: v.accounts && typeof v.accounts === 'object' && !Array.isArray(v.accounts) ? (v.accounts as Record<string, Account>) : {},
     batches: Array.isArray(v.batches) ? (v.batches as BankAnBatch[]) : [],
     notes: v.notes && typeof v.notes === 'object' && !Array.isArray(v.notes) ? (v.notes as Record<string, BankNote>) : {},
     posts: Array.isArray(v.posts) ? (v.posts as BankPost[]) : [],
+    groups: v.groups && typeof v.groups === 'object' && !Array.isArray(v.groups) ? (v.groups as Record<string, GroupMeta>) : {},
   };
 }
 
-const big = (v: string) => {
+export const big = (v: string) => {
   try {
     return BigInt(v);
   } catch {
     return 0n;
   }
 };
-const rk = (account: string, id: string) => `${account}:${id}`;
+export const rk = (account: string, id: string) => `${account}:${id}`;
 
-type Tx = Pick<PrismaService, 'expense' | 'income' | 'setting'>;
+export type Tx = Pick<PrismaService, 'expense' | 'income' | 'setting'>;
 
 @Injectable()
 export class BankAnalysisService {
+  /** Saqlash kaliti (settings) — faktura tahlili o'z kaliti bilan */
+  protected readonly key: string = BANK_ANALYSIS_KEY;
+  /** Yozuv izohi va tarix uchun manba nomi */
+  protected readonly sourceLabel: string = "Bank ko'chirmasi";
+  /** Audit yozuvi turi */
+  protected readonly entity: string = 'bank_analysis';
+
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly audit: AuditService,
+    protected readonly prisma: PrismaService,
+    protected readonly audit: AuditService,
   ) {}
 
-  private async store(): Promise<Store> {
-    return readStore((await this.prisma.setting.findUnique({ where: { key: BANK_ANALYSIS_KEY } }))?.value ?? null);
+  // ═══════════ Manbaga xos qoidalar (faktura tahlili o'zgartiradi) ═══════════
+
+  /** To'lov qaysi oyga tegishli (bank — hujjat sanasi oyi) */
+  protected periodOf(r: BankAnRow): string {
+    return r.docDate.slice(0, 7);
   }
 
-  private async save(store: Store, tx: Tx = this.prisma) {
+  /** O'xshashlik kaliti */
+  protected keyOf(r: BankAnRow): string {
+    return groupKey(r.dir, r.inn, r.accountName, r.purpose);
+  }
+
+  /** Avtomatik tur */
+  protected kindFor(dir: BankDir, r: BankAnRow, counterparty: string): BankKind {
+    return kindOf(dir, r.purpose, counterparty);
+  }
+
+  /** Yo'naltirilganda yozuv sanasi: hujjat sanasi (oyi boshqa bo'lsa — o'sha oyning oxirgi kuni) */
+  protected entryDate(r: BankAnRow): Date {
+    const p = this.periodOf(r);
+    if (r.docDate.startsWith(p)) return dayDate(r.docDate);
+    const [y, m] = p.split('-').map(Number) as [number, number];
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return dayDate(`${p}-${String(last).padStart(2, '0')}`);
+  }
+
+  protected async store(): Promise<Store> {
+    return readStore((await this.prisma.setting.findUnique({ where: { key: this.key } }))?.value ?? null);
+  }
+
+  protected async save(store: Store, tx: Tx = this.prisma) {
     const value = store as unknown as object;
-    await tx.setting.upsert({ where: { key: BANK_ANALYSIS_KEY }, create: { key: BANK_ANALYSIS_KEY, value }, update: { value } });
+    await tx.setting.upsert({ where: { key: this.key }, create: { key: this.key, value }, update: { value } });
   }
 
-  private async userName(userId: string): Promise<string> {
+  protected async userName(userId: string): Promise<string> {
     return (await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null))?.fullName ?? '';
   }
 
   /** Fayldagi qatorlar → tahlil qatorlari (kaliti bilan) */
-  private toRows(list: { docDate: string; procDate: string | null; docNo: string; accountName: string; inn: string; mfo: string; debitTiyin: string; creditTiyin: string; purpose: string }[]): BankAnRow[] {
+  protected toRows(list: { docDate: string; procDate: string | null; docNo: string; accountName: string; inn: string; mfo: string; debitTiyin: string; creditTiyin: string; purpose: string }[]): BankAnRow[] {
     const seen = new Map<string, number>();
     const out: BankAnRow[] = [];
     for (const r of list) {
@@ -190,7 +237,7 @@ export class BankAnalysisService {
   }
 
   /** Ko'chirmada endi yo'q to'lovlarning yo'naltirishlari bekor (yozuvlari o'chiriladi) — tx ichida */
-  private async dropOrphans(store: Store, tx: Tx, reason: string): Promise<number> {
+  protected async dropOrphans(store: Store, tx: Tx, reason: string): Promise<number> {
     const live = new Set<string>();
     for (const a of Object.values(store.accounts)) for (const m of Object.values(a.months)) for (const r of m.rows) live.add(rk(a.key, r.id));
     const orphans = store.posts.filter((p) => p.status === 'POSTED' && !live.has(rk(p.account, p.rowId)));
@@ -205,7 +252,7 @@ export class BankAnalysisService {
     return orphans.length;
   }
 
-  private async softDelete(posts: BankPost[], tx: Tx) {
+  protected async softDelete(posts: BankPost[], tx: Tx) {
     const exp = posts.filter((p) => p.entryType === 'EXPENSE').map((p) => p.entryId);
     const inc = posts.filter((p) => p.entryType === 'INCOME').map((p) => p.entryId);
     if (exp.length) await tx.expense.updateMany({ where: { id: { in: exp }, deletedAt: null }, data: { deletedAt: new Date() } });
@@ -251,7 +298,7 @@ export class BankAnalysisService {
       invalid: p.invalid.slice(0, 50),
       invalidCount: p.invalid.length,
       /** Hamma guruh — har birining qatorlari (rowIds) bilan: saqlashdan oldin ochib ko'rish uchun */
-      groups: this.groups(rows.map((r) => ({ ...r, account: '' })), periods, new Map(), true),
+      groups: this.groups(rows.map((r) => ({ ...r, account: '' })), periods, new Map(), true, store.groups),
     };
   }
 
@@ -279,7 +326,7 @@ export class BankAnalysisService {
     const user = await this.userName(userId);
     const batchId = randomUUID();
     const now = new Date().toISOString();
-    const result = await runExclusive(`setting:${BANK_ANALYSIS_KEY}`, async () => {
+    const result = await runExclusive(`setting:${this.key}`, async () => {
       const store = await this.store();
       const acc = (store.accounts[akey] ??= { key: akey, label, months: {} });
       acc.label = label;
@@ -320,7 +367,7 @@ export class BankAnalysisService {
   }
 
   async cancel(id: string, userId: string) {
-    const out = await runExclusive(`setting:${BANK_ANALYSIS_KEY}`, async () => {
+    const out = await runExclusive(`setting:${this.key}`, async () => {
       const store = await this.store();
       const b = store.batches.find((x) => x.id === id);
       if (!b) throw new NotFoundException('Yuklash topilmadi');
@@ -349,20 +396,21 @@ export class BankAnalysisService {
 
   // ═══════════ Tahlil ═══════════
 
-  private rowsIn(store: Store, months: string[], account?: string | null): (BankAnRow & { account: string })[] {
+  protected rowsIn(store: Store, months: string[], account?: string | null): (BankAnRow & { account: string })[] {
     const accs = Object.values(store.accounts).filter((a) => !account || a.key === account);
-    return accs.flatMap((a) => months.flatMap((p) => (a.months[p]?.rows ?? []).map((r) => ({ ...r, account: a.key }))));
+    const want = new Set(months);
+    return accs.flatMap((a) => Object.values(a.months).flatMap((m) => m.rows.filter((r) => want.has(this.periodOf(r))).map((r) => ({ ...r, account: a.key }))));
   }
 
-  private postedMap(store: Store): Map<string, BankPost> {
+  protected postedMap(store: Store): Map<string, BankPost> {
     return new Map(store.posts.filter((p) => p.status === 'POSTED').map((p) => [rk(p.account, p.rowId), p]));
   }
 
   /** O'xshashlar guruhi: oyma-oy, o'sib boruvchi, turi, muntazamligi, yo'naltirilgani */
-  private groups(rows: (BankAnRow & { account: string })[], months: string[], posted: Map<string, BankPost>, withRows = false) {
+  protected groups(rows: (BankAnRow & { account: string })[], months: string[], posted: Map<string, BankPost>, withRows = false, meta: Record<string, GroupMeta> = {}) {
     const map = new Map<string, { key: string; dir: BankDir; rows: (BankAnRow & { account: string })[] }>();
     for (const r of rows) {
-      const k = groupKey(r.dir, r.inn, r.accountName, r.purpose);
+      const k = this.keyOf(r);
       const g = map.get(k) ?? { key: k, dir: r.dir, rows: [] };
       g.rows.push(r);
       map.set(k, g);
@@ -375,7 +423,7 @@ export class BankAnalysisService {
       let postedCount = 0;
       let postedTiyin = 0n;
       for (const r of g.rows) {
-        const p = r.docDate.slice(0, 7);
+        const p = this.periodOf(r);
         if (p in byMonth) {
           byMonth[p]! += big(r.amountTiyin);
           countBy[p]! += 1;
@@ -397,7 +445,12 @@ export class BankAnalysisService {
       const name = [...names.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
       const cp = counterpartyKey(last.inn, last.accountName);
       const people = cp === 'person' ? new Set(g.rows.map((r) => r.inn)).size : 0;
-      const kind: BankKind = kindOf(g.dir, last.purpose, name);
+      const m = meta[g.key];
+      const autoKind: BankKind = this.kindFor(g.dir, last, name);
+      const kind: BankKind = m?.kind && m.kind in BANK_KIND_LABEL ? m.kind : autoKind;
+      const regular = active.length >= Math.max(3, Math.ceil(months.length * 0.6));
+      // Bir martalik: bitta to'lov yoki faqat bitta oyda (davr bir oydan ko'p bo'lsa)
+      const pattern: BankPattern = regular ? 'REGULAR' : g.rows.length === 1 || (months.length > 1 && active.length === 1) ? 'ONCE' : 'IRREGULAR';
       // O'zgarish: oxirgi faol oy va undan oldingi faol oy
       const lastP = active[active.length - 1];
       const prevP = active[active.length - 2];
@@ -409,6 +462,11 @@ export class BankAnalysisService {
         kind,
         kindLabel: BANK_KIND_LABEL[kind],
         counterparty: cp === 'person' ? `Jismoniy shaxslar (${people} kishi)` : name,
+        /** Siz bergan nom (bo'lmasa — null) */
+        name: m?.name ?? null,
+        autoKind,
+        kindEdited: Boolean(m?.kind && m.kind !== autoKind),
+        pattern,
         inn: cp.startsWith('inn:') ? cp.slice(4) : null,
         label: purposeKey(last.purpose) || '—',
         samples,
@@ -421,7 +479,7 @@ export class BankAnalysisService {
         cumulative,
         activeMonths: active.length,
         /** Muntazam: tanlangan oylarning kamida 60 foizida (va kamida 3 oyda) */
-        regular: active.length >= Math.max(3, Math.ceil(months.length * 0.6)),
+        regular,
         firstDate: sorted[sorted.length - 1]!.docDate,
         lastDate: last.docDate,
         changePct: change,
@@ -441,9 +499,9 @@ export class BankAnalysisService {
     const acc = account && store.accounts[account] ? account : null;
     const rows = this.rowsIn(store, months, acc);
     const posted = this.postedMap(store);
-    const groups = this.groups(rows, months, posted);
+    const groups = this.groups(rows, months, posted, false, store.groups);
     const series = months.map((p) => {
-      const list = rows.filter((r) => r.docDate.startsWith(p));
+      const list = rows.filter((r) => this.periodOf(r) === p);
       return {
         period: p,
         label: monthLabel(p),
@@ -488,6 +546,13 @@ export class BankAnalysisService {
         netTiyin: (inTotal - outTotal).toString(),
         groups: groups.length,
         regularOut: groups.filter((g) => g.dir === 'OUT' && g.regular).length,
+        /** Takrorlanishi bo'yicha (chiqim / kirim): soni va summasi */
+        patterns: (['OUT', 'IN'] as const).flatMap((d) =>
+          (['REGULAR', 'IRREGULAR', 'ONCE'] as const).map((p) => {
+            const l = groups.filter((g) => g.dir === d && g.pattern === p);
+            return { dir: d, pattern: p, groups: l.length, count: l.reduce((s, g) => s + g.count, 0), totalTiyin: l.reduce((s, g) => s + big(g.totalTiyin), 0n).toString() };
+          }),
+        ),
         monthsWithData: series.filter((m) => m.count > 0).length,
         posted: {
           count: postedIn.length,
@@ -502,7 +567,7 @@ export class BankAnalysisService {
     };
   }
 
-  private range(from: string, to: string): string[] {
+  protected range(from: string, to: string): string[] {
     if (!PERIOD_RE.test(from ?? '') || !PERIOD_RE.test(to ?? '')) throw new BadRequestException("Oy noto'g'ri (YYYY-MM)");
     const months = monthsBetween(from, to);
     if (!months.length) throw new BadRequestException("«Dan» oyi «Gacha»dan keyin bo'lmasin");
@@ -518,13 +583,14 @@ export class BankAnalysisService {
     const acc = account && store.accounts[account] ? account : null;
     const posted = this.postedMap(store);
     const rows = this.rowsIn(store, months, acc)
-      .filter((r) => groupKey(r.dir, r.inn, r.accountName, r.purpose) === key)
+      .filter((r) => this.keyOf(r) === key)
       .sort((a, b) => a.docDate.localeCompare(b.docDate) || a.docNo.localeCompare(b.docNo))
       .map((r) => {
         const p = posted.get(rk(r.account, r.id));
         const note = store.notes[rk(r.account, r.id)];
         return {
           ...r,
+          period: this.periodOf(r),
           accountLabel: store.accounts[r.account]?.label ?? r.account,
           note: note ? note.comment : null,
           noteBy: note ? `${note.by} · ${note.at}` : null,
@@ -536,7 +602,7 @@ export class BankAnalysisService {
 
   // ═══════════ Izoh ═══════════
 
-  private findRow(store: Store, account: string, id: string): BankAnRow | null {
+  protected findRow(store: Store, account: string, id: string): BankAnRow | null {
     const a = store.accounts[account];
     if (!a) return null;
     for (const m of Object.values(a.months)) {
@@ -546,7 +612,7 @@ export class BankAnalysisService {
     return null;
   }
 
-  private items(raw: unknown): { account: string; rowId: string }[] {
+  protected items(raw: unknown): { account: string; rowId: string }[] {
     if (!Array.isArray(raw) || !raw.length) throw new BadRequestException("Kamida bitta to'lovni belgilang");
     if (raw.length > MAX_ITEMS) throw new BadRequestException(`Juda ko'p — ${MAX_ITEMS} tagacha`);
     const seen = new Set<string>();
@@ -570,7 +636,7 @@ export class BankAnalysisService {
     const list = this.items(body?.items);
     const comments = new Map((body.items as Record<string, unknown>[]).map((x) => [rk(String(x?.account ?? ''), String(x?.rowId ?? '')), typeof x?.comment === 'string' ? x.comment.replace(/\s+/g, ' ').trim().slice(0, 500) : '']));
     const by = await this.userName(userId);
-    const out = await runExclusive(`setting:${BANK_ANALYSIS_KEY}`, async () => {
+    const out = await runExclusive(`setting:${this.key}`, async () => {
       const store = await this.store();
       const posted = this.postedMap(store);
       const now = new Date().toISOString();
@@ -605,6 +671,34 @@ export class BankAnalysisService {
     return { success: true as const, ...out };
   }
 
+  // ═══════════ Guruh nomi va turi ═══════════
+
+  /**
+   * Guruhga o'z nomingiz va turi: { key, name, kind } (bo'sh nom — avtomatik nomga qaytadi; kind null — avtomatik tur).
+   * O'xshashlik kaliti bo'yicha saqlanadi — keyingi oylarda yuklangan shu to'lovlarga ham qo'llanadi.
+   * Yo'naltirishda izoh: to'lovga yozilgan izoh → umumiy izoh → shu nom → bankdagi izoh.
+   */
+  async groupMeta(body: { key?: unknown; name?: unknown; kind?: unknown }, userId: string) {
+    const key = typeof body?.key === 'string' ? body.key : '';
+    if (!key || key.length > 400) throw new BadRequestException("Guruh noto'g'ri");
+    const name = typeof body?.name === 'string' ? body.name.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    const kind = typeof body?.kind === 'string' && body.kind in BANK_KIND_LABEL ? (body.kind as BankKind) : null;
+    if (body?.kind !== undefined && body.kind !== null && body.kind !== '' && !kind) throw new BadRequestException("Tur noto'g'ri");
+    const by = await this.userName(userId);
+    await runExclusive(`setting:${this.key}`, async () => {
+      const store = await this.store();
+      if (!name && !kind) delete store.groups[key];
+      else store.groups[key] = { name: name || null, kind, at: new Date().toISOString(), by };
+      await this.save(store);
+    });
+    return { success: true as const, key, name: name || null, kind };
+  }
+
+  /** Turlar ro'yxati (guruh turini o'zgartirish uchun) */
+  kinds() {
+    return Object.entries(BANK_KIND_LABEL).map(([code, label]) => ({ code, label }));
+  }
+
   // ═══════════ Yo'naltirish (xarajat / daromad) ═══════════
 
   /** Yo'naltirish uchun moddalar: chiqim — xarajat moddalari, kirim — daromad turlari (bo'lim ro'yxati bo'lsa — faqat undagilar) */
@@ -623,7 +717,7 @@ export class BankAnalysisService {
   }
 
   /** Joy: { unit, departmentId?, regionCode?, districtId? } → yozuv joyi va nomi */
-  private async place(raw: unknown): Promise<BankPlace> {
+  protected async place(raw: unknown): Promise<BankPlace> {
     const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     const unit = typeof p.unit === 'string' && ENTRY_UNIT_CODES.includes(p.unit) ? p.unit : null;
     if (!unit) throw new BadRequestException("Qayerga — bo'limni tanlang (Markaz, hudud yoki yo'nalish)");
@@ -653,10 +747,10 @@ export class BankAnalysisService {
   }
 
   /** Shu sana va summadagi (o'chirilmagan) yozuvlar — ikki marta yozilmasin */
-  private async duplicates(rows: { key: string; row: BankAnRow }[], own: Set<string>) {
+  protected async duplicates(rows: { key: string; row: BankAnRow }[], own: Set<string>) {
     const out = new Map<string, { id: string; date: string; description: string | null; categoryLabel: string; source: string }[]>();
     for (const { key, row } of rows) {
-      const d = dayDate(row.docDate);
+      const d = this.entryDate(row);
       const from = new Date(d.getTime() - 12 * 3600_000);
       const to = new Date(d.getTime() + 12 * 3600_000);
       const where = { deletedAt: null, amountTiyin: big(row.amountTiyin), date: { gte: from, lt: to } };
@@ -714,7 +808,7 @@ export class BankAnalysisService {
     const by = await this.userName(userId);
     const unitOfPlace = entryUnitOf({ regionCode: place.regionCode, departmentId: place.departmentId, segment: isSegment(place.unit) ? place.unit : null });
 
-    const out = await runExclusive(`setting:${BANK_ANALYSIS_KEY}`, async () => {
+    const out = await runExclusive(`setting:${this.key}`, async () => {
       const store = await this.store();
       const posted = this.postedMap(store);
       const picked: { account: string; row: BankAnRow }[] = [];
@@ -757,10 +851,11 @@ export class BankAnalysisService {
           const posts: BankPost[] = [];
           for (const { account, row } of todo) {
             const note = store.notes[rk(account, row.id)]?.comment;
-            const description = (note || common || row.purpose || 'Bank ko‘chirmasidan').slice(0, 500);
+            const gName = store.groups[this.keyOf(row)]?.name;
+            const description = (note || common || gName || row.purpose || this.sourceLabel).slice(0, 500);
             const base = {
-              date: dayDate(row.docDate),
-              period: row.docDate.slice(0, 7),
+              date: this.entryDate(row),
+              period: this.periodOf(row),
               amountTiyin: big(row.amountTiyin),
               categoryCode: code,
               segment: isSegment(place.unit) ? place.unit : null,
@@ -778,7 +873,7 @@ export class BankAnalysisService {
               dir === 'OUT'
                 ? await tx.expense.create({ data: { ...base, documentNo: row.docNo.slice(0, 100) || null, counterparty: row.accountName.slice(0, 200) || null }, select: { id: true } })
                 : await tx.income.create({ data: { ...base, paidTiyin: big(row.amountTiyin), clientName: row.accountName.slice(0, 200) || null, contractNo: row.docNo.slice(0, 100) || null }, select: { id: true } });
-            posts.push({ id: randomUUID(), batch, account, rowId: row.id, period: row.docDate.slice(0, 7), docDate: row.docDate, dir, amountTiyin: row.amountTiyin, place, categoryCode: code, categoryLabel, section, description, entryType: dir === 'OUT' ? 'EXPENSE' : 'INCOME', entryId: e.id, createdAt: now, createdBy: by, status: 'POSTED', cancelledAt: null, cancelReason: null });
+            posts.push({ id: randomUUID(), batch, account, rowId: row.id, period: this.periodOf(row), docDate: row.docDate, dir, amountTiyin: row.amountTiyin, place, categoryCode: code, categoryLabel, section, description, entryType: dir === 'OUT' ? 'EXPENSE' : 'INCOME', entryId: e.id, createdAt: now, createdBy: by, status: 'POSTED', cancelledAt: null, cancelReason: null });
           }
           store.posts.push(...posts);
           // Ko'p bo'lsa — bekor qilinganlarning eskilari tashlanadi (yo'naltirilganlar doim qoladi)
@@ -797,9 +892,9 @@ export class BankAnalysisService {
       await this.audit.log({
         userId,
         action: 'CREATE',
-        entity: 'bank_analysis_route',
+        entity: `${this.entity}_route`,
         entityId: out.batch!,
-        summary: `Bank ko'chirmasidan ${out.dir === 'OUT' ? 'xarajatga' : 'daromadga'}: ${out.count} ta to'lov, ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm → ${place.label}, «${out.categoryLabel}»${out.skipped ? ` (${out.skipped} tasi o'tkazib yuborildi — yozuvi bor)` : ''}`,
+        summary: `${this.sourceLabel}dan ${out.dir === 'OUT' ? 'xarajatga' : 'daromadga'}: ${out.count} ta to'lov, ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm → ${place.label}, «${out.categoryLabel}»${out.skipped ? ` (${out.skipped} tasi o'tkazib yuborildi — yozuvi bor)` : ''}`,
       });
     }
     return { success: true as const, batch: out.batch, count: out.count, totalTiyin: out.total.toString(), skipped: out.skipped, entryType: out.dir === 'OUT' ? 'EXPENSE' : 'INCOME', place: place.label };
@@ -810,7 +905,7 @@ export class BankAnalysisService {
     const ids = Array.isArray(body?.ids) ? new Set(body.ids.map(String)) : null;
     const batch = typeof body?.batch === 'string' ? body.batch : null;
     if (!ids?.size && !batch) throw new BadRequestException("Bekor qilinadiganini tanlang");
-    const out = await runExclusive(`setting:${BANK_ANALYSIS_KEY}`, async () => {
+    const out = await runExclusive(`setting:${this.key}`, async () => {
       const store = await this.store();
       const hit = store.posts.filter((p) => p.status === 'POSTED' && ((ids && ids.has(p.id)) || (batch && p.batch === batch)));
       if (!hit.length) throw new NotFoundException("Yo'naltirish topilmadi yoki allaqachon bekor qilingan");
@@ -826,7 +921,7 @@ export class BankAnalysisService {
       });
       return { count: hit.length, total: hit.reduce((s, p) => s + big(p.amountTiyin), 0n) };
     });
-    await this.audit.log({ userId, action: 'DELETE', entity: 'bank_analysis_route', entityId: batch ?? [...(ids ?? [])].join(',').slice(0, 190), summary: `Bank ko'chirmasidan yo'naltirish bekor qilindi: ${out.count} ta yozuv, ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm` });
+    await this.audit.log({ userId, action: 'DELETE', entity: `${this.entity}_route`, entityId: batch ?? [...(ids ?? [])].join(',').slice(0, 190), summary: `${this.sourceLabel}dan yo'naltirish bekor qilindi: ${out.count} ta yozuv, ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm` });
     return { success: true as const, count: out.count, totalTiyin: out.total.toString() };
   }
 

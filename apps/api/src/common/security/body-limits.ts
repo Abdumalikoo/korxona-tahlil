@@ -10,6 +10,7 @@ const { json, urlencoded } = fromNest('express') as typeof import('express');
 // So'rov tanasi (JSON / forma) hajmi chegarasi — manzil bo'yicha.
 //  • Kirish (login, ID kod): 16 KB — parol va kod uchun yetarli;
 //  • Telefondan imzo (public/acts): 2 MB — imzo rasmi va yuz surati (servisda ham alohida chegara bor);
+//  • Schyot-faktura saqlash (invoice-analysis/commit): 64 MB — reyestr qatorlari;
 //  • Qolgan hamma manzil (faqat kirgan foydalanuvchi): BODY_LIMIT (standart 10 MB).
 // Chegaradan oshsa — 413 (tana o'qilmaydi, server band bo'lmaydi). Fayl yuklash (multipart) bunga kirmaydi —
 // u har manzilda alohida (FileInterceptor limits).
@@ -18,6 +19,8 @@ const { json, urlencoded } = fromNest('express') as typeof import('express');
 const RULES: { re: RegExp; limit: string }[] = [
   { re: /^\/api\/auth\/(login|code-login)\/?$/, limit: '16kb' },
   { re: /^\/api\/public\//, limit: '2mb' },
+  // Schyot-faktura reyestri qatorlari (o'n minglab) — saqlashda (faqat kirgan foydalanuvchi, administrator)
+  { re: /^\/api\/invoice-analysis\/commit\/?$/, limit: '64mb' },
 ];
 
 export function limitFor(path: string, fallback: string): string {

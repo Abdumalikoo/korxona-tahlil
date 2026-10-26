@@ -30,6 +30,7 @@ const KINDS: { key: SourceKind | 'ALL'; label: string }[] = [
   { key: 'unit-payroll', label: 'Bo‘lim vedomostlari' },
   { key: 'acc-23106', label: '23106' },
   { key: 'bank-analysis', label: 'Bank ko‘chirmasi' },
+  { key: 'invoice-analysis', label: 'Schyot-fakturalar' },
 ];
 
 function size(b: number) {

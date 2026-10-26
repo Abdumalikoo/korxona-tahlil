@@ -8,8 +8,48 @@ import { api, getToken, type ApiResponse } from '@/lib/api';
 export type BankDir = 'OUT' | 'IN';
 export type BankKind = 'SOLIQ' | 'ISH_HAQI' | 'BANK' | 'KOMMUNAL' | 'ALOQA' | 'IJARA' | 'YOQILGI' | 'XARID' | 'XIZMAT' | 'KREDIT' | 'DEPOZIT' | 'QAYTARISH' | 'ICHKI' | 'TUSHUM' | 'BOSHQA';
 
+/** Takrorlanishi: muntazam, vaqti-vaqti bilan, bir martalik */
+export type BankPattern = 'REGULAR' | 'IRREGULAR' | 'ONCE';
+
+export const PATTERN_LABEL: Record<BankPattern, string> = { REGULAR: 'Muntazam', IRREGULAR: 'Vaqti-vaqti bilan', ONCE: 'Bir martalik' };
+
+export const KIND_OPTIONS: { code: BankKind; label: string }[] = [
+  { code: 'SOLIQ', label: 'Soliq va majburiy to‘lovlar' },
+  { code: 'ISH_HAQI', label: 'Ish haqi va xodimlarga' },
+  { code: 'BANK', label: 'Bank xizmati' },
+  { code: 'KOMMUNAL', label: 'Kommunal' },
+  { code: 'ALOQA', label: 'Aloqa va internet' },
+  { code: 'IJARA', label: 'Ijara' },
+  { code: 'YOQILGI', label: 'Yoqilg‘i' },
+  { code: 'XARID', label: 'Tovar va material' },
+  { code: 'XIZMAT', label: 'Xizmat va ishlar' },
+  { code: 'KREDIT', label: 'Kredit va foiz' },
+  { code: 'DEPOZIT', label: 'Depozit' },
+  { code: 'QAYTARISH', label: 'Qaytarish' },
+  { code: 'ICHKI', label: 'Ichki o‘tkazma (hisoblararo)' },
+  { code: 'TUSHUM', label: 'Xizmat tushumi' },
+  { code: 'BOSHQA', label: 'Boshqa' },
+];
+
 export interface BankRow {
   id: string;
+  /** Schyot-faktura qatorida */
+  invoiceId?: string;
+  itemNo?: string;
+  status?: string;
+  docType?: string;
+  contract?: string;
+  contractDate?: string | null;
+  ikpu?: string;
+  unit?: string;
+  qty?: number | null;
+  costTiyin?: string;
+  vatTiyin?: string;
+  vatRate?: number | null;
+  /** Xizmat oyi (faktura) */
+  period?: string;
+  invoiceNote?: string;
+  ourBranch?: string;
   docDate: string;
   procDate: string | null;
   docNo: string;
@@ -27,6 +67,11 @@ export interface BankGroup {
   kind: BankKind;
   kindLabel: string;
   counterparty: string;
+  /** Siz bergan nom */
+  name: string | null;
+  autoKind: BankKind;
+  kindEdited: boolean;
+  pattern: BankPattern;
   inn: string | null;
   label: string;
   samples: string[];
@@ -64,6 +109,12 @@ export interface BankAnalysis {
   invalid: { rowIndex: number; reason: string }[];
   invalidCount: number;
   groups: BankGroup[];
+  /** Schyot-faktura: bizning korxona, holatlar, fakturalar soni, fayldagi hamma ID */
+  org?: { inn: string; name: string; source: 'SAVED' | 'DETECTED' };
+  statuses?: { status: string; count: number; included: boolean }[];
+  invoices?: { total: number; included: number; other: number; update: number };
+  allIds?: string[];
+  truncated?: boolean;
 }
 
 export interface BankSeries {
@@ -96,7 +147,7 @@ export interface BankView {
   accounts: BankAccount[];
   account: string | null;
   series: BankSeries[];
-  totals: { rows: number; outTiyin: string; inTiyin: string; netTiyin: string; groups: number; regularOut: number; monthsWithData: number; posted: { count: number; outTiyin: string; inTiyin: string } };
+  totals: { rows: number; outTiyin: string; inTiyin: string; netTiyin: string; groups: number; regularOut: number; monthsWithData: number; posted: { count: number; outTiyin: string; inTiyin: string }; patterns: { dir: BankDir; pattern: BankPattern; groups: number; count: number; totalTiyin: string }[] };
   kinds: BankKindTotal[];
   groups: BankGroup[];
 }
@@ -195,6 +246,7 @@ export interface BankBatch {
   status: 'COMMITTED' | 'CANCELLED';
   cancelledAt: string | null;
   liveMonths: string[];
+  liveRows?: number;
   state: 'ACTIVE' | 'PARTIAL' | 'REPLACED' | 'CANCELLED';
 }
 
@@ -215,26 +267,35 @@ async function readError(response: Response, fallback: string): Promise<string> 
   }
 }
 
-export const bankAnalysisApi = {
-  view: (from: string, to: string, account?: string | null) => api.get<ApiResponse<BankView>>('/bank-analysis/view', { params: { from, to, ...(account ? { account } : {}) } }),
-  group: (key: string, from: string, to: string, account?: string | null) => api.get<ApiResponse<BankGroupRows>>('/bank-analysis/group', { params: { key, from, to, ...(account ? { account } : {}) } }),
-  batches: () => api.get<ApiResponse<BankBatch[]>>('/bank-analysis/batches'),
-  commit: (body: { fileName: string; account: string; months: string[]; rows: BankRow[] }) =>
-    api.post<ApiResponse<{ success: true; batchId: string; account: string; months: string[]; saved: number; replacedMonths: string[]; outTiyin: string; inTiyin: string; droppedPosts: number }>>('/bank-analysis/commit', body),
-  cancel: (id: string) => api.post<ApiResponse<{ success: true; months: string[]; droppedPosts: number }>>(`/bank-analysis/batches/${encodeURIComponent(id)}/cancel`),
-  options: (dir: BankDir, unit?: string) => api.get<ApiResponse<BankOptions>>('/bank-analysis/options', { params: { dir, ...(unit ? { unit } : {}) } }),
-  notes: (items: (BankItem & { comment: string })[]) => api.post<ApiResponse<{ success: true; saved: number; cleared: number; entries: number }>>('/bank-analysis/notes', { items }),
-  check: (items: BankItem[]) => api.post<ApiResponse<BankCheck>>('/bank-analysis/route/check', { items }),
-  route: (body: { items: BankItem[]; place: BankRoutePlace; categoryCode: string; section: 'DOIMIY' | 'BOSHQA'; description?: string; force?: boolean; skipDuplicates?: boolean }) =>
-    api.post<ApiResponse<{ success: true; batch: string | null; count: number; totalTiyin: string; skipped: number; entryType: 'EXPENSE' | 'INCOME'; place: string }>>('/bank-analysis/route', body),
-  unroute: (body: { ids?: string[]; batch?: string }) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string }>>('/bank-analysis/route/cancel', body),
-  posts: () => api.get<ApiResponse<BankPostBatch[]>>('/bank-analysis/posts'),
-};
+type CommitResult = { success: true; batchId: string; account: string; months: string[]; saved: number; replacedMonths: string[]; outTiyin: string; inTiyin: string; droppedPosts: number; invoices?: number; updatedInvoices?: number; removedRows?: number };
 
-export async function analyzeBankStatement(file: File): Promise<BankAnalysis> {
-  const form = new FormData();
-  form.append('file', file);
-  const response = await fetch(`${BASE}/bank-analysis/analyze`, { method: 'POST', headers: authHeaders(), body: form });
-  if (!response.ok) throw new Error(await readError(response, "Faylni tahlil qilib bo'lmadi"));
-  return ((await response.json()) as ApiResponse<BankAnalysis>).data;
+/** Tahlil API — bank ko'chirmasi (/bank-analysis) va schyot-fakturalar (/invoice-analysis) bir xil yo'llar bilan */
+export function makeAnalysisApi(base: '/bank-analysis' | '/invoice-analysis') {
+  return {
+    view: (from: string, to: string, account?: string | null) => api.get<ApiResponse<BankView>>(`${base}/view`, { params: { from, to, ...(account ? { account } : {}) } }),
+    group: (key: string, from: string, to: string, account?: string | null) => api.get<ApiResponse<BankGroupRows>>(`${base}/group`, { params: { key, from, to, ...(account ? { account } : {}) } }),
+    batches: () => api.get<ApiResponse<BankBatch[]>>(`${base}/batches`),
+    commit: (body: { fileName: string; account?: string; months?: string[]; rows: BankRow[]; allIds?: string[]; org?: { inn: string; name: string } }) => api.post<ApiResponse<CommitResult>>(`${base}/commit`, body),
+    cancel: (id: string) => api.post<ApiResponse<{ success: true; months: string[]; droppedPosts: number; removedRows?: number }>>(`${base}/batches/${encodeURIComponent(id)}/cancel`),
+    groupMeta: (body: { key: string; name: string; kind: BankKind | null }) => api.post<ApiResponse<{ success: true; key: string; name: string | null; kind: BankKind | null }>>(`${base}/groups/meta`, body),
+    options: (dir: BankDir, unit?: string) => api.get<ApiResponse<BankOptions>>(`${base}/options`, { params: { dir, ...(unit ? { unit } : {}) } }),
+    notes: (items: (BankItem & { comment: string })[]) => api.post<ApiResponse<{ success: true; saved: number; cleared: number; entries: number }>>(`${base}/notes`, { items }),
+    check: (items: BankItem[]) => api.post<ApiResponse<BankCheck>>(`${base}/route/check`, { items }),
+    route: (body: { items: BankItem[]; place: BankRoutePlace; categoryCode: string; section: 'DOIMIY' | 'BOSHQA'; description?: string; force?: boolean; skipDuplicates?: boolean }) =>
+      api.post<ApiResponse<{ success: true; batch: string | null; count: number; totalTiyin: string; skipped: number; entryType: 'EXPENSE' | 'INCOME'; place: string }>>(`${base}/route`, body),
+    unroute: (body: { ids?: string[]; batch?: string }) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string }>>(`${base}/route/cancel`, body),
+    posts: () => api.get<ApiResponse<BankPostBatch[]>>(`${base}/posts`),
+    /** Fayl tahlili (hech narsa saqlanmaydi) */
+    analyze: async (file: File): Promise<BankAnalysis> => {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch(`${BASE}${base}/analyze`, { method: 'POST', headers: authHeaders(), body: form });
+      if (!response.ok) throw new Error(await readError(response, "Faylni tahlil qilib bo'lmadi"));
+      return ((await response.json()) as ApiResponse<BankAnalysis>).data;
+    },
+  };
 }
+
+export type AnalysisApi = ReturnType<typeof makeAnalysisApi>;
+export const bankAnalysisApi = makeAnalysisApi('/bank-analysis');
+export const invoiceAnalysisApi = makeAnalysisApi('/invoice-analysis');

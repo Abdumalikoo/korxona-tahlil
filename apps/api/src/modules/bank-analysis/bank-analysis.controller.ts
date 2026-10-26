@@ -50,6 +50,19 @@ export class BankAnalysisController {
     return { data: await this.service.group(key, from, to, account || null) };
   }
 
+  /** Guruhga o'z nomingiz va turi */
+  @Roles(UserRole.ADMIN)
+  @Post('groups/meta')
+  @HttpCode(HttpStatus.OK)
+  async groupMeta(@Body() body: { key?: unknown; name?: unknown; kind?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.groupMeta(body, userId) };
+  }
+
+  @Get('kinds')
+  kinds() {
+    return { data: this.service.kinds() };
+  }
+
   @Get('options')
   async options(@Query('dir') dir: string, @Query('unit') unit?: string) {
     return { data: await this.service.options(dir, unit) };

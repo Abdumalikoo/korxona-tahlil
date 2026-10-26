@@ -182,6 +182,16 @@ export const INTROS: Record<string, PageIntro> = {
     from: "Bankdan olingan ko'chirma (выписка) Excel fayli — 23106 shabloni shaklida",
     how: "O'xshash to'lovlar (bir oluvchiga bir maqsadda; izohdagi sana, raqam, summa e'tiborga olinmaydi) bitta guruhga yig'iladi va turi aniqlanadi (soliq, kommunal, aloqa …). Xarajat va daromadga yozilmaydi.",
   },
+  '/xarajatlar/fakturalar': {
+    what: "Kiruvchi schyot-fakturalar nazorati: kim, nima uchun (IKPU xizmat kodi), qancha — oyma-oy va o'sib boruvchi, bir martaliklar alohida.",
+    from: 'Didox / soliq.uz «Счет-фактура» reyestri (Excel, katta fayl ham)',
+    how: "Faqat «Подписан» va «Ожидает», summa QQS bilan; oy — xizmat oyi («за август»). Xarajatga o'zi yozilmaydi — kerakli qatorni tanlab bo'limga yo'naltirasiz.",
+  },
+  '/xarajatlar/kontragentlar': {
+    what: "Yetkazib beruvchilar yagona kartasi: nima beradi, fakturada hisoblangan va bankdan to'langan, to'lanmagan farq, shartnomalar.",
+    from: "Schyot-fakturalar va bank ko'chirmasi (ikkalasi INN bo'yicha birlashadi)",
+    how: "Faqat ko'rish. Manba chatida ham: «300000001 kontragent».",
+  },
   '/xarajatlar/ish-haqi-solishtirma': {
     what: "Har xodim: ish haqi fondi (FOT) − daromad solig'i (12%) − kasaba uyushmasi (2%, faqat asosiy shtat) = 23106 dan to'langan summa. Farq chiqqanlar alohida ko'rsatiladi.",
     from: "Ish haqi tarkibi (bo'lmasa soliq hisoboti), Xodimlar bo'limi (shtat yoki shartnoma), 23106 ko'chirmasi",

@@ -94,6 +94,9 @@ export const MENU: NavItem[] = [
       { label: 'Markaz tushumi', href: '/daromadlar/markaz', description: "Kunlik tushum va qoldiq fayli — Markaz oylik daromadi" },
       { label: 'Hududlar tushumi', href: '/daromadlar/hududlar', description: 'Hududlardan Excel orqali kelgan tushum' },
       { label: 'Natijalar', href: '/daromadlar/natijalar', description: 'Oylik natijalar' },
+      { label: 'Bank ko‘chirmasi', href: '/daromadlar/bank-kochirma', description: "Bankka tushgan kirimlar: o'xshashlar oyma-oy va o'sib boruvchi (daromadga faqat tanlab yo'naltiriladi)" },
+      { label: 'Schyot-fakturalar', href: '/daromadlar/fakturalar', description: "Biz yozgan (chiquvchi) schyot-fakturalar: mijoz va xizmat bo'yicha oyma-oy nazorat" },
+      { label: 'Kontragentlar', href: '/daromadlar/kontragentlar', description: "Mijozlar: biz yozgan faktura va bankka tushgan, farq (tushmagan), shartnomalar" },
       { label: 'Reja va tushum', href: '/daromadlar/reja-tushum', description: "Xodimlar reja / tushum fayli — daromadni xodimlarga bo'lib beradi" },
       { label: 'Tahlil', href: '/daromadlar/tahlil', description: 'Daromad dinamikasi va tarkibi' },
       // 6 bo'lim — chap menyuda «Daromadlar» ostida; yorliqlar qatorida emas (qidiruvda bor)
@@ -113,6 +116,8 @@ export const MENU: NavItem[] = [
       { label: 'Soliq hisoboti', href: '/xarajatlar/soliq-hisoboti', description: "JShDS hisob-kitobi (4 va 5-ilova) to'g'ridan-to'g'ri: shu oy oylik va boshqa daromadlar" },
       { label: 'Ish haqi tarkibi', href: '/xarajatlar/tarkib', description: "Ish haqi komponentlar bo'yicha" },
       { label: '23106', href: '/xarajatlar/23106', description: "Xodimlarga to'lovlar ko'chirmasi (bayram puli, mukofot, xizmat safari): xodim, sana, nima uchun — tarkib va soliq hisoboti bilan nazorat" },
+      { label: 'Schyot-fakturalar', href: '/xarajatlar/fakturalar', description: "Kiruvchi schyot-fakturalar (Didox reyestri) nazorati: kontragent va xizmat (IKPU) bo'yicha oyma-oy, faqat Подписан va Ожидает, QQS bilan" },
+      { label: 'Kontragentlar', href: '/xarajatlar/kontragentlar', description: "Yetkazib beruvchilar: nima beradi, fakturada hisoblangan va bankdan to'langan, farq (qarz), shartnomalar" },
       { label: 'Bank ko‘chirmasi', href: '/xarajatlar/bank-kochirma', description: "Bankdan olingan ko'chirma tahlili: chiqim va kirim, o'xshash to'lovlar oyma-oy va o'sib boruvchi, turlari (xarajat va daromadga yozilmaydi)" },
       { label: 'Ish haqi solishtirma', href: '/xarajatlar/ish-haqi-solishtirma', description: "FOT − soliq (− kasaba uyushmasi) = 23106: bankdan to'langani hisoblanganiga mosmi — shtat va shartnoma, Markaz va hududlar kesimida" },
       { label: 'Ijara', href: '/xarajatlar/ijara', description: "Ijara shartnomalari va to'lovlar" },

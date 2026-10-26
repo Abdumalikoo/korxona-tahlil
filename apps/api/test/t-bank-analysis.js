@@ -198,6 +198,41 @@ async function file(rows, acct = '20208000900100012345') {
   const op = await svc.options('OUT', 'CENTER');
   assert.deepStrictEqual(op.categories.map((c) => c.code), ['KOMM'], 'faqat ichki moddalar');
 
+  // ── Guruh nomi va turi, bir martalik ──
+  const b4 = await svc.analyze(await file([
+    { d: '10.06.2026', no: '601', name: 'ЭЛЕКТР', inn: '300000001', out: 1_000_000, p: 'Оплата за электроэнергию за июнь' },
+    { d: '10.07.2026', no: '701', name: 'ЭЛЕКТР', inn: '300000001', out: 1_100_000, p: 'Оплата за электроэнергию за июль' },
+    { d: '10.08.2026', no: '801', name: 'ЭЛЕКТР', inn: '300000001', out: 1_200_000, p: 'Оплата за электроэнергию за август' },
+    { d: '15.07.2026', no: '702', name: 'MEBEL MCHJ', inn: '300000020', out: 9_000_000, p: 'Оплата по договору №7 от 01.07.2026' },
+    { d: '05.06.2026', no: '602', name: 'TA’MIR MCHJ', inn: '300000021', out: 400_000, p: 'Ремонт кондиционера' },
+    { d: '05.08.2026', no: '802', name: 'TA’MIR MCHJ', inn: '300000021', out: 300_000, p: 'Ремонт кондиционера' },
+  ], '20208000900100055555'));
+  const s4 = await svc.commit({ fileName: 'jja.xlsx', account: 'Hisob …55555', months: ['2026-06', '2026-07', '2026-08'], rows: b4.rows }, 'adm');
+  let v4 = await svc.view('2026-06', '2026-08', s4.account);
+  const pat = (cp) => v4.groups.find((g) => g.counterparty === cp).pattern;
+  assert.deepStrictEqual([pat('ЭЛЕКТР'), pat('MEBEL MCHJ'), pat('TA’MIR MCHJ')], ['REGULAR', 'ONCE', 'IRREGULAR']);
+  const once = v4.totals.patterns.find((x) => x.dir === 'OUT' && x.pattern === 'ONCE');
+  assert.deepStrictEqual([once.groups, once.totalTiyin], [1, s(9_000_000)]);
+  const mebel = v4.groups.find((g) => g.counterparty === 'MEBEL MCHJ');
+  assert.strictEqual(mebel.kind, 'BOSHQA');
+  await svc.groupMeta({ key: mebel.key, name: 'Ofis mebeli (AUP)', kind: 'XARID' }, 'adm');
+  v4 = await svc.view('2026-06', '2026-08', s4.account);
+  const mebel2 = v4.groups.find((g) => g.key === mebel.key);
+  assert.deepStrictEqual([mebel2.name, mebel2.kind, mebel2.kindEdited, mebel2.autoKind], ['Ofis mebeli (AUP)', 'XARID', true, 'BOSHQA']);
+  assert.ok(v4.kinds.some((k) => k.kind === 'XARID' && k.totalTiyin === s(9_000_000)), 'turlar jamida yangi tur');
+  await assert.rejects(svc.groupMeta({ key: mebel.key, name: 'x', kind: 'YOQ' }, 'adm'), /Tur/);
+  // Yo'naltirishda izoh — guruh nomi
+  const mrow = (await svc.group(mebel.key, '2026-06', '2026-08', s4.account)).rows[0];
+  await svc.route({ items: [{ account: s4.account, rowId: mrow.id }], place: { unit: 'CENTER', departmentId: 'dAUP' }, categoryCode: 'KOMM', section: 'BOSHQA' }, 'adm');
+  assert.strictEqual(T.expense.find((e) => e.documentNo === '702' && !e.deletedAt).description, 'Ofis mebeli (AUP)');
+  // Keyingi yuklashda ham nom qo'llanadi (oldindan ko'rishda)
+  const b5 = await svc.analyze(await file([{ d: '15.09.2026', no: '901', name: 'MEBEL MCHJ', inn: '300000020', out: 2_000_000, p: 'Оплата по договору №8 от 01.09.2026' }]));
+  assert.strictEqual(b5.groups[0].name, 'Ofis mebeli (AUP)');
+  // Nomni tozalash — avtomatikka qaytadi
+  await svc.groupMeta({ key: mebel.key, name: '', kind: null }, 'adm');
+  v4 = await svc.view('2026-06', '2026-08', s4.account);
+  assert.deepStrictEqual([v4.groups.find((g) => g.key === mebel.key).name, v4.groups.find((g) => g.key === mebel.key).kind], [null, 'BOSHQA']);
+
   console.log('t-bank-analysis: OK');
 })().catch((e) => {
   console.error(e);

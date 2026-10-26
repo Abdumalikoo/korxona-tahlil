@@ -2,7 +2,7 @@ import { api, getToken, type ApiResponse } from '@/lib/api';
 
 // Yuklangan manba fayllar arxivi (faqat administrator)
 
-export type SourceKind = 'salary-composition' | 'payroll' | 'unit-payroll' | 'acc-23106' | 'bank-analysis';
+export type SourceKind = 'salary-composition' | 'payroll' | 'unit-payroll' | 'acc-23106' | 'bank-analysis' | 'invoice-analysis';
 
 export interface SourceLinkState {
   version: number;

@@ -18,7 +18,8 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
 import { GroupDrawer, PostsHistory, PreviewGroups } from './bank-analysis-parts';
-import { analyzeBankStatement, bankAnalysisApi, type BankAnalysis, type BankBatch, type BankDir, type BankGroup, type BankKind, type BankSeries, type BankView } from './api';
+import { SourceProvider, useSource, type AnalysisSource } from './source';
+import { PATTERN_LABEL, type BankPattern, type BankAnalysis, type BankBatch, type BankDir, type BankGroup, type BankKind, type BankSeries, type BankView } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Bank ko'chirmasi — tahlil maydoni.
@@ -31,9 +32,18 @@ import { analyzeBankStatement, bankAnalysisApi, type BankAnalysis, type BankBatc
 type ToastState = { message: string; tone: 'success' | 'error' } | null;
 type Mode = 'MONTH' | 'CUM';
 
-const DIR_LABEL: Record<BankDir, string> = { OUT: 'Chiqim', IN: 'Kirim' };
 
-export function BankAnalysisView() {
+export function BankAnalysisView({ source = 'bank', defaultDir = 'OUT' }: { source?: AnalysisSource; defaultDir?: BankDir }) {
+  return (
+    <SourceProvider source={source}>
+      <AnalysisPage defaultDir={defaultDir} />
+    </SourceProvider>
+  );
+}
+
+function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
+  const { api, source, dirLabel } = useSource();
+  const inv = source === 'invoice';
   const { isAdmin } = useAuth();
   const range = useMonthRange('year');
   const [account, setAccount] = useState<string | null>(null);
@@ -49,9 +59,9 @@ export function BankAnalysisView() {
   const [toast, setToast] = useState<ToastState>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const view = useAsync(() => (range.error ? Promise.resolve(null) : bankAnalysisApi.view(range.from, range.to, account).then((r) => r.data)), [range.from, range.to, range.error, account]);
-  const batches = useAsync(() => bankAnalysisApi.batches().then((r) => r.data), []);
-  const posts = useAsync(() => bankAnalysisApi.posts().then((r) => r.data), []);
+  const view = useAsync(() => (range.error ? Promise.resolve(null) : api.view(range.from, range.to, account).then((r) => r.data)), [range.from, range.to, range.error, account]);
+  const batches = useAsync(() => api.batches().then((r) => r.data), []);
+  const posts = useAsync(() => api.posts().then((r) => r.data), []);
 
   function reset() {
     setAnalysis(null);
@@ -68,7 +78,7 @@ export function BankAnalysisView() {
     setUploading(true);
     setAnalysis(null);
     try {
-      const a = await analyzeBankStatement(file);
+      const a = await api.analyze(file);
       setAnalysis(a);
       setAccountName(a.account.suggested);
       setPicked(new Set(a.months.map((m) => m.period)));
@@ -85,9 +95,15 @@ export function BankAnalysisView() {
     setSaving(true);
     try {
       const months = [...picked];
-      const rows = analysis.rows.filter((r) => picked.has(r.docDate.slice(0, 7)));
-      const r = (await bankAnalysisApi.commit({ fileName: analysis.fileName, account: accountName.trim() || analysis.account.suggested, months, rows })).data;
-      setToast({ message: `Saqlandi: ${r.saved} ta qator · chiqim ${formatTiyin(r.outTiyin)} · kirim ${formatTiyin(r.inTiyin)}${r.replacedMonths.length ? ` · ${r.replacedMonths.length} oy almashtirildi` : ''}${r.droppedPosts ? ` · yangi ko'chirmada yo'q ${r.droppedPosts} ta to'lovning yozuvi o'chirildi` : ''}`, tone: 'success' });
+      const rows = analysis.rows.filter((r) => picked.has(r.period ?? r.docDate.slice(0, 7)));
+      const r = (
+        await api.commit(
+          inv
+            ? { fileName: analysis.fileName, rows, months, allIds: analysis.allIds ?? [], org: analysis.org ? { inn: analysis.org.inn, name: analysis.org.name } : undefined }
+            : { fileName: analysis.fileName, account: accountName.trim() || analysis.account.suggested, months, rows },
+        )
+      ).data;
+      setToast({ message: `Saqlandi: ${inv ? `${r.invoices ?? 0} ta faktura (${r.saved} qator)${r.updatedInvoices ? ` · ${r.updatedInvoices} tasi yangilandi` : ''}` : `${r.saved} ta qator`} · ${dirLabel.OUT.toLowerCase()} ${formatTiyin(r.outTiyin)} · ${dirLabel.IN.toLowerCase()} ${formatTiyin(r.inTiyin)}${r.replacedMonths.length ? ` · ${r.replacedMonths.length} oy almashtirildi` : ''}${r.droppedPosts ? ` · yangi ko'chirmada yo'q ${r.droppedPosts} ta to'lovning yozuvi o'chirildi` : ''}`, tone: 'success' });
       posts.reload();
       range.include(months);
       reset();
@@ -104,7 +120,7 @@ export function BankAnalysisView() {
     if (!cancelTarget) return;
     setCancelling(true);
     try {
-      const r = (await bankAnalysisApi.cancel(cancelTarget.id)).data;
+      const r = (await api.cancel(cancelTarget.id)).data;
       setToast({ message: `${r.months.length ? `Bekor qilindi: ${r.months.map(formatPeriod).join(', ')}` : 'Bekor qilindi (oylari keyin almashtirilgan edi)'}${r.droppedPosts ? ` · ${r.droppedPosts} ta yo'naltirilgan yozuv o'chirildi` : ''}`, tone: 'success' });
       view.reload();
       batches.reload();
@@ -118,14 +134,14 @@ export function BankAnalysisView() {
   }
 
   // Tanlangan hisob uchun shu oylar avval saqlanganmi (almashtiriladi)
-  const known = analysis?.account.known.find((k) => k.label.trim().toLowerCase() === accountName.trim().toLowerCase()) ?? null;
+  const known = analysis?.account?.known?.find((k) => k.label.trim().toLowerCase() === accountName.trim().toLowerCase()) ?? null;
   const v = view.data;
 
   return (
     <>
       <SourceActions
-        upload={isAdmin ? { label: "Ko'chirmani yuklash", onClick: () => inputRef.current?.click(), loading: uploading, disabled: Boolean(analysis), hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : 'Bankdan olingan ko‘chirma (выписка), 23106 shabloni shaklida' } : undefined}
-        template={{
+        upload={isAdmin ? { label: inv ? 'Fakturalar reyestrini yuklash' : "Ko'chirmani yuklash", onClick: () => inputRef.current?.click(), loading: uploading, disabled: Boolean(analysis), hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : inv ? 'Didox / soliq.uz «Счет-фактура» eksporti (katta fayl ham — 250 MB gacha)' : 'Bankdan olingan ko‘chirma (выписка), 23106 shabloni shaklida' } : undefined}
+        template={inv ? undefined : {
           label: 'Shablon (23106)',
           onClick: () =>
             void (async () => {
@@ -142,11 +158,19 @@ export function BankAnalysisView() {
           hint: "Ko'chirma ustunlari: №пп … Обороты по дебету, по кредиту, Назначение платежа",
         }}
         note={
+          inv ? (
+            <>
+              Bu — <b className="text-heading">nazorat maydoni</b>: schyot-fakturalar o&apos;qiladi — faqat <b className="text-heading">«Подписан» va «Ожидает»</b>, summa <b className="text-heading">QQS bilan</b>.
+              Biz xaridor — kiruvchi (xarajat), sotuvchi — chiquvchi (daromad). <b className="text-heading">Xarajat va daromadga o&apos;zi yozilmaydi</b> — xohlagan qatoringizni tanlab yo&apos;naltirasiz.
+              Kontragent va xizmat (IKPU) bo&apos;yicha oyma-oy; oy — xizmat oyi («за август»). Qayta yuklansa, fayldagi fakturalar yangilanadi, boshqalariga tegilmaydi.
+            </>
+          ) : (
           <>
             Bu — <b className="text-heading">tahlil maydoni</b>: ko&apos;chirmadagi chiqim (debet) va kirim (kredit) o&apos;qiladi, <b className="text-heading">xarajat va daromadga yozilmaydi</b>.
             O&apos;xshash to&apos;lovlar (bir oluvchiga bir maqsadda — izohdagi sana, raqam, summa e&apos;tiborga olinmaydi) bitta guruhga yig&apos;iladi, oyma-oy va o&apos;sib boruvchi ko&apos;rinadi.
             Bir nechta hisob raqami bo&apos;lsa — har birini o&apos;z nomi bilan saqlang (oy qayta yuklansa, shu hisobning o&apos;sha oyi almashtiriladi).
           </>
+          )
         }
       />
       <input ref={inputRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => e.target.files?.[0] && void handleFile(e.target.files[0])} />
@@ -180,8 +204,8 @@ export function BankAnalysisView() {
               ) : (
                 <>
                   <IconUpload className="size-8 text-(--color-text-faint)" strokeWidth={1.5} />
-                  <p className="text-sm font-medium">Bank ko&apos;chirmasini shu yerga tashlang</p>
-                  <p className="text-xs text-(--color-text-muted)">yoki bosib tanlang · bankdan olingan Excel (.xlsx, .xltx)</p>
+                  <p className="text-sm font-medium">{inv ? 'Schyot-fakturalar reyestrini shu yerga tashlang' : 'Bank ko‘chirmasini shu yerga tashlang'}</p>
+                  <p className="text-xs text-(--color-text-muted)">yoki bosib tanlang · {inv ? 'Didox / soliq.uz eksporti (.xlsx), katta fayl ham' : 'bankdan olingan Excel (.xlsx, .xltx)'}</p>
                 </>
               )}
             </div>
@@ -192,8 +216,29 @@ export function BankAnalysisView() {
       {analysis && (
         <div className="space-y-4">
           <Card>
-            <CardHeader title={`${analysis.fileName} · ${analysis.sheetName}`} description={`${analysis.rows.length} ta qator o'qildi — saqlanadigan oylarni va hisobni tanlang`} />
+            <CardHeader title={`${analysis.fileName} · ${analysis.sheetName}`} description={inv ? `${analysis.invoices?.included ?? 0} ta faktura (${analysis.rows.length} qator) olinadi — saqlanadigan oylarni tanlang` : `${analysis.rows.length} ta qator o'qildi — saqlanadigan oylarni va hisobni tanlang`} />
             <CardBody className="space-y-3">
+              {inv && analysis.org && (
+                <div className="space-y-2 text-xs">
+                  <p>
+                    Bizning korxona: <b className="text-heading">{analysis.org.name || '—'}</b> · INN <span className="money">{analysis.org.inn}</span>{' '}
+                    <span className="text-(--color-text-faint)">({analysis.org.source === 'SAVED' ? 'saqlangan' : 'fayldan aniqlandi'})</span>
+                  </p>
+                  <p className="flex flex-wrap items-center gap-1.5">
+                    Holatlar:
+                    {(analysis.statuses ?? []).map((x) => (
+                      <Badge key={x.status} tone={x.included ? 'income' : 'neutral'}>
+                        {x.status} {x.count}
+                        {x.included ? '' : ' — olinmaydi'}
+                      </Badge>
+                    ))}
+                  </p>
+                  {(analysis.invoices?.update ?? 0) > 0 && <p className="text-(--color-warn)">{analysis.invoices!.update} ta faktura avval saqlangan — yangilanadi (yo&apos;naltirishlari saqlanadi, qatori o&apos;zgarmagan bo&apos;lsa).</p>}
+                  {(analysis.invoices?.other ?? 0) > 0 && <p className="text-(--color-text-muted)">{analysis.invoices!.other} ta fakturada bizning korxona yo&apos;q — olinmadi.</p>}
+                  {analysis.truncated && <p className="text-(--color-expense)">Fayl juda katta — birinchi 60 000 qator o&apos;qildi.</p>}
+                </div>
+              )}
+              {!inv && (
               <label className="block max-w-md text-xs font-medium text-(--color-text-muted)">
                 Hisob nomi
                 <input
@@ -210,9 +255,10 @@ export function BankAnalysisView() {
                 </datalist>
                 <span className="mt-1 block font-normal text-(--color-text-faint)">Masalan: «23106», «Asosiy hisob …12345». Hisob raqamining o&apos;zi saqlanmaydi.</span>
               </label>
+              )}
               <div className="flex flex-wrap gap-2">
                 {analysis.months.map((m) => {
-                  const again = known?.months.includes(m.period);
+                  const again = !inv && known?.months.includes(m.period);
                   return (
                     <label key={m.period} className={cn('flex cursor-pointer items-center gap-2 rounded-(--radius-control) border px-3 py-2 text-sm', picked.has(m.period) ? 'border-brand-600 bg-brand-50/50' : 'border-(--color-line)')}>
                       <input
@@ -230,7 +276,7 @@ export function BankAnalysisView() {
                       />
                       <span className="font-medium text-heading">{m.label}</span>
                       <span className="text-xs text-(--color-text-muted)">
-                        {m.count} ta · chiqim <span className="money">{formatTiyin(m.outTiyin)}</span> · kirim <span className="money">{formatTiyin(m.inTiyin)}</span>
+                        {m.count} ta · {dirLabel.OUT.toLowerCase()} <span className="money">{formatTiyin(m.outTiyin)}</span> · {dirLabel.IN.toLowerCase()} <span className="money">{formatTiyin(m.inTiyin)}</span>
                       </span>
                       {again && <Badge tone="warn">shu hisobda bor — almashtiriladi</Badge>}
                     </label>
@@ -277,7 +323,7 @@ export function BankAnalysisView() {
       ) : view.error ? (
         <ErrorState message={view.error} onRetry={view.reload} />
       ) : v && v.totals.rows > 0 ? (
-        <Analysis v={v} rangeText={range.text} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
+        <Analysis v={v} defaultDir={defaultDir} rangeText={range.text} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
       ) : (
         <EmptyState title={`${range.text || 'Tanlangan davr'} uchun ko'chirma saqlanmagan`} hint="upload" />
       )}
@@ -339,12 +385,15 @@ export function BankAnalysisView() {
 
 // ═══════════ Tahlil ═══════════
 
-function Analysis({ v, rangeText, isAdmin, onToast, onChanged }: { v: BankView; rangeText: string; isAdmin: boolean; onToast: (t: ToastState) => void; onChanged: () => void }) {
-  const [dir, setDir] = useState<BankDir>('OUT');
+function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v: BankView; defaultDir: BankDir; rangeText: string; isAdmin: boolean; onToast: (t: ToastState) => void; onChanged: () => void }) {
+  const { dirLabel: DIR_LABEL } = useSource();
+  const [dir, setDir] = useState<BankDir>(defaultDir);
   const [kind, setKind] = useState<BankKind | null>(null);
   const [mode, setMode] = useState<Mode>('MONTH');
   // Ochilgan guruh — kaliti bo'yicha (ma'lumot yangilansa ham ochiq qoladi)
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
+  const [pattern, setPattern] = useState<BankPattern | null>(null);
   const open = openKey ? (v.groups.find((g) => g.key === openKey) ?? null) : null;
   const missing = v.series.filter((m) => !m.count).map((m) => m.period);
   const kinds = v.kinds.filter((k) => k.dir === dir);
@@ -355,7 +404,7 @@ function Analysis({ v, rangeText, isAdmin, onToast, onChanged }: { v: BankView; 
         <Box label="Chiqim" value={formatTiyin(v.totals.outTiyin)} sub={`${rangeText} · ${v.groups.filter((g) => g.dir === 'OUT').length} guruh`} tone="expense" />
         <Box label="Kirim" value={formatTiyin(v.totals.inTiyin)} sub={`${v.groups.filter((g) => g.dir === 'IN').length} guruh`} tone="income" />
         <Box label="Kirim − chiqim" value={formatTiyin(v.totals.netTiyin)} sub="tanlangan davr bo‘yicha" tone={BigInt(v.totals.netTiyin) < 0n ? 'expense' : 'income'} />
-        <Box label="Muntazam chiqimlar" value={String(v.totals.regularOut)} sub={`har oy (kamida 60% oyda) takrorlanadi · ${v.totals.rows} ta qator`} />
+        <PatternBox v={v} dir={dir} active={pattern} onPick={(p) => setPattern(pattern === p ? null : p)} />
       </div>
       {v.totals.posted.count > 0 && (
         <p className="text-xs text-(--color-text-muted)">
@@ -409,9 +458,9 @@ function Analysis({ v, rangeText, isAdmin, onToast, onChanged }: { v: BankView; 
         <KindTrend kinds={kinds} months={v.months} active={kind} />
       </div>
 
-      <GroupsTable v={v} dir={dir} onDir={(d) => { setDir(d); setKind(null); }} kind={kind} onKind={setKind} mode={mode} onMode={setMode} onOpen={(g) => setOpenKey(g.key)} />
+      <GroupsTable v={v} dir={dir} onDir={(d) => { setDir(d); setKind(null); }} kind={kind} onKind={setKind} mode={mode} onMode={setMode} pattern={pattern} onPattern={setPattern} onOpen={(g, m) => { setOpenKey(g.key); setOpenMonth(m ?? null); }} />
 
-      <GroupDrawer key={openKey ?? 'none'} group={open} v={v} isAdmin={isAdmin} onToast={onToast} onChanged={onChanged} onClose={() => setOpenKey(null)} />
+      <GroupDrawer key={`${openKey ?? 'none'}|${openMonth ?? ''}`} month={openMonth} group={open} v={v} isAdmin={isAdmin} onToast={onToast} onChanged={onChanged} onClose={() => setOpenKey(null)} />
     </div>
   );
 }
@@ -454,20 +503,20 @@ function KindTrend({ kinds, months, active }: { kinds: BankView['kinds']; months
 
 const PAGE = 60;
 
-function GroupsTable({ v, dir, onDir, kind, onKind, mode, onMode, onOpen }: { v: BankView; dir: BankDir; onDir: (d: BankDir) => void; kind: BankKind | null; onKind: (k: BankKind | null) => void; mode: Mode; onMode: (m: Mode) => void; onOpen: (g: BankGroup) => void }) {
+function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, onMode, onOpen }: { v: BankView; dir: BankDir; onDir: (d: BankDir) => void; kind: BankKind | null; onKind: (k: BankKind | null) => void; pattern: BankPattern | null; onPattern: (p: BankPattern | null) => void; mode: Mode; onMode: (m: Mode) => void; onOpen: (g: BankGroup, month?: string) => void }) {
+  const { dirLabel: DIR_LABEL, groupsTitle } = useSource();
   const [q, setQ] = useState('');
-  const [regular, setRegular] = useState(false);
   const [limit, setLimit] = useState(PAGE);
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
     return v.groups.filter((g) => {
       if (g.dir !== dir) return false;
       if (kind && g.kind !== kind) return false;
-      if (regular && !g.regular) return false;
+      if (pattern && g.pattern !== pattern) return false;
       if (!t) return true;
-      return g.counterparty.toLowerCase().includes(t) || (g.inn ?? '').includes(t) || g.samples.some((x) => x.toLowerCase().includes(t));
+      return g.counterparty.toLowerCase().includes(t) || (g.name ?? '').toLowerCase().includes(t) || (g.inn ?? '').includes(t) || g.samples.some((x) => x.toLowerCase().includes(t));
     });
-  }, [v.groups, dir, kind, regular, q]);
+  }, [v.groups, dir, kind, pattern, q]);
   const total = shown.reduce((s, g) => s + BigInt(g.totalTiyin), 0n);
   const colTotals = v.months.map((p, i) => shown.reduce((s, g) => s + BigInt(mode === 'MONTH' ? (g.byMonth[p] ?? '0') : (g.cumulative[i] ?? '0')), 0n));
   const tone = dir === 'OUT' ? 'expense' : 'income';
@@ -475,16 +524,24 @@ function GroupsTable({ v, dir, onDir, kind, onKind, mode, onMode, onOpen }: { v:
   return (
     <Card className="overflow-hidden">
       <CardHeader
-        title={`O'xshash to'lovlar guruhlari · ${DIR_LABEL[dir].toLowerCase()}`}
-        description={`${shown.length} guruh · ${formatTiyin(total.toString())} so'm · guruhni bossangiz — har to'lov izohi bilan`}
+        title={`${groupsTitle} · ${DIR_LABEL[dir].toLowerCase()}`}
+        description={`${shown.length} guruh · ${formatTiyin(total.toString())} so'm · guruhni bossangiz — hamma to'lovlari, oy katagini bossangiz — shu oyniki (nomini o'zgartirish va yo'naltirish)`}
         actions={<ModeSwitch mode={mode} onChange={onMode} />}
       />
       <div className="flex flex-wrap items-center gap-2 border-b border-(--color-line) px-5 py-2.5">
         <DirSwitch dir={dir} onChange={onDir} />
         <span className="mx-1 h-5 w-px bg-(--color-line)" />
-        <Chip active={regular} onClick={() => setRegular((x) => !x)}>
-          Faqat muntazam
+        <Chip active={!pattern} onClick={() => onPattern(null)}>
+          Hammasi
         </Chip>
+        {(['REGULAR', 'IRREGULAR', 'ONCE'] as const).map((p) => {
+          const n = v.groups.filter((g) => g.dir === dir && g.pattern === p && (!kind || g.kind === kind)).length;
+          return (
+            <Chip key={p} active={pattern === p} onClick={() => onPattern(pattern === p ? null : p)}>
+              {PATTERN_LABEL[p]} <span className="money opacity-70">{n}</span>
+            </Chip>
+          );
+        })}
         {kind && (
           <Chip active onClick={() => onKind(null)}>
             {v.kinds.find((k) => k.kind === kind && k.dir === dir)?.label ?? kind} ✕
@@ -498,7 +555,7 @@ function GroupsTable({ v, dir, onDir, kind, onKind, mode, onMode, onOpen }: { v:
               setQ(e.target.value);
               setLimit(PAGE);
             }}
-            placeholder="Oluvchi, ИНН, izoh"
+            placeholder="Nom, oluvchi, ИНН, izoh"
             className="h-8 w-60 rounded-(--radius-control) border border-(--color-line-strong) bg-white pr-3 pl-8 text-sm focus:border-brand-600 focus:outline-none"
           />
         </label>
@@ -522,10 +579,11 @@ function GroupsTable({ v, dir, onDir, kind, onKind, mode, onMode, onOpen }: { v:
             {shown.slice(0, limit).map((g) => (
               <tr key={g.key} className="cursor-pointer border-t border-(--color-line) align-top hover:bg-(--color-surface-muted)" onClick={() => onOpen(g)}>
                 <td className="sticky left-0 z-[1] max-w-96 bg-white px-3 py-2">
-                  <span className="block truncate font-medium text-heading" title={g.counterparty}>
-                    {g.counterparty}
+                  <span className="block truncate font-medium text-heading" title={g.name ? `${g.name}\n${g.counterparty}` : g.counterparty}>
+                    {g.name ?? g.counterparty}
                   </span>
                   <span className="block truncate text-[11px] text-(--color-text-muted)" title={g.samples.join('\n')}>
+                    {g.name ? `${g.counterparty} · ` : ''}
                     {g.samples[0] ?? '—'}
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-1">
@@ -537,11 +595,10 @@ function GroupsTable({ v, dir, onDir, kind, onKind, mode, onMode, onOpen }: { v:
                         yo‘naltirilgan {g.postedCount}/{g.count}
                       </Badge>
                     )}
-                    {g.regular && (
-                      <Badge tone="neutral" className="px-1.5 py-0 text-[10px]">
-                        muntazam · {g.activeMonths} oy
-                      </Badge>
-                    )}
+                    <Badge tone={g.pattern === 'ONCE' ? 'warn' : 'neutral'} className="px-1.5 py-0 text-[10px]">
+                      {PATTERN_LABEL[g.pattern].toLowerCase()}
+                      {g.pattern !== 'ONCE' ? ` · ${g.activeMonths} oy` : ''}
+                    </Badge>
                     <span className="text-[10px] text-(--color-text-faint)">
                       {g.count} ta{g.inn ? ` · ИНН ${g.inn}` : ''}
                     </span>
@@ -550,8 +607,24 @@ function GroupsTable({ v, dir, onDir, kind, onKind, mode, onMode, onOpen }: { v:
                 {v.months.map((p, i) => {
                   const val = mode === 'MONTH' ? (g.byMonth[p] ?? '0') : (g.cumulative[i] ?? '0');
                   return (
-                    <td key={p} className="money px-2 py-2 text-right text-xs whitespace-nowrap">
-                      {val !== '0' ? formatCompact(val) : <span className="text-(--color-text-faint)">—</span>}
+                    <td key={p} className="money px-1 py-1.5 text-right text-xs whitespace-nowrap">
+                      {g.byMonth[p] && g.byMonth[p] !== '0' ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpen(g, p);
+                          }}
+                          title={`${formatPeriod(p)}: ${g.countByMonth[p] ?? 0} ta to'lov — ochish`}
+                          className="rounded px-1.5 py-0.5 underline decoration-(--color-line-strong) decoration-dotted underline-offset-2 hover:bg-brand-50 hover:text-brand-800"
+                        >
+                          {formatCompact(val)}
+                        </button>
+                      ) : val !== '0' ? (
+                        <span className="px-1.5 text-(--color-text-faint)">{formatCompact(val)}</span>
+                      ) : (
+                        <span className="px-1.5 text-(--color-text-faint)">—</span>
+                      )}
                     </td>
                   );
                 })}
@@ -694,6 +767,7 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 }
 
 function DirSwitch({ dir, onChange }: { dir: BankDir; onChange: (d: BankDir) => void }) {
+  const { dirLabel: DIR_LABEL } = useSource();
   return (
     <span className="inline-flex rounded-(--radius-control) border border-(--color-line) bg-white p-0.5 text-xs">
       {(['OUT', 'IN'] as const).map((d) => (
@@ -702,6 +776,29 @@ function DirSwitch({ dir, onChange }: { dir: BankDir; onChange: (d: BankDir) => 
         </button>
       ))}
     </span>
+  );
+}
+
+/** Takrorlanishi bo'yicha: muntazam / vaqti-vaqti bilan / bir martalik — bosib guruhlarni saralash */
+function PatternBox({ v, dir, active, onPick }: { v: BankView; dir: BankDir; active: BankPattern | null; onPick: (p: BankPattern) => void }) {
+  const { dirLabel: DIR_LABEL } = useSource();
+  const list = v.totals.patterns.filter((x) => x.dir === dir);
+  return (
+    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">{DIR_LABEL[dir]} · takrorlanishi</p>
+      <ul className="mt-1.5 space-y-0.5 text-xs">
+        {list.map((x) => (
+          <li key={x.pattern}>
+            <button type="button" onClick={() => onPick(x.pattern)} className={cn('flex w-full justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-(--color-surface-muted)', active === x.pattern && 'bg-brand-50 text-brand-800')}>
+              <span>
+                {PATTERN_LABEL[x.pattern]} <span className="text-(--color-text-faint)">({x.groups})</span>
+              </span>
+              <span className="money">{formatTiyin(x.totalTiyin)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

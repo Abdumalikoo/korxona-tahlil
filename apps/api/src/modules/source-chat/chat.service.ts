@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { CounterpartyService } from '../bank-analysis/counterparty.service';
 import { randomUUID } from 'node:crypto';
 import { ENTRY_UNITS, SEGMENTS, entryUnitLabel, isSegment, segmentLabel, unitKeyOf } from '../../common/segments/segments';
 import { policyRouting, readPolicy } from '../expense-policy/policy.util';
@@ -128,6 +129,7 @@ export class SourceChatService {
     private readonly prisma: PrismaService,
     private readonly hr: HrSheetsService,
     private readonly unitPayroll: UnitPayrollService,
+    @Optional() private readonly counterparties?: CounterpartyService,
   ) {}
 
   // ═══════════ Lug'at ═══════════
@@ -237,7 +239,9 @@ export class SourceChatService {
     const q = parse(question, now, d.dict, ctx);
     let a: Omit<ChatAnswer, 'id' | 'question' | 'at'>;
     try {
-      a = await this.answer(q, now, d);
+      // Kontragent (INN yoki «kontragent / faktura» + nomi) — schyot-faktura va bank ko'chirmasidan
+      const cp = q.pinfl ? null : await this.counterparties?.chat(question).catch(() => null);
+      a = cp ? this.counterpartyAnswer(cp) : await this.answer(q, now, d);
     } catch (e) {
       if (e instanceof NotFoundException) a = { blocks: [{ type: 'text', text: String(e.message), tone: 'warn' }], understood: this.understood(q, d), sources: [], suggestions: this.helpSuggestions(), context: ctx };
       else throw e;
@@ -249,6 +253,33 @@ export class SourceChatService {
     if (!threadId || !(await st.threads()).some((t) => t.id === threadId)) threadId = (await st.create()).id;
     const thread = await st.append(threadId, out);
     return { ...out, threadId, thread };
+  }
+
+  private counterpartyAnswer(cp: NonNullable<Awaited<ReturnType<CounterpartyService['chat']>>>): Omit<ChatAnswer, 'id' | 'question' | 'at'> {
+    const s = cp.summary;
+    const items: { label: string; value: string; sub?: string; tone?: 'income' | 'expense' | 'warn' | 'brand' }[] = [];
+    if (s.roles.includes('SUPPLIER')) {
+      items.push({ label: 'Fakturada (bizga)', value: som(BigInt(s.invoicedOutTiyin)), sub: `${s.invoices} ta faktura`, tone: 'expense' });
+      items.push({ label: "Bankdan to'langan", value: som(BigInt(s.paidOutTiyin)), sub: `${s.payments} ta to'lov` });
+      const b = BigInt(s.balanceOutTiyin);
+      items.push({ label: b >= 0n ? "To'lanmagan" : "Oldindan to'langan", value: som(b < 0n ? -b : b), tone: b > 100n ? 'warn' : undefined });
+    }
+    if (s.roles.includes('CLIENT')) {
+      items.push({ label: 'Fakturada (biz unga)', value: som(BigInt(s.invoicedInTiyin)), tone: 'income' });
+      items.push({ label: 'Bankka tushgan', value: som(BigInt(s.receivedInTiyin)) });
+    }
+    return {
+      blocks: [
+        { type: 'text', text: `${cp.title}${cp.title !== s.name ? ` (${s.name})` : ''} · INN ${cp.inn} — ${s.kindLabel.toLowerCase()}. ${s.firstDate ? `${s.firstDate.split('-').reverse().join('.')} – ${s.lastDate!.split('-').reverse().join('.')}` : ''}` },
+        { type: 'metrics', items },
+        ...(s.services.length ? [{ type: 'table' as const, title: s.roles.includes('SUPPLIER') ? 'Bizga nima beradi' : 'Biz unga nima beramiz', columns: [{ key: 'label', label: 'Xizmat / tovar' }, { key: 'kind', label: 'Turi' }, { key: 'sum', label: 'Summa', align: 'right' as const }], rows: s.services.map((x) => ({ label: x.label, kind: x.kindLabel, sum: som(BigInt(x.totalTiyin)) })) }] : []),
+        ...(cp.months.length ? [{ type: 'table' as const, title: "Oxirgi oylar (chiqim)", columns: [{ key: 'm', label: 'Oy' }, { key: 'i', label: 'Fakturada', align: 'right' as const }, { key: 'p', label: "To'langan", align: 'right' as const }], rows: cp.months.map((m) => ({ m: m.label, i: som(BigInt(m.invoiced)), p: som(BigInt(m.paid)) })) }] : []),
+      ],
+      understood: [{ label: 'Kontragent', value: `${cp.title} (${cp.inn})` }],
+      sources: ['Schyot-fakturalar (Xarajatlar › Schyot-fakturalar)', "Bank ko'chirmasi (Xarajatlar › Bank ko'chirmasi)"],
+      suggestions: [`${cp.inn} fakturalari`, 'Kontragentlar', 'Manbalar'],
+      context: {},
+    };
   }
 
   private understood(q: ParsedQuery, d: Awaited<ReturnType<SourceChatService['dict']>>, extra: { label: string; value: string }[] = []) {
