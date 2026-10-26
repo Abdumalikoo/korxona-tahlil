@@ -93,6 +93,12 @@ async function tarkib(rows) {
 
   // ── Saqlash: A — Call markaz (yo'nalish o'zgaradi), B — Kadrlar (Markaz ichida), C — farq yo'q, D — tanlanmagan ──
   const c = await comp.commit({ period: PER, fileName: 'tarkib-fevral.xlsx', userId: 'adm', rows: a.rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, workedDays: null, rate: null, items: new Map(Object.entries(r.items).map(([k, v]) => [k, BigInt(v)])) })) });
+  // Soliq hisoboti: Tax free'ga (miya bo'yicha) yozilgan xodim ham «soliqda bor» (oldin — «Soliqda yo'q» chiqardi)
+  {
+    const cv = await comp.view(PER);
+    const rowA = cv.rows.find((r) => r.pinfl === P.A);
+    assert.ok(rowA && rowA.payrollTiyin === String(so(1_000_000)) && rowA.state !== 'not_in_payroll', 'Tax free xodimi soliq hisobotida bor');
+  }
   const ap = await places.apply(PER, c.batchId, a.rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, dept: r.deptName })), { map: { 'Call markaz': 'dC', Kadr: 'dK', 'Moliya-iqtisod': 'SKIP' }, apply: [P.A, P.B, P.C, P.D] }, 'adm');
   assert.deepStrictEqual([ap.departments, ap.fixed, ap.moved, ap.redistributed], [3, 2, 1, true]);
   // «Miya»: A fevralda — Markaz, martdan — yana Tax free
@@ -122,6 +128,32 @@ async function tarkib(rows) {
   assert.strictEqual((await units.unitsAt([P.A], PER)).get(P.A), 'TAX_FREE');
   assert.strictEqual(live({ segment: 'TAX_FREE' }).reduce((s, e) => s + e.amountTiyin, 0n), so(1_000_000));
   assert.strictEqual(live({ departmentId: 'dK', categoryCode: 'PAYROLL_BASE' }).reduce((s, e) => s + e.amountTiyin, 0n), so(2_000_000), 'B hali Kadrlarda');
+
+  // ── Bo'lim sahifasidan qo'lda: umumiy hisobotdan kelgan A — shu oy Markaz › Kadrlar ──
+  assert.ok((await units.saved('TAX_FREE', PER)).rows.some((r) => r.pinfl === P.A && r.fromGeneral), 'A — Tax free sahifasida (umumiy hisobotdan)');
+  await assert.rejects(places.setPlace(PER, { pinfls: [P.A], target: 'CENTER', place: {} }, 'adm'), /bo'limi/);
+  const sp = await places.setPlace(PER, { pinfls: [P.A], target: 'CENTER', place: { departmentId: 'dK' }, onlyThisMonth: true }, 'adm');
+  assert.deepStrictEqual([sp.moved, sp.redistributed], [1, true]);
+  assert.ok(!(await units.saved('TAX_FREE', PER)).rows.some((r) => r.pinfl === P.A), "Tax free'dan chiqdi");
+  assert.strictEqual(live({ segment: 'TAX_FREE' }).reduce((s, e) => s + e.amountTiyin, 0n), 0n);
+  assert.strictEqual(live({ departmentId: 'dK', categoryCode: 'PAYROLL_BASE' }).reduce((s, e) => s + e.amountTiyin, 0n), so(3_000_000), 'Kadrlar: B + A');
+  assert.strictEqual((await units.unitsAt([P.A], '2026-03')).get(P.A), 'TAX_FREE', 'keyingi oydan — joyida');
+  let mo = (await places.compare(PER, 'TAX_FREE')).rows.find((r) => r.pinfl === P.A);
+  assert.deepStrictEqual([mo.status, mo.fix.manual, mo.fix.departmentName], ['FIXED', true, 'Kadrlar']);
+  // Hududga (viloyat) — ham
+  T.region.push({ code: 7, name: 'Viloyat-7', isActive: true });
+  const sr = await places.setPlace(PER, { pinfls: [P.A], target: 'REGION', place: { regionCode: 7 } }, 'adm');
+  assert.strictEqual(sr.moved, 1);
+  assert.strictEqual(live({ regionCode: 7, categoryCode: 'PAYROLL_BASE' }).reduce((s, e) => s + e.amountTiyin, 0n), so(1_000_000), 'hududga tushdi');
+  assert.strictEqual(live({}).reduce((s, e) => s + e.amountTiyin, 0n), so(10_000_000), "jami o'zgarmadi");
+  await places.revert(PER, [P.A], 'adm');
+  assert.ok((await units.saved('TAX_FREE', PER)).rows.some((r) => r.pinfl === P.A), 'qaytarildi — yana Tax free');
+  // Boshqa yo'nalishga — o'sha sahifada chiqadi
+  await places.setPlace(PER, { pinfls: [P.A], target: 'MARKSHEYDER' }, 'adm');
+  assert.ok((await units.saved('MARKSHEYDER', PER)).rows.some((r) => r.pinfl === P.A && r.fromGeneral), 'Marksheyder sahifasida');
+  assert.ok(!(await units.saved('TAX_FREE', PER)).rows.some((r) => r.pinfl === P.A));
+  await places.revert(PER, [P.A], 'adm');
+  assert.ok(!(await units.saved('MARKSHEYDER', PER)).rows.some((r) => r.pinfl === P.A));
 
   // ── Bo'lim sahifasi: «Manbada» va «Ish haqi tarkibida» ──
   let cmp = await places.compare(PER, 'TAX_FREE');

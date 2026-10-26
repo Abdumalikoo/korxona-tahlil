@@ -64,7 +64,7 @@ export function TarkibCell({ row }: { row: UnitPlaceRow | undefined }) {
           {row.tarkibTiyin ? ` · ${formatTiyin(row.tarkibTiyin)}` : ''}
         </span>
       )}
-      {row.fix && <span className="block text-[10.5px] text-brand-700">shu oy → {placeText(row.fix.unit, row.fix.unitLabel, row.fix.departmentName)}</span>}
+      {row.fix && <span className="block text-[10.5px] text-brand-700">shu oy → {row.fix.placeLabel ?? placeText(row.fix.unit, row.fix.unitLabel, row.fix.departmentName)}{row.fix.manual ? ' (qo‘lda)' : ''}</span>}
     </span>
   );
 }
@@ -195,6 +195,74 @@ export function PlacesBar({ period, places, isAdmin, filter, onFilter, onChanged
         </div>
       )}
     </div>
+  );
+}
+
+/** Shu oy shu bo'limdan boshqa joyga o'tkazilganlar — o'sha joyda turibdi; qaytarish mumkin */
+export function MovedOutRows({ period, unitLabel, rows, isAdmin, colSpan, onChanged, onToast }: { period: string; unitLabel: string; rows: UnitPlaceRow[]; isAdmin: boolean; colSpan: number; onChanged: () => void; onToast: Toast }) {
+  const [target, setTarget] = useState<{ pinfls: string[]; label: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!rows.length) return null;
+
+  async function run() {
+    if (!target) return;
+    setBusy(true);
+    try {
+      const r = (await compositionApi.revertPlaces(period, target.pinfls)).data;
+      onToast({ message: `${r.reverted} xodim yana ${unitLabel}da${r.redistributed ? ' · ish haqi qayta taqsimlandi' : ''}`, tone: 'success' });
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, 'Qaytarib bo‘lmadi'), tone: 'error' });
+    } finally {
+      setBusy(false);
+      setTarget(null);
+    }
+  }
+
+  return (
+    <>
+      <tr className="border-t border-(--color-line) bg-brand-50/50">
+        <td colSpan={colSpan} className="px-3 py-1.5 text-xs">
+          <span className="font-semibold text-heading">
+            {formatPeriod(period)}da boshqa joyga o‘tkazilganlar: {rows.length} ta
+          </span>
+          <span className="text-(--color-text-muted)"> · ish haqi o‘sha joyda hisoblangan (bu jadvalda va jamida yo‘q)</span>
+        </td>
+      </tr>
+      {rows.map((r, i) => (
+        <tr key={r.pinfl} className="border-t border-(--color-line) text-(--color-text-muted)">
+          <td className="px-3 py-1.5" />
+          <td className="px-1 py-1.5 text-right text-xs text-(--color-text-faint)">{i + 1}</td>
+          <td className="px-2 py-1.5">
+            <p>{r.fullName}</p>
+            <p className="money text-xs">{r.pinfl}</p>
+          </td>
+          <td colSpan={colSpan - 4} className="px-2 py-1.5 text-xs">
+            → <b className="text-brand-700">{r.fix?.placeLabel ?? placeText(r.fix?.unit ?? null, r.fix?.unitLabel ?? null, r.fix?.departmentName ?? null)}</b>
+            {r.fix?.manual ? ' · qo‘lda' : ' · ish haqi tarkibi bo‘yicha'}
+            {r.fix?.by ? ` · ${r.fix.by}` : ''}
+            {r.soliqTiyin && r.soliqTiyin !== '0' ? ` · ${formatTiyin(r.soliqTiyin)} so‘m` : ''}
+          </td>
+          <td className="px-2 py-1.5 text-right">
+            {isAdmin && (
+              <button type="button" onClick={() => setTarget({ pinfls: [r.pinfl], label: r.fullName })} className="rounded px-1.5 py-0.5 text-xs text-(--color-text-muted) hover:bg-(--color-expense-soft) hover:text-(--color-expense)">
+                Qaytarish
+              </button>
+            )}
+          </td>
+        </tr>
+      ))}
+      <ConfirmDialog
+        open={target !== null}
+        title={`${unitLabel}ga qaytarish`}
+        message={`${target?.label ?? ''}: ${formatPeriod(period)} uchun yana ${unitLabel}da; ish haqi xarajati qayta taqsimlanadi.`}
+        confirmLabel="Qaytarish"
+        danger
+        loading={busy}
+        onConfirm={() => void run()}
+        onCancel={() => setTarget(null)}
+      />
+    </>
   );
 }
 

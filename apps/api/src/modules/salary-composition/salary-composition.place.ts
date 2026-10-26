@@ -125,9 +125,16 @@ export interface PlaceFix {
   fullName: string;
   /** Tarkibdagi nom */
   deptName: string;
-  departmentId: string;
-  departmentName: string;
-  /** Shu oy bo'lgan joy (kiritish bo'limi: CENTER yoki yo'nalish) */
+  /** Markaz bo'limi (Markazga — majburiy; yo'nalishga — o'sha bo'lim; hududga — null) */
+  departmentId: string | null;
+  departmentName: string | null;
+  /** Hududga o'tkazilganda — viloyat va (ixtiyoriy) tuman */
+  regionCode?: number | null;
+  districtId?: string | null;
+  placeLabel?: string | null;
+  /** MANUAL — bo'lim sahifasida qo'lda tanlangan; yo'q — ish haqi tarkibi bo'yicha */
+  source?: 'MANUAL';
+  /** Shu oy bo'lgan joy (kiritish bo'limi: CENTER, REGION yoki yo'nalish) */
   unit: string;
   /** O'zgarishdan oldingi joy («miya») */
   fromUnit: string | null;
@@ -545,7 +552,7 @@ export class CompositionPlaceService {
         manba: { unit: mUnit, unitLabel: mUnit ? entryUnitLabel(mUnit) : null, departmentId: mDeptId, departmentName: mDeptName },
         tarkib: t,
         status,
-        fix: fix ? { unit: fix.unit, unitLabel: entryUnitLabel(fix.unit), departmentName: fix.departmentName, at: fix.at, by: fix.by } : null,
+        fix: fix ? { unit: fix.unit, unitLabel: entryUnitLabel(fix.unit), departmentName: fix.departmentName, placeLabel: fix.placeLabel ?? null, manual: fix.source === 'MANUAL', at: fix.at, by: fix.by } : null,
         amountTiyin: amount !== undefined ? amount.toString() : null,
       };
     });
@@ -634,6 +641,82 @@ export class CompositionPlaceService {
     }
     const rows = Object.entries(month.depts).map(([pinfl, dept]) => ({ pinfl, fullName: null, dept }));
     return this.apply(period, month.batchId, rows, { map, apply: want }, userId, false);
+  }
+
+  /**
+   * Bo'lim sahifasidan qo'lda: umumiy soliq hisobotidan kelgan xodim(lar) shu oy boshqa joyda ishlagan —
+   * «miya»da shu oy joyi (Markaz › bo'lim, hudud yoki yo'nalish), umumiy vedomost qayta taqsimlanadi: xodim shu
+   * sahifadan chiqadi va tanlangan joyda chiqadi (summa o'sha). onlyThisMonth — keyingi oydan avvalgi joyiga.
+   */
+  async setPlace(period: string, body: { pinfls?: unknown; target?: unknown; place?: unknown; onlyThisMonth?: unknown }, userId: string) {
+    const pinfls = Array.isArray(body?.pinfls) ? [...new Set(body.pinfls.map(String).filter((p) => /^\d{14}$/.test(p)))].slice(0, 2000) : [];
+    if (!pinfls.length) throw new BadRequestException('Xodimlarni tanlang');
+    const target = typeof body?.target === 'string' ? body.target : '';
+    if (!['CENTER', 'REGION', ...PAYROLL_UNITS].includes(target)) throw new BadRequestException("Qaysi joyga — tanlang");
+    const place = await this.units.movePlace(target, body?.place);
+    if (target === 'CENTER' && !place.departmentId) throw new BadRequestException("Markazning qaysi bo'limi — tanlang");
+    if (target === 'REGION' && !place.regionCode) throw new BadRequestException('Qaysi hudud — tanlang');
+    const onlyThisMonth = body?.onlyThisMonth !== false;
+    const depName = place.departmentId ? ((await this.prisma.department.findUnique({ where: { id: place.departmentId }, select: { name: true } }))?.name ?? null) : null;
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null);
+    const result = await runExclusive(`setting:${COMPOSITION_PLACE_KEY(period)}`, async () => {
+      const month = await this.month(period);
+      const at = new Date().toISOString();
+      const touched: PlaceFix[] = [];
+      for (const pinfl of pinfls) {
+        const prev = month.fixes[pinfl];
+        if (prev) {
+          await this.undoMoves(prev, userId);
+          delete month.fixes[pinfl];
+        }
+        const before = (await this.miya([pinfl], period, month)).get(pinfl)!;
+        const moveIds: string[] = [];
+        if (before.unit !== target) {
+          const next = nextPeriod(period);
+          const all = await this.units.allMoves();
+          const nextBefore = membership(all)(pinfl, next) ?? before.unit;
+          const m = await this.units.addMove({ pinfl, unit: target, from: period, fullName: before.fullName ?? undefined, note: `${place.label ?? entryUnitLabel(target)} (${monthLabel(period)}${onlyThisMonth ? ', faqat shu oy' : ''})` }, userId, 'UPLOAD');
+          moveIds.push(m.id);
+          if (onlyThisMonth && !all.some((x) => x.pinfl === pinfl && x.from === next) && nextBefore && nextBefore !== target) {
+            const back = await this.units.addMove({ pinfl, unit: nextBefore, from: next, fullName: before.fullName ?? undefined, note: `${monthLabel(period)}dan keyin avvalgi joyiga` }, userId, 'UPLOAD').catch(() => null);
+            if (back) moveIds.push(back.id);
+          }
+        } else if (target !== 'CENTER' || before.departmentId === place.departmentId) continue; // joyi o'sha
+        const fix: PlaceFix = {
+          pinfl,
+          fullName: before.fullName ?? pinfl,
+          deptName: "qo'lda tanlangan",
+          departmentId: target === 'CENTER' ? place.departmentId : null,
+          departmentName: target === 'CENTER' ? depName : null,
+          regionCode: target === 'REGION' ? place.regionCode : null,
+          districtId: target === 'REGION' ? place.districtId : null,
+          placeLabel: place.label ? `${entryUnitLabel(target)} › ${place.label}` : entryUnitLabel(target),
+          source: 'MANUAL',
+          unit: target,
+          fromUnit: before.unit,
+          fromDepartmentId: before.departmentId,
+          fromDepartmentName: before.departmentName,
+          moveIds,
+          at,
+          by: user?.fullName ?? '',
+        };
+        month.fixes[pinfl] = fix;
+        touched.push(fix);
+      }
+      await this.saveMonth(period, month);
+      return touched;
+    });
+    if (!result.length) return { moved: 0, redistributed: false, targetLabel: entryUnitLabel(target), warnings: [] as string[] };
+    const warnings: string[] = [];
+    const uploaded = await this.units.uploadedIn(period).catch(() => new Map<string, { unit: string; amountTiyin: bigint }>());
+    for (const f of result) {
+      const up = uploaded.get(f.pinfl);
+      if (up && up.unit !== f.unit) warnings.push(`${f.fullName}: shu oy «${entryUnitLabel(up.unit)}» sahifasida ham qo'lda yuklangan — o'sha summani o'sha sahifadan o'tkazing`);
+    }
+    const redistributed = await this.refresh(period, result.some((f) => f.unit !== f.fromUnit), userId);
+    const label = result[0]!.placeLabel ?? entryUnitLabel(target);
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'composition_place', entityId: period, summary: `${monthLabel(period)}: ${result.length} xodim «${label}»da (qo'lda${onlyThisMonth ? ', faqat shu oy' : ''})${redistributed ? '; umumiy vedomost qayta taqsimlandi' : ''}` });
+    return { moved: result.length, redistributed, targetLabel: label, warnings };
   }
 
   /** O'zgarishni bekor qilish (pinfls berilmasa — shu oy hammasi): «miya» va xarajatlar avvalgi holatiga */

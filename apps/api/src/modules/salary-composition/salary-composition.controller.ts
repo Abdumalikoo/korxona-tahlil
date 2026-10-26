@@ -348,6 +348,15 @@ export class SalaryCompositionController {
     return { data: await this.places.fixStored(period, pinfls.map(String).slice(0, 2000), userId) };
   }
 
+  /** Bo'lim sahifasidan qo'lda: { pinfls, target, place, onlyThisMonth } — umumiy hisobotdan kelganlar shu oy tanlangan joyda */
+  @Roles(UserRole.ADMIN)
+  @Post('places/set')
+  @HttpCode(HttpStatus.OK)
+  async placesSet(@Query('period') period: string, @Body() body: { pinfls?: unknown; target?: unknown; place?: unknown; onlyThisMonth?: unknown }, @CurrentUser('id') userId: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    return { data: await this.places.setPlace(period, body ?? {}, userId) };
+  }
+
   /** O'zgarishni bekor qilish: { pinfls } — avvalgi joyiga */
   @Roles(UserRole.ADMIN)
   @Post('places/revert')

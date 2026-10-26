@@ -262,7 +262,7 @@ export interface UnitPlaceRow {
   tarkibTiyin: string | null;
   tarkibSource: string | null;
   status: UnitPlaceStatus;
-  fix: { unit: string; unitLabel: string; departmentName: string; at: string; by: string } | null;
+  fix: { unit: string; unitLabel: string; departmentName: string | null; placeLabel: string | null; manual: boolean; at: string; by: string } | null;
   amountTiyin: string | null;
 }
 export interface UnitPlaces {
@@ -539,6 +539,9 @@ export const compositionApi = {
     }),
 
   places: (period: string) => api.get<ApiResponse<PlacesView>>('/salary-composition/places', { params: { period } }),
+  /** Bo'lim sahifasidan qo'lda: umumiy hisobotdan kelganlar shu oy tanlangan joyda */
+  setPlaces: (period: string, body: { pinfls: string[]; target: string; place: { departmentId?: string; regionCode?: number; districtId?: string }; onlyThisMonth: boolean }) =>
+    api.post<ApiResponse<{ moved: number; redistributed: boolean; targetLabel: string; warnings: string[] }>>(`/salary-composition/places/set?period=${period}`, body),
   learnPlaceNames: (map: Record<string, string>) => api.post<ApiResponse<{ saved: number }>>('/salary-composition/places/names', { map }),
   unitPlaces: (period: string, unit: string) => api.get<ApiResponse<UnitPlaces>>('/salary-composition/places/unit', { params: { period, unit } }),
   fixPlaces: (period: string, pinfls: string[]) =>

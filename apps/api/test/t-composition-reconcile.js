@@ -54,7 +54,9 @@ const pay = (kind, pinfl, net, accrual = '2026-03', date = '2026-03-20') => ({ n
   assert.deepStrictEqual([r(P.D).state, r(P.D).diffTiyin, r(P.D).suggestion], ['NO_SOLIQ', String(-so(500_000)), null]);
   assert.deepStrictEqual([r(P.E).state, r(P.E).bank[0].state, r(P.E).suggestion], ['BANK', 'MISSING', null], "farq yo'q, lekin bankda tarkibda yo'q mukofot");
   assert.deepStrictEqual([v.rows[0].state, v.rows.at(-1).state], ['DIFF', 'OK'], 'muammolilar yuqorida');
-  assert.deepStrictEqual([v.summary.diff, v.summary.noTarkib, v.summary.noSoliq, v.summary.bank, v.summary.ok, v.summary.strong], [1, 1, 1, 1, 1, 2]);
+  // Tax free xodimlari (T, U) ham soliq hisobotida bor (o'sha bo'lim ish haqida) — umumiy tarkibda ham, o'z tarkibida ham yo'q
+  assert.deepStrictEqual([v.summary.diff, v.summary.noTarkib, v.summary.noSoliq, v.summary.bank, v.summary.ok, v.summary.strong], [1, 3, 1, 1, 1, 2]);
+  assert.deepStrictEqual([r(P.T).state, r(P.T).soliqTiyin], ['NO_TARKIB', String(so(2_000_000))]);
   assert.ok(v.components.some((c) => c.code === 'KPI'));
 
   // ── O'tkazish: xatolar ──
@@ -77,8 +79,9 @@ const pay = (kind, pinfl, net, accrual = '2026-03', date = '2026-03-20') => ({ n
   const batch = T.salaryCompositionBatch.find((b) => !b.cancelledAt);
   assert.deepStrictEqual([batch.totalTiyin, batch.employeeCount], [so(8_500_000 + 3_000_000), 5]);
   const check = await svc.check('2026-03');
-  assert.deepStrictEqual([check.mismatchCount, check.notInPayroll.map((x) => x.pinfl)], [1, [P.D]], 'faqat D qoldi');
-  assert.strictEqual(batch.mismatchCount, 1, 'holat saqlandi');
+  // D — soliqda yo'q; T, U — Tax free (soliq hisobotida bor), hali hech qaysi tarkibda yo'q
+  assert.deepStrictEqual([check.mismatchCount, check.notInPayroll.map((x) => x.pinfl)], [3, [P.D]], 'faqat D soliqda yoq');
+  assert.strictEqual(batch.mismatchCount, 3, 'holat saqlandi');
   assert.ok(T.auditLog.some((l) => l.entityType === 'salary_composition_adjust'));
 
   // ── Bekor qilish ──
@@ -123,6 +126,9 @@ const pay = (kind, pinfl, net, accrual = '2026-03', date = '2026-03-20') => ({ n
   u = await rec.view('2026-03', 'TAX_FREE');
   assert.strictEqual(ur(P.U).state, 'NO_TARKIB');
   assert.strictEqual(T.setting.find((s) => s.key === 'unit.composition.TAX_FREE.2026-03').value.batches.find((b) => !b.cancelledAt).rows.length, 1);
+  // T endi Tax free'ning o'z tarkibida — umumiy tarkibda «tarkibda yo'q» deyilmaydi (U hali hech qaysida yo'q)
+  const gv = await rec.view('2026-03');
+  assert.deepStrictEqual([gv.rows.some((x) => x.pinfl === P.T), gv.rows.find((x) => x.pinfl === P.U)?.state], [false, 'NO_TARKIB']);
   // Umumiy tarkib o'zgarmadi
   assert.ok(!T.salaryCompositionRow.some((x) => x.employeePinfl === P.T));
 

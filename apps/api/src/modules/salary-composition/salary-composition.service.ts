@@ -16,7 +16,7 @@ import { randomUUID } from 'crypto';
 import ExcelJS from 'exceljs';
 import { entryUnitLabel } from '../../common/segments/segments';
 import { PayrollService } from '../payroll/payroll.service';
-import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
+import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
     CATEGORY_LABELS,
@@ -222,6 +222,19 @@ export class SalaryCompositionService implements OnModuleInit {
 
     for (const item of grouped) {
       map.set(item.employeePinfl, item._sum.baseTiyin ?? 0n);
+    }
+
+    // Yo'nalish xodimlari (Tax free, Fermer …): umumiy soliq hisoboti ularni «miya» bo'yicha o'sha bo'lim ish haqiga
+    // yozadi (payrollEntry'da emas), yoki o'sha sahifada yuklangan — ular ham soliq hisobotida bor
+    // (o'sha yo'nalishning o'z tarkibida bo'lganlar — o'sha yerda solishtiriladi, umumiy tarkibda «yo'q» deyilmaydi)
+    if (this.unitPayroll) {
+      for (const u of PAYROLL_UNITS) {
+        const m = await this.unitPayroll.payrollMap(u, period).catch(() => null);
+        if (!m) continue;
+        const own = await this.unitActive(u, period).catch(() => null);
+        const ownPins = new Set((own?.rows ?? []).map((r) => r.pinfl));
+        for (const [p, v] of m) if (!map.has(p) && !ownPins.has(p)) map.set(p, v);
+      }
     }
 
     // Kim Markaz xodimi (shu oy): oy bo'yicha joylashuv bo'lsa — u, aks holda reestrdagi hudud

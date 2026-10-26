@@ -32,7 +32,7 @@ import {
   type UnitSaved,
 } from './api';
 import { NdflSummaryCard } from '@/features/payroll/ndfl-summary';
-import { ManbaCell, PlacesBar, TarkibCell, TarkibHereRows, placeFilterMatch, type PlaceFilter } from './tarkib-compare-card';
+import { ManbaCell, MovedOutRows, PlacesBar, TarkibCell, TarkibHereRows, placeFilterMatch, type PlaceFilter } from './tarkib-compare-card';
 import { compositionApi, type UnitPlaces } from '@/features/salary-composition/api';
 import { EMPTY_CHOICE, MOVE_UNITS, PlacePicker, choiceReady, useChoiceLabel, type MoveChoice } from './place-picker';
 
@@ -1161,6 +1161,10 @@ function SavedCard({
   /** Faqat umumiy soliq hisobotidan kelgan (shu yerda yuklanmagan) va umumiy tarkibda bo'limi bor — umumiy oqim ichida */
   const viaGeneral = (r: (typeof rows)[number]) => Boolean(r.fromGeneral && !r.fromUnit && placeBy.get(r.pinfl)?.tarkib?.source === 'GENERAL');
   const autoRows = rows.filter((r) => autoTargets?.includes(r.pinfl));
+  /** Faqat umumiy soliq hisobotidan (shu yerda yuklanmagan) */
+  const generalOnly = (r: (typeof rows)[number]) => Boolean(r.fromGeneral && !r.fromUnit);
+  /** Shu oy shu yerdan boshqa joyga o'tkazilganlar (qaytarish uchun) */
+  const movedOut = withPlaces ? (places?.rows ?? []).filter((p) => p.group === 'HERE' && p.status === 'FIXED' && p.fix && p.fix.unit !== unit.code && !savedPins.has(p.pinfl)) : [];
 
   /**
    * Farqlilarni tarkibdagi joyiga (faqat shu oy):
@@ -1231,11 +1235,25 @@ function SavedCard({
     if (!ready || !picked.length) return;
     setBusy(true);
     try {
-      const r = (await unitPayrollApi.moveRows(unit.code, period, { pinfls: picked.map((p) => p.pinfl), target: choice.target, place: choice.place, onlyThisMonth, withAmount })).data;
-      onToast({
-        message: `${r.moved} xodim ${formatPeriod(period)}da «${r.targetLabel}» bo'limida${withAmount ? ` · ${formatTiyin(r.totalTiyin)} so'm o'sha yerga o'tkazildi` : ''}${onlyThisMonth ? ' · keyingi oydan yana shu yerda' : ''}`,
-        tone: 'success',
-      });
+      // Umumiy soliq hisobotidan kelganlar — umumiy oqim ichida («miya»da shu oy joyi, umumiy vedomost qayta taqsimlanadi):
+      // shu sahifadan chiqadi va tanlangan joyda chiqadi. Shu yerda yuklanganlar — summasi bilan o'tkaziladi.
+      const general = picked.filter(generalOnly);
+      const local = picked.filter((p) => !generalOnly(p));
+      const parts: string[] = [];
+      let label = '';
+      if (general.length) {
+        const g = (await compositionApi.setPlaces(period, { pinfls: general.map((p) => p.pinfl), target: choice.target, place: choice.place, onlyThisMonth })).data;
+        label = g.targetLabel;
+        parts.push(`${g.moved} xodim (umumiy soliq hisobotidan)${g.redistributed ? ' — umumiy vedomost qayta taqsimlandi' : ''}`);
+        if (g.warnings.length) parts.push(g.warnings.join('; '));
+      }
+      if (local.length) {
+        const r = (await unitPayrollApi.moveRows(unit.code, period, { pinfls: local.map((p) => p.pinfl), target: choice.target, place: choice.place, onlyThisMonth, withAmount })).data;
+        label = r.targetLabel;
+        parts.push(`${r.moved} xodim${withAmount ? ` · ${formatTiyin(r.totalTiyin)} so'm` : ''}`);
+      }
+      onToast({ message: `${formatPeriod(period)}: «${label}»ga o'tkazildi — ${parts.join(' · ')}${onlyThisMonth ? ' · keyingi oydan yana shu yerda' : ''}`, tone: 'success' });
+      onPlacesChanged();
       setSel(new Set());
       setMode(null);
       setChoice(EMPTY_CHOICE);
@@ -1397,6 +1415,7 @@ function SavedCard({
                   </td>
                 </tr>
               ))}
+              <MovedOutRows period={period} unitLabel={unit.label} rows={movedOut} isAdmin={isAdmin} colSpan={withPlaces ? 7 : 5} onChanged={placesChanged} onToast={onToast} />
               <TarkibHereRows period={period} unitCode={unit.code} unitLabel={unit.label} rows={tarkibHere} isAdmin={isAdmin} colSpan={withPlaces ? 7 : 5} onChanged={placesChanged} onToast={onToast} />
             </tbody>
             <tfoot className="sticky bottom-0 bg-(--color-surface-muted) text-sm font-semibold text-heading">
