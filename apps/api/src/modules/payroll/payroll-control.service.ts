@@ -202,6 +202,7 @@ export class PayrollControlService {
       byKind,
       issues,
       cleanableTiyin: cleanable.toString(),
+      cleanableCount: classified.filter((x) => CLEANABLE.includes(x.kind)).length,
       duplicates: duplicates.sort((a, b) => (BigInt(b.extraTiyin) > BigInt(a.extraTiyin) ? 1 : -1)).slice(0, 500),
       duplicateCount: duplicates.length,
       duplicateTiyin: dupExtra.toString(),

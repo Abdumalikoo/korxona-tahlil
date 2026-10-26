@@ -262,15 +262,6 @@ export async function downloadUnitTemplate(unit: string, from: string, to: strin
   URL.revokeObjectURL(url);
 }
 
-/** Faylni tahlil qiladi — hali hech narsa saqlanmaydi */
-export async function analyzeUnitFile(unit: string, period: string, file: File): Promise<UnitAnalyzeResult> {
-  const form = new FormData();
-  form.append('file', file);
-  const response = await fetch(`${BASE}/unit-payroll/${enc(unit)}/analyze?period=${enc(period)}`, { method: 'POST', headers: authHeaders(), body: form });
-  if (!response.ok) throw new Error(await readError(response, "Faylni tahlil qilib bo'lmadi"));
-  return ((await response.json()) as ApiResponse<UnitAnalyzeResult>).data;
-}
-
 /** Faylni tahlil qiladi — undagi hamma oylar (eski shablon — tanlangan oy); hali saqlanmaydi */
 /** format: auto — shablon yoki soliq hisoboti; ndfl — faqat soliq hisoboti */
 export async function analyzeUnitFileMany(unit: string, period: string, file: File, format: 'auto' | 'ndfl' = 'auto'): Promise<UnitManyResult> {

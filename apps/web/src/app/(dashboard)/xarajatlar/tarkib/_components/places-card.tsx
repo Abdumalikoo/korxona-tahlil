@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { IconSearch } from '@/components/ui/icons';
+import { ErrorState } from '@/components/ui/states';
 import { compositionApi, type PlaceOption, type PlacesAnalysis, type PlacesChoice } from '@/features/salary-composition/api';
 import { errorMessage } from '@/lib/error-message';
 import { formatDateTime, formatPeriod } from '@/lib/format';
@@ -231,6 +232,12 @@ export function SavedPlacesCard({ period, isAdmin, stamp, onChanged, onToast }: 
   const [target, setTarget] = useState<{ pinfls: string[]; label: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const v = data.data;
+  if (data.error)
+    return (
+      <Card>
+        <ErrorState message={`Tarkib bo‘yicha joy o‘zgarishlari o‘qilmadi: ${data.error}`} onRetry={data.reload} />
+      </Card>
+    );
   if (!v || (!v.fixes.length && !v.departments.length)) return null;
 
   async function doRevert() {

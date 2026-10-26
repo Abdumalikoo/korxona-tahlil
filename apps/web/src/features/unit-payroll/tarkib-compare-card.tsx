@@ -7,6 +7,8 @@ import { compositionApi, readCompositionDepts, type PlaceOption, type UnitPlaceR
 import { errorMessage } from '@/lib/error-message';
 import { formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { sourceHref } from '@/lib/source-links';
+import Link from 'next/link';
 import { useRef, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
@@ -151,7 +153,12 @@ export function PlacesBar({ period, places, isAdmin, filter, onFilter, onChanged
                   ? `fayl arxivda bor, lekin bo‘limlar o‘qilmadi${places.source.note ? ` — ${places.source.note}` : ''}. Faylda bo‘lim ustuni («Hududi», «Bo‘lim», «Подразделение») bormi — tekshiring; boshqa (bo‘limli) faylni tanlasangiz, faqat bo‘lim ustuni o‘qiladi.`
                   : 'bu tarkibning fayli arxivda yo‘q (arxivdan oldin yuklangan). O‘sha faylni bir marta tanlang — faqat bo‘lim ustuni o‘qiladi (tarkib va summalar o‘zgarmaydi), fayl arxivga olinadi va boshqa so‘ralmaydi.'
               }`
-            : `${formatPeriod(period)} uchun ish haqi tarkibi yuklanmagan (Xarajatlar › Ish haqi tarkibi) — yuklangach, har xodimning tarkibdagi bo‘limi shu jadvalda chiqadi.`}
+            : `${formatPeriod(period)} uchun ish haqi tarkibi yuklanmagan — yuklangach, har xodimning tarkibdagi bo‘limi shu jadvalda chiqadi. `}
+          {!places.batch && (
+            <Link href={sourceHref.tarkib(period)} className="font-medium text-brand-700 hover:underline">
+              Ish haqi tarkibini yuklash →
+            </Link>
+          )}
         </span>
         {places.batch && fileBtn}
       </div>

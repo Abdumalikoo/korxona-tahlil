@@ -57,6 +57,8 @@ export function PayrollUploadPage({ mode }: { mode: 'vedomost' | 'ndfl' }) {
   const [cancelling, setCancelling] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
+  /** Nazorat kartasi qayta o'qilsin (bekor qilish, o'chirishdan keyin) */
+  const [controlKey, setControlKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const batches = useAsync(() => payrollApi.batches(period), [period]);
@@ -139,6 +141,7 @@ export function PayrollUploadPage({ mode }: { mode: 'vedomost' | 'ndfl' }) {
       setToast({ message: "Yuklash bekor qilindi, xarajatlar savatga tushdi (undan bo'limlarga yozilganlari ham)", tone: 'success' });
       batches.reload();
       composition.reload();
+      setControlKey((k) => k + 1);
     } catch (err) {
       setToast({ message: errorMessage(err, 'Bekor qilishda xatolik'), tone: 'error' });
     } finally {
@@ -172,7 +175,16 @@ export function PayrollUploadPage({ mode }: { mode: 'vedomost' | 'ndfl' }) {
             hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : ndflMode ? "JShDS hisob-kitobi: 4-ilova (oylik) va 5-ilova (boshqa daromadlar)" : 'Ish haqi vedomosti (Excel)',
           }}
           template={ndflMode ? undefined : { label: 'Shablon', onClick: () => void handleTemplate(), loading: downloading }}
-          deleteData={{ target: 'PAYROLL', month: period, place: 'Xarajatlar › Ish haqi', onDone: () => batches.reload() }}
+          deleteData={{
+            target: 'PAYROLL',
+            month: period,
+            place: 'Xarajatlar › Ish haqi',
+            onDone: () => {
+              batches.reload();
+              composition.reload();
+              setControlKey((k) => k + 1);
+            },
+          }}
           note={<>Oy: <b className="text-heading">{formatPeriod(period)}</b> (yuqori paneldagi «Davr»). Faylni pastdagi maydonga tashlash ham mumkin.</>}
         />
 
@@ -185,7 +197,7 @@ export function PayrollUploadPage({ mode }: { mode: 'vedomost' | 'ndfl' }) {
         </div>
 
         {/* Ish haqi xarajati = soliq hisoboti (nazorat) */}
-        {isAdmin && !analysis && <PayrollControlCard period={period} onToast={setToast} onChanged={() => batches.reload()} />}
+        {isAdmin && !analysis && <PayrollControlCard period={period} reloadKey={controlKey} onToast={setToast} onChanged={() => batches.reload()} />}
 
         {/* Yuklash zonasi */}
         {isAdmin && !analysis && (

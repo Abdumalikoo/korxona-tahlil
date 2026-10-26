@@ -6,6 +6,8 @@ import { LoadingState } from '@/components/ui/states';
 import { formatDate, formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
+import { sourceHref, unitPayrollHref } from '@/lib/source-links';
+import Link from 'next/link';
 import { useEffect } from 'react';
 import { solishtirmaApi, type BankMonthMode, type SolPerson } from './api';
 
@@ -56,7 +58,7 @@ export function PersonDrawer({ period, mode, pinfl, focus, onClose }: { period: 
 
           {/* Soliq hisoboti */}
           <section id="sol-person-soliq" className="scroll-mt-2">
-            <H title="Soliq hisoboti" total={v.soliqTiyin} active={focus === 'soliq'} />
+            <H title="Soliq hisoboti" total={v.soliqTiyin} active={focus === 'soliq'} href={(r?.unit && unitPayrollHref(r.unit, period)) || sourceHref.soliq(period)} />
             {v.soliq.length === 0 ? (
               <Empty>Shu oy soliq hisobotida yo‘q</Empty>
             ) : (
@@ -79,7 +81,7 @@ export function PersonDrawer({ period, mode, pinfl, focus, onClose }: { period: 
 
           {/* Ish haqi tarkibi */}
           <section id="sol-person-tarkib" className="scroll-mt-2">
-            <H title="Ish haqi tarkibi" total={v.tarkib.reduce((x, t) => x + BigInt(t.totalTiyin), 0n).toString()} active={focus === 'tarkib'} />
+            <H title="Ish haqi tarkibi" total={v.tarkib.reduce((x, t) => x + BigInt(t.totalTiyin), 0n).toString()} active={focus === 'tarkib'} href={sourceHref.tarkib(period)} />
             {v.tarkib.length === 0 ? (
               <Empty>Shu oy ish haqi tarkibida yo‘q</Empty>
             ) : (
@@ -122,7 +124,7 @@ export function PersonDrawer({ period, mode, pinfl, focus, onClose }: { period: 
 
           {/* 23106 */}
           <section id="sol-person-bank" className="scroll-mt-2">
-            <H title={`23106 — ${formatPeriod(period)} uchun olinganlar`} total={v.bankCountedTiyin} active={focus === 'bank'} />
+            <H title={`23106 — ${formatPeriod(period)} uchun olinganlar`} total={v.bankCountedTiyin} active={focus === 'bank'} href={sourceHref.bank(period)} />
             {counted.length === 0 ? <Empty>Bu oy uchun to‘lov yo‘q</Empty> : <BankList rows={counted} />}
             {other.length > 0 && (
               <>
@@ -163,10 +165,17 @@ function BankList({ rows, muted = false }: { rows: SolPerson['bank']; muted?: bo
   );
 }
 
-function H({ title, total, active }: { title: string; total: string; active: boolean }) {
+function H({ title, total, active, href }: { title: string; total: string; active: boolean; href?: string }) {
   return (
     <div className={cn('mb-2 flex items-baseline justify-between gap-2 border-b pb-1', active ? 'border-brand-600' : 'border-(--color-line)')}>
-      <h3 className={cn('text-sm font-semibold', active ? 'text-brand-700' : 'text-heading')}>{title}</h3>
+      <h3 className={cn('text-sm font-semibold', active ? 'text-brand-700' : 'text-heading')}>
+        {title}
+        {href && (
+          <Link href={href} className="ml-2 text-xs font-normal text-brand-700 hover:underline">
+            sahifasi →
+          </Link>
+        )}
+      </h3>
       <span className="money font-semibold text-heading">{formatTiyin(total)}</span>
     </div>
   );

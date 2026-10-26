@@ -1,9 +1,9 @@
 'use client';
 
 import { Card, CardBody } from '@/components/ui/card';
-import { usePeriod } from '@/lib/period';
+import { useMonthChange, usePeriod } from '@/lib/period';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Oylar oralig'i (Dan — Gacha): bo'lim sahifalarida (Ijara va kommunal, Bank xarajatlari …).
@@ -39,8 +39,23 @@ export interface MonthRange {
 /** Standart: yil boshidan joriy (yuqori paneldagi) oygacha; 'month' — faqat joriy oy */
 export function useMonthRange(initial: 'year' | 'month' = 'year'): MonthRange {
   const { month } = usePeriod();
-  const [from, setFrom] = useState(initial === 'month' ? month : `${month.slice(0, 4)}-01`);
-  const [to, setTo] = useState(month);
+  const [from, setFromRaw] = useState(initial === 'month' ? month : `${month.slice(0, 4)}-01`);
+  const [to, setToRaw] = useState(month);
+  // Foydalanuvchi oraliqni o'zi tanlamagan bo'lsa — yuqoridagi «Davr» o'zgarganda oraliq ham unga ergashadi
+  const edited = useRef(false);
+  const setFrom = (v: string) => {
+    edited.current = true;
+    setFromRaw(v);
+  };
+  const setTo = (v: string) => {
+    edited.current = true;
+    setToRaw(v);
+  };
+  useMonthChange(month, () => {
+    if (edited.current) return;
+    setFromRaw(initial === 'month' ? month : `${month.slice(0, 4)}-01`);
+    setToRaw(month);
+  });
   const count = monthsCount(from, to);
   const error = !PERIOD_RE.test(from) || !PERIOD_RE.test(to) ? 'Oylarni tanlang' : count < 1 ? "«Dan» oyi «Gacha»dan keyin bo'lmasin" : count > MAX_RANGE_MONTHS ? `Ko'pi bilan ${MAX_RANGE_MONTHS} oy` : null;
   const text = error ? '' : from === to ? monthLabel(from) : `${monthLabel(from)} – ${monthLabel(to)}`;
@@ -55,22 +70,23 @@ export function useMonthRange(initial: 'year' | 'month' = 'year'): MonthRange {
     include: (months) => {
       const sorted = [...months].sort();
       if (!sorted.length) return;
-      if (sorted[0]! < from) setFrom(sorted[0]!);
-      if (sorted[sorted.length - 1]! > to) setTo(sorted[sorted.length - 1]!);
+      if (sorted[0]! < from) setFromRaw(sorted[0]!);
+      if (sorted[sorted.length - 1]! > to) setToRaw(sorted[sorted.length - 1]!);
     },
     preset: (kind) => {
+      edited.current = false;
       const y = month.slice(0, 4);
       const m = Number(month.slice(5, 7));
       if (kind === 'month') {
-        setFrom(month);
-        setTo(month);
+        setFromRaw(month);
+        setToRaw(month);
       } else if (kind === 'year') {
-        setFrom(`${y}-01`);
-        setTo(month);
+        setFromRaw(`${y}-01`);
+        setToRaw(month);
       } else {
         const q0 = Math.floor((m - 1) / 3) * 3 + 1;
-        setFrom(`${y}-${String(q0).padStart(2, '0')}`);
-        setTo(`${y}-${String(q0 + 2).padStart(2, '0')}`);
+        setFromRaw(`${y}-${String(q0).padStart(2, '0')}`);
+        setToRaw(`${y}-${String(q0 + 2).padStart(2, '0')}`);
       }
     },
   };

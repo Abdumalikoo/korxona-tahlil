@@ -12,6 +12,8 @@ import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatDateTime, formatTiyin } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
+import { sourceHref } from '@/lib/source-links';
+import Link from 'next/link';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
@@ -267,9 +269,9 @@ export function SolishtirmaView() {
             <Rule title="Shartnoma asosida" formula={`FOT − ${st.taxPct}% soliq = 23106`} example={`10 000 000 − ${formatTiyin(String(Math.round(10_000_000 * st.taxPct)))} = ${formatTiyin(String(Math.round(10_000_000 * (100 - st.taxPct))))}`} />
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Source ok={v.sources.soliq} label="Soliq hisoboti" />
-            <Source ok={v.sources.tarkib} label="Ish haqi tarkibi" />
-            <Source ok={v.sources.bank} label="23106 ko‘chirmasi" />
+            <Source ok={v.sources.soliq} label="Soliq hisoboti" href={sourceHref.soliq(period)} />
+            <Source ok={v.sources.tarkib} label="Ish haqi tarkibi" href={sourceHref.tarkib(period)} />
+            <Source ok={v.sources.bank} label="23106 ko‘chirmasi" href={sourceHref.bank(period)} />
             <span className="ml-auto flex items-center gap-1 rounded-full border border-(--color-line) bg-white p-0.5">
               <span className="pl-2 text-(--color-text-muted)">23106:</span>
               <ModeBtn active={mode === 'ACCRUAL'} onClick={() => setMode('ACCRUAL')} title="Izohdagi «… oyi uchun» (bo‘lmasa buyruq oyi): avans shu oyda, qoldiq keyingi oyda to‘lansa ham — shu oyga">
@@ -334,7 +336,20 @@ export function SolishtirmaView() {
 
       {!v.rows.length ? (
         <Card>
-          <EmptyState title={`${v.label}: ${isCenter ? 'Markaz' : 'Hududlar'} bo‘yicha ma'lumot yo'q`} description="Shu oy soliq hisobotini va 23106 ko‘chirmasini yuklang" />
+          <EmptyState
+            title={`${v.label}: ${isCenter ? 'Markaz' : 'Hududlar'} bo‘yicha ma'lumot yo'q`}
+            description="Shu oy soliq hisobotini va 23106 ko‘chirmasini yuklang"
+            action={
+              <span className="flex flex-wrap justify-center gap-3 text-sm">
+                <Link href={sourceHref.soliq(period)} className="font-medium text-brand-700 hover:underline">
+                  Soliq hisobotini yuklash →
+                </Link>
+                <Link href={sourceHref.bank(period)} className="font-medium text-brand-700 hover:underline">
+                  23106 ni yuklash →
+                </Link>
+              </span>
+            }
+          />
         </Card>
       ) : (
         <>
@@ -927,13 +942,13 @@ function Rule({ title, formula, example }: { title: string; formula: string; exa
   );
 }
 
-function Source({ ok, label }: { ok: boolean; label: string }) {
+function Source({ ok, label, href }: { ok: boolean; label: string; href: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1', ok ? 'border-(--color-line) bg-white' : 'border-(--color-warn) bg-(--color-warn-soft)')}>
+    <Link href={href} title="Manba sahifasini ochish" className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 hover:border-brand-600', ok ? 'border-(--color-line) bg-white' : 'border-(--color-warn) bg-(--color-warn-soft)')}>
       <span className={cn('size-2 rounded-full', ok ? 'bg-(--color-income)' : 'bg-(--color-warn)')} />
       <span className="font-medium text-heading">{label}</span>
       <span className="text-(--color-text-muted)">{ok ? 'yuklangan' : 'yuklanmagan'}</span>
-    </span>
+    </Link>
   );
 }
 

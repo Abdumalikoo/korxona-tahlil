@@ -11,6 +11,9 @@ import { errorMessage } from '@/lib/error-message';
 import { formatPeriod, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
+import { ErrorState } from '@/components/ui/states';
+import { sourceHref, unitPayrollHref } from '@/lib/source-links';
+import Link from 'next/link';
 import { useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
@@ -38,7 +41,9 @@ export interface PayrollControl {
   byKind: { kind: string; label: string; count: number; tiyin: string; cleanable: boolean }[];
   issues: { id: string; kind: string; label: string; tiyin: string; description: string | null; note: string; cleanable: boolean }[];
   cleanableTiyin: string;
-  duplicates: { pinfl: string; fullName: string; sources: { where: string; tiyin: string; manual: boolean }[]; totalTiyin: string; extraTiyin: string; removeFrom: string[] }[];
+  /** Hammasi (ro'yxat 500 ta bilan cheklangan) */
+  cleanableCount?: number;
+  duplicates: { pinfl: string; fullName: string; sources: { where: string; tiyin: string; manual: boolean; unit?: string | null }[]; totalTiyin: string; extraTiyin: string; removeFrom: string[] }[];
   duplicateCount: number;
   duplicateTiyin: string;
   ok: boolean;
@@ -59,19 +64,24 @@ export const payrollControlApi = {
   stray: (period: string, batchIds: string[]) => api.post<ApiResponse<{ cancelled: number }>>(`/payroll/control/stray?period=${period}`, { batchIds }),
 };
 
-const nz = (v: string) => v !== '0';
+const nz = (v: string | null | undefined) => Boolean(v) && v !== '0';
 
 type Action = { kind: 'clean' | 'dedupe' | 'stray'; ids: string[]; title: string; message: string };
 
-export function PayrollControlCard({ period, compact = false, onChanged, onToast }: { period: string; compact?: boolean; onChanged?: () => void; onToast: (t: { message: string; tone: 'success' | 'error' }) => void }) {
-  const data = useAsync(() => payrollControlApi.get(period).then((r) => r.data), [period]);
+export function PayrollControlCard({ period, compact = false, reloadKey, onChanged, onToast }: { period: string; compact?: boolean; /** O'zgarsa — qayta o'qiladi (yuklash bekor qilinganda va h.k.) */ reloadKey?: unknown; onChanged?: () => void; onToast: (t: { message: string; tone: 'success' | 'error' }) => void }) {
+  const data = useAsync(() => payrollControlApi.get(period).then((r) => r.data), [period, reloadKey]);
   const [open, setOpen] = useState(!compact);
   const [year, setYear] = useState(false);
-  const range = useAsync(() => (year ? payrollControlApi.range(`${period.slice(0, 4)}-01`, period).then((r) => r.data) : Promise.resolve(null)), [period, year]);
+  const range = useAsync(() => (year ? payrollControlApi.range(`${period.slice(0, 4)}-01`, period).then((r) => r.data) : Promise.resolve(null)), [period, year, reloadKey]);
   const [action, setAction] = useState<Action | null>(null);
   const [busy, setBusy] = useState(false);
   const v = data.data;
-  if (data.error) return null;
+  if (data.error)
+    return (
+      <Card>
+        <ErrorState message={`Ish haqi nazorati o‘qilmadi: ${data.error}`} onRetry={data.reload} />
+      </Card>
+    );
   if (!v) return null;
   const hasSoliq = v.soliq.files.length > 0 || v.soliq.manual.length > 0;
   if (compact && !hasSoliq && v.expenseTotal === '0') return null;
@@ -95,6 +105,7 @@ export function PayrollControlCard({ period, compact = false, onChanged, onToast
         onToast({ message: `${r.cancelled} ta bog‘lanmagan bo‘lim yuklashi bekor qilindi`, tone: 'success' });
       }
       data.reload();
+      range.reload();
       onChanged?.();
     } catch (err) {
       onToast({ message: errorMessage(err, 'Bajarib bo‘lmadi'), tone: 'error' });
@@ -134,10 +145,10 @@ export function PayrollControlCard({ period, compact = false, onChanged, onToast
         <p className="border-t border-(--color-line) px-5 py-2 text-xs text-(--color-text-muted)">
           Farq nimadan:{' '}
           {[
-            nz(v.explain.cleanableTiyin) && `ortiqcha xarajatlar ${formatTiyin(v.explain.cleanableTiyin)}`,
-            nz(v.explain.duplicateManualTiyin) && `ikki marta sanalgan (bo‘limda qo‘lda) ${formatTiyin(v.explain.duplicateManualTiyin)}`,
-            nz(v.explain.strayTiyin) && `bog‘lanmagan bo‘lim yuklashlari ${formatTiyin(v.explain.strayTiyin)}`,
-            nz(v.explain.otherTiyin) && `manbasiz yozuvlar ${formatTiyin(v.explain.otherTiyin)}`,
+            nz(v.explain?.cleanableTiyin) && `ortiqcha xarajatlar ${formatTiyin(v.explain?.cleanableTiyin)}`,
+            nz(v.explain?.duplicateManualTiyin) && `ikki marta sanalgan (bo‘limda qo‘lda) ${formatTiyin(v.explain?.duplicateManualTiyin)}`,
+            nz(v.explain?.strayTiyin) && `bog‘lanmagan bo‘lim yuklashlari ${formatTiyin(v.explain?.strayTiyin)}`,
+            nz(v.explain?.otherTiyin) && `manbasiz yozuvlar ${formatTiyin(v.explain?.otherTiyin)}`,
           ]
             .filter(Boolean)
             .join(' + ') || '—'}{' '}
@@ -199,7 +210,7 @@ export function PayrollControlCard({ period, compact = false, onChanged, onToast
                 {v.soliq.manual.map((m, i) => (
                   <li key={`m${i}`} className="flex flex-wrap justify-between gap-2">
                     <span>
-                      {m.label} sahifasida: «{m.fileName}» · {m.count} xodim
+                      <UnitLink unit={m.unit} period={period} label={m.label} /> sahifasida: «{m.fileName}» · {m.count} xodim
                     </span>
                     <Money tiyin={m.totalTiyin} />
                   </li>
@@ -213,7 +224,8 @@ export function PayrollControlCard({ period, compact = false, onChanged, onToast
             <div className="rounded-(--radius-control) border border-(--color-expense)/40 bg-(--color-expense-soft)/40 p-3">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <p className="font-semibold text-heading">
-                  Ortiqcha xarajatlar: {cleanable.length} ta · {formatTiyin(v.cleanableTiyin)} so‘m
+                  Ortiqcha xarajatlar: {v.cleanableCount ?? cleanable.length} ta · {formatTiyin(v.cleanableTiyin)} so‘m
+                  {(v.cleanableCount ?? cleanable.length) > cleanable.length && <span className="ml-1 text-xs font-normal text-(--color-text-muted)">(bir martada {cleanable.length} tasi tozalanadi)</span>}
                 </p>
                 <Button
                   size="sm"
@@ -274,7 +286,22 @@ export function PayrollControlCard({ period, compact = false, onChanged, onToast
                 {v.duplicates.slice(0, 50).map((d) => (
                   <li key={d.pinfl} className="flex flex-wrap justify-between gap-2">
                     <span>
-                      <b>{d.fullName}</b> <span className="money text-(--color-text-muted)">{d.pinfl}</span> · {d.sources.map((s) => `${s.where} ${formatTiyin(s.tiyin)}`).join(' + ')}
+                      <b>{d.fullName}</b> <span className="money text-(--color-text-muted)">{d.pinfl}</span> ·{' '}
+                      {d.sources.map((s, i) => (
+                        <span key={i}>
+                          {i > 0 ? ' + ' : ''}
+                          {s.unit && unitPayrollHref(s.unit, period) ? (
+                            <Link href={unitPayrollHref(s.unit, period)!} className="text-brand-700 hover:underline">
+                              {s.where}
+                            </Link>
+                          ) : (
+                            <Link href={sourceHref.soliq(period)} className="text-brand-700 hover:underline">
+                              {s.where}
+                            </Link>
+                          )}{' '}
+                          {formatTiyin(s.tiyin)}
+                        </span>
+                      ))}
                     </span>
                     <span className="text-(--color-warn)">
                       ortiqcha <Money tiyin={d.extraTiyin} />
@@ -310,7 +337,7 @@ export function PayrollControlCard({ period, compact = false, onChanged, onToast
                 {v.soliq.stray.map((s) => (
                   <li key={s.batchId} className="flex justify-between gap-2">
                     <span>
-                      {s.label}: «{s.fileName}»
+                      <UnitLink unit={s.unit} period={period} label={s.label} />: «{s.fileName}»
                     </span>
                     <Money tiyin={s.totalTiyin} />
                   </li>
@@ -390,6 +417,17 @@ export function PayrollControlCard({ period, compact = false, onChanged, onToast
         onCancel={() => setAction(null)}
       />
     </Card>
+  );
+}
+
+function UnitLink({ unit, period, label }: { unit: string; period: string; label: string }) {
+  const href = unitPayrollHref(unit, period);
+  return href ? (
+    <Link href={href} className="font-medium text-brand-700 hover:underline">
+      {label}
+    </Link>
+  ) : (
+    <>{label}</>
   );
 }
 

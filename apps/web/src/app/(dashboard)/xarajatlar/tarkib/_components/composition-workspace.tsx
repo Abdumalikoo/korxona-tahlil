@@ -1,5 +1,8 @@
 'use client';
 
+import Link from 'next/link';
+import { sourceHref, unitPayrollHref } from '@/lib/source-links';
+
 import { useMonthChange, usePeriod } from '@/lib/period';
 import {
     analyzeCompositionFile,
@@ -360,6 +363,13 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
                               : u
                                 ? `«Ish haqi» yorlig‘ida shu oy ${unit?.label} vedomostini yuklang`
                                 : 'Ish haqi bo‘limida shu oy uchun soliq hisobotini yuklang'
+                          }
+                          action={
+                            data.check.state === 'MATCHED' ? undefined : (
+                              <Link href={(u && unitPayrollHref(u, period)) || sourceHref.soliq(period)} className="text-sm font-medium text-brand-700 hover:underline">
+                                {u ? `${unit?.label} ish haqi sahifasi →` : 'Soliq hisobotini yuklash →'}
+                              </Link>
+                            )
                           }
                         />
                       </Card>

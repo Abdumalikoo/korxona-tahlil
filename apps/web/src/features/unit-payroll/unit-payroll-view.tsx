@@ -79,7 +79,7 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
   const [staffPeriod, setStaffPeriod] = useState<string>(period);
   const staff = useAsync(() => unitPayrollApi.staff(unit.code, staffPeriod), [unit.code, staffPeriod]);
   /** Har xodim: manbada qayerda va ish haqi tarkibida qaysi bo'limda (shu oy) */
-  const places = useAsync(() => (ndflMode ? Promise.resolve(null) : compositionApi.unitPlaces(period, unit.code).then((r) => r.data).catch(() => null)), [unit.code, period, savedList.data, ndflMode]);
+  const places = useAsync(() => (ndflMode ? Promise.resolve(null) : compositionApi.unitPlaces(period, unit.code).then((r) => r.data)), [unit.code, period, savedList.data, ndflMode]);
   const activeCount = staff.data?.data.active ?? 0;
 
   function reset() {
@@ -92,6 +92,8 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
   }
 
   useMonthChange(period, reset);
+  // Yuqoridagi «Davr» o'zgarsa — xodimlar ro'yxati ham o'sha oyga
+  useMonthChange(period, () => setStaffPeriod(period));
 
   async function handleTemplate() {
     setDownloading(true);
@@ -175,6 +177,7 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
       await unitPayrollApi.cancel(unit.code, period, cancelTarget.id);
       setToast({ message: 'Yuklash bekor qilindi, xarajat savatga tushdi', tone: 'success' });
       batches.reload();
+      staff.reload();
     } catch (err) {
       setToast({ message: errorMessage(err, 'Bekor qilishda xatolik'), tone: 'error' });
     } finally {
@@ -303,6 +306,7 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
           loading={savedList.loading}
           error={savedList.error}
           places={places.data ?? null}
+          placesError={places.error}
           onPlacesChanged={places.reload}
           onChanged={() => {
             batches.reload();
@@ -311,7 +315,20 @@ export function UnitPayrollView({ unit, mode = 'vedomost' }: { unit: EntryUnit; 
           }}
           onToast={setToast}
         />
-        <StaffCard unit={unit} list={staff.data?.data ?? null} loading={staff.loading} error={staff.error} onChanged={staff.reload} onToast={setToast} period={staffPeriod} onPeriod={setStaffPeriod} />
+        <StaffCard
+          unit={unit}
+          list={staff.data?.data ?? null}
+          loading={staff.loading}
+          error={staff.error}
+          onChanged={() => {
+            // Ko'chish va ro'yxat o'zgarishi — saqlangan ish haqi va «Manbada | Ish haqi tarkibida» ham yangilansin
+            staff.reload();
+            savedList.reload();
+          }}
+          onToast={setToast}
+          period={staffPeriod}
+          onPeriod={setStaffPeriod}
+        />
       </div>
 
       {/* Yuklashlar tarixi — pastda */}
@@ -617,6 +634,7 @@ function StaffCard({
   const [moving, setMoving] = useState<string | null>(null);
   const [moveUnit, setMoveUnit] = useState('');
   const [moveFrom, setMoveFrom] = useState(period);
+  useMonthChange(period, () => setMoveFrom(period));
   const [moveNote, setMoveNote] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const history = useAsync(() => (historyOpen ? unitPayrollApi.moves(unit.code) : Promise.resolve(null)), [unit.code, historyOpen, list?.total, list?.items.length]);
@@ -1109,6 +1127,7 @@ function SavedCard({
   loading,
   error,
   places,
+  placesError,
   onPlacesChanged,
   onChanged,
   onToast,
@@ -1119,6 +1138,7 @@ function SavedCard({
   loading: boolean;
   error: string | null;
   places: UnitPlaces | null;
+  placesError?: string | null;
   onPlacesChanged: () => void;
   onChanged: () => void;
   onToast: (t: ToastState) => void;
@@ -1260,6 +1280,9 @@ function SavedCard({
       onChanged();
     } catch (err) {
       onToast({ message: errorMessage(err, "O'tkazib bo'lmadi"), tone: 'error' });
+      // Bir qismi bajarilgan bo'lishi mumkin — ko'rinish yangilansin
+      onPlacesChanged();
+      onChanged();
     } finally {
       setBusy(false);
     }
@@ -1290,7 +1313,16 @@ function SavedCard({
           </Button>
         )}
       </div>
-      <PlacesBar period={period} places={places} isAdmin={isAdmin} filter={pf} onFilter={setPf} onChanged={placesChanged} onToast={onToast} />
+      {placesError ? (
+        <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) bg-(--color-expense-soft) px-5 py-2 text-xs text-(--color-expense)">
+          <span className="flex-1">«Manbada | Ish haqi tarkibida» o‘qilmadi: {placesError}</span>
+          <Button size="sm" variant="secondary" onClick={onPlacesChanged}>
+            Qayta urinish
+          </Button>
+        </div>
+      ) : (
+        <PlacesBar period={period} places={places} isAdmin={isAdmin} filter={pf} onFilter={setPf} onChanged={placesChanged} onToast={onToast} />
+      )}
       {isAdmin && sel.size > 0 && (
         <div className="space-y-2 border-b border-(--color-line) bg-brand-50/60 px-5 py-2.5 text-sm">
           <div className="flex flex-wrap items-center gap-2">

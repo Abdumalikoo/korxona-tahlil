@@ -41,7 +41,8 @@ export default function SourceFilesPage() {
   const [kind, setKind] = useState<SourceKind | 'ALL'>('ALL');
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
-  const list = useAsync(() => sourceArchiveApi.list(kind === 'ALL' ? undefined : kind).then((r) => r.data), [kind]);
+  // Faqat administrator (boshqalarga so'rov yuborilmaydi)
+  const list = useAsync(() => (ready && isAdmin ? sourceArchiveApi.list(kind === 'ALL' ? undefined : kind).then((r) => r.data) : Promise.resolve(null)), [kind, ready, isAdmin]);
 
   useEffect(() => {
     if (ready && !isAdmin) router.replace('/');
