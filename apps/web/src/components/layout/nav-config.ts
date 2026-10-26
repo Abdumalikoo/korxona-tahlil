@@ -113,6 +113,7 @@ export const MENU: NavItem[] = [
       { label: 'Soliq hisoboti', href: '/xarajatlar/soliq-hisoboti', description: "JShDS hisob-kitobi (4 va 5-ilova) to'g'ridan-to'g'ri: shu oy oylik va boshqa daromadlar" },
       { label: 'Ish haqi tarkibi', href: '/xarajatlar/tarkib', description: "Ish haqi komponentlar bo'yicha" },
       { label: '23106', href: '/xarajatlar/23106', description: "Xodimlarga to'lovlar ko'chirmasi (bayram puli, mukofot, xizmat safari): xodim, sana, nima uchun — tarkib va soliq hisoboti bilan nazorat" },
+      { label: 'Bank ko‘chirmasi', href: '/xarajatlar/bank-kochirma', description: "Bankdan olingan ko'chirma tahlili: chiqim va kirim, o'xshash to'lovlar oyma-oy va o'sib boruvchi, turlari (xarajat va daromadga yozilmaydi)" },
       { label: 'Ish haqi solishtirma', href: '/xarajatlar/ish-haqi-solishtirma', description: "FOT − soliq (− kasaba uyushmasi) = 23106: bankdan to'langani hisoblanganiga mosmi — shtat va shartnoma, Markaz va hududlar kesimida" },
       { label: 'Ijara', href: '/xarajatlar/ijara', description: "Ijara shartnomalari va to'lovlar" },
       { label: 'Internet', href: '/xarajatlar/internet', description: "Internet shartnomalari: kimga to'lanadi, qayerga biriktiriladi, oylik to'lovlar" },

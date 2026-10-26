@@ -425,7 +425,7 @@ export class UnitBankService implements OnModuleInit {
  * Bank ko'chirmasi (выписка): sarlavha ustunlari bo'yicha; debet qatorlari, kirim (kredit) soni, xato qatorlar.
  * (Bo'lim bank xarajatlari va 23106 hisob raqami ko'chirmasi — bir xil shakl.)
  */
-export function parseBankStatement(wb: ExcelJS.Workbook) {
+export function parseBankStatement(wb: ExcelJS.Workbook, opts: { credits?: boolean } = {}) {
   let ws: ExcelJS.Worksheet | undefined;
   let headerRow = 0;
   const cols = new Map<Field, number>();
@@ -476,7 +476,8 @@ export function parseBankStatement(wb: ExcelJS.Workbook) {
         inflowCount += 1;
         inflowTiyin += credit;
       }
-      continue;
+      // Tahlil uchun kirim qatorlari ham kerak (bank ko'chirmasi tahlili) — boshqalar uchun o'tkaziladi
+      if (!opts.credits || credit <= 0n) continue;
     }
     const docDate = parseDate(docDateRaw) ?? parseDate(get(row, 'procDate'));
     if (!docDate) {
@@ -501,5 +502,15 @@ export function parseBankStatement(wb: ExcelJS.Workbook) {
     });
     if (rows.length > MAX_ROWS) throw new BadRequestException(`Xarajat qatorlari juda ko'p — ${MAX_ROWS} tagacha`);
   }
-  return { sheetName: ws.name, rows, invalid, inflowCount, inflowTiyin };
+  // Varaq yuqorisi (sarlavhagacha) — o'z hisob raqamini topish uchun (tahlilda faqat oxirgi raqamlari olinadi)
+  const top: string[] = [];
+  for (let r = 1; r < headerRow; r++) {
+    const vals: string[] = [];
+    ws.getRow(r).eachCell((cell) => {
+      const t = text(cellValue(cell.value));
+      if (t) vals.push(t);
+    });
+    if (vals.length) top.push(vals.join(' '));
+  }
+  return { sheetName: ws.name, rows, invalid, inflowCount, inflowTiyin, top };
 }

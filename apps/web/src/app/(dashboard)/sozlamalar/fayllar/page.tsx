@@ -29,6 +29,7 @@ const KINDS: { key: SourceKind | 'ALL'; label: string }[] = [
   { key: 'payroll', label: 'Soliq hisoboti' },
   { key: 'unit-payroll', label: 'Bo‘lim vedomostlari' },
   { key: 'acc-23106', label: '23106' },
+  { key: 'bank-analysis', label: 'Bank ko‘chirmasi' },
 ];
 
 function size(b: number) {

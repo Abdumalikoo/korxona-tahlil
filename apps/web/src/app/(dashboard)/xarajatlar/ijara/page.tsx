@@ -44,6 +44,7 @@ const tabs = [
   { href: '/xarajatlar/soliq-hisoboti', label: 'Soliq hisoboti' },
   { href: '/xarajatlar/tarkib', label: 'Ish haqi tarkibi' },
   { href: '/xarajatlar/23106', label: '23106' },
+  { href: '/xarajatlar/bank-kochirma', label: 'Bank ko‘chirmasi' },
   { href: '/xarajatlar/ish-haqi-solishtirma', label: 'Ish haqi solishtirma' },
   { href: '/xarajatlar/ijara', label: 'Ijara' },
 ];
