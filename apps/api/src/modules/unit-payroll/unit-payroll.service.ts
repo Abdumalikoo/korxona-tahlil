@@ -590,6 +590,13 @@ export class UnitPayrollService {
     return out;
   }
 
+  /** Shu oy hamma bo'limlar yuklashlari (nazorat uchun: saqlangan va bekor qilingan) */
+  async allBatches(period: string): Promise<{ unit: string; batch: UnitPayrollBatch }[]> {
+    const out: { unit: string; batch: UnitPayrollBatch }[] = [];
+    for (const unit of PAYROLL_UNITS) for (const b of await this.batchesOf(unit, period)) out.push({ unit, batch: b });
+    return out;
+  }
+
   /** Umumiy vedomostdan (shu yuklashdan) bo'limlarga yozilgan qatorlar — qayta taqsimlash uchun */
   async generalRows(period: string, generalBatchId: string): Promise<{ unit: string; pinfl: string; fullName: string; amountTiyin: string }[]> {
     const out: { unit: string; pinfl: string; fullName: string; amountTiyin: string }[] = [];
@@ -622,7 +629,12 @@ export class UnitPayrollService {
     const rows = await this.prisma.payrollEntry
       .findMany({ where: { period, employeePinfl: { in: pinfls }, batch: { status: 'COMMITTED' } }, select: { employeePinfl: true } })
       .catch(() => [] as { employeePinfl: string }[]);
-    return new Set(rows.map((r) => r.employeePinfl));
+    const out = new Set(rows.map((r) => r.employeePinfl));
+    // Umumiy soliq hisobotidan bo'limlarga (miya bo'yicha) yozilganlar ham — o'sha hisobotda bor
+    const want = new Set(pinfls);
+    for (const unit of PAYROLL_UNITS)
+      for (const b of await this.batchesOf(unit, period)) if (b.status === 'COMMITTED' && b.origin === 'GENERAL') for (const r of b.rows ?? []) if (want.has(r.pinfl)) out.add(r.pinfl);
+    return out;
   }
 
   // ═══════════ Xodimlar ro'yxati ═══════════
@@ -1383,7 +1395,7 @@ export class UnitPayrollService {
   }
 
   /** Saqlangan vedomostlardan xodimlarni olib tashlash (yuklash jami va xarajat qayta hisoblanadi) — olib tashlanganlar */
-  private async dropRows(unit: string, period: string, pinfls: Set<string>): Promise<{ pinfl: string; fullName: string; amountTiyin: bigint }[]> {
+  private async dropRows(unit: string, period: string, pinfls: Set<string>, onlyManual = false): Promise<{ pinfl: string; fullName: string; amountTiyin: bigint }[]> {
     const key = payrollKey(unit, period);
     return this.prisma.$transaction(
       async (tx) => {
@@ -1391,7 +1403,7 @@ export class UnitPayrollService {
         const dropped = new Map<string, { pinfl: string; fullName: string; amountTiyin: bigint }>();
         const now = new Date().toISOString();
         for (const b of batches) {
-          if (b.status !== 'COMMITTED') continue;
+          if (b.status !== 'COMMITTED' || (onlyManual && b.origin === 'GENERAL')) continue;
           const out = (b.rows ?? []).filter((r) => pinfls.has(r.pinfl));
           if (!out.length) continue;
           for (const r of out) {
@@ -1424,6 +1436,21 @@ export class UnitPayrollService {
     );
   }
 
+  /**
+   * Ikki marta sanalganlar (umumiy soliq hisobotida ham bor): faqat shu sahifada QO'LDA yuklangan qatori olib tashlanadi,
+   * umumiy hisobotdan kelgani qoladi
+   */
+  @Exclusive('unit-payroll')
+  async removeManualRows(unit: string, period: string, pinfls: string[], userId: string) {
+    this.assertPeriod(period);
+    const pins = this.parsePins(pinfls);
+    const dropped = await this.dropRows(unit, period, pins, true);
+    await this.splitComponents(unit, period).catch(() => null);
+    const total = dropped.reduce((s, d) => s + d.amountTiyin, 0n);
+    if (dropped.length) await this.audit.log({ userId, action: 'UPDATE', entity: 'unit_payroll', entityId: `${unit}:${period}`, summary: `${entryUnitLabel(unit)} ish haqi ${period}: ${dropped.length} xodimning qo'lda yuklangan qatori olib tashlandi — umumiy soliq hisobotida bor (${(Number(total) / 100).toLocaleString('uz-UZ')} so'm, ikki marta sanalgan edi)` });
+    return { removed: dropped.length, totalTiyin: total.toString() };
+  }
+
   private parsePins(raw: unknown): Set<string> {
     const list = Array.isArray(raw) ? raw.map(parsePinfl).filter((x): x is string => Boolean(x)) : [];
     if (!list.length) throw new BadRequestException('Xodimlar belgilanmagan');
@@ -1436,7 +1463,17 @@ export class UnitPayrollService {
   async removeRows(unit: string, period: string, body: { pinfls?: unknown }, userId: string) {
     this.assertPeriod(period);
     const pins = this.parsePins(body?.pinfls);
-    const dropped = await this.dropRows(unit, period, pins);
+    // Ish haqi xarajati = soliq hisoboti: umumiy soliq hisobotidan kelgan qator bu yerdan o'chirilmaydi
+    // (o'chsa — xarajat hisobotdan kam bo'ladi); u boshqa joyga o'tkaziladi yoki umumiy hisobot qayta yuklanadi
+    const fromGeneral = new Set<string>();
+    const manualPins = new Set<string>();
+    for (const b of await this.batchesOf(unit, period)) {
+      if (b.status !== 'COMMITTED') continue;
+      for (const r of b.rows ?? []) if (pins.has(r.pinfl)) (b.origin === 'GENERAL' ? fromGeneral : manualPins).add(r.pinfl);
+    }
+    const onlyGeneral = [...fromGeneral].filter((p) => !manualPins.has(p));
+    if (onlyGeneral.length) throw new BadRequestException(`${onlyGeneral.length} xodimning ish haqi umumiy soliq hisobotidan kelgan — o'chirilmaydi (xarajat soliq hisobotiga teng bo'lishi kerak). Shu oy boshqa joyda ishlagan bo'lsa — «Bo'lim» bilan o'tkazing`);
+    const dropped = await this.dropRows(unit, period, pins, true);
     if (!dropped.length) throw new NotFoundException("Belgilangan xodimlar shu oy ish haqida yo'q");
     await this.splitComponents(unit, period).catch(() => null);
     const total = dropped.reduce((s, d) => s + d.amountTiyin, 0n);
@@ -1467,8 +1504,12 @@ export class UnitPayrollService {
     const place = await this.movePlace(target, body?.place);
     const onlyThisMonth = body?.onlyThisMonth !== false;
     const withAmount = body?.withAmount !== false;
-    const current = (await this.saved(unit, period)).rows.filter((r) => pins.has(r.pinfl));
-    if (!current.length) throw new NotFoundException("Belgilangan xodimlar shu oy ish haqida yo'q");
+    const all = (await this.saved(unit, period)).rows.filter((r) => pins.has(r.pinfl));
+    if (!all.length) throw new NotFoundException("Belgilangan xodimlar shu oy ish haqida yo'q");
+    // Umumiy soliq hisobotidan kelganlar — umumiy oqim ichida o'tkaziladi (Ish haqi tarkibi › joy: summa hisobotda qoladi)
+    const generalOnly = all.filter((r) => r.fromGeneral && !r.fromUnit);
+    if (generalOnly.length) throw new BadRequestException(`${generalOnly.length} xodimning ish haqi umumiy soliq hisobotidan kelgan — sahifani yangilang (Ctrl+F5) va qaytadan o'tkazing: ular umumiy hisobot ichida o'tkaziladi`);
+    const current = all;
     // Hududga — xodimning hududi kerak
     const emps = await this.prisma.employee.findMany({ where: { pinfl: { in: current.map((r) => r.pinfl) } }, select: { pinfl: true, regionCode: true, departmentId: true } });
     const empBy = new Map(emps.map((e) => [e.pinfl, e]));
@@ -1492,8 +1533,8 @@ export class UnitPayrollService {
         }
       }
     }
-    // Ish haqidan olib tashlash
-    const dropped = await this.dropRows(unit, period, pins);
+    // Ish haqidan olib tashlash (faqat shu sahifada yuklangan qatorlar)
+    const dropped = await this.dropRows(unit, period, pins, true);
     const total = dropped.reduce((s, d) => s + d.amountTiyin, 0n);
     // Summani o'tkazish
     let created = 0;

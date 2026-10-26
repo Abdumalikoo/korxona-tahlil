@@ -25,6 +25,7 @@ import { EmptyState, LoadingState } from '@/components/ui/states';
 import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
 import { SectionTabs } from '@/features/sections/section-tabs';
 import { Toast } from '@/components/ui/toast';
+import { PayrollControlCard } from './payroll-control';
 import { cn } from '@/lib/utils';
 
 
@@ -182,6 +183,9 @@ export function PayrollUploadPage({ mode }: { mode: 'vedomost' | 'ndfl' }) {
             period={period}
           />
         </div>
+
+        {/* Ish haqi xarajati = soliq hisoboti (nazorat) */}
+        {isAdmin && !analysis && <PayrollControlCard period={period} onToast={setToast} onChanged={() => batches.reload()} />}
 
         {/* Yuklash zonasi */}
         {isAdmin && !analysis && (

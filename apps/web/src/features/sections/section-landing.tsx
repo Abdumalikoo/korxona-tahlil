@@ -1,6 +1,10 @@
 'use client';
 
 import { DeleteDataButton } from '@/components/shared/delete-data';
+import { Toast } from '@/components/ui/toast';
+import { PayrollControlCard } from '@/features/payroll/payroll-control';
+import { useAuth } from '@/lib/auth-context';
+import { useState } from 'react';
 import { SourceActions } from '@/components/shared/source-actions';
 import { usePeriod } from '@/lib/period';
 import { currentPeriod, formatCompact, formatPercent, formatPeriod, formatPeriodShort, formatTiyin, shiftPeriod } from '@/lib/format';
@@ -48,6 +52,8 @@ export function SectionLanding({ kind }: { kind: SectionKind }) {
   const { month: period } = usePeriod();
 
   const overview = useAsync(() => sectionsApi.overview(kind, period), [kind, period]);
+  const { isAdmin } = useAuth();
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
   const trend = useAsync(() => sectionsApi.trend(kind, shiftPeriod(period, -11), period), [kind, period]);
 
   const data = overview.data?.data;
@@ -103,6 +109,19 @@ export function SectionLanding({ kind }: { kind: SectionKind }) {
             },
           }}
         />
+
+        {/* Ish haqi xarajati = soliq hisoboti (nazorat) */}
+        {isExpense && isAdmin && (
+          <PayrollControlCard
+            period={period}
+            compact
+            onToast={setToast}
+            onChanged={() => {
+              overview.reload();
+              trend.reload();
+            }}
+          />
+        )}
 
         {/* To'lanmaganlar (oy — yuqori panelda) */}
         {unpaidCount > 0 && (
@@ -193,6 +212,7 @@ export function SectionLanding({ kind }: { kind: SectionKind }) {
           </>
         )}
       </div>
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
     </>
   );
 }

@@ -17,6 +17,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { PayrollService, type MissingRow } from './payroll.service';
+import { PayrollControlService } from './payroll-control.service';
 import { SourceArchiveService } from '../source-archive/source-archive.service';
 import { assertAmount } from '../../common/validation/amount';
 
@@ -34,6 +35,7 @@ export class PayrollController {
   constructor(
     private readonly payroll: PayrollService,
     private readonly archive: SourceArchiveService,
+    private readonly control: PayrollControlService,
   ) {}
 
   private sendFile(response: Response, buffer: Buffer, filename: string): void {
@@ -137,6 +139,44 @@ export class PayrollController {
   async expenseDetail(@Param('expenseId') expenseId: string) {
     const data = await this.payroll.expenseDetail(expenseId);
     return { data };
+  }
+
+  /** Ish haqi nazorati: xarajat = soliq hisoboti (?period=YYYY-MM) */
+  @Roles(UserRole.ADMIN)
+  @Get('control')
+  async controlView(@Query('period') period: string) {
+    return { data: await this.control.control(period) };
+  }
+
+  /** Oylar bo'yicha qisqacha (?from=&to=) */
+  @Roles(UserRole.ADMIN)
+  @Get('control/range')
+  async controlRange(@Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.control.controlRange(from, to) };
+  }
+
+  /** Ortiqcha xarajatlar → Savat: { ids } */
+  @Roles(UserRole.ADMIN)
+  @Post('control/clean')
+  @HttpCode(HttpStatus.OK)
+  async controlClean(@Query('period') period: string, @Body('ids') ids: unknown, @CurrentUser('id') userId: string) {
+    return { data: await this.control.clean(period, ids, userId) };
+  }
+
+  /** Ikki marta sanalganlar: bo'lim sahifasidagi qo'lda yuklangan qatori olib tashlanadi: { pinfls } */
+  @Roles(UserRole.ADMIN)
+  @Post('control/dedupe')
+  @HttpCode(HttpStatus.OK)
+  async controlDedupe(@Query('period') period: string, @Body('pinfls') pinfls: unknown, @CurrentUser('id') userId: string) {
+    return { data: await this.control.dedupe(period, pinfls, userId) };
+  }
+
+  /** Bog'lanmagan bo'lim yuklashlarini bekor qilish: { batchIds } */
+  @Roles(UserRole.ADMIN)
+  @Post('control/stray')
+  @HttpCode(HttpStatus.OK)
+  async controlStray(@Query('period') period: string, @Body('batchIds') batchIds: unknown, @CurrentUser('id') userId: string) {
+    return { data: await this.control.cancelStray(period, batchIds, userId) };
   }
 
   @Get('batches')
