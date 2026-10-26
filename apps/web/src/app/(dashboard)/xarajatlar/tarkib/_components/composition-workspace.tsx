@@ -340,6 +340,22 @@ export function CompositionWorkspace({ unit }: { unit?: { code: string; label: s
           <>
             <StatusBanner check={data.check} />
 
+            {/* Bo'lim sahifasi: o'z tarkibida yo'q xodimlar — umumiy tarkibdan bog'langan (qayta yuklash shart emas) */}
+            {u && data.linkedGeneral && (
+              <div className="rounded-(--radius-control) border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-heading">
+                {data.batch?.fromGeneral ? (
+                  <>{unit?.label}ning o‘z tarkibi yuklanmagan — <b>umumiy ish haqi tarkibidan</b> bog‘landi: </>
+                ) : (
+                  <>{unit?.label} tarkibida yo‘q xodimlar <b>umumiy ish haqi tarkibidan</b> olindi: </>
+                )}
+                <b className="money">{data.linkedGeneral.count}</b> xodim
+                {data.linkedGeneral.fileName ? ` («${data.linkedGeneral.fileName}», ${formatDateTime(data.linkedGeneral.createdAt)})` : ''}. Har xodim bitta tarkibdan — ikki marta sanalmaydi.{' '}
+                <Link href={sourceHref.tarkib(period)} className="font-medium text-brand-700 hover:underline">
+                  Umumiy tarkib →
+                </Link>
+              </div>
+            )}
+
             {hasSaved && (
               <>
                 <CheckSummaryBoxes check={data.check} />

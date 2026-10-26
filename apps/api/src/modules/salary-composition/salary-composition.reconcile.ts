@@ -87,6 +87,8 @@ export interface Adjustment {
   createdBy: string;
   status: 'APPLIED' | 'UNDONE' | 'STALE';
   undoneAt: string | null;
+  /** Bo'lim sahifasidan, lekin xodim tarkibi umumiy tarkibdan bog'langan — umumiy tarkibga yozilgan */
+  viaUnit?: string | null;
 }
 
 interface UnitRow {
@@ -288,10 +290,10 @@ export class CompositionReconcileService {
       components: active.map((c) => ({ code: c.code, name: c.name, category: c.category, categoryLabel: c.categoryLabel, sign: c.sign })),
       rows,
       history: adjusts
-        .filter((a) => a.period === period && (a.unit ?? null) === (unit ?? null))
+        .filter((a) => a.period === period && ((a.unit ?? null) === (unit ?? null) || (unit !== undefined && a.viaUnit === unit)))
         .reverse()
         .slice(0, 200)
-        .map((a) => ({ ...a, current: a.status === 'APPLIED' && a.batchId === v.batch?.id })),
+        .map((a) => ({ ...a, current: a.status === 'APPLIED' && (a.batchId === v.batch?.id || (Boolean(a.viaUnit) && a.batchId === v.linkedGeneral?.batchId)) })),
     };
   }
 
@@ -328,6 +330,18 @@ export class CompositionReconcileService {
       const source: Adjustment['source'] = x?.source === 'SUGGESTION' ? 'SUGGESTION' : 'MANUAL';
       return { pinfl, comp, amount, note, source };
     });
+    // Bo'lim sahifasida umumiy tarkibdan bog'langan xodimlar — farq umumiy tarkibga yoziladi (bitta joyda)
+    let viaUnit: string | null = null;
+    if (unit) {
+      const uv = await this.composition.view(period, unit);
+      const gen = new Set(uv.rows.filter((r) => r.fromGeneral).map((r) => r.pinfl));
+      const g = want.filter((w) => gen.has(w.pinfl)).length;
+      if (g && g < want.length) throw new BadRequestException(`Tanlanganlardan ${g} tasi tarkibi umumiy tarkibdan, qolgani ${entryUnitLabel(unit)} o'z tarkibidan — alohida-alohida o'tkazing`);
+      if (g) {
+        viaUnit = unit;
+        unit = undefined;
+      }
+    }
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null);
     const names = await this.names(want.map((w) => w.pinfl));
 
@@ -384,7 +398,7 @@ export class CompositionReconcileService {
                 else await tx.salaryCompositionItem.create({ data: { batchId: batch.id, rowId: row.id, componentCode: w.comp.code, amountTiyin: next } });
                 await tx.salaryCompositionRow.update({ where: { id: row.id }, data: { totalTiyin: row.totalTiyin + w.amount } });
                 total += w.amount;
-                made.push(this.record(period, null, batch.id, w, row.fullName ?? names.get(w.pinfl) ?? w.pinfl, createdRow, now, user?.fullName ?? ''));
+                made.push({ ...this.record(period, null, batch.id, w, row.fullName ?? names.get(w.pinfl) ?? w.pinfl, createdRow, now, user?.fullName ?? ''), ...(viaUnit ? { viaUnit } : {}) });
               }
               await tx.salaryCompositionBatch.update({ where: { id: batch.id }, data: { totalTiyin: total, employeeCount: batch.employeeCount + added } });
               await this.saveAdjust(tx, made);
@@ -402,8 +416,8 @@ export class CompositionReconcileService {
       userId,
       action: 'UPDATE',
       entity: 'salary_composition_adjust',
-      entityId: `${unit ?? 'CENTER'}:${period}`,
-      summary: `Ish haqi tarkibi${unit ? ` (${entryUnitLabel(unit)})` : ''} ${monthLabel(period)}: ${out.length} xodim farqi komponentga o'tkazildi — ${(Number(total) / 100).toLocaleString('uz-UZ')} so'm (${[...new Set(out.map((a) => a.componentName))].join(', ')})`,
+      entityId: `${unit ?? viaUnit ?? 'CENTER'}:${period}`,
+      summary: `Ish haqi tarkibi${unit ? ` (${entryUnitLabel(unit)})` : viaUnit ? ` (${entryUnitLabel(viaUnit)} — umumiy tarkibda)` : ''} ${monthLabel(period)}: ${out.length} xodim farqi komponentga o'tkazildi — ${(Number(total) / 100).toLocaleString('uz-UZ')} so'm (${[...new Set(out.map((a) => a.componentName))].join(', ')})`,
     });
     return { success: true as const, count: out.length, totalTiyin: total.toString(), ids: out.map((a) => a.id) };
   }
@@ -529,5 +543,7 @@ export class CompositionReconcileService {
     await this.payrollService.regroup(period).catch((error: unknown) => {
       this.logger.warn(`Ish haqi Markaz ulushi qayta hisoblanmadi (${period}): ${(error as Error).message}`);
     });
+    // Umumiy tarkib bo'limlarga ham bog'langan — ularning ajratmasi ham yangilanadi
+    await this.composition.resplitUnits(period).catch(() => null);
   }
 }

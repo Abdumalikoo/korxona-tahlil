@@ -1308,6 +1308,8 @@ export class SalaryCompositionService implements OnModuleInit {
       this.logger.warn(`Ish haqi Markaz ulushi hisoblanmadi (${period}): ${(error as Error).message}`);
       return null;
     });
+    // Umumiy tarkib o'z tarkibi yo'q bo'limlarga ham bog'lanadi — ularning komponent ajratmasi qayta hisoblanadi
+    await this.resplitUnits(period);
 
     return {
       success: true,
@@ -1341,8 +1343,19 @@ export class SalaryCompositionService implements OnModuleInit {
     await this.payrollService.regroup(batch.period).catch((error: unknown) => {
       this.logger.warn(`Ish haqi qayta guruhlanmadi (${batch.period}): ${(error as Error).message}`);
     });
+    await this.resplitUnits(batch.period);
 
     return { success: true, period: batch.period };
+  }
+
+  /** Umumiy tarkib o'zgardi — hamma bo'limning (o'z tarkibi yo'q xodimlari umumiydan) komponent ajratmasi qayta */
+  async resplitUnits(period: string): Promise<void> {
+    if (typeof this.unitPayroll?.splitComponents !== 'function') return;
+    for (const u of PAYROLL_UNITS) {
+      await this.unitPayroll.splitComponents(u, period).catch((error: unknown) => {
+        this.logger.warn(`${u} ${period} komponent ajratmasi qayta hisoblanmadi: ${(error as Error).message}`);
+      });
+    }
   }
 
   async batches(period?: string, unit?: string): Promise<BatchDto[]> {
@@ -1369,8 +1382,9 @@ export class SalaryCompositionService implements OnModuleInit {
   async check(period: string, unit?: string): Promise<CheckSummary> {
     this.assertPeriod(period);
     if (unit) {
-      const [batch, payroll] = await Promise.all([this.unitActive(unit, period), this.payroll(period, unit)]);
-      return this.buildCheck(period, batch ? batch.rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName ?? '—', totalTiyin: BigInt(r.totalTiyin) })) : null, payroll, unit);
+      const payroll = await this.payroll(period, unit);
+      const u = await this.unitRows(period, unit, payroll);
+      return this.buildCheck(period, u.own || u.general ? u.rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName ?? '—', totalTiyin: BigInt(r.totalTiyin) })) : null, payroll, unit);
     }
 
     const [batch, payroll] = await Promise.all([this.activeBatch(period), this.payroll(period)]);
@@ -1746,9 +1760,25 @@ export class SalaryCompositionService implements OnModuleInit {
     return { success: true, period };
   }
 
+  /**
+   * Bo'lim tarkibi qatorlari: o'z tarkibi (yuklangan bo'lsa) + o'z tarkibida yo'q, lekin shu oy shu bo'lim ish haqidagi
+   * xodimlar — UMUMIY tarkibdan (bog'lanadi, qayta yuklash shart emas). Har xodim bir joydan.
+   */
+  private async unitRows(period: string, unit: string, payroll: PayrollInfo) {
+    const own = await this.unitActive(unit, period);
+    const ownPins = new Set((own?.rows ?? []).map((r) => r.pinfl));
+    const missing = [...payroll.map.keys()].filter((p) => !ownPins.has(p));
+    const g = missing.length && typeof this.unitPayroll?.generalTarkib === 'function' ? await this.unitPayroll.generalTarkib(period, missing).catch(() => ({ batch: null, rows: [] })) : { batch: null, rows: [] };
+    const rows: (UnitCompRow & { fromGeneral?: boolean })[] = [...(own?.rows ?? []), ...g.rows.map((r) => ({ ...r, fromGeneral: true }))];
+    return { own, general: g.rows.length ? g.batch : null, generalCount: g.rows.length, rows };
+  }
+
   private async unitView(period: string, unit: string): Promise<CompositionView> {
-    const [batch, payroll, components, usage] = await Promise.all([this.unitActive(unit, period), this.payroll(period, unit), this.allComponents(), this.usageCounts()]);
-    if (!batch) {
+    const [payroll, components, usage] = await Promise.all([this.payroll(period, unit), this.allComponents(), this.usageCounts()]);
+    const u = await this.unitRows(period, unit, payroll);
+    const batch = u.own;
+    const linked = u.general ? { batchId: u.general.id, fileName: u.general.fileName, createdAt: u.general.createdAt, count: u.generalCount } : null;
+    if (!batch && !u.general) {
       return {
         period,
         batch: null,
@@ -1759,8 +1789,8 @@ export class SalaryCompositionService implements OnModuleInit {
         rows: [],
       };
     }
-    const registry = await this.unitRegistry(batch.rows.map((r) => r.pinfl), unit);
-    const withItems = batch.rows.map((r) => ({ r, items: new Map(Object.entries(r.items ?? {}).map(([c, v]) => [c, BigInt(v)])) }));
+    const registry = await this.unitRegistry(u.rows.map((r) => r.pinfl), unit);
+    const withItems = u.rows.map((r) => ({ r, items: new Map(Object.entries(r.items ?? {}).map(([c, v]) => [c, BigInt(v)])) }));
     const usedCodes = new Set(withItems.flatMap((x) => [...x.items.keys()]));
     const visible = components.filter((c) => c.isActive || usedCodes.has(c.code));
     const rows: CompositionRowDto[] = withItems
@@ -1781,14 +1811,19 @@ export class SalaryCompositionService implements OnModuleInit {
           payrollTiyin: state.payrollTiyin === null ? null : state.payrollTiyin.toString(),
           diffTiyin: state.diffTiyin === null ? null : state.diffTiyin.toString(),
           state: state.state,
+          ...(r.fromGeneral ? { fromGeneral: true } : {}),
         };
       })
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
     const check = await this.buildCheck(period, rows.map((r) => ({ pinfl: r.pinfl, fullName: r.fullName, totalTiyin: BigInt(r.totalTiyin) })), payroll, unit);
     const { byComponent, byCategory } = this.totals(withItems, components);
     const status: SalaryCompositionStatus = check.state === 'MATCHED' ? 'MATCHED' : check.state === 'MISMATCH' ? 'MISMATCH' : 'NO_PAYROLL';
-    const [batchDto] = await this.toBatchDtos([{ ...this.unitBatchRecord(batch), status, mismatchCount: check.mismatchCount, payrollTiyin: BigInt(check.payrollTiyin) }]);
-    return { period, batch: batchDto ?? null, components: visible.map((c) => this.toComponentDto(c, usage.get(c.code) ?? 0)), byComponent, byCategory, check, rows };
+    const total = rows.reduce((s, r) => s + BigInt(r.totalTiyin), 0n);
+    const record = batch
+      ? { ...this.unitBatchRecord(batch), employeeCount: rows.length, totalTiyin: total }
+      : { id: u.general!.id, period, fileName: u.general!.fileName, employeeCount: rows.length, totalTiyin: total, payrollTiyin: 0n, status, mismatchCount: 0, uploadedById: u.general!.uploadedById, createdAt: u.general!.createdAt, cancelledAt: null };
+    const [batchDto] = await this.toBatchDtos([{ ...record, status, mismatchCount: check.mismatchCount, payrollTiyin: BigInt(check.payrollTiyin) }]);
+    return { period, batch: batchDto ? { ...batchDto, ...(batch ? {} : { fromGeneral: true }) } : null, linkedGeneral: linked, components: visible.map((c) => this.toComponentDto(c, usage.get(c.code) ?? 0)), byComponent, byCategory, check, rows };
   }
 
   private async unitEmployeeHistory(pinfl: string, unit: string, from?: string, to?: string): Promise<EmployeeHistory> {

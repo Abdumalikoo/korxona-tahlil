@@ -105,6 +105,8 @@ export interface CompositionRow {
   state: RowState;
   /** Tarkib faylidagi bo'lim nomi (tahlilda) */
   deptName?: string | null;
+  /** Bo'lim sahifasida: bo'limning o'z tarkibida yo'q — umumiy tarkibdan bog'langan */
+  fromGeneral?: boolean;
 }
 
 export interface ComponentTotal {
@@ -346,11 +348,15 @@ export interface CompositionBatch {
   uploadedBy: string | null;
   createdAt: string;
   cancelledAt: string | null;
+  /** Bo'lim sahifasida: bo'limning o'z tarkibi yo'q — umumiy tarkib */
+  fromGeneral?: boolean;
 }
 
 export interface CompositionView {
   period: string;
   batch: CompositionBatch | null;
+  /** Bo'lim sahifasida: umumiy tarkibdan bog'langan xodimlar (o'z tarkibida yo'qlar) */
+  linkedGeneral?: { batchId: string; fileName: string | null; createdAt: string; count: number } | null;
   components: SalaryComponent[];
   byComponent: ComponentTotal[];
   byCategory: CategoryTotal[];

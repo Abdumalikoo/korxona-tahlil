@@ -1806,6 +1806,56 @@ export class UnitPayrollService {
   }
 
   /** Shu oy uchun ajratish: { parts: komponent → summa, moved: jami ajratilgan } */
+  /**
+   * Umumiy ish haqi tarkibi (Xarajatlar › Ish haqi tarkibi, bitta umumiy fayl) — bo'limning O'Z tarkibi yo'q
+   * xodimlari uchun shu bo'limga bog'lanadi. Har xodim faqat BIR joydan olinadi (ikki marta sanalmaydi):
+   *  • biror bo'limning o'z tarkibida bor xodim — o'sha tarkibdan (bu yerda qaytarilmaydi);
+   *  • excludeGeneralPayroll — umumiy soliq hisobotida (Markaz / hudud) turgan xodim ham qaytarilmaydi
+   *    (uning tarkibi Markaz ulushida hisoblanadi).
+   */
+  async generalTarkib(period: string, pinfls: string[], opts: { excludeGeneralPayroll?: boolean } = {}): Promise<{
+    batch: { id: string; fileName: string | null; createdAt: Date; uploadedById: string | null; status: string; mismatchCount: number; payrollTiyin: bigint } | null;
+    rows: { pinfl: string; fullName: string | null; workedDays: number | null; rate: number | null; totalTiyin: string; items: Record<string, string> }[];
+  }> {
+    const want = [...new Set(pinfls.filter((p) => /^\d{14}$/.test(p)))];
+    if (!PERIOD_RE.test(period) || !want.length) return { batch: null, rows: [] };
+    const batch = await this.prisma.salaryCompositionBatch.findFirst({
+      where: { period, cancelledAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, fileName: true, createdAt: true, uploadedById: true, status: true, mismatchCount: true, payrollTiyin: true },
+    });
+    if (!batch) return { batch: null, rows: [] };
+    // Bo'limlarning o'z tarkibidagilar — o'sha yerdan
+    const skip = new Set<string>();
+    const own = await this.prisma.setting.findMany({ where: { key: { in: PAYROLL_UNITS.map((u) => `unit.composition.${u}.${period}`) } }, select: { value: true } });
+    for (const s of own) {
+      const list = ((s.value as { batches?: { cancelledAt: string | null; createdAt: string; rows?: { pinfl?: string }[] }[] } | null)?.batches ?? []).filter((b) => !b.cancelledAt);
+      const active = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      for (const r of active?.rows ?? []) if (r.pinfl) skip.add(r.pinfl);
+    }
+    if (opts.excludeGeneralPayroll) {
+      const inGeneral = await this.prisma.payrollEntry.findMany({ where: { period, deletedAt: null, employeePinfl: { in: want }, batch: { status: 'COMMITTED' } }, select: { employeePinfl: true } });
+      for (const e of inGeneral) skip.add(e.employeePinfl);
+    }
+    const pick = want.filter((p) => !skip.has(p));
+    if (!pick.length) return { batch, rows: [] };
+    const rows = await this.prisma.salaryCompositionRow.findMany({
+      where: { batchId: batch.id, employeePinfl: { in: pick } },
+      select: { id: true, employeePinfl: true, fullName: true, workedDays: true, rate: true, totalTiyin: true, items: { select: { componentCode: true, amountTiyin: true } } },
+    });
+    return {
+      batch,
+      rows: rows.map((r) => ({
+        pinfl: r.employeePinfl,
+        fullName: r.fullName ?? null,
+        workedDays: r.workedDays ?? null,
+        rate: r.rate === null || r.rate === undefined ? null : Number(r.rate),
+        totalTiyin: r.totalTiyin.toString(),
+        items: Object.fromEntries(r.items.filter((i) => i.amountTiyin !== 0n).map((i) => [i.componentCode, i.amountTiyin.toString()])),
+      })),
+    };
+  }
+
   async splitComponents(unit: string, period: string): Promise<{ parts: Record<string, string>; movedTiyin: string }> {
     // Navbat bilan: bir vaqtda ikki marta ishlasa — ajratilgan xarajatlar ikki marta yozilmasin
     return runExclusive(`unit-split:${unit}:${period}`, () => this.splitComponentsNow(unit, period));
@@ -1829,14 +1879,19 @@ export class UnitPayrollService {
       .filter((b) => !b.cancelledAt)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const active = compList[0];
+    // O'z tarkibida yo'q xodimlar — umumiy tarkibdan (bir xodim bir joydan, ikki marta sanalmaydi)
+    const ownPins = new Set((active?.rows ?? []).map((r) => (r as { pinfl?: string }).pinfl).filter(Boolean) as string[]);
+    const paidPins = [...new Set(committed.flatMap((b) => (b.rows ?? []).map((r) => r.pinfl)))].filter((p) => !ownPins.has(p));
+    const fromGeneral = paidPins.length ? (await this.generalTarkib(period, paidPins, { excludeGeneralPayroll: true }).catch(() => ({ rows: [] as { items: Record<string, string> }[] }))).rows : [];
+    const tarkibRows: { items?: Record<string, string> }[] = [...(active?.rows ?? []), ...fromGeneral];
     const moving = Object.entries(rules).filter(([, t]) => t !== unit).map(([c]) => c);
     const comps = moving.length ? await this.prisma.salaryComponent.findMany({ where: { code: { in: moving } }, select: { code: true, name: true, sign: true } }) : [];
     const want = new Map<string, bigint>();
-    if (active?.rows) {
+    if (tarkibRows.length) {
       for (const c of comps) {
         if (c.sign <= 0) continue;
         let sum = 0n;
-        for (const r of active.rows) {
+        for (const r of tarkibRows) {
           try {
             const v = BigInt(r.items?.[c.code] ?? '0');
             if (v > 0n) sum += v;
@@ -1860,6 +1915,8 @@ export class UnitPayrollService {
     if (parts.size) await ensurePayrollPartCategories(this.prisma, comps.filter((c) => parts.has(c.code)));
     const label = entryUnitLabel(unit);
     const prevIds = ((prevSplit?.value as { expenseIds?: unknown } | null)?.expenseIds as string[] | undefined) ?? [];
+    // Hech narsa yo'q (vedomost ham, avvalgi ajratma ham) — yozilmaydi
+    if (!committed.length && !prevIds.length) return { parts: {}, movedTiyin: '0' };
 
     await this.prisma.$transaction(
       async (tx) => {

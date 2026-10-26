@@ -202,6 +202,7 @@ export function CompositionTable({
                         {row.unitName ?? (row.inRegistry ? '' : 'Reestrda yo‘q')}
                         {row.unitName || !row.inRegistry ? ' · ' : ''}
                         <span className="money">{row.pinfl}</span>
+                        {row.fromGeneral && <span className="ml-1.5 rounded-full bg-brand-50 px-1.5 py-px text-[10px] font-medium text-brand-700">umumiy tarkibdan</span>}
                       </span>
                     </Td>
                     <Td align="center" className="money text-(--color-text-muted)">
