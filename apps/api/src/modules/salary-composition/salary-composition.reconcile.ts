@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { runExclusive } from '../../common/locks';
 import { monthLabel } from '../../common/period';
 import { entryUnitLabel } from '../../common/segments/segments';
-import { KIND_LABELS, kindComponents, type PayoutKind } from '../acc-23106/acc23106.purpose';
+import { bankMonthOf, KIND_LABELS, kindComponents, type PayoutKind } from '../acc-23106/acc23106.purpose';
 import { readStore, STORE_KEY } from '../acc-23106/acc23106.store';
 import { AuditService } from '../audit/audit.service';
 import { PayrollService } from '../payroll/payroll.service';
@@ -144,9 +144,10 @@ export class CompositionReconcileService {
     let uploaded = false;
     for (const m of Object.values(store.months)) {
       for (const r of m.rows ?? []) {
-        if (r.accrual !== period) continue;
-        uploaded = true;
+        // Qaysi oy uchun — hamma modul bilan bir xil qoida (solishtirma bilan bir xil); xizmat safari — hisobga olinmaydi
         if (r.kind === 'SAFAR') continue;
+        if (bankMonthOf(r, 'ACCRUAL') !== period) continue;
+        uploaded = true;
         const d = (r.inn ?? '').replace(/\D/g, '');
         const pinfl = r.pinfl ?? (/^\d{14}$/.test(d) ? d : null);
         if (!pinfl) continue;

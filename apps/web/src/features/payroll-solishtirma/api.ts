@@ -28,6 +28,8 @@ export interface SolRow {
   regionName: string | null;
   employmentType: 'SHTAT' | 'SHARTNOMA';
   typeKnown: boolean;
+  /** Umumiy hisobotda ham, bo'lim sahifasida qo'lda ham (ikki marta sanalgan) */
+  soliqDuplicate?: boolean;
   fotTiyin: string | null;
   fotSource: 'TARKIB' | 'SOLIQ' | null;
   tarkibTiyin: string | null;

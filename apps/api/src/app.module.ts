@@ -34,6 +34,7 @@ import { RegionsModule } from './modules/regions/regions.module';
 import { ResultsModule } from './modules/results/results.module';
 import { SalaryCompositionModule } from './modules/salary-composition/salary-composition.module';
 import { SourceArchiveModule } from './modules/source-archive/source-archive.module';
+import { PayrollFactsModule } from './modules/payroll-facts/payroll-facts.module';
 import { EmployeeTransfersModule } from './modules/employee-transfers/employee-transfers.module';
 import { LeasesModule } from './modules/leases/leases.module';
 import { InternetModule } from './modules/internet/internet.module';
@@ -93,6 +94,7 @@ import { RateLimitGuard } from './common/security/rate-limit';
     AuditModule,
     ResultsModule,
     SourceArchiveModule,
+    PayrollFactsModule,
     SalaryCompositionModule,
     EmployeeTransfersModule,
     LeasesModule,

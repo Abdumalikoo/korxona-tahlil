@@ -133,6 +133,57 @@ const EMPLOYEE_INCLUDE = {
   department: { select: { name: true } },
 } as const;
 
+/**
+ * Xodimning shu oydagi joyi (ish haqi qaysi hudud / Markaz bo'limiga yoziladi): natijalar fayli (employeeLocation),
+ * ustidan — shu oy joy o'zgarishlari (ish haqi tarkibi bo'yicha yoki bo'lim sahifasidan qo'lda). Hamma modul shuni ishlatadi.
+ */
+export async function loadLocationRefs(prisma: PrismaService, period: string, pinfls?: string[]): Promise<Map<string, LocationRef>> {
+    const locations = await prisma.employeeLocation.findMany({
+      where: {
+        period,
+        ...(pinfls ? { employeePinfl: { in: pinfls } } : {}),
+      },
+      select: {
+        employeePinfl: true,
+        regionCode: true,
+        districtId: true,
+        employmentType: true,
+        region: { select: { name: true } },
+        district: { select: { id: true, code: true, name: true } },
+      },
+    });
+
+    const out = new Map<string, LocationRef>(locations.map((item) => [item.employeePinfl, item]));
+
+    // Ish haqi tarkibi bo'yicha shu oy joyi (Markaz bo'limi) — natijalar faylidagi hududdan ham ustun
+    const fixes = ((await prisma.setting.findUnique({ where: { key: COMPOSITION_PLACE_KEY(period) } }).catch(() => null))?.value as { fixes?: Record<string, { departmentId?: string | null; regionCode?: number | null; districtId?: string | null; unit?: string }> } | null)?.fixes ?? {};
+    // Shu oy hududga o'tkazilganlar (bo'lim sahifasidan qo'lda) — viloyat va tuman
+    const toRegion = Object.entries(fixes).filter(([pinfl, f]) => f?.unit === 'REGION' && typeof f.regionCode === 'number' && f.regionCode > 0 && (!pinfls || pinfls.includes(pinfl)));
+    if (toRegion.length) {
+      const regs = new Map((await prisma.region.findMany({ where: { code: { in: [...new Set(toRegion.map(([, f]) => f.regionCode!))] } }, select: { code: true, name: true } })).map((r) => [r.code, r]));
+      const dIds = [...new Set(toRegion.map(([, f]) => f.districtId).filter((x): x is string => Boolean(x)))];
+      const dists = new Map((dIds.length ? await prisma.district.findMany({ where: { id: { in: dIds } }, select: { id: true, code: true, name: true } }) : []).map((d) => [d.id, d]));
+      for (const [pinfl, f] of toRegion) {
+        const reg = regs.get(f.regionCode!);
+        if (!reg) continue;
+        const loc = out.get(pinfl);
+        const dist = f.districtId ? (dists.get(f.districtId) ?? null) : null;
+        out.set(pinfl, { employeePinfl: pinfl, regionCode: reg.code, districtId: dist?.id ?? null, ...(loc ? { employmentType: loc.employmentType } : {}), region: { name: reg.name }, district: dist, department: null });
+      }
+    }
+    const want = Object.entries(fixes).filter(([pinfl, f]) => f?.departmentId && f.unit !== 'REGION' && (!pinfls || pinfls.includes(pinfl)));
+    if (want.length) {
+      const deps = new Map((await prisma.department.findMany({ where: { id: { in: [...new Set(want.map(([, f]) => f.departmentId!))] } }, select: { id: true, name: true } })).map((d) => [d.id, d]));
+      for (const [pinfl, f] of want) {
+        const dep = deps.get(f.departmentId!);
+        if (!dep) continue;
+        const loc = out.get(pinfl);
+        out.set(pinfl, { employeePinfl: pinfl, regionCode: CENTRAL_REGION, districtId: null, ...(loc ? { employmentType: loc.employmentType } : {}), region: { name: 'Markaz' }, district: null, department: dep });
+      }
+    }
+    return out;
+  }
+
 @Injectable()
 export class PayrollService {
   private readonly logger = new Logger(PayrollService.name);
@@ -241,55 +292,9 @@ export class PayrollService {
 
   // ═══════════ Hudud tarixi ═══════════
 
-  /** Shu oy uchun hudud tarixi — natijalar faylidan */
-  private async loadLocations(
-    period: string,
-    pinfls?: string[],
-  ): Promise<Map<string, LocationRef>> {
-    const locations = await this.prisma.employeeLocation.findMany({
-      where: {
-        period,
-        ...(pinfls ? { employeePinfl: { in: pinfls } } : {}),
-      },
-      select: {
-        employeePinfl: true,
-        regionCode: true,
-        districtId: true,
-        employmentType: true,
-        region: { select: { name: true } },
-        district: { select: { id: true, code: true, name: true } },
-      },
-    });
-
-    const out = new Map<string, LocationRef>(locations.map((item) => [item.employeePinfl, item]));
-
-    // Ish haqi tarkibi bo'yicha shu oy joyi (Markaz bo'limi) — natijalar faylidagi hududdan ham ustun
-    const fixes = ((await this.prisma.setting.findUnique({ where: { key: COMPOSITION_PLACE_KEY(period) } }).catch(() => null))?.value as { fixes?: Record<string, { departmentId?: string | null; regionCode?: number | null; districtId?: string | null; unit?: string }> } | null)?.fixes ?? {};
-    // Shu oy hududga o'tkazilganlar (bo'lim sahifasidan qo'lda) — viloyat va tuman
-    const toRegion = Object.entries(fixes).filter(([pinfl, f]) => f?.unit === 'REGION' && typeof f.regionCode === 'number' && f.regionCode > 0 && (!pinfls || pinfls.includes(pinfl)));
-    if (toRegion.length) {
-      const regs = new Map((await this.prisma.region.findMany({ where: { code: { in: [...new Set(toRegion.map(([, f]) => f.regionCode!))] } }, select: { code: true, name: true } })).map((r) => [r.code, r]));
-      const dIds = [...new Set(toRegion.map(([, f]) => f.districtId).filter((x): x is string => Boolean(x)))];
-      const dists = new Map((dIds.length ? await this.prisma.district.findMany({ where: { id: { in: dIds } }, select: { id: true, code: true, name: true } }) : []).map((d) => [d.id, d]));
-      for (const [pinfl, f] of toRegion) {
-        const reg = regs.get(f.regionCode!);
-        if (!reg) continue;
-        const loc = out.get(pinfl);
-        const dist = f.districtId ? (dists.get(f.districtId) ?? null) : null;
-        out.set(pinfl, { employeePinfl: pinfl, regionCode: reg.code, districtId: dist?.id ?? null, ...(loc ? { employmentType: loc.employmentType } : {}), region: { name: reg.name }, district: dist, department: null });
-      }
-    }
-    const want = Object.entries(fixes).filter(([pinfl, f]) => f?.departmentId && f.unit !== 'REGION' && (!pinfls || pinfls.includes(pinfl)));
-    if (want.length) {
-      const deps = new Map((await this.prisma.department.findMany({ where: { id: { in: [...new Set(want.map(([, f]) => f.departmentId!))] } }, select: { id: true, name: true } })).map((d) => [d.id, d]));
-      for (const [pinfl, f] of want) {
-        const dep = deps.get(f.departmentId!);
-        if (!dep) continue;
-        const loc = out.get(pinfl);
-        out.set(pinfl, { employeePinfl: pinfl, regionCode: CENTRAL_REGION, districtId: null, ...(loc ? { employmentType: loc.employmentType } : {}), region: { name: 'Markaz' }, district: null, department: dep });
-      }
-    }
-    return out;
+  /** Shu oy uchun hudud tarixi — natijalar faylidan (+ shu oy joy o'zgarishlari) */
+  private async loadLocations(period: string, pinfls?: string[]): Promise<Map<string, LocationRef>> {
+    return loadLocationRefs(this.prisma, period, pinfls);
   }
 
   /** Tarixda yozuv bo'lsa — hudud, tuman va tur shundan olinadi */

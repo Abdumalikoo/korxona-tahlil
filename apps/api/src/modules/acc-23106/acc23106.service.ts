@@ -9,7 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { parseBankStatement, parseDate, text } from '../unit-bank/unit-bank.service';
 import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { Acc23106SafarService } from './acc23106.safar.service';
-import { KIND_LABELS, kindComponents, nameKey, purposeKind, purposeMonth, purposeName, purposeOrder, type PayoutKind } from './acc23106.purpose';
+import { PayrollFactsService } from '../payroll-facts/payroll-facts.service';
+import { accrualMonth, KIND_LABELS, kindComponents, nameKey, purposeKind, purposeMonth, purposeName, purposeOrder, type PayoutKind } from './acc23106.purpose';
 import { readStore, STORE_KEY, type ControlState, type MatchBy, type PayoutRow, type Store } from './acc23106.store';
 
 // ═══════════════════════════════════════════════════════════
@@ -133,15 +134,6 @@ export class Acc23106Service {
   private toRow(raw: { no: string; docDate: string; procDate: string | null; docNo: string; accountName: string; inn: string; mfo: string; debitTiyin: string; purpose: string }): Omit<PayoutRow, 'pinfl' | 'fullName' | 'matchBy'> {
     const order = purposeOrder(raw.purpose);
     // «… oyi uchun» (izohda oy nomi) — eng aniq; bo'lmasa buyruq oyi; bo'lmasa to'lov oyi
-    const named = purposeMonth(raw.purpose, raw.docDate);
-    const payMonth = raw.docDate.slice(0, 7);
-    const lowest = `${Number(raw.docDate.slice(0, 4)) - 1}-${raw.docDate.slice(5, 7)}`;
-    const nextPay = (() => {
-      const [y, m] = payMonth.split('-').map(Number) as [number, number];
-      return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
-    })();
-    const namedOk = named && named >= lowest && named <= nextPay ? named : null;
-    const accrual = (order.date ?? raw.docDate).slice(0, 7);
     return {
       no: cap(raw.no, 20),
       docDate: raw.docDate,
@@ -156,7 +148,7 @@ export class Acc23106Service {
       orderDate: order.date,
       orderNo: order.no,
       // Buyruq to'lovdan 13 oydan ko'p oldin bo'lsa (sana xato) — to'lov oyi
-      accrual: namedOk ?? (order.date && order.date >= lowest && order.date <= raw.docDate.slice(0, 10) ? accrual : payMonth),
+      accrual: accrualMonth(raw.purpose, raw.docDate, order.date),
       commentName: purposeName(raw.purpose),
     };
   }
@@ -177,42 +169,13 @@ export class Acc23106Service {
       m.set(pinfl, x);
       tarkib.set(p, m);
     };
-    const batches = await this.prisma.salaryCompositionBatch.findMany({ where: { period: { in: periods }, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, period: true } });
-    const latest = new Map<string, string>();
-    for (const b of batches) if (!latest.has(b.period)) latest.set(b.period, b.id);
-    if (latest.size) {
-      const items = await this.prisma.salaryCompositionItem.findMany({ where: { batchId: { in: [...latest.values()] } }, select: { componentCode: true, amountTiyin: true, row: { select: { employeePinfl: true, period: true } } } });
-      for (const i of items) put(i.row.period, i.row.employeePinfl, i.componentCode, i.amountTiyin);
-      for (const p of latest.keys()) tarkibUploaded.add(p);
-    }
-    const unitKeys = PAYROLL_UNITS.flatMap((u) => periods.map((p) => `unit.composition.${u}.${p}`));
-    for (const row of await this.prisma.setting.findMany({ where: { key: { in: unitKeys } }, select: { key: true, value: true } })) {
-      const p = row.key.split('.').pop()!;
-      const list = ((row.value as { batches?: { cancelledAt: string | null; createdAt: string; rows?: { pinfl?: string; items?: Record<string, string> }[] }[] } | null)?.batches ?? []).filter((b) => !b.cancelledAt);
-      const active = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-      if (!active) continue;
-      tarkibUploaded.add(p);
-      for (const r of active.rows ?? []) {
-        if (!r.pinfl) continue;
-        for (const [code, v] of Object.entries(r.items ?? {})) {
-          try {
-            put(p, r.pinfl, code, BigInt(v));
-          } catch {
-            /* noto'g'ri qiymat */
-          }
-        }
-      }
-    }
-    // Soliq hisoboti: umumiy vedomost va bo'limlar ish haqi
-    const entries = await this.prisma.payrollEntry.findMany({ where: { period: { in: periods }, deletedAt: null, batch: { status: 'COMMITTED' } }, select: { employeePinfl: true, period: true } });
-    for (const e of entries) soliq.set(e.period, (soliq.get(e.period) ?? new Set<string>()).add(e.employeePinfl));
-    if (this.unitPayroll) {
-      for (const u of PAYROLL_UNITS) {
-        for (const p of periods) {
-          const m = await this.unitPayroll.payrollMap(u, p).catch(() => null);
-          if (m) for (const k of m.keys()) soliq.set(p, (soliq.get(p) ?? new Set<string>()).add(k));
-        }
-      }
+    // Tarkib va soliq hisoboti — hamma sahifa bilan bir xil qoida (bitta tarkib: umumiy yoki bo'limniki, qo'shilmaydi)
+    const facts = new PayrollFactsService(this.prisma, this.unitPayroll);
+    for (const p of periods) {
+      const t = await facts.tarkib(p);
+      if (t.generalUploaded || t.unitUploaded.length) tarkibUploaded.add(p);
+      for (const [pinfl, f] of t.map) for (const [code, v] of Object.entries(f.items)) put(p, pinfl, code, v);
+      soliq.set(p, new Set((await facts.soliq(p)).keys()));
     }
     return { comps, tarkib, tarkibUploaded, soliq };
   }

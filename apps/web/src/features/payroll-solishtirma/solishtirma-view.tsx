@@ -781,6 +781,11 @@ function PersonRows({
         <td className="money cursor-pointer hover:bg-brand-50/60 hover:underline decoration-dotted underline-offset-2 px-2 py-2 text-right font-medium" onClick={() => onOpen('soliq')} title="Soliq hisoboti — qaysi faylda, qancha">
           {r.fotTiyin === null ? dash : formatTiyin(r.fotTiyin)}
           {r.unit && r.fotTiyin !== null && <span className="block text-[10px] font-normal text-(--color-text-faint)">bo‘lim ish haqidan</span>}
+          {r.soliqDuplicate && (
+            <span className="block text-[10px] font-normal text-(--color-expense)" title="Umumiy soliq hisobotida ham, bo'lim sahifasida qo'lda ham yuklangan — Xarajatlar › «Ish haqi xarajati = soliq hisoboti» kartasida tuzating">
+              ikki marta sanalgan
+            </span>
+          )}
         </td>
         {isCenter && (
           <td className="money cursor-pointer hover:bg-brand-50/60 hover:underline decoration-dotted underline-offset-2 px-2 py-2 text-right" onClick={() => onOpen('tarkib')} title="Ish haqi tarkibi — komponentlar">

@@ -2,7 +2,9 @@ import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { runExclusive } from '../../common/locks';
 import { monthLabel } from '../../common/period';
 import { entryUnitLabel } from '../../common/segments/segments';
-import { KIND_LABELS, purposeMonth, type PayoutKind } from '../acc-23106/acc23106.purpose';
+import { bankMonthOf, KIND_LABELS, type PayoutKind } from '../acc-23106/acc23106.purpose';
+import { PayrollFactsService } from '../payroll-facts/payroll-facts.service';
+import { isPayrollUnit } from '../unit-payroll/unit-payroll.service';
 import { readStore, STORE_KEY } from '../acc-23106/acc23106.store';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -92,7 +94,13 @@ export class PayrollSolishtirmaService {
     private readonly audit: AuditService,
     @Optional() private readonly unitPayroll?: UnitPayrollService,
     @Optional() private readonly reconcile?: CompositionReconcileService,
+    @Optional() private readonly factsSvc?: PayrollFactsService,
   ) {}
+
+  /** Ish haqi faktlari (hamma sahifa bilan bir xil qoida) */
+  private get facts(): PayrollFactsService {
+    return this.factsSvc ?? new PayrollFactsService(this.prisma, this.unitPayroll);
+  }
 
   async settings(): Promise<SolishtirmaSettings> {
     return readSettings((await this.prisma.setting.findUnique({ where: { key: SETTINGS_KEY } }))?.value ?? null);
@@ -115,33 +123,13 @@ export class PayrollSolishtirmaService {
 
   /** FOT: tarkib (umumiy + yo'nalishlar), bo'lmasa — soliq hisoboti / bo'lim vedomosti */
   private async fot(period: string) {
+    // Soliq hisoboti va tarkib — umumiy qoida bilan (umumiy hisobot asosiy; tarkib — bitta, qo'shilmaydi)
+    const [sol, tar] = await Promise.all([this.facts.soliq(period), this.facts.tarkib(period)]);
     const tarkib = new Map<string, { total: bigint; unit: string | null }>();
-    const soliq = new Map<string, { total: bigint; unit: string | null }>();
-    const batch = await this.prisma.salaryCompositionBatch.findFirst({ where: { period, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true } });
-    if (batch) for (const r of await this.prisma.salaryCompositionRow.findMany({ where: { batchId: batch.id }, select: { employeePinfl: true, totalTiyin: true } })) tarkib.set(r.employeePinfl, { total: r.totalTiyin, unit: null });
-    const unitRows = await this.prisma.setting.findMany({ where: { key: { in: PAYROLL_UNITS.map((u) => `unit.composition.${u}.${period}`) } }, select: { key: true, value: true } });
-    for (const row of unitRows) {
-      const unit = row.key.split('.')[2]!;
-      const list = ((row.value as { batches?: { cancelledAt: string | null; createdAt: string; rows?: { pinfl?: string; totalTiyin?: string }[] }[] } | null)?.batches ?? []).filter((b) => !b.cancelledAt);
-      const active = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-      for (const r of active?.rows ?? []) {
-        if (!r.pinfl) continue;
-        try {
-          tarkib.set(r.pinfl, { total: BigInt(r.totalTiyin ?? '0'), unit });
-        } catch {
-          /* noto'g'ri qiymat */
-        }
-      }
-    }
-    const grouped = await this.prisma.payrollEntry.groupBy({ by: ['employeePinfl'], where: { period, deletedAt: null, batch: { status: 'COMMITTED' } }, _sum: { baseTiyin: true } });
-    for (const g of grouped) soliq.set(g.employeePinfl, { total: g._sum.baseTiyin ?? 0n, unit: null });
-    if (this.unitPayroll) {
-      for (const u of PAYROLL_UNITS) {
-        const m = await this.unitPayroll.payrollMap(u, period).catch(() => null);
-        if (m) for (const [p, v] of m) soliq.set(p, { total: v, unit: u });
-      }
-    }
-    return { tarkib, soliq, tarkibUploaded: Boolean(batch) || unitRows.length > 0, soliqUploaded: grouped.length > 0 || [...soliq.values()].some((x) => x.unit) };
+    for (const [p, t] of tar.map) tarkib.set(p, { total: t.tiyin, unit: t.source === 'GENERAL' ? null : t.source });
+    const soliq = new Map<string, { total: bigint; unit: string | null; duplicate: boolean }>();
+    for (const [p, x] of sol) soliq.set(p, { total: x.tiyin, unit: x.source === 'UNIT_GENERAL' || x.source === 'UNIT_MANUAL' ? x.unit : null, duplicate: x.duplicate });
+    return { tarkib, soliq, tarkibUploaded: tar.generalUploaded || tar.unitUploaded.length > 0, soliqUploaded: soliq.size > 0 };
   }
 
   /** 23106: shu oy uchun to'langanlar (xizmat safarisiz), xodim bo'yicha */
@@ -154,8 +142,8 @@ export class PayrollSolishtirmaService {
       let used = false;
       for (const r of st.rows ?? []) {
         if (r.kind === 'SAFAR') continue;
-        const month = mode === 'PAID' ? r.docDate.slice(0, 7) : (purposeMonth(r.purpose ?? '', r.docDate) ?? r.accrual);
-        if (month !== period) continue;
+        // Qaysi oyga — hamma modul bilan bir xil qoida
+        if (bankMonthOf(r, mode) !== period) continue;
         const d = (r.inn ?? '').replace(/\D/g, '');
         const pinfl = r.pinfl ?? (/^\d{14}$/.test(d) ? d : null);
         if (!pinfl) continue;
@@ -185,14 +173,12 @@ export class PayrollSolishtirmaService {
     const [set, f, bank] = await Promise.all([this.settings(), this.fot(period), this.bank(period, mode)]);
     const tol = BigInt(Math.round(set.toleranceSum * 100));
     const pinfls = [...new Set([...f.tarkib.keys(), ...f.soliq.keys(), ...bank.by.keys()])];
-    const [emps, locs, regions] = await Promise.all([
-      this.prisma.employee.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, fullName: true, regionCode: true, employmentType: true } }),
-      this.prisma.employeeLocation.findMany({ where: { employeePinfl: { in: pinfls }, period }, select: { employeePinfl: true, regionCode: true, employmentType: true } }),
-      this.prisma.region.findMany({ select: { code: true, name: true } }),
+    // Joy va tur — umumiy qoida (shu oy joy o'zgarishlari, «miya», natijalar fayli, baza)
+    const [emps, locBy] = await Promise.all([
+      this.prisma.employee.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, fullName: true } }),
+      this.facts.location(period, pinfls),
     ]);
     const empBy = new Map(emps.map((e) => [e.pinfl, e]));
-    const locBy = new Map(locs.map((l) => [l.employeePinfl, l]));
-    const regName = new Map(regions.map((r) => [r.code, r.name]));
     const staffNames = new Map<string, string>();
     const staff = ((await this.prisma.setting.findUnique({ where: { key: 'unit.staff' } }))?.value ?? {}) as Record<string, { pinfl?: string; fullName?: string }[]>;
     for (const list of Object.values(staff)) for (const s of Array.isArray(list) ? list : []) if (s?.pinfl && s.fullName && !staffNames.has(s.pinfl)) staffNames.set(s.pinfl, s.fullName);
@@ -202,10 +188,10 @@ export class PayrollSolishtirmaService {
       const loc = locBy.get(pinfl);
       const t = f.tarkib.get(pinfl);
       const s = f.soliq.get(pinfl);
-      const unit = t?.unit ?? s?.unit ?? null;
-      const regionCode = loc?.regionCode ?? e?.regionCode ?? null;
-      const typeRaw = (loc?.employmentType ?? e?.employmentType ?? null) as string | null;
-      const type: 'SHTAT' | 'SHARTNOMA' = typeRaw === 'SHARTNOMA' ? 'SHARTNOMA' : 'SHTAT';
+      // Bo'lim: shu oy «miya»da bo'limda yoki ish haqi / tarkibi bo'lim sahifasida
+      const unit = loc && isPayrollUnit(loc.unit) ? loc.unit : (s?.unit ?? t?.unit ?? null);
+      const regionCode = !loc?.known ? null : loc.unit === 'CENTER' ? 0 : loc.unit === 'REGION' ? loc.regionCode : (loc.regionCode ?? 0);
+      const type: 'SHTAT' | 'SHARTNOMA' = loc?.employmentType ?? 'SHTAT';
       const group: GroupKey = unit ? 'UNIT' : regionCode === null ? 'UNKNOWN' : regionCode === 0 ? (type === 'SHTAT' ? 'CENTER_SHTAT' : 'CENTER_SHARTNOMA') : type === 'SHTAT' ? 'REGION_SHTAT' : 'REGION_SHARTNOMA';
       // FOT — faqat soliq hisoboti
       const fot = s?.total ?? null;
@@ -256,9 +242,11 @@ export class PayrollSolishtirmaService {
         unit,
         unitLabel: unit ? entryUnitLabel(unit) : null,
         regionCode,
-        regionName: regionCode === null ? null : regionCode === 0 ? 'Markaz' : (regName.get(regionCode) ?? `${regionCode}-hudud`),
+        regionName: regionCode === null ? null : regionCode === 0 ? 'Markaz' : (loc?.regionName ?? `${regionCode}-hudud`),
         employmentType: type,
-        typeKnown: typeRaw === 'SHTAT' || typeRaw === 'SHARTNOMA',
+        typeKnown: loc?.typeKnown ?? false,
+        /** Umumiy hisobotda ham, bo'lim sahifasida qo'lda ham — ikki marta sanalgan (Ish haqi nazoratida tuzatiladi) */
+        soliqDuplicate: s?.duplicate ?? false,
         fotTiyin: fot === null ? null : fot.toString(),
         fotSource,
         tarkibTiyin: t ? t.total.toString() : null,
@@ -516,7 +504,7 @@ export class PayrollSolishtirmaService {
         const d = (r.inn ?? '').replace(/\D/g, '');
         const pp = r.pinfl ?? (/^\d{14}$/.test(d) ? d : null);
         if (pp !== pinfl) continue;
-        const forMonth = mode === 'PAID' ? r.docDate.slice(0, 7) : (purposeMonth(r.purpose ?? '', r.docDate) ?? r.accrual);
+        const forMonth = bankMonthOf(r, mode);
         const counted = r.kind !== 'SAFAR' && forMonth === period;
         bank.push({
           month: m,

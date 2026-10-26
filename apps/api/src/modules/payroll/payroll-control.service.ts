@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { CENTER_PARENT, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, PAYROLL_PART_PREFIX } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
+import { fullOf } from '../payroll-facts/payroll-facts.service';
 
 // ═══════════════════════════════════════════════════════════
 // Ish haqi nazorati: XARAJAT = SOLIQ HISOBOTI.
@@ -84,10 +85,10 @@ export class PayrollControlService {
 
     // ── Soliq hisoboti (yuklangan fayllar) ──
     const entryRows = committedIds.size
-      ? await this.prisma.payrollEntry.findMany({ where: { period, deletedAt: null, batchId: { in: [...committedIds] } }, select: { employeePinfl: true, baseTiyin: true, batchId: true } })
+      ? await this.prisma.payrollEntry.findMany({ where: { period, deletedAt: null, batchId: { in: [...committedIds] } }, select: { employeePinfl: true, baseTiyin: true, totalTiyin: true, bonusTiyin: true, batchId: true } })
       : [];
     const files = committedGeneral.map((b) => {
-      const own = entryRows.filter((e) => e.batchId === b.id).reduce((s, e) => s + e.baseTiyin, 0n);
+      const own = entryRows.filter((e) => e.batchId === b.id).reduce((s, e) => s + fullOf(e), 0n);
       const toUnits = unitBatches.filter((u) => u.batch.status === 'COMMITTED' && u.batch.origin === 'GENERAL' && u.batch.generalBatchId === b.id).reduce((s, u) => s + BigInt(u.batch.totalTiyin), 0n);
       return { id: b.id, kind: b.scope === 'REGIONS' ? 'REGIONS' : 'ALL', fileName: b.fileName, createdAt: b.createdAt, ownTiyin: own, toUnitsTiyin: toUnits, totalTiyin: own + toUnits };
     });
@@ -100,7 +101,7 @@ export class PayrollControlService {
     const add = (p: string, x: { where: string; tiyin: bigint; unit?: string; batchId: string; manual?: boolean }) => sources.set(p, [...(sources.get(p) ?? []), x]);
     for (const e of entryRows) {
       const b = committedGeneral.find((x) => x.id === e.batchId);
-      add(e.employeePinfl, { where: b?.scope === 'REGIONS' ? 'Hududlar vedomosti' : 'Umumiy soliq hisoboti', tiyin: e.baseTiyin, batchId: e.batchId! });
+      add(e.employeePinfl, { where: b?.scope === 'REGIONS' ? 'Hududlar vedomosti' : 'Umumiy soliq hisoboti', tiyin: fullOf(e), batchId: e.batchId! });
     }
     for (const u of unitBatches) {
       if (u.batch.status !== 'COMMITTED') continue;

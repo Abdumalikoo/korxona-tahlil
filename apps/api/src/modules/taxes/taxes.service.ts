@@ -288,11 +288,16 @@ export class TaxesService implements OnApplicationBootstrap {
     ]);
     const emp = new Map(employees.map((e) => [e.pinfl, e]));
     const loc = new Map(locations.map((l) => [l.employeePinfl, l.regionCode]));
+    // Shu oy joy o'zgarishlari (ish haqi tarkibi bo'yicha yoki bo'lim sahifasidan) — ish haqi xarajati qayerga
+    // yozilgan bo'lsa, soliq ham o'sha yerga (ish haqi bilan bir xil qoida)
+    const fixes = (((await this.prisma.setting.findUnique({ where: { key: `salary.composition.place.${period}` } }).catch(() => null))?.value as { fixes?: Record<string, { unit?: string; departmentId?: string | null; regionCode?: number | null }> } | null)?.fixes ?? {});
     for (const e of entries) {
       const full = e.baseTiyin === 0n ? e.totalTiyin + e.bonusTiyin : e.baseTiyin;
       if (full <= 0n) continue;
-      const regionCode = loc.get(e.employeePinfl) ?? emp.get(e.employeePinfl)?.regionCode ?? CENTRAL;
-      const departmentId = regionCode === CENTRAL ? (emp.get(e.employeePinfl)?.departmentId ?? null) : null;
+      const fx = fixes[e.employeePinfl];
+      const fixedRegion = fx?.unit === 'REGION' && typeof fx.regionCode === 'number' && fx.regionCode > 0 ? fx.regionCode : fx?.unit === 'CENTER' ? CENTRAL : null;
+      const regionCode = fixedRegion ?? loc.get(e.employeePinfl) ?? emp.get(e.employeePinfl)?.regionCode ?? CENTRAL;
+      const departmentId = regionCode === CENTRAL ? ((fx?.unit === 'CENTER' ? fx.departmentId : null) ?? emp.get(e.employeePinfl)?.departmentId ?? null) : null;
       const key = unitKey(regionCode, departmentId);
       const u = out.get(key) ?? { regionCode, departmentId, base: 0n };
       u.base += full;

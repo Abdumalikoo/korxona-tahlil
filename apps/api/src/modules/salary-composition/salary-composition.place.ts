@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PAYROLL_UNITS, UnitPayrollService, membership } from '../unit-payroll/unit-payroll.service';
 import { SourceArchiveService } from '../source-archive/source-archive.service';
 import type { UnitMove } from '../unit-payroll/unit-payroll.service';
+import { PayrollFactsService } from '../payroll-facts/payroll-facts.service';
 
 // ═══════════════════════════════════════════════════════════
 // Ish haqi tarkibi › «Tarkibdagi bo'limlar» — xodim o'sha oyda qaysi bo'limda ishlagani (tarkib faylidan).
@@ -487,34 +488,17 @@ export class CompositionPlaceService {
 
   /** Shu oy hamma yuklanganlar: umumiy soliq hisoboti, umumiy tarkib va yo'nalishlar tarkibi (xodim bo'yicha) */
   private async sources(period: string) {
+    // Hamma sahifa bilan bir xil qoida: soliq hisoboti (umumiy asosiy), bitta tarkib (qo'shilmaydi)
+    const facts = new PayrollFactsService(this.prisma, this.units);
+    const [sol, tar] = await Promise.all([facts.soliq(period), facts.tarkib(period)]);
     const general = new Map<string, bigint>();
-    const grouped = await this.prisma.payrollEntry
-      .groupBy({ by: ['employeePinfl'], where: { period, deletedAt: null, batch: { status: 'COMMITTED' } }, _sum: { baseTiyin: true } })
-      .catch(() => [] as { employeePinfl: string; _sum: { baseTiyin: bigint | null } }[]);
-    for (const g of grouped) general.set(g.employeePinfl, g._sum.baseTiyin ?? 0n);
-    // Umumiy soliq hisobotidan yo'nalishlarga (miya bo'yicha) yozilganlar ham — o'sha hisobotning o'zi
-    const gb = await this.prisma.payrollBatch.findFirst({ where: { period, status: 'COMMITTED', scope: 'ALL' }, orderBy: { createdAt: 'desc' }, select: { id: true } }).catch(() => null);
-    if (gb) for (const r of await this.units.generalRows(period, gb.id).catch(() => [])) general.set(r.pinfl, (general.get(r.pinfl) ?? 0n) + BigInt(r.amountTiyin));
+    for (const [p, x] of sol) general.set(p, x.tiyin);
     const tarkib = new Map<string, { total: bigint; source: string }>();
-    const batch = await this.prisma.salaryCompositionBatch.findFirst({ where: { period, cancelledAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true } });
-    if (batch) for (const r of await this.prisma.salaryCompositionRow.findMany({ where: { batchId: batch.id }, select: { employeePinfl: true, totalTiyin: true } })) tarkib.set(r.employeePinfl, { total: r.totalTiyin, source: 'GENERAL' });
     const unitTarkib = new Map<string, string>();
-    const unitRows = await this.prisma.setting.findMany({ where: { key: { in: PAYROLL_UNITS.map((u) => `unit.composition.${u}.${period}`) } }, select: { key: true, value: true } });
-    for (const row of unitRows) {
-      const u = row.key.split('.')[2]!;
-      const list = ((row.value as { batches?: { cancelledAt: string | null; createdAt: string; rows?: { pinfl?: string; totalTiyin?: string }[] }[] } | null)?.batches ?? []).filter((b) => !b.cancelledAt);
-      const active = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-      for (const r of active?.rows ?? []) {
-        if (!r.pinfl || !/^\d{14}$/.test(r.pinfl)) continue;
-        if (!unitTarkib.has(r.pinfl)) unitTarkib.set(r.pinfl, u);
-        if (!tarkib.has(r.pinfl)) {
-          try {
-            tarkib.set(r.pinfl, { total: BigInt(r.totalTiyin ?? '0'), source: u });
-          } catch {
-            /* noto'g'ri qiymat */
-          }
-        }
-      }
+    for (const [p, t] of tar.map) {
+      tarkib.set(p, { total: t.tiyin, source: t.source });
+      if (t.source !== 'GENERAL') unitTarkib.set(p, t.source);
+      else if (t.alsoIn) unitTarkib.set(p, t.alsoIn);
     }
     return { general, tarkib, unitTarkib };
   }

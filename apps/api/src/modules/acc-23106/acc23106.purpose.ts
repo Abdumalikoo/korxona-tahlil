@@ -131,3 +131,25 @@ export function purposeMonth(text: string, docDate: string): string | null {
   if (y < 2000 || y > 2100) return null;
   return `${y}-${String(m).padStart(2, '0')}`;
 }
+
+/**
+ * To'lov qaysi oy uchun (hisoblangan oy) — HAMMA modul shu qoidani ishlatadi (23106, uchlik nazorat, solishtirma):
+ *  1) izohdagi «… oyi uchun» (to'lovdan 12 oy oldingidan keyingi oygacha bo'lsa);
+ *  2) bo'lmasa — buyruq oyi (to'lovdan 13 oydan ko'p oldin emas);
+ *  3) bo'lmasa — to'lov oyi.
+ */
+export function accrualMonth(purpose: string, docDate: string, orderDate: string | null): string {
+  const named = purposeMonth(purpose ?? '', docDate);
+  const payMonth = docDate.slice(0, 7);
+  const lowest = `${Number(docDate.slice(0, 4)) - 1}-${docDate.slice(5, 7)}`;
+  const [y, m] = payMonth.split('-').map(Number) as [number, number];
+  const nextPay = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  if (named && named >= lowest && named <= nextPay) return named;
+  if (orderDate && orderDate >= lowest && orderDate <= docDate.slice(0, 10)) return orderDate.slice(0, 7);
+  return payMonth;
+}
+
+/** Bank to'lovi qaysi oyga olinadi: ACCRUAL — hisoblangan oy (yuqoridagi qoida), PAID — to'langan oy */
+export function bankMonthOf(row: { purpose?: string | null; docDate: string; orderDate?: string | null }, mode: 'ACCRUAL' | 'PAID'): string {
+  return mode === 'PAID' ? row.docDate.slice(0, 7) : accrualMonth(row.purpose ?? '', row.docDate, row.orderDate ?? null);
+}

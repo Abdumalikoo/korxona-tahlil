@@ -17,6 +17,7 @@ import ExcelJS from 'exceljs';
 import { entryUnitLabel } from '../../common/segments/segments';
 import { PayrollService } from '../payroll/payroll.service';
 import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.service';
+import { PayrollFactsService } from '../payroll-facts/payroll-facts.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
     CATEGORY_LABELS,
@@ -76,6 +77,7 @@ export class SalaryCompositionService implements OnModuleInit {
     private readonly payrollService: PayrollService,
     /** Yo'nalish (Tax free …) ish haqi — alohida tarkib shu vedomost bilan solishtiriladi */
     @Optional() private readonly unitPayroll?: UnitPayrollService,
+    @Optional() private readonly factsSvc?: PayrollFactsService,
   ) {}
 
   /** Komponentlar jadvali bo'sh bo'lsa — standart komponentlarni yozamiz; keyin qo'shilgan «Choraklik mukofot» — mavjud bazaga ham */
@@ -199,62 +201,44 @@ export class SalaryCompositionService implements OnModuleInit {
   }
 
   /** Soliq hisoboti (tasdiqlangan ish haqi) — xodim bo'yicha jami */
+  /** Ish haqi faktlari (soliq summasi, tarkib, joy) — hamma sahifa bilan bir xil qoida */
+  private get facts(): PayrollFactsService {
+    return this.factsSvc ?? new PayrollFactsService(this.prisma, this.unitPayroll);
+  }
+
+  /**
+   * Tarkib bilan solishtiriladigan soliq hisoboti (shu oy).
+   *  • Yo'nalish (Tax free …): shu bo'lim ish haqidagilar va shu oy «miya»da shu bo'limdagi umumiy hisobotdagilar;
+   *  • umumiy: hamma soliq hisobotidagilar — o'z bo'lim tarkibida turganlar bundan mustasno (o'sha yerda solishtiriladi).
+   *  Markaz / hudud — xodimning shu oydagi joyi (shu oy joy o'zgarishlari bilan).
+   */
   private async payroll(period: string, unit?: string): Promise<PayrollInfo> {
+    const sol = await this.facts.soliq(period);
     if (unit) {
-      // Yo'nalish: shu bo'lim ish haqi vedomosti (Xarajatlar › <yo'nalish> › Ish haqi); hamma xodim — doira ichida
-      const map = await this.unitService().payrollMap(unit, period);
-      if (!map) return { uploaded: false, map: new Map(), central: new Set(), regionOf: new Map() };
+      const loc = await this.facts.location(period, [...sol.keys()]);
+      const map = new Map<string, bigint>();
+      for (const [p, x] of sol) if (x.unit === unit || loc.get(p)?.unit === unit) map.set(p, x.tiyin);
+      if (!map.size) return { uploaded: false, map, central: new Set(), regionOf: new Map() };
       return { uploaded: true, map, central: new Set(map.keys()), regionOf: new Map() };
     }
-    const batchCount = await this.prisma.payrollBatch.count({
-      where: { period, status: 'COMMITTED' },
-    });
-
+    const batchCount = await this.prisma.payrollBatch.count({ where: { period, status: 'COMMITTED' } });
     const map = new Map<string, bigint>();
-    if (batchCount === 0) return { uploaded: false, map, central: new Set(), regionOf: new Map() };
-
-    // To'liq (soliq hisobotidagi) summa: baseTiyin. totalTiyin — hududda qolgan qism (bayram, choraklik Markazga o'tgan)
-    const grouped = await this.prisma.payrollEntry.groupBy({
-      by: ['employeePinfl'],
-      where: { period, deletedAt: null, batch: { status: 'COMMITTED' } },
-      _sum: { baseTiyin: true },
-    });
-
-    for (const item of grouped) {
-      map.set(item.employeePinfl, item._sum.baseTiyin ?? 0n);
+    if (batchCount === 0 && ![...sol.values()].some((x) => x.source !== 'UNIT_MANUAL')) return { uploaded: false, map, central: new Set(), regionOf: new Map() };
+    const tar = await this.facts.tarkib(period);
+    for (const [p, x] of sol) {
+      const t = tar.map.get(p);
+      // Faqat o'z bo'lim tarkibida (umumiy tarkibda yo'q) — o'sha yerda solishtiriladi, bu yerda «tarkibda yo'q» deyilmaydi
+      if (t && t.source !== 'GENERAL' && t.alsoIn !== 'GENERAL') continue;
+      map.set(p, x.tiyin);
     }
-
-    // Yo'nalish xodimlari (Tax free, Fermer …): umumiy soliq hisoboti ularni «miya» bo'yicha o'sha bo'lim ish haqiga
-    // yozadi (payrollEntry'da emas), yoki o'sha sahifada yuklangan — ular ham soliq hisobotida bor
-    // (o'sha yo'nalishning o'z tarkibida bo'lganlar — o'sha yerda solishtiriladi, umumiy tarkibda «yo'q» deyilmaydi)
-    if (this.unitPayroll) {
-      for (const u of PAYROLL_UNITS) {
-        const m = await this.unitPayroll.payrollMap(u, period).catch(() => null);
-        if (!m) continue;
-        const own = await this.unitActive(u, period).catch(() => null);
-        const ownPins = new Set((own?.rows ?? []).map((r) => r.pinfl));
-        for (const [p, v] of m) if (!map.has(p) && !ownPins.has(p)) map.set(p, v);
-      }
-    }
-
-    // Kim Markaz xodimi (shu oy): oy bo'yicha joylashuv bo'lsa — u, aks holda reestrdagi hudud
-    const pinfls = [...map.keys()];
-    const [employees, locations, regions] = pinfls.length
-      ? await Promise.all([
-          this.prisma.employee.findMany({ where: { pinfl: { in: pinfls } }, select: { pinfl: true, regionCode: true } }),
-          this.prisma.employeeLocation.findMany({ where: { employeePinfl: { in: pinfls }, period }, select: { employeePinfl: true, regionCode: true } }),
-          this.prisma.region.findMany({ select: { code: true, name: true } }),
-        ])
-      : [[], [], []];
-    const regionName = new Map(regions.map((r) => [r.code, r.name]));
-    const located = new Map(locations.map((l) => [l.employeePinfl, l.regionCode]));
-    const registryRegion = new Map(employees.map((e) => [e.pinfl, e.regionCode]));
+    const loc = await this.facts.location(period, [...map.keys()]);
     const central = new Set<string>();
     const regionOf = new Map<string, string>();
-    for (const pinfl of pinfls) {
-      const code = located.get(pinfl) ?? registryRegion.get(pinfl) ?? null;
-      if (code === CENTRAL_REGION) central.add(pinfl);
-      else regionOf.set(pinfl, code === null ? "Reestrda yo'q" : (regionName.get(code) ?? `Hudud ${code}`));
+    for (const p of map.keys()) {
+      const l = loc.get(p);
+      if (!l?.known) regionOf.set(p, "Reestrda yo'q");
+      else if (l.unit === 'REGION') regionOf.set(p, l.regionName ?? `Hudud ${l.regionCode ?? '?'}`);
+      else central.add(p);
     }
     return { uploaded: true, map, central, regionOf };
   }
