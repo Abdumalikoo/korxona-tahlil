@@ -2,7 +2,10 @@
 
 import type { DateRange } from '@/components/shared/date-range-picker';
 
-/** Vaqtincha - keyingi qadamda to'ldiriladi */
+/**
+ * Daromad tarkibi — asosiy ko'rinish yuqoridagi «Daromad tarkibi» jadvalida (StructureExplorer).
+ * Qo'shimcha blok kerak emas: bo'sh «Tayyorlanmoqda» yozuvi ko'rsatilmaydi.
+ */
 export function RevenueTab(_props: { range: DateRange }) {
-  return <p className="text-sm text-(--color-text-muted)">Tayyorlanmoqda</p>;
+  return null;
 }

@@ -2,16 +2,14 @@
 
 import { expensesApi } from '@/features/expenses/api';
 import { incomesApi } from '@/features/incomes/api';
-import { formatDate, formatPercent } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
-import { CalcValue } from '@/components/ui/calc';
 import { calcChange, calcDiff, calcDivide, calcMargin, calcPp, calcRecords, calcResult, calcShare, decimalText, Q, type Calc } from '@/lib/calc';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
-import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { Change, Money } from '@/components/ui/money';
+import { DiffCell, GroupTh, MoneyCell, NameCell, PctCell, ReportCard, RTable, StatTiles, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { CalcValue } from '@/components/ui/calc';
 import { ErrorState, LoadingState } from '@/components/ui/states';
-import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { percentChange, previousRange } from './range-utils';
 
@@ -47,10 +45,12 @@ function buildTotals(
   };
 }
 
+const pctText = (v: number | null) => (v === null ? '' : `${v.toFixed(1).replace('.', ',')}%`);
+const ppText = (v: number | null) => (v === null ? '' : `${v > 0 ? '+' : ''}${v.toFixed(1).replace('.', ',')} punkt`);
+
 /**
  * Umumiy holat — korxona foydada ishlayaptimi.
- *
- * Tanlangan oraliq unga teng oldingi davr bilan solishtiriladi.
+ * Tanlangan oraliq unga teng oldingi davr bilan solishtiriladi: kartalar va bitta jadval.
  */
 export function OverviewTab({ range }: { range: DateRange }) {
   const prev = previousRange(range);
@@ -81,33 +81,27 @@ export function OverviewTab({ range }: { range: DateRange }) {
   const now = buildTotals(current.data);
   const before = buildTotals(previous.data);
 
-  const isProfit = now.profit >= 0;
   const costRatio = now.income > 0 ? now.expense / now.income : null;
-
-  const maxValue = Math.max(now.income, now.expense, 1);
+  const costRatioBefore = before.income > 0 ? before.expense / before.income : null;
   const paidPercent = now.income > 0 ? (now.paid / now.income) * 100 : null;
+  const paidPercentBefore = before.income > 0 ? (before.paid / before.income) * 100 : null;
 
   const incomeChange = percentChange(now.income, before.income);
   const expenseChange = percentChange(now.expense, before.expense);
-  const profitChange = percentChange(now.profit, before.profit);
-
-  const marginDiff =
-    now.margin !== null && before.margin !== null ? now.margin - before.margin : null;
-
-  const growthGap =
-    incomeChange !== null && expenseChange !== null ? incomeChange - expenseChange : null;
+  const marginDiff = now.margin !== null && before.margin !== null ? now.margin - before.margin : null;
+  const growthGap = incomeChange !== null && expenseChange !== null ? incomeChange - expenseChange : null;
 
   // ─────── «Qanday hisoblandi?» ───────
   const periodText = `${formatDate(range.from)} — ${formatDate(range.to)}`;
   const prevText = `${formatDate(prev.from)} — ${formatDate(prev.to)}`;
   const prevLabel = `Oldingi teng davr (${prevText})`;
-  const incomeCalc = calcRecords('Daromad', now.income, current.data?.[0].meta.total, periodText, 'Daromadlar ro\'yxati');
-  const expenseCalc = calcRecords('Xarajat', now.expense, current.data?.[1].meta.total, periodText, 'Xarajatlar ro\'yxati');
+  const incomeCalc = calcRecords('Daromad', now.income, current.data?.[0].meta.total, periodText, "Daromadlar ro'yxati");
+  const expenseCalc = calcRecords('Xarajat', now.expense, current.data?.[1].meta.total, periodText, "Xarajatlar ro'yxati");
   const profitCalc = calcResult(now.income, now.expense, { title: 'Foyda', note: periodText });
   const marginCalc = calcMargin(now.income, now.expense, { note: periodText });
   const costCalc: Calc | null = (() => {
     if (now.income <= 0) return null;
-    const c = calcDivide('Har 1 so\'m daromadga xarajat', Q.money('Xarajat', now.expense), Q.money('Daromad', now.income), 'ratio', {
+    const c = calcDivide("Har 1 so'm daromadga xarajat", Q.money('Xarajat', now.expense), Q.money('Daromad', now.income), 'ratio', {
       note: "1 dan kichik — har so'm daromaddan foyda qoladi; 1 dan katta — zarar.",
     });
     const value = `${decimalText(now.expense / now.income, 2)} so'm`;
@@ -122,357 +116,135 @@ export function OverviewTab({ range }: { range: DateRange }) {
   const gapCalc =
     incomeChange !== null && expenseChange !== null
       ? calcPp("O'sish sur'ati farqi", { label: "Daromad o'sishi", value: incomeChange }, { label: "Xarajat o'sishi", value: expenseChange }, {
-          note: 'Musbat — daromad xarajatdan tezroq o\'smoqda.',
+          note: "Musbat — daromad xarajatdan tezroq o'smoqda.",
         })
       : null;
   const paidCalc = calcShare('Tushgan ulushi', Q.money('Tushgan', now.paid, "Daromad yozuvlaridagi «to'langan» summa"), Q.money('Hisoblangan daromad', now.income));
   const debtCalc = calcDiff('Qarzda', Q.money('Hisoblangan daromad', now.income), Q.money('Tushgan', now.paid));
 
+  const loadingPrev = previous.loading;
+  const row = (label: string, a: number, b: number, good: boolean, opts: { calc?: Calc | null; total?: boolean; signed?: boolean; sub?: string } = {}) => (
+    <Tr total={opts.total}>
+      <NameCell sticky={false} sub={opts.sub}>
+        {label}
+      </NameCell>
+      <MoneyCell value={b} className="text-(--color-text-muted)" signedColor={opts.signed} />
+      <MoneyCell value={a} strong calc={opts.calc} signedColor={opts.signed} />
+      <DiffCell value={a - b} growthGood={good} calc={changeCalc(label, a, b, good)} />
+      <PctCell value={percentChange(a, b)} growthGood={good} />
+    </Tr>
+  );
+  const ratioRow = (label: string, a: number | null, b: number | null, text: (v: number | null) => string, goodUp: boolean, calc?: Calc | null, diffCalc?: Calc | null, sub?: string) => {
+    const diff = a !== null && b !== null ? a - b : null;
+    const good = diff === null || Math.abs(diff) < 0.005 ? null : diff > 0 === goodUp;
+    return (
+      <Tr muted>
+        <NameCell sticky={false} sub={sub}>
+          {label}
+        </NameCell>
+        <Td className="text-(--color-text-muted)">{text(b)}</Td>
+        <Td className="font-semibold text-heading">
+          <CalcValue calc={calc} className="no-underline">
+            {text(a)}
+          </CalcValue>
+        </Td>
+        <Td className={cn('font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>
+          <CalcValue calc={diffCalc} className="no-underline">
+            {diff === null ? '' : label.startsWith('Har 1') ? `${diff > 0 ? '+' : ''}${diff.toFixed(2).replace('.', ',')}` : ppText(diff)}
+          </CalcValue>
+        </Td>
+        <Td className="text-(--color-text-faint)"></Td>
+      </Tr>
+    );
+  };
+
   return (
     <div className="space-y-4">
-      {/* Asosiy javob */}
-      <Card>
-        <CardBody className="space-y-5">
-          <div className="text-center">
-            <p className="text-sm text-(--color-text-muted)">
-              Har 1 so&rsquo;m daromadga
-            </p>
-            <p
-              className={cn(
-                'money mt-1 text-4xl font-bold',
-                costRatio === null
-                  ? 'text-(--color-text-faint)'
-                  : costRatio < 1
-                    ? 'text-(--color-income)'
-                    : 'text-(--color-expense)',
-              )}
-            >
-              {costRatio === null ? '\u2014' : <CalcValue calc={costCalc}>{costRatio.toFixed(2).replace('.', ',')}</CalcValue>}
-            </p>
-            <p className="text-sm text-(--color-text-muted)">so&rsquo;m xarajat</p>
-          </div>
+      <StatTiles
+        compareLabel="Avval"
+        items={[
+          { label: 'Daromad', value: now.income, previous: before.income, tone: 'green', calc: incomeCalc },
+          { label: 'Xarajat', value: now.expense, previous: before.expense, growthGood: false, tone: 'red', calc: expenseCalc },
+          { label: now.profit >= 0 ? 'Foyda' : 'Zarar', value: now.profit, previous: before.profit, signed: true, tone: 'blue', calc: profitCalc },
+          {
+            label: 'Rentabellik',
+            value: 0,
+            text: pctText(now.margin),
+            note: marginDiff === null ? 'Foyda / daromad' : `Oldingi davrga ${ppText(marginDiff)}`,
+            tone: 'purple',
+            calc: marginCalc,
+          },
+          {
+            label: 'Xarajat / daromad',
+            value: 0,
+            text: costRatio === null ? '' : `${costRatio.toFixed(2).replace('.', ',')} so'm`,
+            note: costRatio === null ? "Daromad yo'q" : costRatio < 1 ? "1 dan kichik — foydada" : "1 dan katta — zararda",
+            tone: costRatio !== null && costRatio >= 1 ? 'red' : 'cyan',
+            calc: costCalc,
+          },
+        ]}
+      />
 
-          <div className="space-y-3">
-            <CompareBar
-              label="Daromad"
-              calc={incomeCalc}
-              value={now.income}
-              width={(now.income / maxValue) * 100}
-              tone="income"
-            />
-            <CompareBar
-              label="Xarajat"
-              calc={expenseCalc}
-              value={now.expense}
-              width={(now.expense / maxValue) * 100}
-              tone="expense"
-            />
-          </div>
-
-          <div
-            className={cn(
-              'flex items-center justify-between rounded-(--radius-control) px-4 py-3',
-              isProfit ? 'bg-(--color-income-soft)' : 'bg-(--color-expense-soft)',
-            )}
-          >
-            <span className="text-sm font-medium">{isProfit ? 'Foyda' : 'Zarar'}</span>
-
-            <div className="flex items-center gap-3">
-              <span
-                className={cn(
-                  'money text-xs',
-                  isProfit ? 'text-(--color-income)' : 'text-(--color-expense)',
-                )}
-              >
-                <CalcValue calc={marginCalc}>{formatPercent(now.margin)}</CalcValue>
-              </span>
-              <CalcValue calc={profitCalc}>
-                <Money
-                  tiyin={String(now.profit)}
-                  tone="auto"
-                  className="text-lg font-semibold"
-                />
-              </CalcValue>
-            </div>
-          </div>
-        </CardBody>
-      </Card>
-
-      {/* Ko'rsatkichlar */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          label="Daromad"
-          tiyin={now.income}
-          tone="income"
-          change={incomeChange}
-          good
-          calc={incomeCalc}
-          changeCalc={changeCalc('Daromad', now.income, before.income, true)}
-        />
-        <KpiCard
-          label="Xarajat"
-          tiyin={now.expense}
-          tone="expense"
-          change={expenseChange}
-          good={false}
-          calc={expenseCalc}
-          changeCalc={changeCalc('Xarajat', now.expense, before.expense, false)}
-        />
-        <KpiCard
-          label="Foyda"
-          tiyin={now.profit}
-          tone="auto"
-          change={profitChange}
-          good
-          calc={profitCalc}
-          changeCalc={changeCalc('Foyda', now.profit, before.profit, true)}
-        />
-
-        <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
-            Rentabellik
-          </p>
-          <p
-            className={cn(
-              'money mt-2 text-xl font-semibold',
-              (now.margin ?? 0) >= 0 ? 'text-(--color-income)' : 'text-(--color-expense)',
-            )}
-          >
-            <CalcValue calc={marginCalc}>{formatPercent(now.margin)}</CalcValue>
-          </p>
-          <p className="mt-1.5 text-xs text-(--color-text-muted)">
-            {marginDiff === null ? (
-              'Foyda / daromad'
-            ) : (
-              <CalcValue calc={marginDiffCalc}>{`${marginDiff >= 0 ? '+' : ''}${marginDiff.toFixed(1).replace('.', ',')} punkt`}</CalcValue>
-            )}
-          </p>
-        </div>
-      </div>
-
-      {/* O'sish sur'ati */}
       {growthGap !== null && (
         <div
           className={cn(
-            'rounded-(--radius-card) border px-4 py-3',
-            growthGap >= 0
-              ? 'border-(--color-income) bg-(--color-income-soft)'
-              : 'border-(--color-expense) bg-(--color-expense-soft)',
+            'flex flex-wrap items-center justify-between gap-2 rounded-2xl px-5 py-3 text-sm shadow-card',
+            growthGap >= 0 ? 'bg-[#e3f5ea] text-[#0b7a3b]' : 'bg-[#fdecec] text-[#c22f34]',
           )}
         >
-          <p
-            className={cn(
-              'text-sm font-medium',
-              growthGap >= 0 ? 'text-(--color-income)' : 'text-(--color-expense)',
-            )}
-          >
-            {growthGap >= 0
-              ? "Daromad xarajatdan tezroq o'smoqda"
-              : "Xarajat daromaddan tezroq o'smoqda"}
-          </p>
-          <p className="mt-0.5 text-xs text-(--color-text-muted)">
-            Daromad {formatPercent(incomeChange)}, xarajat {formatPercent(expenseChange)}{' '}
-            &middot; farq{' '}
-            <CalcValue calc={gapCalc}>{`${growthGap >= 0 ? '+' : ''}${growthGap.toFixed(1).replace('.', ',')} punkt`}</CalcValue>
-          </p>
+          <span className="font-semibold">{growthGap >= 0 ? "Daromad xarajatdan tezroq o'smoqda" : "Xarajat daromaddan tezroq o'smoqda"}</span>
+          <span className="text-xs">
+            Daromad {pctText(incomeChange)}, xarajat {pctText(expenseChange)} · farq{' '}
+            <CalcValue calc={gapCalc} className="font-semibold">
+              {ppText(growthGap)}
+            </CalcValue>
+          </span>
         </div>
       )}
 
-      {/* Solishtirish jadvali */}
-      <Card className="overflow-hidden">
-        <CardHeader
-          title="Oldingi teng davr bilan"
-          description={`${formatDate(prev.from)} \u2014 ${formatDate(prev.to)}`}
-        />
-
-        {previous.loading ? (
+      <ReportCard title="Korxona holati: oldingi teng davr bilan" badge={`Joriy: ${periodText} · oldingi: ${prevText}`}>
+        {loadingPrev ? (
           <LoadingState />
         ) : (
-          <Table>
-            <THead>
-              <Tr>
-                <Th>Ko&apos;rsatkich</Th>
-                <Th align="right" className="w-40">
-                  Hozir
+          <RTable minWidth={760}>
+            <thead>
+              <tr>
+                <Th rowSpan={2} className="min-w-60 text-left">
+                  Ko&apos;rsatkich
                 </Th>
-                <Th align="right" className="w-40">
-                  Oldin
-                </Th>
-                <Th align="right" className="w-28">
-                  O&apos;zgarish
-                </Th>
-              </Tr>
-            </THead>
-
-            <TBody>
-              <CompareRow
-                label="Daromad"
-                now={now.income}
-                before={before.income}
-                change={incomeChange}
-                good
-                calc={changeCalc('Daromad', now.income, before.income, true)}
-              />
-              <CompareRow
-                label="Xarajat"
-                now={now.expense}
-                before={before.expense}
-                change={expenseChange}
-                good={false}
-                calc={changeCalc('Xarajat', now.expense, before.expense, false)}
-              />
-              <CompareRow
-                label="Foyda"
-                now={now.profit}
-                before={before.profit}
-                change={profitChange}
-                good
-                calc={changeCalc('Foyda', now.profit, before.profit, true)}
-              />
-            </TBody>
-          </Table>
+                <GroupTh span={2}>Summa</GroupTh>
+                <GroupTh span={2}>O&apos;zgarish</GroupTh>
+              </tr>
+              <tr>
+                <Th className="first:border-l">Oldingi davr</Th>
+                <Th>Joriy davr</Th>
+                <Th>Farqi</Th>
+                <Th>Foizda</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {row(now.profit >= 0 ? 'Foyda' : 'Zarar', now.profit, before.profit, true, { calc: profitCalc, total: true, signed: true })}
+              {row('Daromad (hisoblangan)', now.income, before.income, true, { calc: incomeCalc })}
+              {row('Xarajat', now.expense, before.expense, false, { calc: expenseCalc })}
+              {row('Tushgan daromad', now.paid, before.paid, true, { sub: "Daromad yozuvlaridagi «to'langan» summa" })}
+              {row('Qarzda (tushmagan)', now.income - now.paid, before.income - before.paid, false, { calc: debtCalc })}
+              {ratioRow('Rentabellik', now.margin, before.margin, pctText, true, marginCalc, marginDiffCalc, 'Foyda / daromad')}
+              {ratioRow('Tushgan ulushi', paidPercent, paidPercentBefore, pctText, true, paidCalc, null, 'Tushgan / hisoblangan daromad')}
+              {ratioRow(
+                "Har 1 so'm daromadga xarajat",
+                costRatio,
+                costRatioBefore,
+                (v) => (v === null ? '' : `${v.toFixed(2).replace('.', ',')} so'm`),
+                false,
+                costCalc,
+                null,
+                '1 dan kichik — foyda',
+              )}
+            </tbody>
+          </RTable>
         )}
-      </Card>
-
-      {/* Tushum intizomi */}
-      {paidPercent !== null && (
-        <Card>
-          <CardHeader
-            title="Tushum"
-            description="Hisoblangan daromadning qancha qismi haqiqatda tushgan"
-          />
-          <CardBody className="space-y-3">
-            <div className="flex h-2.5 overflow-hidden rounded-full bg-(--color-surface-sunken)">
-              <div
-                className="bg-(--color-income) transition-all"
-                style={{ width: `${paidPercent}%` }}
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span>
-                <span className="text-(--color-text-muted)">Tushgan </span>
-                <Money tiyin={String(now.paid)} tone="income" className="font-medium" />
-                <span className="money ml-2 text-xs text-(--color-text-faint)">
-                  <CalcValue calc={paidCalc}>{formatPercent(paidPercent)}</CalcValue>
-                </span>
-              </span>
-
-              <span>
-                <span className="text-(--color-text-muted)">Qarzda </span>
-                <CalcValue calc={debtCalc}>
-                  <Money
-                    tiyin={String(now.income - now.paid)}
-                    tone="expense"
-                    className="font-medium"
-                  />
-                </CalcValue>
-              </span>
-            </div>
-          </CardBody>
-        </Card>
-      )}
+        <TableNote>Oldingi davr — tanlangan oraliqqa teng uzunlikdagi undan oldingi davr. Raqamni bosing — qanday hisoblangani ko&apos;rinadi.</TableNote>
+      </ReportCard>
     </div>
-  );
-}
-
-// ─────── Yordamchi komponentlar ───────
-
-function CompareBar({
-  label,
-  value,
-  width,
-  tone,
-  calc,
-}: {
-  label: string;
-  value: number;
-  width: number;
-  tone: 'income' | 'expense';
-  calc?: Calc | null;
-}) {
-  return (
-    <div>
-      <div className="mb-1 flex items-baseline justify-between">
-        <span className="text-sm text-(--color-text-muted)">{label}</span>
-        <CalcValue calc={calc}>
-          <Money tiyin={String(value)} tone={tone} className="text-sm font-semibold" />
-        </CalcValue>
-      </div>
-      <div className="h-3 overflow-hidden rounded-full bg-(--color-surface-sunken)">
-        <div
-          className={cn(
-            'h-full rounded-full transition-all',
-            tone === 'income' ? 'bg-(--color-income)' : 'bg-(--color-expense)',
-          )}
-          style={{ width: `${width}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function KpiCard({
-  label,
-  tiyin,
-  tone,
-  change,
-  good,
-  calc,
-  changeCalc,
-}: {
-  label: string;
-  tiyin: number;
-  tone: 'income' | 'expense' | 'auto';
-  change: number | null;
-  good: boolean;
-  calc?: Calc | null;
-  changeCalc?: Calc | null;
-}) {
-  return (
-    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
-        {label}
-      </p>
-      <div className="mt-2">
-        <CalcValue calc={calc}>
-          <Money tiyin={String(tiyin)} tone={tone} className="block text-xl font-semibold" />
-        </CalcValue>
-      </div>
-      <div className="mt-1.5">
-        <Change percent={change} positiveIsGood={good} calc={changeCalc} />
-      </div>
-    </div>
-  );
-}
-
-function CompareRow({
-  label,
-  now,
-  before,
-  change,
-  good,
-  calc,
-}: {
-  label: string;
-  now: number;
-  before: number;
-  change: number | null;
-  good: boolean;
-  calc?: Calc | null;
-}) {
-  return (
-    <Tr>
-      <Td className="font-medium">{label}</Td>
-      <Td money>
-        <Money tiyin={String(now)} tone="auto" />
-      </Td>
-      <Td money className="text-(--color-text-muted)">
-        <Money tiyin={String(before)} />
-      </Td>
-      <Td align="right">
-        <Change percent={change} positiveIsGood={good} calc={calc} />
-      </Td>
-    </Tr>
   );
 }

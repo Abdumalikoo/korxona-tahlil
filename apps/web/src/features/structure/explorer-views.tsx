@@ -1,17 +1,36 @@
 'use client';
 
-import { Card } from '@/components/ui/card';
-import { IconChevronRight } from '@/components/ui/icons';
-import { EmptyState } from '@/components/ui/states';
+import {
+  changeOf,
+  DiffCell,
+  GroupTh,
+  MoneyCell,
+  NameCell,
+  PctCell,
+  ReportCard,
+  RTable,
+  SearchInput,
+  ExcelButton,
+  STICKY_NAME,
+  STICKY_NO,
+  sum,
+  TableNote,
+  Td,
+  Th,
+  Tr,
+} from '@/components/report/report';
+import { EmptyNote, MiniButton, pctPlain, StatusBadge } from '@/components/report/report-extra-b';
 import { formatDate, formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { MarkItem } from '@/features/reactions/api';
 import { Mark } from '@/features/reactions/mark';
-import { changeTone, compact, num, pct, TONE, type StructureKind, type StructureNode, type StructureTree } from './api';
-import { Heatmap, Legend, LineChart, ShareShift, Sparkline, SplitBars } from './charts';
-import { Segmented, ShareBar, SmallButton } from './parts';
-import { BEHAVIOR_TEXT, behaviorOf, changePct, csvPct, csvSom, downloadCsv, lastN, mean, toNums, trendPerMonth, variation } from './stats';
+import { compact, pct, type StructureKind, type StructureNode, type StructureTree } from './api';
+import { csvPct, csvSom, downloadCsv, lastN } from './stats';
+
+// ═══════════════════════════════════════════════════════════
+// Daromad / xarajat tarkibi — jadvallar (grafiklarsiz)
+// ═══════════════════════════════════════════════════════════
 
 const MODULE_TEXT: Record<string, string> = {
   PAYROLL: 'ish haqi moduli',
@@ -20,20 +39,11 @@ const MODULE_TEXT: Record<string, string> = {
   REGIONAL: 'hududiy Excel shablon',
 };
 
-/** Solishtirish grafigidagi chiziqlar ranglari — bir-biridan aniq ajraladi */
-export const COMPARE_COLORS = ['#23426a', '#2f7a57', '#b7791f', '#7a9bc2', '#b3423b'];
-export const MAX_COMPARE = 5;
+const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
-const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)';
-
-export function changeText(change: number | null, amount: string | number): string {
-  if (change === null) return Number(amount) > 0 ? 'yangi' : '—';
+export function changeText(change: number | null, _amount?: string | number): string {
+  if (change === null) return '';
   return pct(change, true);
-}
-
-function signedCompact(value: number): string {
-  if (value === 0) return '0';
-  return `${value > 0 ? '+' : '−'}${compact(Math.abs(value))}`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -41,6 +51,14 @@ function signedCompact(value: number): string {
 // ═══════════════════════════════════════════════════════════
 
 export type SortKey = 'amount' | 'previous' | 'delta' | 'change' | 'label';
+
+export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'amount', label: "Joriy summa bo'yicha" },
+  { value: 'previous', label: "O'tgan davr bo'yicha" },
+  { value: 'delta', label: "Farq bo'yicha" },
+  { value: 'change', label: "O'zgarish foizi bo'yicha" },
+  { value: 'label', label: "Nomi bo'yicha (A–Z)" },
+];
 
 export function sortNodes(nodes: StructureNode[], key: SortKey, dir: 'asc' | 'desc'): StructureNode[] {
   const value = (n: StructureNode): number | string => {
@@ -66,43 +84,14 @@ export function sortNodes(nodes: StructureNode[], key: SortKey, dir: 'asc' | 'de
   });
 }
 
-function SortTh({
-  label,
-  column,
-  sort,
-  onSort,
-  className,
-}: {
-  label: string;
-  column: SortKey;
-  sort: { key: SortKey; dir: 'asc' | 'desc' };
-  onSort: (key: SortKey) => void;
-  className?: string;
-}) {
-  const active = sort.key === column;
-  return (
-    <th className={cn(TH, className)} aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <button type="button" onClick={() => onSort(column)} className={cn('inline-flex items-center gap-1 uppercase hover:text-(--color-text)', active && 'text-(--color-text)')}>
-        {label}
-        <span className="text-[10px]">{active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
-      </button>
-    </th>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════
-// 1. Tugunlar jadvali: saralash, belgilash, batafsil
+// 1. Tarkib jadvali: o'tgan / joriy / farq / ulush
 // ═══════════════════════════════════════════════════════════
 
 export function NodeTable({
   kind,
   tree,
   nodes,
-  colors,
-  sort,
-  onSort,
-  selected,
-  onToggle,
   onDrill,
   onOpen,
   markOf,
@@ -110,153 +99,85 @@ export function NodeTable({
   kind: StructureKind;
   tree: StructureTree;
   nodes: StructureNode[];
-  colors: Map<string, string>;
-  sort: { key: SortKey; dir: 'asc' | 'desc' };
-  onSort: (key: SortKey) => void;
-  selected: string[];
-  onToggle: (key: string) => void;
   onDrill: (node: StructureNode) => void;
   onOpen: (node: StructureNode) => void;
   /** Munosabat belgisi uchun modda (belgilash rejimida) */
   markOf?: (node: StructureNode) => MarkItem | null;
 }) {
-  const rank = new Map(tree.nodes.map((n, i) => [n.key, i + 1]));
+  const growthGood = kind === 'income';
   const previousTotal = Number(tree.previousTotalTiyin);
-  const shown = { amount: 0, previous: 0 };
-  nodes.forEach((n) => {
-    shown.amount += Number(n.amountTiyin);
-    shown.previous += Number(n.previousTiyin);
-  });
   const filtered = nodes.length !== tree.nodes.length;
+  const shown = nodes.reduce((a, n) => ({ amount: a.amount + Number(n.amountTiyin), previous: a.previous + Number(n.previousTiyin) }), { amount: 0, previous: 0 });
+  const total = filtered ? shown : { amount: Number(tree.totalTiyin), previous: previousTotal };
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="border-y border-(--color-line) bg-(--color-surface-muted)">
+    <RTable minWidth={1000}>
+      <thead>
+        <tr>
+          <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+          <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-64 text-left')}>{tree.levelLabel}</Th>
+          <GroupTh span={3}>Summa, so&apos;m</GroupTh>
+          <GroupTh span={2}>Ulushi</GroupTh>
+          <Th rowSpan={2}>Yozuvlar</Th>
+          <Th rowSpan={2} className="w-24" />
+        </tr>
+        <tr>
+          <Th className="first:border-l">{cap(tree.compareLabel)}</Th>
+          <Th>Joriy davr</Th>
+          <Th>Farqi, foizda</Th>
+          <Th>Avval</Th>
+          <Th>Hozir</Th>
+        </tr>
+      </thead>
+      <tbody>
+        <Tr total>
+          <Td className={STICKY_NO} />
+          <NameCell>{filtered ? `Ko'rsatilgan · ${nodes.length} ta` : `Jami · ${nodes.length} ta`}</NameCell>
+          <MoneyCell value={total.previous} />
+          <MoneyCell value={total.amount} />
+          <DiffCell value={total.amount - total.previous} pct={changeOf(total.amount, total.previous)} growthGood={growthGood} />
+          <PctCell value={filtered && previousTotal > 0 ? (shown.previous / previousTotal) * 100 : 100} plain />
+          <PctCell value={filtered && Number(tree.totalTiyin) > 0 ? (shown.amount / Number(tree.totalTiyin)) * 100 : 100} plain />
+          <Td>{(filtered ? nodes.reduce((s, n) => s + n.count, 0) : tree.count).toLocaleString('ru-RU')}</Td>
+          <Td />
+        </Tr>
+        {nodes.map((node, i) => {
+          const amount = Number(node.amountTiyin);
+          const previous = Number(node.previousTiyin);
+          const shareBefore = previousTotal > 0 ? (previous / previousTotal) * 100 : 0;
+          return (
+            <Tr key={node.key} onClick={node.drillable ? () => onDrill(node) : undefined}>
+              <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+              <NameCell
+                drill={node.drillable}
+                before={<Mark item={markOf?.(node) ?? null} />}
+                sub={node.module && MODULE_TEXT[node.module] ? MODULE_TEXT[node.module] : undefined}
+              >
+                {node.label}
+              </NameCell>
+              <MoneyCell value={previous} />
+              <MoneyCell value={amount} strong />
+              <DiffCell value={amount - previous} pct={previous === 0 ? null : changeOf(amount, previous)} growthGood={growthGood} />
+              <Td className="text-(--color-text-muted)">{pctPlain(shareBefore)}</Td>
+              <Td className="font-semibold text-heading">{pctPlain(node.sharePercent)}</Td>
+              <Td className="text-(--color-text-muted)">{node.count.toLocaleString('ru-RU')}</Td>
+              <Td>
+                <MiniButton onClick={() => onOpen(node)} title="Modda kartasi: 12 oy, ko'rsatkichlar, prognoz, xulosa">
+                  Batafsil
+                </MiniButton>
+              </Td>
+            </Tr>
+          );
+        })}
+        {nodes.length === 0 && (
           <tr>
-            <th className={cn(TH, 'w-9 pl-5')} title="Solishtirish uchun belgilang (5 tagacha)">
-              <span className="sr-only">Belgilash</span>
-            </th>
-            <th className={cn(TH, 'w-8 text-right')}>#</th>
-            <SortTh label={tree.levelLabel} column="label" sort={sort} onSort={onSort} className="text-left" />
-            <SortTh label="Summa, so'm" column="amount" sort={sort} onSort={onSort} className="text-right" />
-            <th className={cn(TH, 'w-40 text-left')}>Ulush</th>
-            <SortTh label="Avval" column="previous" sort={sort} onSort={onSort} className="hidden text-right lg:table-cell" />
-            <SortTh label="Farq" column="delta" sort={sort} onSort={onSort} className="hidden text-right md:table-cell" />
-            <SortTh label="O'zgarish" column="change" sort={sort} onSort={onSort} className="text-right" />
-            <th className={cn(TH, 'hidden text-left xl:table-cell')}>12 oy</th>
-            <th className={cn(TH, 'pr-5 text-right')}>
-              <span className="sr-only">Amallar</span>
-            </th>
+            <td colSpan={9} className="px-5 py-8 text-center text-sm text-(--color-text-muted)">
+              Qidiruv bo&apos;yicha hech narsa topilmadi
+            </td>
           </tr>
-        </thead>
-        <tbody className="divide-y divide-(--color-line)">
-          {nodes.map((node) => {
-            const color = colors.get(node.key) ?? TONE.rest;
-            const delta = Number(node.amountTiyin) - Number(node.previousTiyin);
-            const isSelected = selected.includes(node.key);
-            const shareBefore = previousTotal > 0 ? (Number(node.previousTiyin) / previousTotal) * 100 : 0;
-            return (
-              <tr key={node.key} className={cn('group', isSelected && 'bg-slate-50')}>
-                <td className="py-2.5 pl-5">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    disabled={!isSelected && selected.length >= 5}
-                    onChange={() => onToggle(node.key)}
-                    className="size-3.5 cursor-pointer accent-slate-800"
-                    aria-label={`${node.label} — solishtirishga qo'shish`}
-                  />
-                </td>
-                <td className="py-2.5 pr-1 text-right text-xs tabular-nums text-(--color-text-faint)">{rank.get(node.key)}</td>
-                <td className="px-3 py-2.5">
-                  <span className="flex items-center gap-2.5">
-                    <Mark item={markOf?.(node) ?? null} />
-                    <span className="size-2.5 shrink-0" style={{ background: color }} />
-                    <span className="min-w-0">
-                      <button
-                        type="button"
-                        disabled={!node.drillable}
-                        onClick={() => onDrill(node)}
-                        title={node.drillable ? `${node.label} — ichiga kirish` : node.label}
-                        className={cn('block max-w-[22rem] truncate text-left text-(--color-text)', node.drillable && 'hover:underline')}
-                      >
-                        {node.label}
-                      </button>
-                      <span className="text-xs text-(--color-text-faint)">
-                        {node.count.toLocaleString('ru-RU')} ta yozuv
-                        {node.module && MODULE_TEXT[node.module] ? ` · ${MODULE_TEXT[node.module]}` : ''}
-                      </span>
-                    </span>
-                  </span>
-                </td>
-                <td className="whitespace-nowrap px-3 py-2.5 text-right font-medium tabular-nums">{num(node.amountTiyin)}</td>
-                <td className="px-3 py-2.5" title={`Avval: ${pct(shareBefore)}`}>
-                  <ShareBar percent={node.sharePercent} color={TONE.slate} />
-                </td>
-                <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-(--color-text-muted) lg:table-cell">{compact(node.previousTiyin)}</td>
-                <td className={cn('hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums md:table-cell', changeTone(kind, node.changePercent ?? (delta > 0 ? 100 : delta < 0 ? -100 : 0)))}>
-                  {signedCompact(delta)}
-                </td>
-                <td className={cn('whitespace-nowrap px-3 py-2.5 text-right font-medium tabular-nums', changeTone(kind, node.changePercent))}>
-                  {changeText(node.changePercent, node.amountTiyin)}
-                </td>
-                <td className="hidden px-3 py-2.5 xl:table-cell">
-                  <Sparkline values={lastN(node.trend, 12)} />
-                </td>
-                <td className="whitespace-nowrap py-2.5 pl-2 pr-5 text-right">
-                  <span className="inline-flex items-center gap-1">
-                    <SmallButton onClick={() => onOpen(node)} title="Modda kartasi: statistika, prognoz, xulosa">
-                      Batafsil
-                    </SmallButton>
-                    {node.drillable && (
-                      <button
-                        type="button"
-                        onClick={() => onDrill(node)}
-                        className="rounded p-1 text-(--color-text-faint) hover:bg-(--color-surface-sunken) hover:text-(--color-text)"
-                        title="Ichiga kirish"
-                        aria-label="Ichiga kirish"
-                      >
-                        <IconChevronRight className="size-4" />
-                      </button>
-                    )}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-          {nodes.length === 0 && (
-            <tr>
-              <td colSpan={10} className="px-5 py-8 text-center text-sm text-(--color-text-muted)">
-                Qidiruv bo&apos;yicha hech narsa topilmadi
-              </td>
-            </tr>
-          )}
-        </tbody>
-        <tfoot className="border-t-2 border-(--color-line) bg-(--color-surface-muted) font-semibold">
-          <tr>
-            <td />
-            <td />
-            <td className="px-3 py-2.5">{filtered ? `Ko'rsatilgan · ${nodes.length} ta` : `Jami · ${nodes.length} ta`}</td>
-            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{num(filtered ? shown.amount : tree.totalTiyin)}</td>
-            <td className="px-3 py-2.5 text-xs text-(--color-text-muted)">
-              {filtered && Number(tree.totalTiyin) > 0 ? pct((shown.amount / Number(tree.totalTiyin)) * 100) : '100%'}
-            </td>
-            <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-(--color-text-muted) lg:table-cell">
-              {compact(filtered ? shown.previous : tree.previousTotalTiyin)}
-            </td>
-            <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums md:table-cell">
-              {signedCompact(filtered ? shown.amount - shown.previous : Number(tree.totalTiyin) - Number(tree.previousTotalTiyin))}
-            </td>
-            <td className={cn('whitespace-nowrap px-3 py-2.5 text-right tabular-nums', changeTone(kind, filtered ? changePct(shown.amount, shown.previous) : tree.changePercent))}>
-              {filtered ? changeText(changePct(shown.amount, shown.previous), shown.amount) : changeText(tree.changePercent, tree.totalTiyin)}
-            </td>
-            <td className="hidden xl:table-cell" />
-            <td />
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+        )}
+      </tbody>
+    </RTable>
   );
 }
 
@@ -301,271 +222,153 @@ export function exportNodes(kind: StructureKind, tree: StructureTree, pathText: 
 }
 
 // ═══════════════════════════════════════════════════════════
-// 2. Moddalarni o'zaro solishtirish
+// 2. Oylar kesimi: moddalar × 12 oy (mln so'mda)
 // ═══════════════════════════════════════════════════════════
 
-export function CompareView({
-  kind,
-  tree,
-  selected,
-  onToggle,
-  onOpen,
-}: {
-  kind: StructureKind;
-  tree: StructureTree;
-  selected: string[];
-  onToggle: (key: string) => void;
-  onOpen: (node: StructureNode) => void;
-}) {
-  const [mode, setMode] = useState<'amount' | 'index' | 'share'>('amount');
-  const months12 = lastN(tree.months, 12);
-  const chosen = selected.map((key) => tree.nodes.find((n) => n.key === key)).filter((n): n is StructureNode => Boolean(n));
-  const totals12 = toNums(lastN(tree.totalTrend, 12));
-
-  const seriesValues = (node: StructureNode): (number | null)[] => {
-    const values = toNums(lastN(node.trend, 12));
-    if (mode === 'share') return values.map((v, i) => (totals12[i]! > 0 ? (v / totals12[i]!) * 100 : null));
-    if (mode === 'index') {
-      const base = values.find((v) => v > 0);
-      return base ? values.map((v) => (v / base) * 100) : values.map(() => null);
-    }
-    return values;
-  };
-  const format =
-    mode === 'amount' ? compact : (v: number) => (mode === 'share' ? `${v.toFixed(1).replace('.', ',')}%` : Math.round(v).toString());
-
-  return (
-    <div className="space-y-4 px-5 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-wrap gap-1.5">
-          {tree.nodes.slice(0, 20).map((node) => {
-            const index = selected.indexOf(node.key);
-            const on = index >= 0;
-            return (
-              <button
-                key={node.key}
-                type="button"
-                disabled={!on && selected.length >= MAX_COMPARE}
-                onClick={() => onToggle(node.key)}
-                className={cn(
-                  'inline-flex max-w-[16rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-40',
-                  on ? 'border-slate-800 bg-white font-medium text-(--color-text)' : 'border-(--color-line) text-(--color-text-muted) hover:border-slate-400',
-                )}
-              >
-                <span className="size-2 shrink-0 rounded-full" style={{ background: on ? COMPARE_COLORS[index] : '#e5e7eb' }} />
-                <span className="truncate">{node.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <Segmented
-          size="sm"
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'amount', label: 'Summa', hint: "Har oy summasi, so'm" },
-            { value: 'share', label: 'Ulush', hint: 'Har oy umumiy summadagi ulushi, %' },
-            { value: 'index', label: 'Indeks', hint: "Birinchi oy = 100: o'sish sur'atini solishtirish uchun" },
-          ]}
-        />
-      </div>
-
-      {chosen.length === 0 ? (
-        <p className="py-10 text-center text-sm text-(--color-text-muted)">Yuqoridan yoki jadvaldan 2–5 ta moddani tanlang.</p>
-      ) : (
-        <>
-          <LineChart
-            labels={months12.map((m) => formatPeriodShort(m))}
-            tooltipLabels={months12.map((m) => formatPeriod(m))}
-            format={format}
-            threshold={mode === 'index' ? { value: 100, label: "Boshlang'ich daraja = 100" } : undefined}
-            series={chosen.map((node, i) => ({ label: node.label, color: COMPARE_COLORS[i]!, values: seriesValues(node) }))}
-          />
-          <Legend items={chosen.map((node, i) => ({ color: COMPARE_COLORS[i]!, label: node.label, line: true }))} />
-          <p className="text-xs text-(--color-text-muted)">
-            {mode === 'amount'
-              ? "Har bir chiziq — moddaning oylik summasi. Katta va kichik moddalarni o'sish bo'yicha solishtirish uchun «Indeks»ni tanlang."
-              : mode === 'share'
-                ? "Har oy moddaning shu daraja jami ichidagi ulushi. Chiziq ko'tarilsa — modda boshqalarga nisbatan kattalashmoqda."
-                : "Indeks: har moddaning birinchi (nol bo'lmagan) oyi = 100. 150 — 1,5 baravar o'sgan, 80 — 20% kamaygan."}
-          </p>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-y border-(--color-line) bg-(--color-surface-muted)">
-                <tr>
-                  <th className={cn(TH, 'text-left')}>Modda</th>
-                  <th className={cn(TH, 'text-right')}>Joriy davr</th>
-                  <th className={cn(TH, 'text-right')}>Avval</th>
-                  <th className={cn(TH, 'text-right')}>O&apos;zgarish</th>
-                  <th className={cn(TH, 'text-right')}>O&apos;rtacha oylik</th>
-                  <th className={cn(TH, 'text-right')}>Trend, oyiga</th>
-                  <th className={cn(TH, 'text-right')}>Tebranish</th>
-                  <th className={cn(TH, 'text-left')}>Xarakter</th>
-                  <th className={TH} />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-(--color-line)">
-                {chosen.map((node, i) => {
-                  const values = toNums(lastN(node.trend, 12));
-                  const slope = trendPerMonth(values);
-                  const cv = variation(values);
-                  const behavior = behaviorOf(values);
-                  return (
-                    <tr key={node.key}>
-                      <td className="max-w-[16rem] px-3 py-2">
-                        <span className="flex items-center gap-2">
-                          <span className="h-0.5 w-4 shrink-0" style={{ background: COMPARE_COLORS[i] }} />
-                          <span className="truncate" title={node.label}>{node.label}</span>
-                        </span>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">{compact(node.amountTiyin)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-(--color-text-muted)">{compact(node.previousTiyin)}</td>
-                      <td className={cn('whitespace-nowrap px-3 py-2 text-right tabular-nums', changeTone(kind, node.changePercent))}>{changeText(node.changePercent, node.amountTiyin)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{compact(mean(values.filter((v) => v > 0)))}</td>
-                      <td className={cn('whitespace-nowrap px-3 py-2 text-right tabular-nums', changeTone(kind, slope))}>
-                        {slope === null ? '—' : `${slope >= 0 ? '+' : '−'}${Math.abs(slope).toFixed(1).replace('.', ',')}%`}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cv === null ? '—' : `${Math.round(cv)}%`}</td>
-                      <td className="whitespace-nowrap px-3 py-2" title={BEHAVIOR_TEXT[behavior].hint}>{BEHAVIOR_TEXT[behavior].label}</td>
-                      <td className="px-3 py-2 text-right">
-                        <SmallButton onClick={() => onOpen(node)}>Batafsil</SmallButton>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
-  );
+/** Oylar jadvali uchun: million so'mda, bir xona kasr bilan — 351,1 */
+function short(tiyin: number): string {
+  if (tiyin === 0) return '';
+  const mln = tiyin / 100 / 1e6;
+  const [int, frac] = Math.abs(mln).toFixed(1).split('.');
+  return `${mln < 0 ? '-' : ''}${int!.replace(/\B(?=(\d{3})+(?!\d))/g, '\u00A0')},${frac}`;
 }
-
-// ═══════════════════════════════════════════════════════════
-// 3. Oylar jadvali
-// ═══════════════════════════════════════════════════════════
 
 export function MonthsView({ tree, nodes, onDrill }: { tree: StructureTree; nodes: StructureNode[]; onDrill: (node: StructureNode) => void }) {
-  const [scale, setScale] = useState<'row' | 'all'>('all');
   const months12 = lastN(tree.months, 12);
+  const rows = nodes.slice(0, 30);
+  const totals = lastN(tree.totalTrend, 12).map(Number);
+  const totalSum = totals.reduce((a, b) => a + b, 0);
   return (
-    <div className="space-y-3 px-5 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-3xl text-xs leading-relaxed text-(--color-text-muted)">
-          {scale === 'all'
-            ? "Katak qancha to'q bo'lsa, summa shuncha katta (barcha kataklar bitta shkalada) — qaysi modda qaysi oyda eng katta ekanini ko'rsatadi."
-            : "Har qator o'zining eng katta oyiga nisbatan bo'yalgan — har bir moddaning qaysi oylarda ko'payishi (mavsumiyligi) ko'rinadi."}{' '}
-          Qisqartmalar: B — mlrd, M — mln, K — ming so&apos;m.
-        </p>
-        <Segmented
-          size="sm"
-          value={scale}
-          onChange={setScale}
-          options={[
-            { value: 'all', label: 'Umumiy shkala' },
-            { value: 'row', label: "Har qator o'zicha" },
-          ]}
-        />
-      </div>
-      <Heatmap
-        months={months12}
-        scale={scale}
-        rows={nodes.slice(0, 25).map((n) => ({ key: n.key, label: n.label, values: toNums(lastN(n.trend, 12)), drillable: n.drillable }))}
-        onSelect={(key) => {
-          const node = nodes.find((n) => n.key === key);
-          if (node) onDrill(node);
-        }}
-      />
-      {nodes.length > 25 && <p className="text-xs text-(--color-text-faint)">Eng katta 25 ta modda ko&apos;rsatilgan.</p>}
-    </div>
+    <>
+      <RTable minWidth={1060}>
+        <thead>
+          <tr>
+            <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+            <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>{tree.levelLabel}</Th>
+            <GroupTh span={months12.length}>So&apos;nggi 12 oy, mln so&apos;m</GroupTh>
+            <Th rowSpan={2}>12 oy jami</Th>
+          </tr>
+          <tr>
+            {months12.map((m, i) => (
+              <Th key={m} className={cn('whitespace-nowrap', i === 0 && 'first:border-l')}>
+                {formatPeriodShort(m)}
+              </Th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <Tr total>
+            <Td className={STICKY_NO} />
+            <NameCell>Jami</NameCell>
+            {totals.map((v, i) => (
+              <Td key={months12[i]} className="whitespace-nowrap">
+                {short(v)}
+              </Td>
+            ))}
+            <Td className="whitespace-nowrap">{short(totalSum)}</Td>
+          </Tr>
+          {rows.map((node, i) => {
+            const values = lastN(node.trend, 12).map(Number);
+            const max = Math.max(...values);
+            const sum12 = values.reduce((a, b) => a + b, 0);
+            return (
+              <Tr key={node.key} onClick={node.drillable ? () => onDrill(node) : undefined}>
+                <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                <NameCell drill={node.drillable}>{node.label}</NameCell>
+                {values.map((v, j) => (
+                  <Td key={months12[j]} className={cn('whitespace-nowrap', v === 0 ? 'text-(--color-text-faint)' : v === max && max > 0 ? 'font-semibold text-brand-700' : '')}>
+                    {short(v)}
+                  </Td>
+                ))}
+                <Td className="whitespace-nowrap font-semibold">{short(sum12)}</Td>
+              </Tr>
+            );
+          })}
+        </tbody>
+      </RTable>
+      <TableNote>
+        Summalar million so&apos;mda (351,1 — 351,1 mln so&apos;m). Ko&apos;k qalin — moddaning eng katta oyi.
+        {nodes.length > rows.length ? ` Eng katta ${rows.length} ta modda ko'rsatilgan.` : ''}
+      </TableNote>
+    </>
   );
 }
 
 // ═══════════════════════════════════════════════════════════
-// 4. Ulush o'zgarishi
-// ═══════════════════════════════════════════════════════════
-
-export function SharesView({ tree, nodes }: { tree: StructureTree; nodes: StructureNode[] }) {
-  const previousTotal = Number(tree.previousTotalTiyin);
-  const rows = useMemo(
-    () =>
-      nodes.slice(0, 15).map((n) => ({
-        key: n.key,
-        label: n.label,
-        now: n.sharePercent,
-        before: previousTotal > 0 ? (Number(n.previousTiyin) / previousTotal) * 100 : 0,
-      })),
-    [nodes, previousTotal],
-  );
-  const gainer = [...rows].sort((a, b) => b.now - b.before - (a.now - a.before))[0];
-  const loser = [...rows].sort((a, b) => a.now - a.before - (b.now - b.before))[0];
-  return (
-    <div className="space-y-3 px-5 py-4">
-      <p className="text-xs leading-relaxed text-(--color-text-muted)">
-        ○ — {tree.compareLabel}dagi ulush, ● — joriy davrdagi ulush. Chiziq uzunligi — ulush qanchaga siljigani (p.p. — foiz punkti).
-        {gainer && gainer.now - gainer.before > 0.1 ? ` Eng ko'p ulush olgan: «${gainer.label}» (+${(gainer.now - gainer.before).toFixed(1).replace('.', ',')} p.p.).` : ''}
-        {loser && loser.now - loser.before < -0.1 ? ` Eng ko'p ulush yo'qotgan: «${loser.label}» (−${Math.abs(loser.now - loser.before).toFixed(1).replace('.', ',')} p.p.).` : ''}
-      </p>
-      <ShareShift rows={rows} compareLabel={tree.compareLabel} />
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════
-// 5. Doimiy / Boshqa kesimi
+// 3. Doimiy / Boshqa kesimi
 // ═══════════════════════════════════════════════════════════
 
 export function SplitView({ tree, nodes }: { tree: StructureTree; nodes: StructureNode[] }) {
   const doimiy = tree.nodes.reduce((s, n) => s + Number(n.doimiyTiyin), 0);
   const total = Number(tree.totalTiyin);
+  const boshqa = total - doimiy;
   return (
-    <div className="space-y-3 px-5 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs leading-relaxed text-(--color-text-muted)">
-          Har modda ichida muntazam (Doimiy) va bir martalik (Boshqa) qism. Jami bo&apos;yicha bir martalik qism — <b className="text-(--color-text)">{pct(total > 0 ? ((total - doimiy) / total) * 100 : 0)}</b>. 30% dan yuqori bo&apos;lsa qizil bilan belgilanadi.
-        </p>
-        <Legend items={[{ color: '#23426a', label: 'Doimiy' }, { color: '#95b0d0', label: 'Boshqa (bir martalik)' }]} />
-      </div>
-      <SplitBars rows={nodes.slice(0, 20).map((n) => ({ key: n.key, label: n.label, doimiy: Number(n.doimiyTiyin), boshqa: Number(n.boshqaTiyin) }))} />
-    </div>
+    <>
+      <RTable minWidth={860}>
+        <thead>
+          <tr>
+            <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+            <Th className={cn(STICKY_NAME, 'z-[2] min-w-64 text-left')}>{tree.levelLabel}</Th>
+            <Th>Jami, so&apos;m</Th>
+            <Th>Doimiy (muntazam)</Th>
+            <Th>Boshqa (bir martalik)</Th>
+            <Th>Bir martalik ulushi</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <Tr total>
+            <Td className={STICKY_NO} />
+            <NameCell>Jami</NameCell>
+            <MoneyCell value={total} />
+            <MoneyCell value={doimiy} />
+            <MoneyCell value={boshqa} />
+            <Td>{pctPlain(total > 0 ? (boshqa / total) * 100 : null)}</Td>
+          </Tr>
+          {nodes.map((n, i) => {
+            const amount = Number(n.amountTiyin);
+            const b = Number(n.boshqaTiyin);
+            const share = amount > 0 ? (b / amount) * 100 : null;
+            return (
+              <Tr key={n.key}>
+                <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                <NameCell>{n.label}</NameCell>
+                <MoneyCell value={amount} strong />
+                <MoneyCell value={Number(n.doimiyTiyin)} />
+                <MoneyCell value={b} />
+                <Td>
+                  <StatusBadge tone={share === null ? 'muted' : share >= 30 ? 'red' : share > 0 ? 'amber' : 'green'}>{pctPlain(share)}</StatusBadge>
+                </Td>
+              </Tr>
+            );
+          })}
+        </tbody>
+      </RTable>
+      <TableNote>Doimiy — muntazam takrorlanadigan yozuvlar, Boshqa — bir martalik. Bir martalik ulushi 30% dan yuqori bo&apos;lsa qizil.</TableNote>
+    </>
   );
 }
 
 // ═══════════════════════════════════════════════════════════
-// 6. Yozuvlar (eng quyi daraja)
+// 4. Yozuvlar (eng quyi daraja)
 // ═══════════════════════════════════════════════════════════
 
 export function RecordsTable({ tree, pathText }: { tree: StructureTree; pathText: string }) {
   const [query, setQuery] = useState('');
   const records = tree.records ?? [];
   const q = query.trim().toLowerCase();
-  const shown = q
-    ? records.filter((r) => `${r.label} ${r.detail ?? ''} ${r.place} ${r.date}`.toLowerCase().includes(q))
-    : records;
+  const shown = q ? records.filter((r) => `${r.label} ${r.detail ?? ''} ${r.place} ${r.date}`.toLowerCase().includes(q)) : records;
   const shownSum = shown.reduce((s, r) => s + Number(r.amountTiyin), 0);
   const avg = records.length ? records.reduce((s, r) => s + Number(r.amountTiyin), 0) / records.length : 0;
+  const total = Number(tree.totalTiyin);
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
-        <div>
-          <h3 className="text-sm font-semibold">Yozuvlar</h3>
-          <p className="mt-0.5 text-xs text-(--color-text-muted)">
-            {tree.recordsTotal.toLocaleString('ru-RU')} ta
-            {tree.recordsTotal > records.length ? ` · summasi bo'yicha eng kattalari ${records.length} tasi` : ''} · o&apos;rtacha yozuv {compact(avg)} so&apos;m
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Tavsif, joy, sana…"
-            className="h-8 w-56 rounded-(--radius-control) border border-(--color-line) bg-white px-2.5 text-sm outline-none placeholder:text-(--color-text-faint) focus:border-slate-500"
-          />
-          <SmallButton
+    <ReportCard
+      title="Yozuvlar"
+      badge={`${tree.recordsTotal.toLocaleString('ru-RU')} ta${tree.recordsTotal > records.length ? ` · eng kattalari ${records.length} tasi` : ''} · o'rtacha ${compact(avg)} so'm`}
+      actions={
+        <>
+          <SearchInput value={query} onChange={setQuery} placeholder="Tavsif, joy, sana…" />
+          <ExcelButton
             onClick={() =>
               downloadCsv(
                 `yozuvlar-${tree.range.from}_${tree.range.to}`,
@@ -573,63 +376,60 @@ export function RecordsTable({ tree, pathText }: { tree: StructureTree; pathText
                 [...shown.map((r) => [r.date, r.label, r.detail, r.place, csvSom(r.amountTiyin)]), [], [`Yo'l: ${pathText}`]],
               )
             }
-          >
-            Excel (CSV)
-          </SmallButton>
-        </div>
-      </div>
+          />
+        </>
+      }
+    >
       {records.length === 0 ? (
-        <EmptyState title="Bu davrda yozuv yo'q" hint="period" />
+        <EmptyNote>Bu davrda yozuv yo&apos;q</EmptyNote>
       ) : (
-        <div className="max-h-[34rem] overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 border-y border-(--color-line) bg-(--color-surface-muted)">
-              <tr>
-                <th className={cn(TH, 'pl-5 text-left')}>Sana</th>
-                <th className={cn(TH, 'text-left')}>Tavsif</th>
-                <th className={cn(TH, 'text-left')}>Joy</th>
-                <th className={cn(TH, 'text-right')}>Ulush</th>
-                <th className={cn(TH, 'pr-5 text-right')}>Summa, so&apos;m</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-(--color-line)">
-              {shown.map((record) => {
-                const amount = Number(record.amountTiyin);
-                const big = avg > 0 && amount > avg * 3;
-                return (
-                  <tr key={record.id} className="hover:bg-(--color-surface-muted)">
-                    <td className="whitespace-nowrap py-2 pl-5 pr-3 tabular-nums text-(--color-text-muted)">{formatDate(record.date)}</td>
-                    <td className="px-3 py-2">
-                      <span className="line-clamp-1">{record.label}</span>
-                      {record.detail && <span className="text-xs text-(--color-text-faint)">{record.detail}</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-(--color-text-muted)">{record.place}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums text-(--color-text-muted)">
-                      {Number(tree.totalTiyin) > 0 ? pct((amount / Number(tree.totalTiyin)) * 100) : '—'}
-                    </td>
-                    <td className="whitespace-nowrap py-2 pl-3 pr-5 text-right font-medium tabular-nums">
-                      {big && (
-                        <span className="mr-2 rounded bg-(--color-surface-sunken) px-1.5 py-0.5 text-[10px] font-semibold uppercase text-(--color-text-muted)" title="O'rtacha yozuvdan 3 baravardan ko'p">
-                          yirik
-                        </span>
-                      )}
-                      {num(record.amountTiyin)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot className="sticky bottom-0 border-t-2 border-(--color-line) bg-(--color-surface-muted) font-semibold">
-              <tr>
-                <td className="py-2.5 pl-5" colSpan={4}>
-                  {q ? `Topildi: ${shown.length} ta` : `Jami (${tree.recordsTotal.toLocaleString('ru-RU')} ta yozuv)`}
-                </td>
-                <td className="whitespace-nowrap py-2.5 pr-5 text-right tabular-nums">{num(q ? shownSum : tree.totalTiyin)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+        <RTable minWidth={900}>
+          <thead>
+            <tr>
+              <Th className="w-12">№</Th>
+              <Th className="w-28">Sana</Th>
+              <Th className="text-left">Tavsif</Th>
+              <Th className="text-left">Joy</Th>
+              <Th>Ulushi</Th>
+              <Th>Summa, so&apos;m</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <Tr total>
+              <Td />
+              <Td />
+              <Td className="text-left" colSpan={3}>
+                {q ? `Topildi: ${shown.length} ta` : `Jami (${tree.recordsTotal.toLocaleString('ru-RU')} ta yozuv)`}
+              </Td>
+              <MoneyCell value={q ? shownSum : total} />
+            </Tr>
+            {shown.map((record, i) => {
+              const amount = Number(record.amountTiyin);
+              const big = avg > 0 && amount > avg * 3;
+              return (
+                <Tr key={record.id}>
+                  <Td className="text-(--color-text-faint)">{i + 1}</Td>
+                  <Td className="whitespace-nowrap text-(--color-text-muted)">{formatDate(record.date)}</Td>
+                  <Td className="text-left">
+                    <span className="line-clamp-1">{record.label}</span>
+                    {record.detail && <span className="block text-[11px] text-(--color-text-faint)">{record.detail}</span>}
+                  </Td>
+                  <Td className="whitespace-nowrap text-left text-(--color-text-muted)">{record.place}</Td>
+                  <Td className="text-(--color-text-muted)">{total > 0 ? pctPlain((amount / total) * 100) : ''}</Td>
+                  <Td className="whitespace-nowrap font-semibold">
+                    {big && (
+                      <span className="mr-2" title="O'rtacha yozuvdan 3 baravardan ko'p">
+                        <StatusBadge tone="amber">yirik</StatusBadge>
+                      </span>
+                    )}
+                    {sum(amount)}
+                  </Td>
+                </Tr>
+              );
+            })}
+          </tbody>
+        </RTable>
       )}
-    </Card>
+    </ReportCard>
   );
 }

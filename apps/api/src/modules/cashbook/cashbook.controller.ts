@@ -44,6 +44,13 @@ export class CashbookController {
     return { data: await this.cashbook.updateAccount(id, body, userId) };
   }
 
+  /** Hisobraqamni o'chirish (summa kiritilmagan bo'lsa) */
+  @Roles(UserRole.ADMIN, UserRole.BUXGALTER)
+  @Delete('accounts/:id')
+  async removeAccount(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.cashbook.removeAccount(id, userId) };
+  }
+
   @Roles(UserRole.ADMIN, UserRole.BUXGALTER)
   @Post('accounts/:id/move')
   async move(@Param('id') id: string, @Body() body: { dir?: string }) {

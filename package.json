@@ -10,6 +10,8 @@
     "dev": "pnpm --parallel --filter \"./apps/**\" dev",
     "dev:web": "pnpm --filter web dev",
     "dev:api": "pnpm --filter api dev",
+    "start": "powershell -ExecutionPolicy Bypass -File ishga-tushir.ps1",
+    "start:build": "powershell -ExecutionPolicy Bypass -File ishga-tushir.ps1 -Build",
     "build": "pnpm --filter \"./packages/**\" build && pnpm --filter \"./apps/**\" build",
     "db:generate": "pnpm --filter @korxona/db generate",
     "db:push": "pnpm --filter @korxona/db push",

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SEGMENTS, segmentKey, segmentLabel, segmentOfKey, unitKeyOf } from '../../common/segments/segments';
+import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
 import { ASSET_CHARGE_CATEGORY, ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
 import { bounds, compareRange, parseDay, trendMonths } from './structure.engine';
 import type { RegionUnit, RegionsResult, UnitKind, UnitPart } from './regions.types';
@@ -193,7 +194,7 @@ export class RegionsService {
       }),
       this.prisma.expense.findMany({
         where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere },
-        select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, segment: true },
+        select: { id: true, date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, segment: true },
       }),
       // Xodimlar bo'limi: hudud bo'yicha xodimlar soni
       this.prisma.employee.findMany({ select: { regionCode: true, hiredAt: true, firedAt: true, isActive: true } }),
@@ -203,6 +204,8 @@ export class RegionsService {
     // Xarajatlar siyosati: moddalar qayerda yozilgan bo'lsa ham — Markaz yoki yo'nalish (Tax free …) hisobidan
     const routing = policyRouting(policy, expenseCategories);
     const centerCategories = routing.moved;
+    // 23106 › xarajatga o'tkazilgan xizmat safarlari — alohida «Xizmat safari» moddasi (ichida xodim → oylar)
+    const safarIds = await safarExpenseMeta(this.prisma);
     if (soha) {
       soha.policyCodes = new Set(centerCategories);
       soha.payerOf = (code: string) => routing.payerKey(code);
@@ -328,6 +331,8 @@ export class RegionsService {
         if (isAssetCharge) {
           if (row.categoryCode === ASSET_CHARGE_CATEGORY.code) addPart(acc.expenseParts, 'ASSET', 'Asosiy vositalar sarfi', row.amountTiyin, isCurrent, isPrevious);
           else addPart(acc.expenseParts, 'ASSET_X', "Asosiy vositalar (xarajatga o'tkazilgan)", row.amountTiyin, isCurrent, isPrevious);
+        } else if (safarIds.has(row.id)) {
+          addPart(acc.expenseParts, SAFAR_PART.key, byPolicy && payer === 'center' && routed?.origin === 'global' ? 'Hududlar uchun: Xizmat safari' : SAFAR_PART.label, row.amountTiyin, isCurrent, isPrevious);
         } else if (byPolicy) {
           addPart(acc.expenseParts, `h:${row.categoryCode}`, `${routed?.origin === 'unit' ? 'Boshqa bo‘limdan' : payer === 'center' ? 'Hududlar uchun' : 'Siyosat bo‘yicha'}: ${categoryLabel.get(row.categoryCode) ?? row.categoryCode}`, row.amountTiyin, isCurrent, isPrevious);
         } else if (row.source === 'PAYROLL') {
@@ -335,7 +340,7 @@ export class RegionsService {
           if (isPrevious) acc.previousPayroll += row.amountTiyin;
           addPart(acc.expenseParts, 'PAYROLL', 'Ish haqi', row.amountTiyin, isCurrent, isPrevious);
         } else if (row.source === 'LEASE') addPart(acc.expenseParts, 'LEASE', 'Ijara', row.amountTiyin, isCurrent, isPrevious);
-        else if (row.source === 'VEHICLE') addPart(acc.expenseParts, 'VEHICLE', 'Mashinalar', row.amountTiyin, isCurrent, isPrevious);
+        else if (row.source === 'VEHICLE') addPart(acc.expenseParts, 'VEHICLE', 'Mashina xarajatlari', row.amountTiyin, isCurrent, isPrevious);
         else {
           const top = categoryParent.get(row.categoryCode) ?? row.categoryCode;
           addPart(acc.expenseParts, `c:${top}`, categoryLabel.get(top) ?? top, row.amountTiyin, isCurrent, isPrevious);
@@ -361,8 +366,12 @@ export class RegionsService {
       const sorted = [...map.entries()]
         .filter(([, p]) => p.amount !== 0n || p.previous !== 0n)
         .sort((a, b) => (b[1].amount > a[1].amount ? 1 : b[1].amount < a[1].amount ? -1 : 0));
-      const head = sorted.slice(0, limit).map(([key, p]) => ({ key, label: p.label, amountTiyin: p.amount.toString(), previousTiyin: p.previous.toString() }));
-      const tail = sorted.slice(limit);
+      // «Mashina xarajatlari» hech qachon «Boshqalar»ga qo'shilmaydi — ichida mashinalar bo'yicha ochiladi
+      const keepOut = (key: string) => key === 'VEHICLE' || key === SAFAR_PART.key;
+      const top = sorted.slice(0, limit);
+      const rest = sorted.slice(limit);
+      const head = [...top, ...rest.filter(([key]) => keepOut(key))].map(([key, p]) => ({ key, label: p.label, amountTiyin: p.amount.toString(), previousTiyin: p.previous.toString() }));
+      const tail = rest.filter(([key]) => !keepOut(key));
       if (tail.length > 0) {
         head.push({
           key: 'rest',

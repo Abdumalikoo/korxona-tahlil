@@ -6,7 +6,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { IconSearch } from '@/components/ui/icons';
 import { ErrorState } from '@/components/ui/states';
-import { compositionApi, type PlaceOption, type PlacesAnalysis, type PlacesChoice } from '@/features/salary-composition/api';
+import { compositionApi, type PlaceOption, type PlacesAnalysis, type PlacesChoice, type PlacesSync } from '@/features/salary-composition/api';
 import { errorMessage } from '@/lib/error-message';
 import { formatDateTime, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -238,7 +238,9 @@ export function SavedPlacesCard({ period, isAdmin, stamp, onChanged, onToast }: 
         <ErrorState message={`Tarkib bo‘yicha joy o‘zgarishlari o‘qilmadi: ${data.error}`} onRetry={data.reload} />
       </Card>
     );
-  if (!v || (!v.fixes.length && !v.departments.length)) return null;
+  if (!v) return null;
+  const sync = <SyncPlaces period={period} isAdmin={isAdmin} onChanged={() => { data.reload(); onChanged(); }} onToast={onToast} />;
+  if (!v.fixes.length && !v.departments.length) return <Card className="overflow-hidden">{sync}</Card>;
 
   async function doRevert() {
     if (!target) return;
@@ -271,6 +273,7 @@ export function SavedPlacesCard({ period, isAdmin, stamp, onChanged, onToast }: 
           ))}
         </CardBody>
       )}
+      {sync}
       {v.fixes.length > 0 && (
         <ul className="divide-y divide-(--color-line) border-t border-(--color-line) text-sm">
           {v.fixes.map((f) => (
@@ -309,5 +312,125 @@ export function SavedPlacesCard({ period, isAdmin, stamp, onChanged, onToast }: 
         onCancel={() => setTarget(null)}
       />
     </Card>
+  );
+}
+
+/**
+ * Tarkib bo'yicha HAMMA xodimni joylashtirish: shu oy «miya»dagi joyi tarkibdagidan farq qiladiganlar — oldindan ko'rish,
+ * so'ng tasdiqlash. Saqlanganda ish haqi xarajati bo'limlar bo'yicha qayta guruhlanadi (qaytarish — yuqoridagi ro'yxatdan).
+ */
+function SyncPlaces({ period, isAdmin, onChanged, onToast }: { period: string; isAdmin: boolean; onChanged: () => void; onToast: (t: { message: string; tone: 'success' | 'error' }) => void }) {
+  const [preview, setPreview] = useState<PlacesSync | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [all, setAll] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setPreview((await compositionApi.syncPlacesPreview(period)).data);
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Tarkibni o'qib bo'lmadi"), tone: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function apply() {
+    setBusy(true);
+    try {
+      const r = (await compositionApi.syncPlaces(period)).data;
+      onToast({
+        message:
+          `${r.fixed} xodim ${formatPeriod(period)} uchun tarkibdagi bo'limiga joylashtirildi${r.redistributed ? ' · ish haqi qayta taqsimlandi' : ' · ish haqi xarajati bo‘limlar bo‘yicha qayta guruhlandi'}` +
+          (r.warnings.length ? ` · diqqat: ${r.warnings[0]}` : ''),
+        tone: 'success',
+      });
+      setPreview(null);
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, 'Joylashtirishda xatolik'), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!preview)
+    return (
+      <div className="flex flex-wrap items-center gap-3 border-t border-(--color-line) bg-[#f7f9fc] px-5 py-3">
+        <p className="min-w-0 flex-1 text-sm text-(--color-text-muted)">
+          <b className="text-heading">Tarkib bo&apos;yicha joylashtirish:</b> tarkibdagi har xodim {formatPeriod(period)} uchun tarkibda yozilgan bo&apos;limga o&apos;tadi, ish haqi
+          xarajati ham shu bo&apos;limlar bo&apos;yicha bo&apos;linadi. Avval nima o&apos;zgarishi ko&apos;rsatiladi.
+        </p>
+        <Button size="sm" variant="secondary" loading={loading} onClick={() => void load()}>
+          Nima o&apos;zgaradi — ko&apos;rish
+        </Button>
+      </div>
+    );
+
+  const shown = all ? preview.items : preview.items.slice(0, 30);
+  return (
+    <div className="border-t border-(--color-line) bg-[#f7f9fc] px-5 py-3 text-sm">
+      {!preview.hasTarkib ? (
+        <p className="text-(--color-text-muted)">{formatPeriod(period)} uchun ish haqi tarkibida bo&apos;limlar yo&apos;q — tarkib faylini bo&apos;lim ustuni («Hududi», «Bo&apos;lim») bilan yuklang.</p>
+      ) : (
+        <>
+          <p className="font-semibold text-heading">
+            {preview.items.length ? `${preview.items.length} xodimning joyi o‘zgaradi` : 'Hamma xodim tarkibdagi bo‘limida — o‘zgarish yo‘q'}{' '}
+            <span className="font-normal text-(--color-text-muted)">
+              · tarkibda {preview.total} xodim{preview.manual ? ` · ${preview.manual} tasi qo‘lda tanlangan (tegilmaydi)` : ''}
+            </span>
+          </p>
+          {preview.byTarget.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+              {preview.byTarget.map((t) => (
+                <span key={t.label} className="rounded-full border border-brand-200 bg-white px-2.5 py-0.5">
+                  → {t.label} <b>{t.count}</b>
+                </span>
+              ))}
+            </div>
+          )}
+          {preview.unmapped.length > 0 && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Bizdagi bo&apos;limga bog&apos;lanmagan nomlar (bu xodimlar joylashtirilmaydi): {preview.unmapped.map((u) => `«${u.name}» (${u.count})`).join(', ')}. Bo&apos;lim sahifasida
+              (masalan, Markaz › bo&apos;lim) nomni tanlang va qayta bosing.
+            </p>
+          )}
+          {preview.guessed.length > 0 && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Taxminiy moslik — tekshiring: {preview.guessed.map((g) => `«${g.name}» → ${g.departmentName}`).join('; ')}
+            </p>
+          )}
+          {shown.length > 0 && (
+            <ul className="mt-2 max-h-80 divide-y divide-(--color-line) overflow-y-auto rounded-lg border border-(--color-line) bg-white text-xs">
+              {shown.map((i) => (
+                <li key={i.pinfl} className="flex flex-wrap items-center gap-2 px-3 py-1.5">
+                  <b className="min-w-48 text-heading">{i.fullName}</b>
+                  <span className="text-(--color-text-muted)">{i.from}</span>
+                  <span>→</span>
+                  <b className="text-heading">{i.to}</b>
+                  {i.unitChange && <Badge tone="warn">yo‘nalish o‘zgaradi</Badge>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {preview.items.length > 30 && (
+            <button type="button" className="mt-1 text-xs font-semibold text-brand-700" onClick={() => setAll(!all)}>
+              {all ? 'Qisqartirish' : `Hammasini ko‘rsatish (${preview.items.length})`}
+            </button>
+          )}
+        </>
+      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={() => setPreview(null)} disabled={busy}>
+          Yopish
+        </Button>
+        {isAdmin && preview.items.length > 0 && (
+          <Button size="sm" loading={busy} onClick={() => void apply()}>
+            Joylashtirish ({preview.items.length} xodim)
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }

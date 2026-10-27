@@ -328,3 +328,86 @@ export function parseRegistryGrid(grid: Grid): RegistryRow[] {
   }
   return out;
 }
+// ═══════════════════════════════════════════════════════════
+// 3-shakl: bank ko'chirmasi (выписка) — hisobdagi HAMMA to'lovlar; internet to'lovlari izohdagi shartnoma
+// raqami bo'yicha ajratib olinadi:
+//   1) izohda ro'yxatdagi shartnoma raqami bor (CPIO-2789, 1932368217 …) — internet to'lovi;
+//   2) raqam ro'yxatda yo'q, lekin izoh yoki oluvchi nomida «интернет / internet / передача данных …» — internet
+//      (yangi shartnoma, ro'yxatga qo'shish taklif qilinadi; oluvchi — provayder);
+//   3) qolganlari — internet emas, o'tkazib yuboriladi (soni va summasi ko'rsatiladi).
+// Oy: izohdagi oy nomi («январь 2026») bo'lsa — shu, bo'lmasa hujjat sanasi oyi.
+// ═══════════════════════════════════════════════════════════
+
+export const INTERNET_WORDS = /интернет|internet|передач[аиу]\s+данных|ma.?lumot(lar)?\s+uzatish|канал[аы]?\s+связи|aloqa\s+kanal|ip[\s-]?tv|wi-?fi|оптоволок|optik\s+tola|tas-?ix/i;
+
+export interface BankLikeRow {
+  rowIndex: number;
+  docDate: string;
+  docNo: string;
+  accountName: string;
+  inn: string;
+  debitTiyin: string;
+  purpose: string;
+}
+
+/** Ro'yxatdagi raqam izohda (ajratgichlar: «CPIO-2789» = «CPIO 2789» = «CPIO2789»; raqam ichida emas) */
+function registryMatcher(contractNos: string[]): (text: string) => string | null {
+  const list = [...new Set(contractNos.map((n) => n.trim().toUpperCase()).filter((n) => n.replace(/[^A-ZА-Я0-9]/g, '').length >= 4))]
+    // Uzunroq raqam birinchi (CPIO-27 va CPIO-2789 — 2789 topilsin)
+    .sort((a, b) => b.length - a.length)
+    .map((no) => {
+      const body = no
+        .split(/[^A-ZА-Я0-9]+/)
+        .filter(Boolean)
+        .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('[\\s\\-/._]*');
+      return { no, re: new RegExp(`(^|[^A-ZА-Я0-9])${body}($|[^A-ZА-Я0-9])`) };
+    });
+  return (text) => {
+    const t = text.toUpperCase();
+    return list.find((x) => x.re.test(t))?.no ?? null;
+  };
+}
+
+export function pickInternetPayments(
+  rows: BankLikeRow[],
+  contractNos: string[],
+): { payments: ParsedPayment[]; providers: Map<string, string>; skipped: number; skippedTiyin: bigint; warnings: string[] } {
+  const find = registryMatcher(contractNos);
+  const known = new Set(contractNos.map((n) => n.trim().toUpperCase()));
+  const payments: ParsedPayment[] = [];
+  const providers = new Map<string, string>();
+  const warnings: string[] = [];
+  let skipped = 0;
+  let skippedTiyin = 0n;
+  for (const r of rows) {
+    const amount = (() => {
+      try {
+        return BigInt(r.debitTiyin);
+      } catch {
+        return 0n;
+      }
+    })();
+    if (amount <= 0n) continue;
+    const text = r.purpose.replace(/\s+/g, ' ').trim();
+    const parsed = parseContract(text);
+    const inRegistry = parsed.contractNo && known.has(parsed.contractNo) ? parsed.contractNo : find(text);
+    const isInternet = Boolean(inRegistry) || INTERNET_WORDS.test(text) || INTERNET_WORDS.test(r.accountName);
+    if (!isInternet) {
+      skipped += 1;
+      skippedTiyin += amount;
+      continue;
+    }
+    // Oy: izohdan (hujjat sanasidan 1 yildan uzoq bo'lsa — hujjat sanasi)
+    const docPeriod = r.docDate.slice(0, 7);
+    const textPeriod = periodOfText(text);
+    const far = textPeriod ? Math.abs(Number(textPeriod.slice(0, 4)) * 12 + Number(textPeriod.slice(5)) - (Number(docPeriod.slice(0, 4)) * 12 + Number(docPeriod.slice(5)))) > 12 : false;
+    const period = textPeriod && !far ? textPeriod : docPeriod;
+    const ref = `Bank!${r.rowIndex}${r.docNo ? ` · №${r.docNo}` : ''}`;
+    const p = makePayment(ref, period, amount, text, inRegistry);
+    if (!p.contractNo) warnings.push(`${ref}: internet to'lovi, lekin izohda shartnoma raqami topilmadi — «${text.slice(0, 80)}»`);
+    if (p.contractNo && r.accountName.trim() && !providers.has(p.contractNo)) providers.set(p.contractNo, r.accountName.trim().slice(0, 120));
+    payments.push(p);
+  }
+  return { payments, providers, skipped, skippedTiyin, warnings };
+}

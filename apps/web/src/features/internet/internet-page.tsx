@@ -28,7 +28,8 @@ import {
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Internet
-//   Fayl yuklanadi (bank ro'yxati: oy | summa | shartnoma yoki shablon) → shartnoma × oy tahlili,
+//   Fayl yuklanadi (bank ko'chirmasining o'zi — internet to'lovlari izohdagi shartnoma raqami bo'yicha ajratiladi;
+//   bank ro'yxati: oy | summa | shartnoma; yoki shablon) → shartnoma × oy tahlili,
 //   o'zgarishlar (summa o'zgargan, to'lanmagan oy, bir martalik) → har shartnomaga: kimga to'lanadi,
 //   nima uchun, qayerga biriktiriladi (Markaz / Markaz bo'limi / hudud) → «Xarajat sifatida saqlash».
 //   Fayl bo'lmasa — ro'yxat va yozilgan to'lovlar.
@@ -281,6 +282,12 @@ function AnalysisView({
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">Fayl tahlili · hali saqlanmagan</p>
             <p className="mt-1 truncate text-lg font-semibold">{analysis.fileName}</p>
+            {analysis.bank && (
+              <p className="text-xs text-white/70">
+                Bank ko&apos;chirmasi: {analysis.bank.rows} ta chiqimdan {analysis.payments.length} tasi internet (shartnoma raqami bo&apos;yicha) · {analysis.bank.skipped} tasi internet emas —
+                o&apos;tkazib yuborildi ({short(analysis.bank.skippedTiyin)} so&apos;m)
+              </p>
+            )}
             <p className="text-sm text-white/70">
               {months.length} oy ({formatPeriod(months[0] ?? '')} — {formatPeriod(months[months.length - 1] ?? '')}) · {analysis.payments.length} ta to&apos;lov · {analysis.contracts.length} ta shartnoma
             </p>
@@ -505,7 +512,8 @@ function RegistryView({ overview, canSave, onUpload, onSaved, onError }: { overv
       <Card className="px-6 py-12 text-center">
         <p className="text-lg font-semibold text-heading">Internet shartnomalari hali yo&apos;q</p>
         <p className="mx-auto mt-1 max-w-xl text-sm text-(--color-text-muted)">
-          Bank ro&apos;yxatini yuklang (har oy: summa | shartnoma ustunlari) yoki shablonni to&apos;ldiring. Dastur shartnoma raqamini to&apos;lov izohidan o&apos;zi ajratadi,
+          Bank ko&apos;chirmasini (выписка) o&apos;zidek yuklang — internet to&apos;lovlari izohdagi shartnoma raqami bo&apos;yicha ajratib olinadi. Bank ro&apos;yxati
+          (har oy: summa | shartnoma) yoki shablon ham bo&apos;ladi. Dastur shartnoma raqamini to&apos;lov izohidan o&apos;zi ajratadi,
           oylar bo&apos;yicha tahlil qiladi va har shartnomani biriktirishga taklif qiladi.
         </p>
         {canSave && (

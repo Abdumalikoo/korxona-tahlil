@@ -125,7 +125,16 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
         const report = await this.payroll.regroupAll();
         await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value: { at: new Date().toISOString(), ...report } }, update: { value: { at: new Date().toISOString(), ...report } } });
         this.logger.log(`Ish haqi qayta hisoblandi: ${report.periods} oy, ${report.changedBatches} vedomost; Markazga o'tgan qism ${report.centerTiyin} tiyin`);
-      })().catch((e: unknown) => this.logger.warn(`Ish haqi qayta hisoblanmadi: ${(e as Error).message}`));
+      })()
+        .then(async () => {
+          // Bir marta: shartnoma asosidagi xodimlar ish haqi — o'z hududi / Markaz bo'limiga (hududsiz guruh o'rniga)
+          const KEY2 = 'payroll.contract.placed';
+          if (await this.prisma.setting.findUnique({ where: { key: KEY2 } })) return;
+          const report = await this.payroll.regroupAll();
+          await this.prisma.setting.upsert({ where: { key: KEY2 }, create: { key: KEY2, value: { at: new Date().toISOString(), ...report } }, update: { value: { at: new Date().toISOString(), ...report } } });
+          this.logger.log(`Shartnoma xodimlari ish haqi joyiga o'tkazildi: ${report.periods} oy, ${report.changedBatches} vedomost`);
+        })
+        .catch((e: unknown) => this.logger.warn(`Ish haqi qayta hisoblanmadi: ${(e as Error).message}`));
     }, 8_000);
   }
 
@@ -229,6 +238,39 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
       summary: `Xarajatlar siyosati: boshqa hisobdan to'lanadigan moddalar ${before.chosenCategories.length} → ${codes.filter((c) => !ALWAYS_CENTER.includes(c)).length}${excludes.length ? `, yozilgan joyida qoldirilgan ichki moddalar: ${excludes.length}` : ''}${Object.keys(payers).length ? `; yo'nalishlar hisobidan: ${Object.entries(payers).slice(0, 8).map(([c, x]) => `${c} → ${segmentLabel(x)}`).join(', ')}` : ''}`,
     });
     return this.get();
+  }
+
+  /**
+   * Bitta modda uchun to'lovchini o'zgartirish (boshqa moddalarga tegmaydi):
+   * 'region' — yozilgan joyi hisobidan, 'center' — Markaz hisobidan, yoki yo'nalish (TAX_FREE …) hisobidan.
+   * Masalan: hududlarning xizmat safarini Markaz to'laydi → HM_SAFAR = 'center'.
+   */
+  async setPayer(codeInput: unknown, payerInput: unknown, userId: string) {
+    const code = typeof codeInput === 'string' ? codeInput.trim().slice(0, 64) : '';
+    const payer = typeof payerInput === 'string' ? payerInput.trim() : '';
+    if (!code) throw new BadRequestException('Modda tanlanmagan');
+    if (payer !== 'region' && payer !== 'center' && !isSegment(payer)) throw new BadRequestException("To'lovchi noto'g'ri");
+    const cats = await this.prisma.category.findMany({ select: { code: true, parentCode: true } });
+    if (!cats.some((c) => c.code === code)) throw new BadRequestException('Modda topilmadi');
+    if (ALWAYS_CENTER.includes(code)) throw new BadRequestException("Bu modda har doim Markaz hisobidan — o'zgartirib bo'lmaydi");
+    const policy = await readPolicy(this.prisma);
+    if (policy.centerCategories.includes(code) && code.startsWith('SOLIQ_') && !policy.chosenCategories.includes(code)) throw new BadRequestException("Soliqlar sahifasida belgilangan — o'sha yerda o'zgartiring");
+    const chosen = new Set(policy.chosenCategories);
+    const excluded = new Set(policy.excludedCategories);
+    const payers: Record<string, string> = { ...policy.payers };
+    delete payers[code];
+    if (payer === 'region') {
+      chosen.delete(code);
+      // Ota moddasi orqali hali ham boshqa hisobda bo'lsa — istisno qilinadi
+      const still = expandCategories([...chosen, ...[...excluded].map((c) => `!${c}`)], cats).has(code);
+      if (still) excluded.add(code);
+    } else {
+      chosen.add(code);
+      excluded.delete(code);
+      if (payer !== 'center') payers[code] = payer;
+    }
+    for (const c of Object.keys(payers)) if (!chosen.has(c)) delete payers[c];
+    return this.save([...chosen], userId, [...excluded], payers);
   }
 
   /** Tavsiya etilgan moddalarni yaratadi (borlariga tegmaydi) va ota moddani siyosatga qo'shadi */
@@ -455,7 +497,7 @@ export class ExpensePolicyService implements OnApplicationBootstrap {
         if (mi !== undefined) regTrend[mi]! += r.amountTiyin;
       } else {
         own += r.amountTiyin;
-        const [key, lbl] = r.source === 'PAYROLL' ? ['PAYROLL', 'Ish haqi'] : r.source === 'LEASE' ? ['LEASE', 'Ijara'] : r.source === 'VEHICLE' ? ['VEHICLE', 'Mashinalar'] : [`c:${top}`, label.get(top) ?? top];
+        const [key, lbl] = r.source === 'PAYROLL' ? ['PAYROLL', 'Ish haqi'] : r.source === 'LEASE' ? ['LEASE', 'Ijara'] : r.source === 'VEHICLE' ? ['VEHICLE', 'Mashina xarajatlari'] : [`c:${top}`, label.get(top) ?? top];
         add(ownParts, key, lbl, r.amountTiyin);
         if (mi !== undefined) ownTrend[mi]! += r.amountTiyin;
       }

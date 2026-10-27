@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Drawer } from '@/components/ui/drawer';
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { changeTone, compact, pct, som, TONE, type StructureKind, type StructureNode, type StructureTree } from './api';
-import { Legend, LineChart } from './charts';
+import { changeTone, compact, pct, som, type StructureKind, type StructureNode, type StructureTree } from './api';
 import { Stat } from './parts';
 import { BEHAVIOR_TEXT, behaviorOf, changePct, extremes, forecastYear, lastN, mean, toNums, trendPerMonth, variation } from './stats';
 
@@ -125,26 +124,35 @@ export function NodeCard({
           </dl>
         </section>
 
-        {/* 12 oy: bu yil va o'tgan yil */}
+        {/* 12 oy: bu yil va o'tgan yil — jadval */}
         <section>
           <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">So&apos;nggi 12 oy va bir yil oldin</h4>
-          <LineChart
-            width={520}
-            height={220}
-            labels={months12.map((m) => formatPeriodShort(m).split(' ')[0]!)}
-            tooltipLabels={months12.map((m) => formatPeriod(m))}
-            series={[
-              ...(valuesPrevYear ? [{ label: 'Bir yil oldin', color: TONE.axis, values: valuesPrevYear, dashed: true, width: 1.5 }] : []),
-              { label: "So'nggi 12 oy", color: '#23426a', values: values12 },
-            ]}
-          />
-          <div className="mt-1.5">
-            <Legend
-              items={[
-                { color: '#23426a', label: "So'nggi 12 oy", line: true },
-                ...(valuesPrevYear ? [{ color: TONE.axis, label: 'Xuddi shu oylar bir yil oldin', line: true }] : []),
-              ]}
-            />
+          <div className="overflow-hidden rounded-xl border border-(--color-line)">
+            <table className="w-full text-[13px] tabular-nums">
+              <thead className="bg-[#f3f6fd] text-xs font-bold text-heading">
+                <tr>
+                  <th className="px-3 py-2 text-left">Oy</th>
+                  <th className="px-3 py-2 text-right">Summa</th>
+                  <th className="px-3 py-2 text-right">Bir yil oldin</th>
+                  <th className="px-3 py-2 text-right">Farqi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {months12.map((m, i) => {
+                  const v = values12[i] ?? 0;
+                  const before = valuesPrevYear ? (valuesPrevYear[i] ?? null) : null;
+                  const ch = before !== null && before > 0 ? changePct(v, before) : null;
+                  return (
+                    <tr key={m} className="border-t border-(--color-line) odd:bg-white even:bg-[#fafbfe]">
+                      <td className="px-3 py-1.5 text-left">{formatPeriod(m)}</td>
+                      <td className={cn('px-3 py-1.5 text-right font-semibold', v === 0 && 'font-normal text-(--color-text-faint)')}>{v === 0 ? '' : compact(v)}</td>
+                      <td className="px-3 py-1.5 text-right text-(--color-text-muted)">{before === null || before === 0 ? '' : compact(before)}</td>
+                      <td className={cn('px-3 py-1.5 text-right font-semibold', ch === null ? 'text-(--color-text-faint)' : changeTone(kind, ch))}>{ch === null ? '' : pct(ch, true)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </section>
 
@@ -154,17 +162,17 @@ export function NodeCard({
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-(--radius-control) border border-(--color-line) p-4">
             <Stat label="O'rtacha oylik" value={compact(avg12)} sub="nol bo'lmagan oylar bo'yicha" />
             <Stat label="Xarakter" value={BEHAVIOR_TEXT[behavior].label} sub={BEHAVIOR_TEXT[behavior].hint} />
-            <Stat label="Eng yuqori oy" value={max ? compact(max.value) : '—'} sub={max ? formatPeriod(max.period) : undefined} />
-            <Stat label="Eng past oy" value={min ? compact(min.value) : '—'} sub={min ? formatPeriod(min.period) : undefined} />
+            <Stat label="Eng yuqori oy" value={max ? compact(max.value) : ''} sub={max ? formatPeriod(max.period) : undefined} />
+            <Stat label="Eng past oy" value={min ? compact(min.value) : ''} sub={min ? formatPeriod(min.period) : undefined} />
             <Stat
               label="Trend (oyiga)"
-              value={slope === null ? '—' : `${slope >= 0 ? '+' : '−'}${Math.abs(slope).toFixed(1).replace('.', ',')}%`}
+              value={slope === null ? '' : `${slope >= 0 ? '+' : '−'}${Math.abs(slope).toFixed(1).replace('.', ',')}%`}
               valueClass={slope === null || Math.abs(slope) < 1 ? undefined : good(slope) ? 'text-(--color-income)' : 'text-(--color-expense)'}
               sub="chiziqli regressiya"
             />
             <Stat
               label="Tebranish (CV)"
-              value={cv === null ? '—' : `${Math.round(cv)}%`}
+              value={cv === null ? '' : `${Math.round(cv)}%`}
               sub={cv === null ? undefined : cv < 20 ? 'past — oldindan aytish oson' : cv < 60 ? "o'rtacha" : 'yuqori — oyma-oy sakraydi'}
             />
             <Stat

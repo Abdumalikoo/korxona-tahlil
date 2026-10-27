@@ -4,18 +4,19 @@ import type { DateRange } from '@/components/shared/date-range-picker';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { useAsync } from '@/lib/use-async';
 import { useState } from 'react';
-import { exploreApi, pct, share, som, UNIT_COLOR } from './api';
-import { ChartCard, foldSeries, ShareBars, StackedMonths, type Series } from './charts';
-import { DrillProvider } from './drill';
+import { StatTiles, type StatTile } from '@/components/report/report';
+import { exploreApi, pct, share, short, som } from './api';
+import { DrillProvider, useDrill } from './drill';
 import { DrillTable, type ExtraCol } from './drill-table';
 import { MatrixTable } from './matrix-table';
-import { ChangesTable, Kpi, leafCategories, SectionTitle, SpansNote, Switch, TopRecords } from './parts';
+import { ChangesTable, leafCategories, SpansNote, Switch, TopRecords } from './parts';
 import { SalaryStructureCard } from '@/features/salary-composition/salary-structure';
 
 // ═══════════════════════════════════════════════════════════
-// Bosh sahifa › Xarajat (to'liq rejim):
+// Bosh sahifa › Xarajat:
 //  ko'rsatkichlar → xarajat moddalari daraxti (guruh → modda → Markaz / hududlar)
-//  → kesimlar (hududlar, bo'limlar, kontragentlar) → oylar kesimi → eng katta yozuvlar → grafiklar.
+//  → kesimlar (hududlar, bo'limlar, kontragentlar) → oylar kesimi → eng katta yozuvlar.
+//  Grafiklar yo'q — hammasi jadvallarda, har bir summa bosiladi.
 // ═══════════════════════════════════════════════════════════
 
 type Cut = 'regions' | 'departments' | 'parties';
@@ -42,8 +43,6 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
   // Ustunlar: Markaz, Hududlar va yozuvi bor har bir yo'nalish (Tax free …) — o'z bo'limi sifatida
   const segCols: ExtraCol[] = (t.bySegment ?? []).map((sg) => ({ key: sg.key, label: sg.label, hint: `Shu moddaning «${sg.label}» bo'limiga tegishli qismi`, get: (n) => n.x?.[sg.key] ?? 0, drill: (n) => ({ ...n.f, unit: sg.key }), tone: 'muted' }));
   const unitCols = [...BASE_COLS, ...segCols];
-  const groupSeries: Series[] = foldSeries(d.months.rows, 5);
-  const unitSeries: Series[] = d.months.units.map((u) => ({ key: u.key, label: u.label, color: UNIT_COLOR[u.key] ?? '#a3a29c', values: u.values, kind: 'expense', f: u.f }));
   const none = t.none.cur || t.none.prev || t.none.ly;
 
   return (
@@ -51,29 +50,19 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
       <div className="space-y-4">
         <SpansNote cur={d.cur} prev={d.prev} ly={d.ly} />
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Kpi label="Jami xarajat" cur={t.cur} prev={t.prev} ly={t.ly} kind="expense" drill={{ kind: 'expense', f: {}, title: `${ROOT} › Jami` }} sub={`${t.count.toLocaleString('uz')} ta yozuv`} />
-          <Kpi label="Markaz" cur={t.center.cur} prev={t.center.prev} ly={t.center.ly} kind="expense" drill={{ kind: 'expense', f: { unit: 'center' }, title: `${ROOT} › Markaz` }} sub={`Ulushi ${pct(share(t.center.cur, t.cur))} · ${t.center.count} ta yozuv`} />
-          <Kpi label="Hududlar" cur={t.regions.cur} prev={t.regions.prev} ly={t.regions.ly} kind="expense" drill={{ kind: 'expense', f: { unit: 'regions' }, title: `${ROOT} › Hududlar` }} sub={`Ulushi ${pct(share(t.regions.cur, t.cur))} · ${t.regions.count} ta yozuv`} />
-          {(t.bySegment ?? []).map((sg) => (
-            <Kpi key={sg.key} label={sg.label} cur={sg.cur} prev={sg.prev} ly={sg.ly} kind="expense" drill={{ kind: 'expense', f: { unit: sg.key }, title: `${ROOT} › ${sg.label}` }} sub={`Ulushi ${pct(share(sg.cur, t.cur))} · ${sg.count} ta yozuv`} />
-          ))}
-          <Kpi label="To'lanmagan (kreditorlik)" cur={t.open} kind="expense" tone={t.open ? 'expense' : undefined} drill={{ kind: 'expense', f: { unpaid: true }, title: `${ROOT} › To'lanmagan` }} sub={`${t.unpaidCount} ta yozuv · to'langan ${pct(share(t.paid, t.cur))}`} />
-        </div>
+        <ExpenseTiles d={d} />
         {none ? (
-          <p className="rounded-(--radius-control) bg-(--color-warn-soft) px-3 py-2 text-xs text-(--color-warn)">
+          <p className="rounded-2xl bg-(--color-warn-soft) px-5 py-3 text-sm text-(--color-warn) shadow-card">
             {som(t.none.cur)} so&apos;m xarajatda hudud, bo&apos;lim yoki yo&apos;nalish (Tax free …) ko&apos;rsatilmagan — ular Markaz, Hududlar va yo&apos;nalishlar ustunlariga kirmaydi.
           </p>
         ) : null}
 
-        <SectionTitle hint="Guruh → ichki moddalar → Markaz / hududlar">Xarajat moddalari</SectionTitle>
-        <DrillTable nodes={d.tree} title="Pul nimaga sarflandi" description="▸ bosilsa ichi ochiladi; Markaz / Hududlar / yo'nalishlar ustunlari ham bosiladi" nameHeader="Modda" root={ROOT} openDepth={1} extra={unitCols} total={t} csv="Xarajat moddalari" note="To‘lanmagan summalar — «Kesimlar» jadvalida va yuqoridagi «To‘lanmagan» kartochkasida." />
+        <DrillTable nodes={d.tree} title="Xarajat moddalari: pul nimaga sarflandi" description="Guruh → ichki moddalar. › bosilsa ichi ochiladi; Markaz / Hududlar / yo'nalishlar ustunlari ham bosiladi" nameHeader="Modda" root={ROOT} openDepth={1} extra={unitCols} total={t} csv="Xarajat moddalari" note="To‘lanmagan summalar — «Kesimlar» jadvalida va yuqoridagi «To‘lanmagan» kartochkasida." />
 
-        <SectionTitle hint="Bir xil xarajat — boshqa tomondan">Kesimlar</SectionTitle>
         <DrillTable
           key={cut}
           nodes={cuts.nodes}
-          title={cuts.desc}
+          title={`Kesimlar: ${cuts.desc}`}
           nameHeader={cuts.name}
           root={ROOT}
           extra={[OPEN_COL]}
@@ -100,8 +89,7 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
           }
         />
 
-        <SectionTitle hint="Guruh ▸ bosilsa ichki moddalar; katak bosilsa — o'sha oy yozuvlari">Oylar kesimida</SectionTitle>
-        <MatrixTable data={d.months} months={d.monthList} title="Xarajat guruhlari × oylar" root={ROOT} csv="Xarajat — oylar" />
+        <MatrixTable data={d.months} months={d.monthList} title="Oylar kesimida: xarajat guruhlari × oylar" root={ROOT} csv="Xarajat — oylar" />
 
         <ChangesTable nodes={leafCategories(d.tree)} kind="expense" root={ROOT} title="Eng ko'p o'zgargan xarajat moddalari" />
 
@@ -109,19 +97,67 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
 
         <TopRecords rows={d.top} kind="expense" title="Eng katta xarajat yozuvlari" />
 
-        <SectionTitle hint="Jadvallar bilan bir xil ma'lumot; ustun yoki chiziq bosilsa — yozuvlar">Grafiklar</SectionTitle>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <ChartCard title="Oylar bo'yicha: xarajat guruhlari" description="Eng katta 5 guruh, qolganlari — «Boshqalar»" legend={groupSeries.map((s) => ({ label: s.label, color: s.color }))}>
-            <StackedMonths months={d.monthList} series={groupSeries} root={ROOT} />
-          </ChartCard>
-          <ChartCard title="Oylar bo'yicha: Markaz, hududlar va yo'nalishlar" legend={unitSeries.map((s) => ({ label: s.label, color: s.color }))}>
-            <StackedMonths months={d.monthList} series={unitSeries} root={ROOT} />
-          </ChartCard>
-          <ChartCard title="Eng katta 10 guruh" description="Joriy davr, jami xarajatdagi ulushi bilan">
-            <ShareBars items={d.tree} total={t.cur} root={ROOT} />
-          </ChartCard>
-        </div>
       </div>
     </DrillProvider>
+  );
+}
+
+/** Tepadagi kartalar: jami, Markaz, hududlar, yo'nalishlar, to'lanmagan — bosilsa yozuvlar */
+function ExpenseTiles({ d }: { d: NonNullable<Awaited<ReturnType<typeof exploreApi.expense>>['data']> }) {
+  const { open } = useDrill();
+  const t = d.totals;
+  const items: StatTile[] = [
+    {
+      label: 'Jami xarajat',
+      value: t.cur,
+      previous: t.prev,
+      growthGood: false,
+      tone: 'red',
+      onClick: () => open({ kind: 'expense', f: {}, title: `${ROOT} › Jami`, expected: t.cur }),
+    },
+    {
+      label: `Markaz · ${pct(share(t.center.cur, t.cur))}`,
+      value: t.center.cur,
+      previous: t.center.prev,
+      growthGood: false,
+      tone: 'blue',
+      onClick: () => open({ kind: 'expense', f: { unit: 'center' }, title: `${ROOT} › Markaz`, expected: t.center.cur }),
+    },
+    {
+      label: `Hududlar · ${pct(share(t.regions.cur, t.cur))}`,
+      value: t.regions.cur,
+      previous: t.regions.prev,
+      growthGood: false,
+      tone: 'cyan',
+      onClick: () => open({ kind: 'expense', f: { unit: 'regions' }, title: `${ROOT} › Hududlar`, expected: t.regions.cur }),
+    },
+    ...(t.segments && (t.segments.cur || t.segments.prev)
+      ? [
+          {
+            label: `Yo'nalishlar · ${pct(share(t.segments.cur, t.cur))}`,
+            value: t.segments.cur,
+            previous: t.segments.prev,
+            growthGood: false,
+            tone: 'purple' as const,
+            onClick: () => open({ kind: 'expense', f: { unit: 'segments' }, title: `${ROOT} › Yo'nalishlar`, expected: t.segments!.cur }),
+          },
+        ]
+      : []),
+    {
+      label: "To'lanmagan (kreditor)",
+      value: t.open,
+      note: `${t.unpaidCount} ta yozuv · to'langan ${pct(share(t.paid, t.cur))}`,
+      tone: t.open ? 'red' : 'orange',
+      onClick: () => open({ kind: 'expense', f: { unpaid: true }, title: `${ROOT} › To'lanmagan`, expected: t.open }),
+    },
+  ];
+  return (
+    <div className="space-y-2">
+      <StatTiles items={items} compareLabel="Avval" />
+      <p className="text-xs text-(--color-text-muted)">
+        {t.count.toLocaleString('uz')} ta yozuv
+        {(t.bySegment ?? []).length ? ` · yo'nalishlar: ${(t.bySegment ?? []).map((sg) => `${sg.label} ${short(sg.cur)}`).join(', ')}` : ''}
+      </p>
+    </div>
   );
 }

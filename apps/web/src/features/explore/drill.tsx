@@ -6,7 +6,7 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
 import { formatDate, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { csvSom, downloadCsv, exploreApi, som, spanText, type Filter, type Kind, type RecordRow, type Sort, type Span, type Which } from './api';
 
 // ═══════════════════════════════════════════════════════════
@@ -39,12 +39,17 @@ export function useDrill(): Ctx {
 
 export function DrillProvider({ range, children }: { range: Span; children: ReactNode }) {
   const [target, setTarget] = useState<DrillTarget | null>(null);
-  const open = useCallback((t: DrillTarget) => setTarget(t), []);
+  /** Har yangi ochilishda panel holati (sahifa, tartib, davr) boshidan boshlanadi */
+  const [seq, setSeq] = useState(0);
+  const open = useCallback((t: DrillTarget) => {
+    setTarget(t);
+    setSeq((n) => n + 1);
+  }, []);
   const value = useMemo(() => ({ range, open }), [range, open]);
   return (
     <DrillCtx.Provider value={value}>
       {children}
-      <RecordsDrawer target={target} range={range} onClose={() => setTarget(null)} />
+      <RecordsDrawer key={seq} target={target} range={range} onClose={() => setTarget(null)} />
     </DrillCtx.Provider>
   );
 }
@@ -59,13 +64,8 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 function RecordsDrawer({ target, range, onClose }: { target: DrillTarget | null; range: Span; onClose: () => void }) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<Sort>('amount');
-  const [which, setWhich] = useState<Which>('cur');
+  const [which, setWhich] = useState<Which>(target?.which ?? 'cur');
   const [exporting, setExporting] = useState(false);
-  useEffect(() => {
-    setPage(1);
-    setSort('amount');
-    setWhich(target?.which ?? 'cur');
-  }, [target]);
 
   const res = useAsync(
     () => (target ? exploreApi.records(target.kind, range.from, range.to, target.f, which, page, sort).then((r) => r.data) : Promise.resolve(null)),
@@ -174,9 +174,9 @@ function RecordsDrawer({ target, range, onClose }: { target: DrillTarget | null;
                           {x.party && <span className="block truncate font-medium text-heading" title={x.party}>{x.party}</span>}
                           {x.description && <span className="block truncate text-xs text-(--color-text-muted)" title={x.description}>{x.description}</span>}
                           {x.documentNo && <span className="block text-[11px] text-(--color-text-faint)">№ {x.documentNo}</span>}
-                          {!x.party && !x.description && !x.documentNo && <span className="text-(--color-text-faint)">—</span>}
+                          {!x.party && !x.description && !x.documentNo && <span className="text-(--color-text-faint)"></span>}
                         </td>
-                        {income && <td className="money px-2 py-1.5 text-right">{x.quantity ?? '—'}</td>}
+                        {income && <td className="money px-2 py-1.5 text-right">{x.quantity ?? ''}</td>}
                         <td className="money px-2 py-1.5 text-right font-semibold text-heading">
                           {som(x.amount)}
                           {x.open > 0 && x.open !== x.amount && <span className="block text-[11px] font-normal text-(--color-expense)">qoldiq {som(x.open)}</span>}

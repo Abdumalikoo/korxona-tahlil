@@ -5,6 +5,8 @@ import { CalcValue } from '@/components/ui/calc';
 import { calcDivide, calcSum, Q } from '@/lib/calc';
 import { breakevenCalc, efficiencyCalc, potentialCalc, roiCalc } from './calcs';
 import { Card } from '@/components/ui/card';
+import { ExcelButton, Field, FilterBar, GroupTh, MoneyCell, NameCell, ReportCard, RTable, SelectBox, StatTiles, STICKY_NAME, STICKY_NO, sum, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { NotesList, StatusBadge } from '@/components/report/report-extra-b';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { Mark } from '@/features/reactions/mark';
 import { compact, pct } from '@/features/structure/api';
@@ -16,7 +18,7 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useState } from 'react';
 import { econApi, incomeMark, type BreakevenUnit, type EfficiencyMode, type EfficiencyUnit } from './api';
-import { BreakevenChart, EFF_COLOR, EfficiencyBars, FrontierChart, MarginBar } from './efficiency-charts';
+import { BreakevenChart, MarginBar } from './efficiency-charts';
 
 const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)';
 type Window = '3' | '6' | '12' | '24' | 'all';
@@ -46,6 +48,13 @@ function periodText(from: string | null, to: string | null, months: number): str
 // Samaradorlik chegarasi (DEA)
 // ═══════════════════════════════════════════════════════════
 
+const EFF_TONE: Record<EfficiencyUnit['status'], 'green' | 'blue' | 'amber' | 'red'> = {
+  frontier: 'green',
+  near: 'blue',
+  mid: 'amber',
+  low: 'red',
+};
+
 export function EfficiencyView({ showModelsLink = false }: { showModelsLink?: boolean }) {
   const [win, setWin] = useState<Window>('12');
   const [mode, setMode] = useState<EfficiencyMode>('resources');
@@ -55,43 +64,61 @@ export function EfficiencyView({ showModelsLink = false }: { showModelsLink?: bo
   const result = useAsync(() => econApi.efficiency(win, mode, asOf).then((r) => r.data), [win, mode, asOf]);
   const data = result.data;
 
-  const header = (
-    <PanelHeader
-      title="Samaradorlik"
-      description="Qaysi hudud o'z resurslari (xodimlar, xarajatlar) bilan eng ko'p daromad oladi va qolganlar ulardan qancha orqada"
+  const units = data?.units ?? [];
+  const exportCsv = () =>
+    data &&
+    downloadCsv(
+      `samaradorlik-${data.mode}`,
+      ['#', 'Hudud', 'Samaradorlik %', 'Hajm hisobga olingan %', 'Miqyos %', 'Daromad (oy)', 'Xarajat (oy)', 'Xodimlar', 'Bir xodimga daromad', 'Daromad/xarajat', 'Imkoniyat (oy)', 'Namuna'],
+      units.map((u) => [
+        u.rank,
+        u.name,
+        Math.round(u.crs * 1000) / 10,
+        Math.round(u.vrs * 1000) / 10,
+        Math.round(u.scale * 1000) / 10,
+        csvSom(u.incomeTiyin),
+        csvSom(u.expenseTiyin),
+        u.headcount,
+        u.incomePerHeadTiyin === null ? null : csvSom(u.incomePerHeadTiyin),
+        u.roi === null ? null : Math.round(u.roi * 100) / 100,
+        csvSom(u.gapTiyin),
+        u.peers.map((p) => p.name).join(', '),
+      ]),
+    );
+
+  const filters = (
+    <FilterBar
       actions={
-        showModelsLink ? (
-          <Link href="/katta-modellar" className="text-xs text-brand-700 hover:underline">
-            Katta modellar →
-          </Link>
-        ) : undefined
+        <>
+          {showModelsLink && (
+            <Link href="/katta-modellar" className="text-sm font-semibold text-brand-700 hover:underline">
+              Katta modellar →
+            </Link>
+          )}
+          {data && units.length > 0 && <ExcelButton onClick={exportCsv} />}
+        </>
       }
     >
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        <span className="flex items-center gap-2">
-          <span className="text-xs text-(--color-text-muted)">Davr:</span>
-          <Segmented value={win} options={WINDOWS} onChange={setWin} size="sm" />
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="text-xs text-(--color-text-muted)">Resurslar:</span>
-          <Segmented
-            value={mode}
-            onChange={setMode}
-            size="sm"
-            options={[
-              { value: 'resources', label: 'Xodimlar + xarajat', hint: 'Xodimlar soni va ish haqidan tashqari xarajatlar' },
-              { value: 'money', label: "Faqat so'm", hint: 'Ish haqi va boshqa xarajatlar' },
-            ]}
-          />
-        </span>
-      </div>
-    </PanelHeader>
+      <Field label="Davr">
+        <SelectBox value={win} options={WINDOWS} onChange={setWin} />
+      </Field>
+      <Field label="Resurslar">
+        <SelectBox
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'resources', label: 'Xodimlar + xarajat' },
+            { value: 'money', label: "Faqat so'm (ish haqi va xarajat)" },
+          ]}
+        />
+      </Field>
+    </FilterBar>
   );
 
   if (result.error) {
     return (
       <div className="space-y-4">
-        {header}
+        {filters}
         <Card>
           <ErrorState message={result.error} onRetry={result.reload} />
         </Card>
@@ -101,195 +128,139 @@ export function EfficiencyView({ showModelsLink = false }: { showModelsLink?: bo
   if (!data) {
     return (
       <div className="space-y-4">
-        {header}
+        {filters}
         <Card>
           <LoadingState label="Samaradorlik hisoblanmoqda" />
         </Card>
       </div>
     );
   }
-  if (data.units.length === 0) {
+  if (units.length === 0) {
     return (
       <div className="space-y-4">
-        {header}
-        <Findings title="Natija" notes={[...data.notes, ...data.warnings]} />
+        {filters}
+        <ReportCard title="Samaradorlik">
+          <NotesList notes={[...data.notes, ...data.warnings]} />
+        </ReportCard>
       </div>
     );
   }
 
-  const units = data.units;
   const avg = units.reduce((s, u) => s + u.crs, 0) / units.length;
   const gap = units.reduce((s, u) => s + Number(u.gapTiyin), 0);
   const income = units.reduce((s, u) => s + Number(u.incomeTiyin), 0);
+  const expense = units.reduce((s, u) => s + Number(u.expenseTiyin), 0);
+  const heads = units.reduce((s, u) => s + u.headcount, 0);
   const worst = units[units.length - 1]!;
   const current = units.find((u) => u.key === selected) ?? null;
+  const period = periodText(data.periodFrom, data.periodTo, data.months);
 
   return (
     <div className="space-y-4">
-      {header}
-
-      <KpiStrip
+      <StatTiles
         items={[
-          { label: 'Chegarada', value: `${data.frontier.length} ta hudud`, valueClass: 'text-(--color-income)', sub: data.frontier.join(', ') },
-          { label: "O'rtacha samaradorlik", value: pctOf(avg), sub: `${units.length} ta hudud · ${periodText(data.periodFrom, data.periodTo, data.months)}` },
-          { label: 'Eng orqada', value: worst.name, valueClass: 'text-(--color-expense)', sub: `${pctOf(worst.crs)} — chegaradan ${pctOf(1 - worst.crs)} past`, mark: <Mark item={incomeMark(worst, 'Samaradorlik')} /> },
-          { label: 'Yashirin imkoniyat', value: `+${compact(gap)}`, calc: calcSum('Yashirin imkoniyat', units.map((u) => Q.money(u.name, u.gapTiyin)), { note: "Har hudud farqi = Daromad ÷ Samaradorlik − Daromad (hududni bosib ko'ring)." }), sub: `oyiga (+${pct((gap / Math.max(1, income)) * 100)}), hamma chegaradagidek ishlasa` },
+          { label: 'Chegarada (namuna)', value: 0, text: `${data.frontier.length} ta hudud`, tone: 'green', note: data.frontier.join(', ') || '' },
+          { label: "O'rtacha samaradorlik", value: 0, text: pctOf(avg), tone: 'blue', note: `${units.length} ta hudud bo'yicha` },
+          { label: 'Eng orqada', value: 0, text: worst.name, tone: 'red', note: `${pctOf(worst.crs)} — chegaradan ${pctOf(1 - worst.crs)} past`, onClick: () => setSelected(worst.key) },
+          {
+            label: "Yashirin imkoniyat (oyiga)",
+            value: gap,
+            tone: 'orange',
+            calc: calcSum('Yashirin imkoniyat', units.map((u) => Q.money(u.name, u.gapTiyin)), { note: 'Har hudud farqi = Daromad ÷ Samaradorlik − Daromad' }),
+            note: `hozirgi oylik daromad ${sum(income)} so'm`,
+          },
         ]}
       />
 
-      <Findings title="Samaradorlik xulosasi" notes={data.notes} />
-      {data.warnings.length > 0 && (
-        <Card className="border-l-2 border-l-amber-500">
-          <ul className="space-y-1.5 px-5 py-3.5 text-sm">
-            {data.warnings.map((w) => (
-              <li key={w}>{w}</li>
+      {filters}
+
+      <ReportCard title="Hududlar samaradorligi (oylik o'rtacha)" badge={`${period} · resurslar: ${data.inputs.join(', ').toLowerCase()}`}>
+        <RTable minWidth={1120}>
+          <thead>
+            <tr>
+              <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+              <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>Hudud</Th>
+              <Th rowSpan={2}>Samaradorlik</Th>
+              <GroupTh span={4}>Oylik o&apos;rtacha</GroupTh>
+              <Th rowSpan={2}>Daromad ÷ xarajat</Th>
+              <GroupTh span={2}>Imkoniyat</GroupTh>
+            </tr>
+            <tr>
+              <Th className="first:border-l">Daromad</Th>
+              <Th>Xarajat</Th>
+              <Th>Xodimlar</Th>
+              <Th>1 xodimga daromad</Th>
+              <Th>Qo&apos;shimcha daromad</Th>
+              <Th className="min-w-44">Namuna hududlar</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <Tr total>
+              <Td className={STICKY_NO} />
+              <NameCell>Jami · {units.length} ta hudud</NameCell>
+              <Td>{pctOf(avg)}</Td>
+              <MoneyCell value={income} />
+              <MoneyCell value={expense} />
+              <Td>{Math.round(heads)}</Td>
+              <MoneyCell value={heads > 0 ? income / heads : 0} />
+              <Td>{expense > 0 ? (income / expense).toFixed(2).replace('.', ',') : ''}</Td>
+              <MoneyCell value={gap} className="text-(--color-income)" />
+              <Td />
+            </Tr>
+            {units.map((u) => (
+              <Tr key={u.key} onClick={() => setSelected(selected === u.key ? null : u.key)} className={cn(selected === u.key && 'bg-brand-50!')}>
+                <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{u.rank}</Td>
+                <NameCell drill before={<Mark item={incomeMark(u, 'Samaradorlik')} />} sub={EFF_STATUS[u.status]}>
+                  {u.name}
+                </NameCell>
+                <Td>
+                  <CalcValue calc={efficiencyCalc(u)} className="no-underline">
+                    <StatusBadge tone={EFF_TONE[u.status]}>{pctOf(u.crs)}</StatusBadge>
+                  </CalcValue>
+                </Td>
+                <MoneyCell value={Number(u.incomeTiyin)} strong />
+                <MoneyCell value={Number(u.expenseTiyin)} />
+                <Td>{u.headcount.toFixed(u.headcount % 1 ? 1 : 0).replace('.', ',')}</Td>
+                {u.incomePerHeadTiyin && u.headcount > 0 ? (
+                  <MoneyCell
+                    value={Number(u.incomePerHeadTiyin)}
+                    calc={calcDivide(`${u.name}: bir xodimga daromad`, Q.money('Oylik daromad', u.incomeTiyin), { label: 'Xodimlar', value: u.headcount, kind: 'ratio' }, 'money', { formulaId: 'perHead' })}
+                  />
+                ) : (
+                  <Td></Td>
+                )}
+                <Td>{u.roi === null ? '' : <CalcValue calc={roiCalc(u)} className="no-underline">{u.roi.toFixed(2).replace('.', ',')}</CalcValue>}</Td>
+                {Number(u.gapTiyin) > 0 ? <MoneyCell value={Number(u.gapTiyin)} calc={potentialCalc(u)} className="font-semibold text-(--color-income)" /> : <Td className="text-(--color-text-faint)"></Td>}
+                <Td className="max-w-56 truncate text-left text-xs text-(--color-text-muted)" title={u.peers.map((p) => p.name).join(', ')}>
+                  {u.status === 'frontier' ? "o'zi namuna" : u.peers.map((p) => p.name).join(', ')}
+                </Td>
+              </Tr>
             ))}
-          </ul>
-        </Card>
+          </tbody>
+        </RTable>
+        {current && (
+          <div className="mx-4 mb-4 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-3 text-sm leading-relaxed">
+            <p className="font-semibold text-heading">
+              {current.rank}-o&apos;rin · {current.name}: {pctOf(current.crs)} ({EFF_STATUS[current.status].toLowerCase()})
+            </p>
+            <p className="mt-1">
+              {current.status === 'frontier'
+                ? "Bu hudud samaradorlik chegarasida — boshqalar uchun namuna. Uning ish uslubini (mijozlar bilan ishlash, xarajat nazorati) boshqa hududlarga o'tkazish foydali."
+                : `Namuna hududlar: ${current.peers.map((p) => p.name).join(', ')}. Ular kabi ishlaganda ${current.name} hozirgi resurslar bilan oyiga ~${compact(current.potentialIncomeTiyin)} so'm daromad olardi (hozir ${compact(current.incomeTiyin)}).`}
+            </p>
+          </div>
+        )}
+        <TableNote>
+          Samaradorlik — DEA usuli: hududlar faqat bir-biri bilan solishtiriladi. 100% — chegarada (eng yaxshilar qatorida); 80% — shu daromadni resurslarning 80% i bilan olish mumkin edi.
+          «Qo&apos;shimcha daromad» — namuna hududlar kabi ishlaganda olinadigan oylik daromad (yuqori chegara). Qatorni bosing — izoh.
+        </TableNote>
+      </ReportCard>
+
+      {(data.notes.length > 0 || data.warnings.length > 0) && (
+        <ReportCard title="Samaradorlik xulosasi">
+          <NotesList notes={[...data.notes, ...data.warnings]} />
+        </ReportCard>
       )}
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <ModelCard
-          index={1}
-          title="Samaradorlik reytingi (DEA)"
-          question="Har bir hudud eng yaxshilardan necha foiz orqada?"
-          howTo="Ustun — samaradorlik: 100% — chegarada (eng yaxshilar qatorida). 80% — shu daromadni resurslarning 80% i bilan olish mumkin edi. Qora chiziq — hududning kattaligi hisobga olingandagi samaradorlik: u 100% da, ustun esa past bo'lsa — muammo boshqaruvda emas, hajmda. Hududni bosing — tafsiloti chiqadi."
-        >
-          <EfficiencyBars units={units} onSelect={setSelected} selected={selected} />
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-(--color-text-muted)">
-            {(Object.keys(EFF_STATUS) as EfficiencyUnit['status'][]).map((s) => (
-              <span key={s} className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rounded-[2px]" style={{ background: EFF_COLOR[s] }} />
-                {EFF_STATUS[s]}
-              </span>
-            ))}
-          </div>
-        </ModelCard>
-
-        <ModelCard
-          index={2}
-          title="Samaradorlik chegarasi"
-          question="Bir xil daromad olish uchun har bir hudud qancha resurs sarflaydi?"
-          howTo="Pastki-chap burchak — yaxshi (kam resurs bilan ko'p daromad). Yashil chiziq — eng yaxshilar tutashgan chegara. Chegaradan uzoqdagi hudud resurslarni ko'proq sarflaydi. Nuqtani bosing."
-        >
-          <FrontierChart data={data} selected={selected} onSelect={setSelected} />
-        </ModelCard>
-      </div>
-
-      {current && (
-        <Card className="border-l-2" style={{ borderLeftColor: EFF_COLOR[current.status] }}>
-          <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-(--color-text-faint)">
-                {current.rank}-o&apos;rin · {EFF_STATUS[current.status]}
-              </p>
-              <h3 className="mt-0.5 text-base font-semibold">
-                {current.name}: {pctOf(current.crs)}
-              </h3>
-              <p className="mt-1 max-w-3xl text-sm leading-relaxed">
-                {current.status === 'frontier'
-                  ? "Bu hudud samaradorlik chegarasida — boshqalar uchun namuna. Uning ish uslubini (mijozlar bilan ishlash, xarajat nazorati) boshqa hududlarga o'tkazish foydali."
-                  : `Namuna hududlar: ${current.peers.map((p) => p.name).join(', ')}. Ular kabi ishlaganda ${current.name} hozirgi resurslar bilan oyiga ~${compact(current.potentialIncomeTiyin)} so'm daromad olardi (hozir ${compact(current.incomeTiyin)}, farq +${compact(current.gapTiyin)}). Yoki shu daromadni resurslarning ${pctOf(current.crs)} i bilan olish mumkin edi.`}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Mark item={incomeMark(current, 'Samaradorlik')} label="Munosabatga" />
-              <SmallButton onClick={() => setSelected(null)}>Yopish</SmallButton>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5">
-          <div>
-            <h3 className="text-sm font-semibold">Hududlar jadvali (oylik o&apos;rtacha)</h3>
-            <p className="mt-0.5 text-xs text-(--color-text-muted)">{periodText(data.periodFrom, data.periodTo, data.months)}. Qatorni bosing — tafsiloti.</p>
-          </div>
-          <SmallButton
-            onClick={() =>
-              downloadCsv(
-                `samaradorlik-${data.mode}`,
-                ['#', 'Hudud', 'Samaradorlik %', 'Hajm hisobga olingan %', 'Miqyos %', 'Daromad (oy)', 'Xarajat (oy)', 'Xodimlar', 'Bir xodimga daromad', 'Daromad/xarajat', 'Imkoniyat (oy)', 'Namuna'],
-                units.map((u) => [
-                  u.rank,
-                  u.name,
-                  Math.round(u.crs * 1000) / 10,
-                  Math.round(u.vrs * 1000) / 10,
-                  Math.round(u.scale * 1000) / 10,
-                  csvSom(u.incomeTiyin),
-                  csvSom(u.expenseTiyin),
-                  u.headcount,
-                  u.incomePerHeadTiyin === null ? null : csvSom(u.incomePerHeadTiyin),
-                  u.roi === null ? null : Math.round(u.roi * 100) / 100,
-                  csvSom(u.gapTiyin),
-                  u.peers.map((p) => p.name).join(', '),
-                ]),
-              )
-            }
-          >
-            CSV yuklab olish
-          </SmallButton>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-y border-(--color-line) bg-(--color-surface-muted)">
-              <tr>
-                <th className={cn(TH, 'pl-5 text-left')}>Hudud</th>
-                <th className={cn(TH, 'text-right')}>Samaradorlik</th>
-                <th className={cn(TH, 'text-right')}>Daromad</th>
-                <th className={cn(TH, 'text-right')}>Xarajat</th>
-                <th className={cn(TH, 'text-right')}>Xodimlar</th>
-                <th className={cn(TH, 'text-right')}>1 xodimga</th>
-                <th className={cn(TH, 'text-right')}>Daromad / xarajat</th>
-                <th className={cn(TH, 'text-right')}>Imkoniyat</th>
-                <th className={cn(TH, 'pr-5 text-left')}>Namuna</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-(--color-line)">
-              {units.map((u) => (
-                <tr key={u.key} onClick={() => setSelected(u.key)} className={cn('cursor-pointer hover:bg-(--color-surface-muted)', selected === u.key && 'bg-(--color-surface-muted)')}>
-                  <td className="py-2.5 pl-5 pr-3">
-                    <span className="flex items-center gap-2">
-                      <Mark item={incomeMark(u, 'Samaradorlik')} />
-                      <span className="w-5 text-right text-xs tabular-nums text-(--color-text-faint)">{u.rank}.</span>
-                      {u.name}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums" style={{ color: EFF_COLOR[u.status] }}>
-                    <CalcValue calc={efficiencyCalc(u)}>{pctOf(u.crs)}</CalcValue>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{compact(u.incomeTiyin)}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-(--color-text-muted)">{compact(u.expenseTiyin)}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{u.headcount.toFixed(u.headcount % 1 ? 1 : 0).replace('.', ',')}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
-                    {u.incomePerHeadTiyin && u.headcount > 0 ? (
-                      <CalcValue calc={calcDivide(`${u.name}: bir xodimga daromad`, Q.money("Oylik daromad", u.incomeTiyin), { label: 'Xodimlar', value: u.headcount, kind: 'ratio' }, 'money', { formulaId: 'perHead' })}>
-                        {compact(u.incomePerHeadTiyin)}
-                      </CalcValue>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
-                    {u.roi === null ? '—' : <CalcValue calc={roiCalc(u)}>{u.roi.toFixed(2).replace('.', ',')}</CalcValue>}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-(--color-income)">
-                    {Number(u.gapTiyin) > 0 ? <CalcValue calc={potentialCalc(u)}>{`+${compact(u.gapTiyin)}`}</CalcValue> : '—'}
-                  </td>
-                  <td className="max-w-[14rem] truncate py-2.5 pl-3 pr-5 text-xs text-(--color-text-muted)" title={u.peers.map((p) => p.name).join(', ')}>
-                    {u.status === 'frontier' ? "o'zi namuna" : u.peers.map((p) => p.name).join(', ')}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="border-t border-(--color-line) px-5 py-2.5 text-xs leading-relaxed text-(--color-text-muted)">
-          Usul: DEA (ma&apos;lumotlarni qamrab olish tahlili) — hududlar faqat bir-biri bilan solishtiriladi, tashqi me&apos;yor kerak emas. Resurslar: {data.inputs.join(', ').toLowerCase()}; natija: daromad.
-          «Imkoniyat» — namuna hududlar kabi ishlaganda qo&apos;shimcha oylik daromad (yuqori chegara).
-        </p>
-      </Card>
     </div>
   );
 }
@@ -302,7 +273,7 @@ const BE_STATUS: Record<BreakevenUnit['status'], { label: string; tone: string }
   safe: { label: 'Xavfsiz', tone: 'bg-(--color-income-soft) text-(--color-income)' },
   thin: { label: 'Chegarada', tone: 'bg-amber-100 text-amber-800' },
   loss: { label: 'Zararda', tone: 'bg-(--color-expense-soft) text-(--color-expense)' },
-  na: { label: '—', tone: 'bg-(--color-surface-sunken) text-(--color-text-muted)' },
+  na: { label: '', tone: 'bg-(--color-surface-sunken) text-(--color-text-muted)' },
 };
 
 export function BreakevenView() {
@@ -358,13 +329,13 @@ export function BreakevenView() {
         items={[
           {
             label: 'Korxona zararsizligi',
-            value: total?.breakevenTiyin ? compact(total.breakevenTiyin) : '—',
+            value: total?.breakevenTiyin ? compact(total.breakevenTiyin) : '',
             calc: total ? breakevenCalc(total) : null,
             sub: total ? `oyiga; o'rtacha daromad ${compact(total.avgIncomeTiyin)}` : undefined,
           },
           {
             label: 'Xavfsizlik zaxirasi',
-            value: total?.safetyMargin != null ? pct(total.safetyMargin * 100, true) : '—',
+            value: total?.safetyMargin != null ? pct(total.safetyMargin * 100, true) : '',
             calc: total ? breakevenCalc(total) : null,
             valueClass: total?.safetyMargin != null ? (total.safetyMargin < 0 ? 'text-(--color-expense)' : total.safetyMargin < 0.1 ? 'text-amber-700' : 'text-(--color-income)') : undefined,
             sub: "daromad shuncha tushsa ham zarar yo'q",
@@ -377,7 +348,7 @@ export function BreakevenView() {
           },
           {
             label: 'Markazni qoplash',
-            value: data.center?.coverage != null ? pct(data.center.coverage * 100) : '—',
+            value: data.center?.coverage != null ? pct(data.center.coverage * 100) : '',
             calc: data.center
               ? calcDivide('Markazni qoplash', Q.money('Hududlar foydasi (oyiga)', data.center.regionsProfitTiyin), Q.money('Markaz sof xarajati (oyiga)', data.center.netExpenseTiyin), 'pct', {
                   note: "100% va undan yuqori — hududlar foydasi Markaz xarajatini to'liq qoplaydi.",
@@ -487,7 +458,7 @@ export function BreakevenView() {
                   u.safetyMargin === null ? null : Math.round(u.safetyMargin * 1000) / 10,
                   u.leverage === null ? null : Math.round(u.leverage * 10) / 10,
                   BE_STATUS[u.status].label,
-                  u.method === 'regression' ? 'regressiya' : u.method === 'fixed' ? 'hammasi doimiy' : '—',
+                  u.method === 'regression' ? 'regressiya' : u.method === 'fixed' ? 'hammasi doimiy' : '',
                 ]),
               )
             }
@@ -528,13 +499,13 @@ export function BreakevenView() {
                     <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{compact(u.avgIncomeTiyin)}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-(--color-text-muted)">{compact(u.avgExpenseTiyin)}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums">
-                      {u.breakevenTiyin ? <CalcValue calc={breakevenCalc(u)}>{compact(u.breakevenTiyin)}</CalcValue> : '—'}
+                      {u.breakevenTiyin ? <CalcValue calc={breakevenCalc(u)}>{compact(u.breakevenTiyin)}</CalcValue> : ''}
                     </td>
                     <td className="px-3 py-2.5">
                       <MarginBar value={u.safetyMargin} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
-                      {u.leverage === null ? '—' : <CalcValue calc={breakevenCalc(u)}>{`×${u.leverage.toFixed(1).replace('.', ',')}`}</CalcValue>}
+                      {u.leverage === null ? '' : <CalcValue calc={breakevenCalc(u)}>{`×${u.leverage.toFixed(1).replace('.', ',')}`}</CalcValue>}
                     </td>
                     <td className="py-2.5 pl-3 pr-5 text-right">
                       <span className={cn('inline-flex rounded px-2 py-0.5 text-[11px] font-semibold', BE_STATUS[u.status].tone)}>{BE_STATUS[u.status].label}</span>

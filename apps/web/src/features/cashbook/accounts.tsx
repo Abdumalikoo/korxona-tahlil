@@ -174,6 +174,18 @@ export function CashAccounts() {
                                 {a.isActive ? 'Yashirish' : 'Qaytarish'}
                               </button>
                             )}
+                            {!a.isHeader && (
+                              <button
+                                type="button"
+                                title="Butunlay o'chirish — faqat hech bir kunda summa kiritilmagan bo'lsa"
+                                onClick={() => {
+                                  if (window.confirm(`«${a.name}» butunlay o'chirilsinmi? Summa kiritilgan bo'lsa, o'chirilmaydi — «Yashirish»dan foydalaning.`)) void act(() => cashApi.removeAccount(a.id), "O'chirildi");
+                                }}
+                                className="rounded-md px-2 py-1 text-(--color-expense) hover:bg-red-50"
+                              >
+                                O&apos;chirish
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

@@ -258,3 +258,109 @@ export function unitPartMark(unit: RegionUnit, side: 'INCOME' | 'EXPENSE', part:
   else return null;
   return { kind: side, label: `${unit.name} · ${part.label}`, filter: withSection(filter, section), origin: ORIGIN };
 }
+// ═══════════════════════════════════════════════════════════
+// «Mashina xarajatlari» ichi: qaysi mashinaga qancha, turlari, izoh
+//   unit: center | cnd (Markaz, bo'limsiz) | dep:ID | r:KOD | rnd:KOD (tumanga bo'linmagan) | dist:ID | s:KOD
+// ═══════════════════════════════════════════════════════════
+
+export interface VehicleCostItem {
+  vehicleId: string | null;
+  plateNumber: string;
+  model: string;
+  driverName: string | null;
+  comment: string | null;
+  amountTiyin: string;
+  previousTiyin: string;
+  count: number;
+  kinds: { kind: string; label: string; amountTiyin: string; previousTiyin: string }[];
+}
+
+export interface VehicleCosts {
+  unit: string;
+  range: DateRange;
+  previousRange: DateRange;
+  totalTiyin: string;
+  previousTotalTiyin: string;
+  items: VehicleCostItem[];
+}
+
+export interface VehicleQuery {
+  unit: string;
+  range: DateRange;
+  compare: CompareMode;
+  section: SectionFilter;
+}
+
+export const vehicleCostsApi = {
+  costs: (q: VehicleQuery) =>
+    api.get<ApiResponse<VehicleCosts>>('/structure/regions/vehicles', { params: { unit: q.unit, from: q.range.from, to: q.range.to, compare: q.compare, section: q.section } }),
+};
+
+// ── «Xizmat safari» moddasi ichi: kimga qancha, oyma-oy ──
+
+export interface SafarCostItem {
+  key: string;
+  fullName: string;
+  pinfl: string | null;
+  /** Xodim ishlagan joy (to'langan oyda) */
+  placeLabel: string;
+  amountTiyin: string;
+  previousTiyin: string;
+  count: number;
+  /** Joriy davr oylari: YYYY-MM → tiyin */
+  months: Record<string, string>;
+}
+
+export interface SafarCosts {
+  unit: string;
+  range: DateRange;
+  previousRange: DateRange;
+  totalTiyin: string;
+  previousTotalTiyin: string;
+  items: SafarCostItem[];
+}
+
+/** unit: center | center:regional | dep:ID | cnd | r:KOD | dist:ID | rnd:KOD | s:KOD */
+export const safarCostsApi = {
+  costs: (q: VehicleQuery) =>
+    api.get<ApiResponse<SafarCosts>>('/structure/regions/safar', { params: { unit: q.unit, from: q.range.from, to: q.range.to, compare: q.compare, section: q.section } }),
+};
+
+// ── Boshqa moddalar ichi (ichma-ich): guruh → moddalar → kontragentlar / joylar ──
+
+export interface PartDetailItem {
+  /** Berilsa — yana ichiga ochiladi (masalan «cat:KOD») */
+  key: string | null;
+  label: string;
+  /** Kontragent bosqichida — oxirgi izoh */
+  sub: string | null;
+  amountTiyin: string;
+  previousTiyin: string;
+  count: number;
+}
+
+export interface PartDetail {
+  unit: string;
+  key: string;
+  level: 'cats' | 'party' | 'place';
+  range: DateRange;
+  previousRange: DateRange;
+  totalTiyin: string;
+  previousTotalTiyin: string;
+  items: PartDetailItem[];
+}
+
+const PLAIN_PART = /^(c:|h:|cat:)/;
+const NOT_OPEN = new Set(['VEHICLE', 'SAFAR', 'PAYROLL', 'rest']);
+
+/** Qism ichma-ich ochiladimi (backend `/structure/regions/part` bilan bir xil qoida) */
+export function partOpens(unit: string, key: string): boolean {
+  if (NOT_OPEN.has(key)) return false;
+  if (PLAIN_PART.test(key) || key === 'LEASE' || key === 'ASSET' || key === 'ASSET_X') return true;
+  return unit === 'center:regional';
+}
+
+export const partDetailApi = {
+  detail: (q: VehicleQuery & { key: string }) =>
+    api.get<ApiResponse<PartDetail>>('/structure/regions/part', { params: { unit: q.unit, key: q.key, from: q.range.from, to: q.range.to, compare: q.compare, section: q.section } }),
+};

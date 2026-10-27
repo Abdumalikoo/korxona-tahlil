@@ -7,6 +7,7 @@ import {
   parsePairsGrid,
   parseRegistryGrid,
   parseTemplatePayments,
+  pickInternetPayments,
   textOf,
   type Grid,
   type ParsedPayment,
@@ -14,13 +15,15 @@ import {
 } from './internet.parse';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { assertAmount } from '../../common/validation/amount';
+import { parseBankStatement } from '../unit-bank/unit-bank.service';
 
 // ═══════════════════════════════════════════════════════════
 // Internet to'lovlari: shartnomalar ro'yxati va oylik to'lovlar → xarajat.
 //
 //  • Ro'yxat (Sozlama «internet.registry»): har shartnoma — kimga to'lanadi (provayder), nima uchun (izoh),
 //    qayerga biriktiriladi: Markaz (umumiy), Markaz bo'limi yoki hudud.
-//  • Fayl (bank ko'chirmasidagi ro'yxat yoki shablon) o'qiladi: shartnoma × oy matritsasi, o'zgarishlar.
+//  • Fayl o'qiladi: bank ko'chirmasining o'zi (выписка — internet to'lovlari izohdagi shartnoma raqami bo'yicha
+//    ajratiladi), bank ro'yxati (oy juftliklari) yoki shablon → shartnoma × oy matritsasi, o'zgarishlar.
 //  • Saqlash: har to'lov — bitta xarajat yozuvi (modda «Internet to'lovlari»), biriktirish ro'yxatdan,
 //    kontragent — provayder, hujjat № — shartnoma. Qayta yuklansa — ikki marta yozilmaydi.
 //  • Ro'yxat o'zgarsa — yozilgan xarajatlarni ham yangi biriktirishga o'tkazish mumkin.
@@ -76,7 +79,10 @@ export interface ContractSummary {
 
 export interface AnalysisResult {
   fileName: string;
-  format: 'pairs' | 'template';
+  /** pairs — oy juftliklari, template — shablon, bank — bank ko'chirmasi (выписка) */
+  format: 'pairs' | 'template' | 'bank';
+  /** Bank ko'chirmasi bo'lsa: jami chiqim qatorlari va internet bo'lmagani (o'tkazib yuborilgan) */
+  bank: { rows: number; skipped: number; skippedTiyin: string } | null;
   months: string[];
   payments: PaymentDto[];
   contracts: ContractSummary[];
@@ -342,6 +348,20 @@ export class InternetService {
   }
 
   /** Fayldan to'lovlar va (shablon bo'lsa) shartnomalar ro'yxati */
+  /** Bank ko'chirmasi (выписка) bo'lsa — internet to'lovlari shartnoma raqami bo'yicha ajratiladi; bo'lmasa — null */
+  private parseBank(wb: ExcelJS.Workbook, contractNos: string[]) {
+    let statement: ReturnType<typeof parseBankStatement>;
+    try {
+      statement = parseBankStatement(wb);
+    } catch {
+      return null;
+    }
+    const picked = pickInternetPayments(statement.rows, contractNos);
+    const warnings = [...picked.warnings];
+    if (statement.invalid.length) warnings.push(`${statement.invalid.length} ta qator o'qilmadi (sana yoki summa noto'g'ri): ${statement.invalid.slice(0, 3).map((x) => `${x.rowIndex}-qator — ${x.reason}`).join('; ')}`);
+    return { payments: picked.payments, providers: picked.providers, warnings, rows: statement.rows.length, skipped: picked.skipped, skippedTiyin: picked.skippedTiyin };
+  }
+
   private parseWorkbook(wb: ExcelJS.Workbook): { format: 'pairs' | 'template'; payments: ParsedPayment[]; warnings: string[]; registryRows: RegistryRow[] } {
     const year = Number(new Date(Date.now() + TASHKENT_MS).toISOString().slice(0, 4));
     const paySheet = wb.worksheets.find((w) => /to.?lov/i.test(w.name));
@@ -366,7 +386,7 @@ export class InternetService {
       if (pairs && pairs.payments.length) return { format: 'pairs', payments: pairs.payments, warnings: pairs.warnings, registryRows };
     }
     if (registryRows.length) return { format: 'template', payments: [], warnings: [], registryRows };
-    throw new BadRequestException("Faylda to'lovlar topilmadi: oy ustunlari (Yanvar, Fevral …: summa | shartnoma) yoki shablonning «To'lovlar» varag'i kerak");
+    throw new BadRequestException("Faylda to'lovlar topilmadi: bank ko'chirmasi (выписка: «Обороты по дебету», «Назначение платежа»), oy ustunlari (Yanvar, Fevral …: summa | shartnoma) yoki shablonning «To'lovlar» varag'i kerak");
   }
 
   /** Shablondagi nom → bo'lim / hudud */
@@ -394,9 +414,23 @@ export class InternetService {
 
   async analyze(file: Express.Multer.File | undefined): Promise<AnalysisResult> {
     const { wb, name } = await this.readFile(file);
-    const parsed = this.parseWorkbook(wb);
     const [registry, keys, lookups] = await Promise.all([this.registry(), this.posted(), this.lookups()]);
+    const bank = this.parseBank(wb, registry.contracts.map((c) => c.contractNo));
+    const parsed = bank
+      ? { format: 'bank' as const, payments: bank.payments, warnings: bank.warnings, registryRows: [] as RegistryRow[] }
+      : this.parseWorkbook(wb);
+    if (bank && !bank.payments.length)
+      throw new BadRequestException(
+        `Bank ko'chirmasida internet to'lovi topilmadi (${bank.rows} ta chiqim ko'rildi). Izohda ro'yxatdagi shartnoma raqami yoki «интернет» so'zi bo'lishi kerak — avval shartnomalar ro'yxatini to'ldiring`,
+      );
     const fromFile = this.resolveRegistryRows(parsed.registryRows, lookups);
+    // Bank: ro'yxatda yo'q shartnomalar — oluvchi (provayder) bilan taklif
+    if (bank) {
+      // Ro'yxatdagisida provayder yozilmagan bo'lsa ham — bankdagi oluvchi nomi taklif qilinadi
+      const known = new Set(registry.contracts.filter((c) => c.provider).map((c) => c.contractNo));
+      for (const [no, provider] of bank.providers)
+        if (!known.has(no)) fromFile.contracts.push({ contractNo: no, contractDate: bank.payments.find((p) => p.contractNo === no)?.contractDate ?? null, provider, purpose: null, unit: null });
+    }
     const regMap = new Map(registry.contracts.map((c) => [c.contractNo, c]));
     const fileMap = new Map(fromFile.contracts.map((c) => [c.contractNo, c]));
 
@@ -450,6 +484,7 @@ export class InternetService {
     return {
       fileName: name,
       format: parsed.format,
+      bank: bank ? { rows: bank.rows, skipped: bank.skipped, skippedTiyin: bank.skippedTiyin.toString() } : null,
       months,
       payments,
       contracts,

@@ -3,23 +3,21 @@
 import { dashboardApi } from '@/features/dashboard/api';
 import { formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
-import { CalcValue } from '@/components/ui/calc';
-import { calcDivide, calcMean, calcResult, decimalText, moneyText, Q, type Calc } from '@/lib/calc';
+import { calcDivide, calcMean, calcResult, calcSum, decimalText, moneyText, Q, type Calc } from '@/lib/calc';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
-import { LineChart } from '@/components/shared/line-chart';
-import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { Money } from '@/components/ui/money';
+import { changeOf, DiffCell, ExcelButton, GroupTh, MoneyCell, NameCell, PctCell, ReportCard, RTable, StatTiles, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { CalcValue } from '@/components/ui/calc';
+import { Card } from '@/components/ui/card';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
-import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
+import { downloadCsv, csvSom } from '@/features/structure/stats';
 import { cn } from '@/lib/utils';
 import { periodOf } from './range-utils';
 
 /**
- * Vaqt davomidagi o'zgarish — oxirgi 12 oy.
- *
- * Oraliq oxirgi oyi bo'yicha hisoblanadi: sentabr tanlansa,
- * oktabr 2025 — sentabr 2026 ko'rsatiladi.
+ * Vaqt davomidagi o'zgarish — oxirgi 12 oy, bitta jadvalda (grafiksiz).
+ * Oraliq oxirgi oyi bo'yicha hisoblanadi: sentabr tanlansa, oktabr 2025 — sentabr 2026 ko'rsatiladi.
+ * Har oy o'zidan oldingi oy bilan solishtiriladi.
  */
 export function DynamicsTab({ range }: { range: DateRange }) {
   const period = periodOf(range.to);
@@ -28,17 +26,15 @@ export function DynamicsTab({ range }: { range: DateRange }) {
   if (trend.loading) return <LoadingState />;
   if (trend.error) return <ErrorState message={trend.error} onRetry={trend.reload} />;
 
-  const rows = trend.data?.data ?? [];
+  const rows = (trend.data?.data ?? []).map((row) => ({
+    period: row.period,
+    income: Number(row.incomeTiyin),
+    expense: Number(row.expenseTiyin),
+    profit: Number(row.profitTiyin),
+  }));
 
   // Faqat harakat bo'lgan oylar statistikaga kiradi
-  const active = rows
-    .map((row) => ({
-      period: row.period,
-      income: Number(row.incomeTiyin),
-      expense: Number(row.expenseTiyin),
-      profit: Number(row.profitTiyin),
-    }))
-    .filter((row) => row.income > 0 || row.expense > 0);
+  const active = rows.filter((row) => row.income > 0 || row.expense > 0);
 
   if (active.length === 0) {
     return (
@@ -49,8 +45,10 @@ export function DynamicsTab({ range }: { range: DateRange }) {
   }
 
   const count = active.length;
-  const avgIncome = active.reduce((sum, row) => sum + row.income, 0) / count;
-  const avgExpense = active.reduce((sum, row) => sum + row.expense, 0) / count;
+  const totalIncome = active.reduce((sum, row) => sum + row.income, 0);
+  const totalExpense = active.reduce((sum, row) => sum + row.expense, 0);
+  const avgIncome = totalIncome / count;
+  const avgExpense = totalExpense / count;
   const profitable = active.filter((row) => row.profit > 0).length;
 
   const best = active.reduce((a, b) => (b.profit > a.profit ? b : a));
@@ -71,18 +69,10 @@ export function DynamicsTab({ range }: { range: DateRange }) {
     ],
     result: `${profitable} / ${count}`,
   };
-  const bestWorstCalc: Calc = {
-    title: 'Eng yaxshi va eng yomon oy',
-    formula: 'Har oy foydasi = Daromad − Xarajat; eng kattasi — eng yaxshi, eng kichigi — eng yomon',
-    inputs: active.map((r) => Q.money(`${formatPeriod(r.period)} foydasi`, r.profit)),
-    steps: [
-      `Eng yaxshi: ${formatPeriod(best.period)} = ${moneyText(best.income)} − ${moneyText(best.expense)} = ${moneyText(best.profit)}`,
-      `Eng yomon: ${formatPeriod(worst.period)} = ${moneyText(worst.income)} − ${moneyText(worst.expense)} = ${moneyText(worst.profit)}`,
-    ],
-    result: `${formatPeriod(best.period)} / ${formatPeriod(worst.period)}`,
-  };
-  const ratioCalc = (period: string, income: number, expense: number): Calc => {
-    const c = calcDivide(`${formatPeriod(period)}: xarajat / daromad`, Q.money('Xarajat', expense), Q.money('Daromad', income), 'ratio', {
+  const bestCalc = calcResult(best.income, best.expense, { title: `Eng yaxshi oy: ${formatPeriod(best.period)}` });
+  const worstCalc = calcResult(worst.income, worst.expense, { title: `Eng yomon oy: ${formatPeriod(worst.period)}` });
+  const ratioCalc = (p: string, income: number, expense: number): Calc => {
+    const c = calcDivide(`${formatPeriod(p)}: xarajat / daromad`, Q.money('Xarajat', expense), Q.money('Daromad', income), 'ratio', {
       note: "Har 1 so'm daromadga necha so'm xarajat. 1 dan kichik — foyda.",
     });
     if (income <= 0) return c;
@@ -90,116 +80,123 @@ export function DynamicsTab({ range }: { range: DateRange }) {
     return { ...c, steps: [...c.steps.slice(0, -1), `= ${value}`], result: value };
   };
 
+  // Yangi oydan boshlab; har oy — o'zidan oldingi oy bilan
+  const list = rows.map((row, i) => ({ ...row, prev: i > 0 ? rows[i - 1]! : null })).reverse();
+
+  const exportCsv = () =>
+    downloadCsv(
+      `dinamika-12-oy-${period}`,
+      ['Oy', "Daromad, so'm", "Daromad: oldingi oyga farq, so'm", 'Daromad: farq, %', "Xarajat, so'm", "Xarajat: oldingi oyga farq, so'm", 'Xarajat: farq, %', "Foyda, so'm", 'Xarajat / daromad'],
+      [
+        ...list.map((r) => {
+          const pi = r.prev?.income ?? 0;
+          const pe = r.prev?.expense ?? 0;
+          const ci = changeOf(r.income, pi);
+          const ce = changeOf(r.expense, pe);
+          return [
+            formatPeriod(r.period),
+            csvSom(r.income),
+            r.prev ? csvSom(r.income - pi) : '',
+            ci === null ? '' : ci.toFixed(1).replace('.', ','),
+            csvSom(r.expense),
+            r.prev ? csvSom(r.expense - pe) : '',
+            ce === null ? '' : ce.toFixed(1).replace('.', ','),
+            csvSom(r.profit),
+            r.income > 0 ? (r.expense / r.income).toFixed(2).replace('.', ',') : '',
+          ];
+        }),
+        ['Jami (12 oy)', csvSom(totalIncome), '', '', csvSom(totalExpense), '', '', csvSom(totalIncome - totalExpense), totalIncome > 0 ? (totalExpense / totalIncome).toFixed(2).replace('.', ',') : ''],
+      ],
+    );
+
+  const first = rows[0]!.period;
+  const last = rows[rows.length - 1]!.period;
+
   return (
     <div className="space-y-4">
-      {/* Qisqa xulosa */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryBox label="O'rtacha oylik daromad">
-          <CalcValue calc={avgIncomeCalc}>
-            <Money tiyin={String(Math.round(avgIncome))} tone="income" />
-          </CalcValue>
-        </SummaryBox>
+      <StatTiles
+        items={[
+          { label: "O'rtacha oylik daromad", value: Math.round(avgIncome), tone: 'green', note: `${count} oy bo'yicha`, calc: avgIncomeCalc },
+          { label: "O'rtacha oylik xarajat", value: Math.round(avgExpense), tone: 'red', note: `${count} oy bo'yicha`, calc: avgExpenseCalc },
+          { label: 'Foydali oylar', value: 0, text: `${profitable} / ${count}`, note: profitable === count ? 'Hamma oy foydada' : `${count - profitable} oy zararda`, tone: 'blue', calc: profitableCalc },
+          { label: 'Eng yaxshi oy', value: 0, text: formatPeriod(best.period), note: `Foyda ${moneyText(best.profit)}`, tone: 'cyan', calc: bestCalc },
+          { label: 'Eng yomon oy', value: 0, text: formatPeriod(worst.period), note: `${worst.profit < 0 ? 'Zarar' : 'Foyda'} ${moneyText(worst.profit)}`, tone: 'orange', calc: worstCalc },
+        ]}
+      />
 
-        <SummaryBox label="O'rtacha oylik xarajat">
-          <CalcValue calc={avgExpenseCalc}>
-            <Money tiyin={String(Math.round(avgExpense))} tone="expense" />
-          </CalcValue>
-        </SummaryBox>
-
-        <SummaryBox label="Foydali oylar">
-          <CalcValue calc={profitableCalc} className="money">
-            {profitable} / {count}
-          </CalcValue>
-        </SummaryBox>
-
-        <SummaryBox label="Eng yaxshi / eng yomon">
-          <CalcValue calc={bestWorstCalc} className="text-sm">
-            <span className="text-(--color-income)">{formatPeriod(best.period)}</span>
-            <span className="text-(--color-text-faint)"> / </span>
-            <span className="text-(--color-expense)">{formatPeriod(worst.period)}</span>
-          </CalcValue>
-        </SummaryBox>
-      </div>
-
-      {/* Grafik */}
-      <Card>
-        <CardHeader
-          title="Daromad va xarajat"
-          description="Chiziqlar kesishgan joy — zarar oyi"
-        />
-        <CardBody>
-          <LineChart data={rows} />
-        </CardBody>
-      </Card>
-
-      {/* Oylik jadval */}
-      <Card className="overflow-hidden">
-        <CardHeader title="Oyma-oy" description="Yangi oydan boshlab" />
-
-        <Table>
-          <THead>
-            <Tr>
-              <Th className="w-32">Oy</Th>
-              <Th align="right">Daromad</Th>
-              <Th align="right">Xarajat</Th>
-              <Th align="right">Foyda</Th>
-              <Th align="right" className="w-24">
-                Nisbat
+      <ReportCard title="Oyma-oy: daromad, xarajat va natija" badge={`${formatPeriod(first)} — ${formatPeriod(last)} · har oy oldingi oy bilan`} actions={<ExcelButton onClick={exportCsv} />}>
+        <RTable minWidth={1040}>
+          <thead>
+            <tr>
+              <Th rowSpan={2} className="min-w-36 text-left">
+                Oy
               </Th>
+              <GroupTh span={3}>Daromad</GroupTh>
+              <GroupTh span={3}>Xarajat</GroupTh>
+              <GroupTh span={2}>Natija</GroupTh>
+            </tr>
+            <tr>
+              <Th className="first:border-l">Summa</Th>
+              <Th>Oldingi oyga farq</Th>
+              <Th>Foizda</Th>
+              <Th>Summa</Th>
+              <Th>Oldingi oyga farq</Th>
+              <Th>Foizda</Th>
+              <Th>Foyda</Th>
+              <Th>Xarajat / daromad</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <Tr total>
+              <NameCell sticky={false} sub={`${count} oy`}>
+                Jami
+              </NameCell>
+              <MoneyCell value={totalIncome} calc={calcSum('Jami daromad', active.map((r) => Q.money(formatPeriod(r.period), r.income)))} />
+              <Td />
+              <Td />
+              <MoneyCell value={totalExpense} calc={calcSum('Jami xarajat', active.map((r) => Q.money(formatPeriod(r.period), r.expense)))} />
+              <Td />
+              <Td />
+              <MoneyCell value={totalIncome - totalExpense} signedColor calc={calcResult(totalIncome, totalExpense, { title: 'Jami natija (12 oy)' })} />
+              <RatioCell income={totalIncome} expense={totalExpense} />
             </Tr>
-          </THead>
-
-          <TBody>
-            {[...rows].reverse().map((row) => {
-              const income = Number(row.incomeTiyin);
-              const expense = Number(row.expenseTiyin);
-              const ratio = income > 0 ? expense / income : null;
-              const isEmpty = income === 0 && expense === 0;
-
+            {list.map((r) => {
+              const empty = r.income === 0 && r.expense === 0;
               return (
-                <Tr key={row.period} className={cn(isEmpty && 'opacity-40')}>
-                  <Td className="text-(--color-text-muted)">{formatPeriod(row.period)}</Td>
-                  <Td money>
-                    <Money tiyin={row.incomeTiyin} tone="income" />
-                  </Td>
-                  <Td money>
-                    <Money tiyin={row.expenseTiyin} tone="expense" />
-                  </Td>
-                  <Td money>
-                    <CalcValue calc={isEmpty ? null : calcResult(income, expense, { title: `${formatPeriod(row.period)}: foyda` })}>
-                      <Money tiyin={row.profitTiyin} tone="auto" />
-                    </CalcValue>
-                  </Td>
-                  <Td
-                    align="right"
-                    className={cn(
-                      'money text-xs',
-                      ratio === null
-                        ? 'text-(--color-text-faint)'
-                        : ratio < 1
-                          ? 'text-(--color-income)'
-                          : 'text-(--color-expense)',
-                    )}
-                  >
-                    {ratio === null ? '\u2014' : <CalcValue calc={ratioCalc(row.period, income, expense)}>{ratio.toFixed(2).replace('.', ',')}</CalcValue>}
-                  </Td>
+                <Tr key={r.period} className={cn(empty && 'opacity-45')}>
+                  <NameCell sticky={false}>{formatPeriod(r.period)}</NameCell>
+                  <MoneyCell value={r.income} />
+                  {r.prev ? <DiffCell value={r.income - r.prev.income} /> : <Td className="text-(--color-text-faint)"></Td>}
+                  <PctCell value={r.prev ? changeOf(r.income, r.prev.income) : null} />
+                  <MoneyCell value={r.expense} />
+                  {r.prev ? <DiffCell value={r.expense - r.prev.expense} growthGood={false} /> : <Td className="text-(--color-text-faint)"></Td>}
+                  <PctCell value={r.prev ? changeOf(r.expense, r.prev.expense) : null} growthGood={false} />
+                  <MoneyCell value={r.profit} strong signedColor calc={empty ? null : calcResult(r.income, r.expense, { title: `${formatPeriod(r.period)}: foyda` })} />
+                  <RatioCell income={r.income} expense={r.expense} calc={r.income > 0 ? ratioCalc(r.period, r.income, r.expense) : null} />
                 </Tr>
               );
             })}
-          </TBody>
-        </Table>
-      </Card>
+          </tbody>
+        </RTable>
+        <TableNote>Yangi oydan boshlab. Xarajat / daromad — har 1 so&apos;m daromadga necha so&apos;m xarajat: 1 dan kichik — foyda (yashil), katta — zarar (qizil).</TableNote>
+      </ReportCard>
     </div>
   );
 }
 
-function SummaryBox({ label, children }: { label: string; children: React.ReactNode }) {
+function RatioCell({ income, expense, calc }: { income: number; expense: number; calc?: Calc | null }) {
+  const ratio = income > 0 ? expense / income : null;
   return (
-    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">
-        {label}
-      </p>
-      <div className="mt-2 text-lg font-semibold">{children}</div>
-    </div>
+    <Td>
+      {ratio === null ? (
+        <span className="text-(--color-text-faint)"></span>
+      ) : (
+        <span className={cn('inline-block min-w-12 rounded-full px-2 py-0.5 text-xs font-semibold', ratio < 1 ? 'bg-[#e3f5ea] text-[#0b7a3b]' : 'bg-[#fdecec] text-[#c22f34]')}>
+          <CalcValue calc={calc} className="no-underline">
+            {ratio.toFixed(2).replace('.', ',')}
+          </CalcValue>
+        </span>
+      )}
+    </Td>
   );
 }

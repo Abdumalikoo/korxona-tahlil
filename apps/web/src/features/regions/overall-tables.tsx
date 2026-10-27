@@ -19,12 +19,12 @@ import type { CoverResult } from './center-cover';
 // Hamma summalar to'liq (so'm) — «qisqa» tugmasi bilan mln/mlrd ko'rinishiga o'tadi.
 // ═══════════════════════════════════════════════════════════
 
-const TH = 'px-2.5 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-(--color-text-muted) whitespace-nowrap';
+const TH = 'px-2.5 py-2.5 text-xs font-bold text-heading whitespace-nowrap';
 
 export type Fmt = 'full' | 'short';
 
 export function money(tiyin: number, fmt: Fmt): string {
-  if (Math.round(tiyin / 100) === 0) return '—';
+  if (Math.round(tiyin / 100) === 0) return '';
   return fmt === 'full' ? num(tiyin) : compact(tiyin);
 }
 
@@ -41,7 +41,7 @@ function Delta({ cur, prev, up = true, className }: { cur: number; prev: number;
   return (
     <td className={cn('px-2.5 py-2 text-right tabular-nums', className)}>
       <span className={cn('block text-xs font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>
-        {c === null ? (Math.round(diff / 100) ? 'yangi' : '—') : pct(c, true)}
+        {c === null ? '' : pct(c, true)}
       </span>
       {Math.round(diff / 100) !== 0 && <span className="block text-[10.5px] text-(--color-text-faint)">{`${diff > 0 ? '+' : '−'}${compact(Math.abs(diff))}`}</span>}
     </td>
@@ -66,7 +66,10 @@ function Head({ title, hint, children }: { title: string; hint?: ReactNode; chil
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-4">
       <div className="min-w-0">
-        <h3 className="text-sm font-bold text-heading">{title}</h3>
+        <h3 className="flex items-center gap-2.5 text-base font-bold text-heading">
+          <span className="h-5 w-1 rounded-full bg-brand-600" aria-hidden />
+          {title}
+        </h3>
         {hint && <p className="mt-0.5 text-xs text-(--color-text-muted)">{hint}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">{children}</div>
@@ -195,12 +198,12 @@ export function CompareTable({ units, compareLabel, onOpen }: { units: UnitStats
         </td>
         <td className="px-2.5 py-2 text-right tabular-nums text-(--color-text-muted)">{money(pp, fmt)}</td>
         <Delta cur={p} prev={pp} />
-        <td className="border-l border-(--color-line) px-2.5 py-2 text-right tabular-nums">{isCenter ? <span className="text-(--color-text-faint)">—</span> : pct(m)}</td>
+        <td className="border-l border-(--color-line) px-2.5 py-2 text-right tabular-nums">{isCenter ? <span className="text-(--color-text-faint)"></span> : pct(m)}</td>
         <td className={cn('px-2.5 py-2 text-right text-xs tabular-nums', m !== null && mp !== null && m - mp > 0 ? 'text-(--color-income)' : m !== null && mp !== null && m - mp < 0 ? 'text-(--color-expense)' : 'text-(--color-text-faint)')}>
-          {isCenter || m === null || mp === null ? '—' : `${m - mp > 0 ? '+' : m - mp < 0 ? '−' : ''}${Math.abs(m - mp).toFixed(1).replace('.', ',')} p.p.`}
+          {isCenter || m === null || mp === null ? '' : `${m - mp > 0 ? '+' : m - mp < 0 ? '−' : ''}${Math.abs(m - mp).toFixed(1).replace('.', ',')} p.p.`}
         </td>
         <td className="border-l border-(--color-line) px-2.5 py-2 text-right tabular-nums">
-          {t.headcount || '—'}
+          {t.headcount || ''}
           {t.previousHeadcount !== t.headcount && t.previousHeadcount > 0 && <span className="block text-[10.5px] text-(--color-text-faint)">o&apos;tgan {t.previousHeadcount}</span>}
         </td>
       </>
@@ -221,7 +224,7 @@ export function CompareTable({ units, compareLabel, onOpen }: { units: UnitStats
   };
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-2xl">
       <Head title="Taqqoslash: joriy davr va o'tgan davr" hint={`Har bir birlik uchun: joriy, ${compareLabel} va o'zgarish (% va summa). Qatorni bosing — umumiy jadvalda o'sha birlik to'liq ochiladi`}>
         <FmtToggle value={fmt} onChange={setFmt} />
         <SmallButton onClick={exportCsv}>CSV</SmallButton>
@@ -229,7 +232,7 @@ export function CompareTable({ units, compareLabel, onOpen }: { units: UnitStats
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1400px] border-collapse whitespace-nowrap text-[13px]">
           <thead>
-            <tr className="border-t border-(--color-line) bg-(--color-surface-muted) text-center">
+            <tr className="border-t border-(--color-line) bg-[#f3f6fd] text-center">
               <th className={TH} />
               <th colSpan={3} className={cn(TH, 'border-l border-(--color-line) text-center')}>
                 Daromad
@@ -245,8 +248,8 @@ export function CompareTable({ units, compareLabel, onOpen }: { units: UnitStats
               </th>
               <th className={cn(TH, 'border-l border-(--color-line) text-center')}>Xodim</th>
             </tr>
-            <tr className="border-y border-(--color-line) bg-(--color-surface-muted)">
-              <th className={cn(TH, 'sticky left-0 z-10 bg-(--color-surface-muted) text-left')}>Birlik</th>
+            <tr className="border-y border-(--color-line) bg-[#f3f6fd]">
+              <th className={cn(TH, 'sticky left-0 z-10 bg-[#f3f6fd] text-left')}>Birlik</th>
               {[0, 1, 2].map((i) => (
                 <FragmentHead key={i} />
               ))}
@@ -271,8 +274,8 @@ export function CompareTable({ units, compareLabel, onOpen }: { units: UnitStats
             })}
           </tbody>
           <tfoot>
-            <tr className="border-b border-(--color-line) bg-(--color-surface-muted)">
-              <td className="sticky left-0 z-[1] bg-(--color-surface-muted) px-2.5 py-2.5 font-semibold">
+            <tr className="border-b border-(--color-line) bg-[#eaf0fd]">
+              <td className="sticky left-0 z-[1] bg-[#eaf0fd] px-2.5 py-2.5 font-semibold">
                 Hududlar jami <span className="block text-[10.5px] font-normal text-(--color-text-faint)">{regions.length} ta hudud</span>
               </td>
               {cells(tot(regions), true)}
@@ -342,7 +345,7 @@ export function MonthsTable({ units, months, range, onOpen }: { units: UnitStats
     );
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-2xl">
       <Head title="Oylar bo'yicha: Markaz va hududlar" hint="Har bir birlikning har oydagi ko'rsatkichi. Qalin ustunlar — tanlangan davr oylari; kataklar rangi — kattaligiga qarab">
         <Segmented
           size="sm"
@@ -360,8 +363,8 @@ export function MonthsTable({ units, months, range, onOpen }: { units: UnitStats
       <div className="overflow-x-auto">
         <table className="w-full border-collapse whitespace-nowrap text-[12.5px]" style={{ minWidth: 220 + months.length * (fmt === 'full' ? 118 : 78) + 140 }}>
           <thead>
-            <tr className="border-y border-(--color-line) bg-(--color-surface-muted)">
-              <th className={cn(TH, 'sticky left-0 z-10 bg-(--color-surface-muted) text-left')}>Birlik</th>
+            <tr className="border-y border-(--color-line) bg-[#f3f6fd]">
+              <th className={cn(TH, 'sticky left-0 z-10 bg-[#f3f6fd] text-left')}>Birlik</th>
               {months.map((m) => (
                 <th key={m} className={cn(TH, 'text-right', inRange(m) && 'text-heading')}>
                   {formatPeriodShort(m)}
@@ -388,7 +391,7 @@ export function MonthsTable({ units, months, range, onOpen }: { units: UnitStats
           <tfoot>
             {(
               [
-                ['Hududlar jami', regTotal, 'bg-(--color-surface-muted)'],
+                ['Hududlar jami', regTotal, 'bg-[#eaf0fd]'],
                 ['Korxona jami', total, 'bg-[#eef2f8] font-bold'],
               ] as const
             ).map(([label, vals, cls]) => {
@@ -432,7 +435,7 @@ export function CoverTable({ cover, onOpenCode }: { cover: CoverResult; onOpenCo
       cover.rows.map((r) => [r.name, csvSom(r.income), csvSom(r.profit), csvSom(r.equalShare), csvSom(r.equalRest), csvSom(r.share), csvPct(r.coverPct), csvPct(r.ofProfitPct), csvSom(r.rest), csvPct(r.restMargin), STATUS[r.status].label]),
     );
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-2xl">
       <Head
         title="Markazni qoplash: har bir hudud ulushi"
         hint={
@@ -450,7 +453,7 @@ export function CoverTable({ cover, onOpenCode }: { cover: CoverResult; onOpenCo
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1200px] border-collapse whitespace-nowrap text-[13px]">
             <thead>
-              <tr className="border-y border-(--color-line) bg-(--color-surface-muted)">
+              <tr className="border-y border-(--color-line) bg-[#f3f6fd]">
                 <th className={cn(TH, 'w-8 text-center')}>#</th>
                 <th className={cn(TH, 'text-left')}>Hudud</th>
                 <th className={cn(TH, 'text-right')}>Daromad</th>

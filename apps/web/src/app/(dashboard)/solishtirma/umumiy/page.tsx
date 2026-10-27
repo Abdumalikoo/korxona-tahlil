@@ -4,7 +4,6 @@ import { PageHeader } from '@/components/layout/page-header';
 import { PeriodDataHint } from '@/components/shared/period-data-hint';
 import { OverallView } from '@/features/regions/overall-view';
 import { usePeriod } from '@/lib/period';
-import { BriefNote } from '@/lib/view-mode';
 
 /**
  * Solishtirma › Umumiy — butun korxona bitta ekranda:
@@ -19,11 +18,6 @@ export default function SolishtirmaUmumiyPage() {
       <div className="p-4 md:p-6">
         <PeriodDataHint className="mb-4" />
         <OverallView range={range} />
-        <BriefNote
-          className="mt-4"
-          shows="korxona jami (Hududlar | Markaz bo'yicha), natija ko'prigi, Markazni qoplash va umumiy jadval"
-          hidden="taqqoslash va oylar jadvallari, ulush lentalari va 12 oylik dinamika"
-        />
       </div>
     </>
   );

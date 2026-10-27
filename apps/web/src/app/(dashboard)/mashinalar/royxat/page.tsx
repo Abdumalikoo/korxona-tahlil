@@ -13,6 +13,7 @@ import { FuelImportDialog } from '@/features/vehicles/fuel-import';
 import { VehicleForm } from '@/features/vehicles/vehicle-form';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
+import { useVehicleBase } from '@/features/vehicles/base';
 import { formatPeriod, formatTiyin } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
@@ -28,7 +29,9 @@ import { useMemo, useState } from 'react';
 
 export default function VehicleListPage() {
   const { canWrite } = useAuth();
-  const editable = canWrite('/mashinalar');
+  /** Xarajatlar › Mashinalar yoki Mashinalar (Omborchi) — havolalar shu joyda qoladi */
+  const base = useVehicleBase();
+  const editable = canWrite(base) || canWrite('/mashinalar');
   const { month } = usePeriod();
   const list = useAsync(() => vehiclesApi.list(month), [month]);
   const summary = useAsync(() => vehiclesApi.summary(month, month), [month]);
@@ -125,7 +128,7 @@ export default function VehicleListPage() {
         description={`${active.length} ta faol mashina · ${formatPeriod(month)}`}
         actions={
           <div className="flex items-center gap-2">
-            <Link href="/mashinalar/avtopark" className="inline-flex h-10 items-center rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3.5 text-sm hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700">
+            <Link href={`${base}/avtopark`} className="inline-flex h-10 items-center rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3.5 text-sm hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700">
               3D avtopark
             </Link>
             {editable && (

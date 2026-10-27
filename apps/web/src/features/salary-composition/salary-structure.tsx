@@ -1,28 +1,19 @@
 'use client';
 
-import { formatPercent, formatPeriod, formatPeriodShort, formatTiyin } from '@/lib/format';
+import { formatPercent, formatPeriod, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { CalcValue } from '@/components/ui/calc';
 import { calcDiff, calcShare, calcSum, Q, type Calc } from '@/lib/calc';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useState } from 'react';
-
-import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { IconArrowRight, IconChevronDown } from '@/components/ui/icons';
-import { Money } from '@/components/ui/money';
-import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
-import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
-
+import { Fragment, useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { IconArrowRight } from '@/components/ui/icons';
+import { ErrorState, LoadingState } from '@/components/ui/states';
+import { GroupTh, MoneyCell, NameCell, PillTabs, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { EmptyNote, pctPlain, StatusBadge } from '@/components/report/report-extra-b';
 import { CATEGORY_COLORS, CATEGORY_LABELS, CATEGORY_ORDER, type ComponentCategory } from './api';
-import {
-    fetchSalaryStructure,
-    type SalaryStructure,
-    type StructurePerson,
-} from './structure-api';
-
-/** Tarkibi yuklanmagan qism rangi */
-const UNALLOCATED_COLOR = '#cbd5e1';
+import { fetchSalaryStructure, type SalaryStructure, type StructurePerson } from './structure-api';
 
 interface Props {
   /** Sana oralig'i: "YYYY-MM-DD" — oylari olinadi */
@@ -34,102 +25,67 @@ interface Props {
   compact?: boolean;
 }
 
+type View = 'groups' | 'months' | 'units' | 'people';
+
 /**
  * Ish haqi tuzilmasi — rasmiy summa (soliq hisoboti) tarkib guruhlariga bo'linadi.
  * Tarkibi yuklanmagan qism alohida ko'rsatiladi, shuning uchun jami rasmiy summaga teng.
+ * Hisobot ko'rinishi: kartalar, yorliqlar va jadvallar (grafiklarsiz).
  */
 export function SalaryStructureCard({ range, compact = false }: Props) {
-  const structure = useAsync(
-    () => fetchSalaryStructure(range.from, range.to),
-    [range.from, range.to],
-  );
-
+  const structure = useAsync(() => fetchSalaryStructure(range.from, range.to), [range.from, range.to]);
   const data = structure.data?.data;
-  const title = 'Ish haqi tuzilmasi';
   const periodText = `${formatPeriod(range.from.slice(0, 7))} — ${formatPeriod(range.to.slice(0, 7))}`;
 
-  if (structure.loading) {
+  if (structure.loading && !data) {
     return (
-      <Card>
-        <CardHeader title={title} description={periodText} />
+      <ReportCard title="Ish haqi tuzilmasi" badge={periodText}>
         <LoadingState />
-      </Card>
+      </ReportCard>
     );
   }
-
   if (structure.error || !data) {
     return (
       <Card>
-        <CardHeader title={title} description={periodText} />
         <ErrorState message={structure.error ?? 'Ma’lumot yo‘q'} onRetry={structure.reload} />
       </Card>
     );
   }
-
   if (data.totals.coveredPeriods === 0) {
     return (
-      <Card>
-        <CardHeader title={title} description={periodText} />
-        <EmptyState
-          title="Bu oraliqda ish haqi tarkibi yuklanmagan"
-          description="Ish haqi qanday qismlardan iborat ekanini ko'rish uchun tarkib faylini yuklang"
-          action={
-            <Link
-              href="/xarajatlar/tarkib"
-              className="text-sm font-medium text-brand-700 hover:underline"
-            >
-              Ish haqi tarkibi bo&rsquo;limiga o&rsquo;tish
-            </Link>
-          }
-        />
-      </Card>
+      <ReportCard title="Ish haqi tuzilmasi" badge={periodText}>
+        <EmptyNote>
+          Bu oraliqda ish haqi tarkibi yuklanmagan.{' '}
+          <Link href="/xarajatlar/tarkib" className="font-semibold text-brand-700 hover:underline">
+            Ish haqi tarkibi bo&rsquo;limiga o&rsquo;tish
+          </Link>
+        </EmptyNote>
+      </ReportCard>
     );
   }
-
   if (compact) return <CompactView data={data} range={range} periodText={periodText} />;
-
   return <FullView data={data} periodText={periodText} />;
 }
 
 // ═══════════════════════════════════════════════════════════
-// Ixcham ko'rinish
+// Ixcham ko'rinish (boshqa sahifalar uchun): faqat guruhlar jadvali
 // ═══════════════════════════════════════════════════════════
 
-function CompactView({
-  data,
-  range,
-  periodText,
-}: {
-  data: SalaryStructure;
-  range: { from: string; to: string };
-  periodText: string;
-}) {
-  const href = `/tahlil/umumiy?${new URLSearchParams({
-    dateFrom: range.from,
-    dateTo: range.to,
-    tab: 'expenses',
-  }).toString()}`;
-
+function CompactView({ data, range, periodText }: { data: SalaryStructure; range: { from: string; to: string }; periodText: string }) {
+  const href = `/tahlil/umumiy?${new URLSearchParams({ dateFrom: range.from, dateTo: range.to, tab: 'expenses' }).toString()}`;
   return (
-    <Card className="overflow-hidden">
-      <CardHeader
-        title="Ish haqi tuzilmasi"
-        description={`${periodText} · ${coverageText(data)}`}
-        actions={
-          <Link
-            href={href}
-            className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:underline"
-          >
-            Batafsil
-            <IconArrowRight className="size-3.5" />
-          </Link>
-        }
-      />
-      <CardBody className="space-y-4">
-        <StackBar data={data} />
-        <CategoryList data={data} />
-      </CardBody>
-    </Card>
+    <ReportCard
+      title="Ish haqi tuzilmasi"
+      badge={`${periodText} · ${coverageText(data)}`}
+      actions={
+        <Link href={href} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:underline">
+          Batafsil
+          <IconArrowRight className="size-3.5" />
+        </Link>
+      }
+    >
+      <GroupsTable data={data} />
+    </ReportCard>
   );
 }
 
@@ -138,96 +94,86 @@ function CompactView({
 // ═══════════════════════════════════════════════════════════
 
 function FullView({ data, periodText }: { data: SalaryStructure; periodText: string }) {
+  const [view, setView] = useState<View>('groups');
   const { totals } = data;
   const bonus = totals.byCategory.find((c) => c.category === 'PREMIYA');
-  const unallocated = BigInt(totals.unallocatedTiyin);
+  const unallocated = Number(totals.unallocatedTiyin);
 
   return (
     <div className="space-y-4">
-      {/* Asosiy raqamlar */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile
-          label="Rasmiy ish haqi"
-          value={formatTiyin(totals.payrollTiyin)}
-          hint={periodText}
-          calc={calcSum('Rasmiy ish haqi', data.periods.map((p) => Q.money(formatPeriod(p.period), p.payrollTiyin, 'Ish haqi qaydnomasi (soliq hisoboti)')))}
-        />
-        <Tile
-          label="Tarkibda taqsimlangan"
-          value={formatTiyin(totals.compositionTiyin)}
-          hint={coverageText(data)}
-          calc={calcSum('Tarkibda taqsimlangan', totals.byCategory.map((c) => Q.money(c.label, c.totalTiyin, 'Ish haqi tarkibi fayli')), {
-            note: `Qamrov = ${formatTiyin(totals.compositionTiyin)} ÷ ${formatTiyin(totals.payrollTiyin)} × 100 = ${formatPercent(totals.coveragePercent)}`,
-          })}
-        />
-        <Tile
-          label="Premiyalar ulushi"
-          value={formatPercent(bonus?.sharePercent ?? null)}
-          hint={bonus ? formatTiyin(bonus.totalTiyin) : 'Premiya yo‘q'}
-          tone="income"
-          calc={
-            bonus
+      <StatTiles
+        items={[
+          {
+            label: 'Rasmiy ish haqi',
+            value: Number(totals.payrollTiyin),
+            tone: 'blue',
+            note: periodText,
+            calc: calcSum('Rasmiy ish haqi', data.periods.map((p) => Q.money(formatPeriod(p.period), p.payrollTiyin, 'Ish haqi qaydnomasi (soliq hisoboti)'))),
+          },
+          {
+            label: 'Tarkibda taqsimlangan',
+            value: Number(totals.compositionTiyin),
+            tone: 'green',
+            note: coverageText(data),
+            calc: calcSum('Tarkibda taqsimlangan', totals.byCategory.map((c) => Q.money(c.label, c.totalTiyin, 'Ish haqi tarkibi fayli')), {
+              note: `Qamrov = ${formatTiyin(totals.compositionTiyin)} ÷ ${formatTiyin(totals.payrollTiyin)} × 100 = ${formatPercent(totals.coveragePercent)}`,
+            }),
+          },
+          {
+            label: 'Premiyalar ulushi',
+            value: 0,
+            text: formatPercent(bonus?.sharePercent ?? null),
+            tone: 'purple',
+            note: bonus ? `${formatTiyin(bonus.totalTiyin)}` : 'Premiya yo‘q',
+            calc: bonus
               ? calcShare('Premiyalar ulushi', Q.money('Premiyalar', bonus.totalTiyin), Q.money('Tarkib yuklangan oylardagi ish haqi', totals.coveredPayrollTiyin), {
-                  note: "Ulush faqat tarkibi yuklangan oylar ish haqiga nisbatan olinadi — yuklanmagan oylar ulushni kamaytirib yubormasligi uchun.",
+                  note: 'Ulush faqat tarkibi yuklangan oylar ish haqiga nisbatan olinadi — yuklanmagan oylar ulushni kamaytirib yubormasligi uchun.',
                 })
-              : null
-          }
-        />
-        <Tile
-          label="Tarkibi yuklanmagan"
-          value={formatTiyin(totals.unallocatedTiyin)}
-          calc={calcDiff('Tarkibi yuklanmagan', Q.money('Rasmiy ish haqi', totals.payrollTiyin), Q.money('Tarkibda taqsimlangan', totals.compositionTiyin))}
-          hint={
-            unallocated === 0n
-              ? 'Hammasi taqsimlangan'
-              : 'Soliq hisobotidagi, tarkibda yo‘q summa'
-          }
-          tone={unallocated === 0n ? 'neutral' : 'warn'}
-        />
-      </div>
+              : null,
+          },
+          {
+            label: 'Tarkibi yuklanmagan',
+            value: unallocated,
+            tone: unallocated === 0 ? 'cyan' : 'orange',
+            note: unallocated === 0 ? 'Hammasi taqsimlangan' : 'Soliq hisobotidagi, tarkibda yo‘q summa',
+            calc: calcDiff('Tarkibi yuklanmagan', Q.money('Rasmiy ish haqi', totals.payrollTiyin), Q.money('Tarkibda taqsimlangan', totals.compositionTiyin)),
+          },
+        ]}
+      />
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        {/* Guruhlar */}
-        <Card className="overflow-hidden">
-          <CardHeader
-            title="Guruhlar bo'yicha"
-            description="Ulush — tarkib yuklangan oylardagi rasmiy ish haqiga nisbatan"
-          />
-          <CardBody className="space-y-4">
-            <StackBar data={data} />
-            <CategoryList data={data} />
-          </CardBody>
-        </Card>
+      <PillTabs
+        value={view}
+        onChange={setView}
+        options={[
+          { value: 'groups', label: 'Guruhlar bo‘yicha', hint: 'Asosiy ish haqi, premiya, ta’til … — bosib tarkibiy qismlarini oching' },
+          { value: 'months', label: 'Oylar bo‘yicha', hint: 'Har oy ish haqi qanday tarkibdan iborat' },
+          { value: 'units', label: 'Bo‘limlar va hududlar', hint: 'Har bo‘lim ish haqi tuzilmasi' },
+          { value: 'people', label: 'Premiya va jarimalar', hint: 'Eng katta premiya va jarimalar' },
+        ]}
+      />
 
-        {/* Oylar */}
-        <Card className="overflow-hidden">
-          <CardHeader title="Oylar bo'yicha" description="Har oy ish haqi qanday tarkibdan iborat" />
-          <CardBody>
-            <MonthBars data={data} />
-          </CardBody>
-        </Card>
-      </div>
-
-      <UnitsTable data={data} />
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <PeopleCard
-          title="Eng katta premiyalar"
-          description="Oraliq bo'yicha jami · ulush — xodim ish haqida"
-          people={data.topBonus}
-          tone="income"
-          what="Premiya"
-          empty="Premiya yo'q"
-        />
-        <PeopleCard
-          title="Eng katta jarimalar"
-          description="Oraliq bo'yicha jami · ulush — xodim ish haqida"
-          people={data.topPenalty}
-          tone="expense"
-          what="Jarima"
-          empty="Jarima yo'q"
-        />
-      </div>
+      {view === 'groups' && (
+        <ReportCard title="Ish haqi — guruhlar bo'yicha" badge={`${periodText} · ${coverageText(data)}`}>
+          <GroupsTable data={data} />
+          <TableNote>Ulushi — tarkib yuklangan oylardagi rasmiy ish haqiga nisbatan. Guruh nomini bosing — tarkibiy qismlari ochiladi.</TableNote>
+        </ReportCard>
+      )}
+      {view === 'months' && (
+        <ReportCard title="Ish haqi — oylar bo'yicha" badge={periodText}>
+          <MonthsTable data={data} />
+        </ReportCard>
+      )}
+      {view === 'units' && (
+        <ReportCard title="Bo'limlar va hududlar bo'yicha" badge="guruh ulushlari — tarkib yuklangan oylardagi ish haqiga nisbatan">
+          <UnitsTable data={data} />
+        </ReportCard>
+      )}
+      {view === 'people' && (
+        <div className="grid gap-4 2xl:grid-cols-2">
+          <PeopleCard title="Eng katta premiyalar" people={data.topBonus} what="Premiya" empty="Premiya yo'q" />
+          <PeopleCard title="Eng katta jarimalar" people={data.topPenalty} what="Jarima" empty="Jarima yo'q" />
+        </div>
+      )}
     </div>
   );
 }
@@ -241,231 +187,149 @@ function coverageText(data: SalaryStructure): string {
   return `tarkib ${data.totals.coveredPeriods}/${months} oy · qamrov ${formatPercent(data.totals.coveragePercent)}`;
 }
 
-function Tile({
-  label,
-  value,
-  hint,
-  tone = 'neutral',
-  calc,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: 'neutral' | 'income' | 'expense' | 'warn';
-  calc?: Calc | null;
-}) {
-  const colors = {
-    neutral: 'text-(--color-text)',
-    income: 'text-(--color-income)',
-    expense: 'text-(--color-expense)',
-    warn: 'text-(--color-warn)',
-  };
-
-  return (
-    <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">{label}</p>
-      <p className={cn('money mt-2 text-xl font-semibold', colors[tone])}>
-        <CalcValue calc={calc}>{value}</CalcValue>
-      </p>
-      {hint && <p className="mt-1 text-xs text-(--color-text-muted)">{hint}</p>}
-    </div>
-  );
+function Dot({ category }: { category: ComponentCategory }) {
+  return <span className="inline-block size-2.5 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[category] }} />;
 }
 
-/** Umumiy ulush chizig'i — tarkib yuklangan oylar bo'yicha */
-function StackBar({ data }: { data: SalaryStructure }) {
-  const covered = Number(data.totals.coveredPayrollTiyin);
-  if (covered <= 0) return null;
-
-  const segments = data.totals.byCategory
-    .filter((c) => BigInt(c.totalTiyin) > 0n)
-    .map((c) => ({
-      key: c.category,
-      label: c.label,
-      color: CATEGORY_COLORS[c.category],
-      width: (Number(c.totalTiyin) / covered) * 100,
-    }));
-
-  const used = segments.reduce((sum, s) => sum + s.width, 0);
-  const rest = Math.max(0, 100 - used);
-
-  return (
-    <div className="flex h-3 w-full overflow-hidden rounded-full bg-(--color-surface-sunken)">
-      {segments.map((segment) => (
-        <div
-          key={segment.key}
-          title={`${segment.label}: ${formatPercent(segment.width)}`}
-          style={{ width: `${segment.width}%`, backgroundColor: segment.color }}
-        />
-      ))}
-      {rest > 0.2 && (
-        <div
-          title={`Tarkibi yuklanmagan / farq: ${formatPercent(rest)}`}
-          style={{ width: `${rest}%`, backgroundColor: UNALLOCATED_COLOR }}
-        />
-      )}
-    </div>
-  );
-}
-
-/** Guruhlar ro'yxati — ochilganda komponentlar */
-function CategoryList({ data }: { data: SalaryStructure }) {
+/** Guruhlar jadvali — bosilsa tarkibiy qismlari ochiladi */
+function GroupsTable({ data }: { data: SalaryStructure }) {
   const [open, setOpen] = useState<ComponentCategory | null>(null);
-
+  const covered = data.totals.coveredPayrollTiyin;
   return (
-    <div className="divide-y divide-(--color-line) rounded-(--radius-control) border border-(--color-line)">
-      {data.totals.byCategory.map((category) => {
-        const expanded = open === category.category;
-        const items = data.byComponent.filter((c) => c.category === category.category);
-        const negative = BigInt(category.totalTiyin) < 0n;
-
-        return (
-          <div key={category.category}>
-            <button
-              type="button"
-              onClick={() => setOpen(expanded ? null : category.category)}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-(--color-surface-muted)"
-            >
-              <span
-                className="size-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: CATEGORY_COLORS[category.category] }}
-              />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{category.label}</span>
-              <span className="w-16 shrink-0 text-right text-xs text-(--color-text-muted)">
-                <CalcValue calc={calcShare(`${category.label}: ulush`, Q.money(category.label, category.totalTiyin), Q.money('Tarkib yuklangan oylardagi ish haqi', data.totals.coveredPayrollTiyin))}>
-                  {formatPercent(category.sharePercent)}
-                </CalcValue>
-              </span>
-              <span className="w-36 shrink-0 text-right">
-                <Money tiyin={category.totalTiyin} tone={negative ? 'expense' : 'neutral'} />
-              </span>
-              <IconChevronDown
-                className={cn(
-                  'size-4 shrink-0 text-(--color-text-faint) transition-transform',
-                  expanded && 'rotate-180',
-                )}
-              />
-            </button>
-
-            {expanded && (
-              <div className="bg-(--color-surface-muted) px-4 py-2">
-                {items.map((item) => (
-                  <div key={item.code} className="flex items-center gap-3 py-1.5 pl-5 text-sm">
-                    <span className="min-w-0 flex-1 truncate text-(--color-text-muted)">{item.name}</span>
-                    <span className="w-20 shrink-0 text-right text-xs text-(--color-text-muted)">
-                      {item.employees} xodim
-                    </span>
-                    <span className="w-36 shrink-0 text-right">
-                      <Money tiyin={item.totalTiyin} tone={item.sign < 0 ? 'expense' : 'neutral'} />
-                    </span>
-                    <span className="w-4 shrink-0" />
-                  </div>
+    <RTable minWidth={760}>
+      <thead>
+        <tr>
+          <Th className="w-12">№</Th>
+          <Th className="min-w-64 text-left">Guruh</Th>
+          <Th>Xodimlar</Th>
+          <Th>Summa, so&apos;m</Th>
+          <Th>Ulushi</Th>
+        </tr>
+      </thead>
+      <tbody>
+        <Tr total>
+          <Td />
+          <NameCell sticky={false}>Rasmiy ish haqi — jami</NameCell>
+          <Td />
+          <MoneyCell value={Number(data.totals.payrollTiyin)} />
+          <Td>100%</Td>
+        </Tr>
+        {data.totals.byCategory.map((category, i) => {
+          const expanded = open === category.category;
+          const items = data.byComponent.filter((c) => c.category === category.category);
+          return (
+            <Fragment key={category.category}>
+              <Tr onClick={() => setOpen(expanded ? null : category.category)}>
+                <Td className="text-(--color-text-faint)">{i + 1}</Td>
+                <NameCell sticky={false} before={<Dot category={category.category} />} sub={`${items.length} ta tarkibiy qism`}>
+                  <span className="font-medium text-heading">
+                    {category.label} <span className="text-(--color-text-faint)">{expanded ? '▾' : '▸'}</span>
+                  </span>
+                </NameCell>
+                <Td />
+                <MoneyCell value={Number(category.totalTiyin)} strong signedColor={Number(category.totalTiyin) < 0} />
+                <Td>
+                  <CalcValue
+                    calc={calcShare(`${category.label}: ulush`, Q.money(category.label, category.totalTiyin), Q.money('Tarkib yuklangan oylardagi ish haqi', covered))}
+                    className="no-underline"
+                  >
+                    {formatPercent(category.sharePercent)}
+                  </CalcValue>
+                </Td>
+              </Tr>
+              {expanded &&
+                items.map((item) => (
+                  <Tr key={item.code} muted>
+                    <Td />
+                    <NameCell sticky={false} className="pl-10">
+                      <span className="text-(--color-text-muted)">{item.name}</span>
+                    </NameCell>
+                    <Td className="text-(--color-text-muted)">{item.employees}</Td>
+                    <MoneyCell value={Number(item.totalTiyin)} signedColor={item.sign < 0} />
+                    <Td className="text-(--color-text-muted)">{Number(covered) > 0 ? pctPlain((Number(item.totalTiyin) / Number(covered)) * 100) : ''}</Td>
+                  </Tr>
                 ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      {/* Tarkibi yuklanmagan */}
-      {BigInt(data.totals.unallocatedTiyin) !== 0n && (
-        <div className="flex items-center gap-3 px-4 py-2.5">
-          <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: UNALLOCATED_COLOR }} />
-          <span className="min-w-0 flex-1 truncate text-sm text-(--color-text-muted)">
-            Tarkibi yuklanmagan / farq
-          </span>
-          <span className="w-16 shrink-0" />
-          <span className="w-36 shrink-0 text-right">
-            <Money tiyin={data.totals.unallocatedTiyin} className="text-(--color-text-muted)" />
-          </span>
-          <span className="w-4 shrink-0" />
-        </div>
-      )}
-    </div>
+            </Fragment>
+          );
+        })}
+        {Number(data.totals.unallocatedTiyin) !== 0 && (
+          <Tr muted>
+            <Td />
+            <NameCell sticky={false} sub="soliq hisobotidagi, tarkibda yo'q summa">
+              Tarkibi yuklanmagan / farq
+            </NameCell>
+            <Td />
+            <MoneyCell value={Number(data.totals.unallocatedTiyin)} className="text-(--color-text-muted)" />
+            <Td />
+          </Tr>
+        )}
+      </tbody>
+    </RTable>
   );
 }
 
-/** Har oy uchun gorizontal ustun — guruhlar rasmiy summaga nisbatan */
-function MonthBars({ data }: { data: SalaryStructure }) {
-  const max = Math.max(...data.periods.map((p) => Number(p.payrollTiyin)), 1);
+/** Oylar: rasmiy summa va guruhlar */
+function MonthsTable({ data }: { data: SalaryStructure }) {
   const present = new Set(data.totals.byCategory.map((c) => c.category));
-  const categories = CATEGORY_ORDER.filter((c) => present.has(c) && c !== 'JARIMA');
-
+  const categories = CATEGORY_ORDER.filter((c) => present.has(c));
   return (
-    <div className="space-y-2">
-      {data.periods.map((period) => {
-        const payroll = Number(period.payrollTiyin);
-        const rowWidth = (payroll / max) * 100;
-
-        return (
-          <div key={period.period} className="flex items-center gap-3">
-            <span className="w-16 shrink-0 text-xs text-(--color-text-muted)">
-              {formatPeriodShort(period.period)}
-            </span>
-
-            <div className="h-5 min-w-0 flex-1">
-              {payroll > 0 ? (
-                <div
-                  className="flex h-full overflow-hidden rounded"
-                  style={{ width: `${Math.max(rowWidth, 2)}%` }}
-                  title={`${formatPeriod(period.period)}: ${formatTiyin(period.payrollTiyin)}`}
-                >
-                  {period.compositionUploaded ? (
-                    <>
-                      {categories.map((category) => {
-                        const value = Number(period.byCategory[category]);
-                        if (value <= 0) return null;
-                        return (
-                          <div
-                            key={category}
-                            title={`${CATEGORY_LABELS[category]}: ${formatTiyin(value)}`}
-                            style={{
-                              width: `${(value / payroll) * 100}%`,
-                              backgroundColor: CATEGORY_COLORS[category],
-                            }}
-                          />
-                        );
-                      })}
-                      {Number(period.unallocatedTiyin) > 0 && (
-                        <div
-                          title={`Tarkibi yuklanmagan: ${formatTiyin(period.unallocatedTiyin)}`}
-                          style={{
-                            width: `${(Number(period.unallocatedTiyin) / payroll) * 100}%`,
-                            backgroundColor: UNALLOCATED_COLOR,
-                          }}
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <div className="h-full w-full" style={{ backgroundColor: UNALLOCATED_COLOR }} />
-                  )}
-                </div>
+    <RTable minWidth={420 + categories.length * 120}>
+      <thead>
+        <tr>
+          <Th rowSpan={2} className="w-32 text-left">Oy</Th>
+          <Th rowSpan={2}>Rasmiy ish haqi</Th>
+          <GroupTh span={categories.length}>Tarkib guruhlari</GroupTh>
+          <Th rowSpan={2}>Tarkibi yuklanmagan</Th>
+          <Th rowSpan={2}>Holat</Th>
+        </tr>
+        <tr>
+          {categories.map((c, i) => (
+            <Th key={c} className={cn('whitespace-nowrap', i === 0 && 'first:border-l')}>
+              <span className="inline-flex items-center gap-1.5">
+                <Dot category={c} />
+                {CATEGORY_LABELS[c]}
+              </span>
+            </Th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        <Tr total>
+          <Td className="text-left">Jami</Td>
+          <MoneyCell value={Number(data.totals.payrollTiyin)} />
+          {categories.map((c) => (
+            <MoneyCell key={c} value={Number(data.totals.byCategory.find((x) => x.category === c)?.totalTiyin ?? 0)} />
+          ))}
+          <MoneyCell value={Number(data.totals.unallocatedTiyin)} />
+          <Td />
+        </Tr>
+        {data.periods.map((p) => (
+          <Tr key={p.period}>
+            <Td className="whitespace-nowrap text-left">{formatPeriod(p.period)}</Td>
+            {p.payrollUploaded ? <MoneyCell value={Number(p.payrollTiyin)} strong /> : <Td className="text-(--color-text-faint)"></Td>}
+            {categories.map((c) =>
+              p.compositionUploaded && Number(p.byCategory[c]) !== 0 ? (
+                <MoneyCell key={c} value={Number(p.byCategory[c])} signedColor={c === 'JARIMA'} />
               ) : (
-                <span className="text-xs text-(--color-text-faint)">ish haqi yuklanmagan</span>
+                <Td key={c} className="text-(--color-text-faint)">
+                  —
+                </Td>
+              ),
+            )}
+            {Number(p.unallocatedTiyin) !== 0 ? <MoneyCell value={Number(p.unallocatedTiyin)} className="text-(--color-text-muted)" /> : <Td className="text-(--color-text-faint)"></Td>}
+            <Td>
+              {!p.payrollUploaded ? (
+                <StatusBadge tone="muted">ish haqi yuklanmagan</StatusBadge>
+              ) : p.compositionUploaded ? (
+                <StatusBadge tone="green">tarkib bor</StatusBadge>
+              ) : (
+                <StatusBadge tone="amber">tarkib yo‘q</StatusBadge>
               )}
-            </div>
-
-            <span className="money w-28 shrink-0 text-right text-xs">
-              {payroll > 0 ? formatTiyin(period.payrollTiyin) : '—'}
-            </span>
-          </div>
-        );
-      })}
-
-      {/* Izoh */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2">
-        {categories.map((category) => (
-          <span key={category} className="inline-flex items-center gap-1.5 text-xs text-(--color-text-muted)">
-            <span className="size-2 rounded-sm" style={{ backgroundColor: CATEGORY_COLORS[category] }} />
-            {CATEGORY_LABELS[category]}
-          </span>
+            </Td>
+          </Tr>
         ))}
-        <span className="inline-flex items-center gap-1.5 text-xs text-(--color-text-muted)">
-          <span className="size-2 rounded-sm" style={{ backgroundColor: UNALLOCATED_COLOR }} />
-          Tarkibi yuklanmagan
-        </span>
-      </div>
-    </div>
+      </tbody>
+    </RTable>
   );
 }
 
@@ -473,149 +337,102 @@ function MonthBars({ data }: { data: SalaryStructure }) {
 function UnitsTable({ data }: { data: SalaryStructure }) {
   const present = new Set(data.totals.byCategory.map((c) => c.category));
   const categories = CATEGORY_ORDER.filter((c) => present.has(c));
-
   const share = (value: string, base: string): number | null => {
     const b = Number(base);
     return b > 0 ? (Number(value) / b) * 100 : null;
   };
-
   return (
-    <Card className="overflow-hidden">
-      <CardHeader
-        title="Bo'limlar va hududlar bo'yicha"
-        description="Guruh ulushlari — tarkib yuklangan oylardagi ish haqiga nisbatan"
-      />
-
-      <Table>
-        <THead>
-          <Tr>
-            <Th className="min-w-[14rem]">Bo&apos;lim / hudud</Th>
-            <Th align="center" className="w-20">
-              Xodim
+    <RTable minWidth={560 + categories.length * 100}>
+      <thead>
+        <tr>
+          <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+          <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>Bo&apos;lim / hudud</Th>
+          <Th rowSpan={2}>Xodim</Th>
+          <Th rowSpan={2}>Rasmiy ish haqi</Th>
+          <GroupTh span={categories.length}>Guruh ulushlari</GroupTh>
+          <Th rowSpan={2}>Tarkibi yuklanmagan</Th>
+        </tr>
+        <tr>
+          {categories.map((c, i) => (
+            <Th key={c} className={cn('whitespace-nowrap', i === 0 && 'first:border-l')}>
+              {CATEGORY_LABELS[c]}
             </Th>
-            <Th align="right" className="w-36">
-              Rasmiy ish haqi
-            </Th>
-            {categories.map((category) => (
-              <Th key={category} align="right" className="w-28 whitespace-nowrap normal-case">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="size-2 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[category] }} />
-                  {CATEGORY_LABELS[category]}
-                </span>
-              </Th>
-            ))}
-            <Th align="right" className="w-36">
-              Tarkibi yuklanmagan
-            </Th>
-          </Tr>
-        </THead>
-
-        <TBody>
-          {data.units.map((unit) => (
-            <Tr key={unit.key}>
-              <Td>
-                <span className="block truncate font-medium">{unit.label}</span>
-                <span className="text-xs text-(--color-text-muted)">
-                  {unit.kind === 'department' ? 'Markaz bo‘limi' : unit.kind === 'contract' ? 'Shartnoma' : 'Hudud'}
-                </span>
-              </Td>
-              <Td align="center" className="money text-(--color-text-muted)">
-                {unit.employees}
-              </Td>
-              <Td money>
-                <Money tiyin={unit.payrollTiyin} />
-              </Td>
-              {categories.map((category) => {
-                const value = unit.byCategory[category];
-                const pct = share(value, unit.coveredPayrollTiyin);
-                return (
-                  <Td key={category} align="right" className="money">
-                    {BigInt(value) === 0n ? (
-                      <span className="text-(--color-text-faint)">&mdash;</span>
-                    ) : (
-                      <span
-                        className={cn(
-                          'text-sm',
-                          category === 'PREMIYA' && 'font-medium text-(--color-income)',
-                          category === 'JARIMA' && 'text-(--color-expense)',
-                        )}
-                        title={formatTiyin(value)}
-                      >
-                        <CalcValue calc={calcShare(`${CATEGORY_LABELS[category]}: ulush`, Q.money(CATEGORY_LABELS[category], value), Q.money('Tarkib yuklangan oylardagi ish haqi', unit.coveredPayrollTiyin))}>
-                          {formatPercent(pct)}
-                        </CalcValue>
-                      </span>
-                    )}
-                  </Td>
-                );
-              })}
-              <Td money>
-                {BigInt(unit.unallocatedTiyin) === 0n ? (
-                  <span className="text-(--color-text-faint)">&mdash;</span>
-                ) : (
-                  <Money tiyin={unit.unallocatedTiyin} className="text-(--color-text-muted)" />
-                )}
-              </Td>
-            </Tr>
           ))}
-        </TBody>
-      </Table>
-    </Card>
+        </tr>
+      </thead>
+      <tbody>
+        {data.units.map((unit, i) => (
+          <Tr key={unit.key}>
+            <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+            <NameCell sub={unit.kind === 'department' ? 'Markaz bo‘limi' : unit.kind === 'contract' ? 'Shartnoma' : 'Hudud'}>{unit.label}</NameCell>
+            <Td className="text-(--color-text-muted)">{unit.employees}</Td>
+            <MoneyCell value={Number(unit.payrollTiyin)} strong />
+            {categories.map((category) => {
+              const value = unit.byCategory[category];
+              const p = share(value, unit.coveredPayrollTiyin);
+              return (
+                <Td key={category} className={cn(category === 'PREMIYA' && 'font-semibold text-(--color-income)', category === 'JARIMA' && 'text-(--color-expense)')}>
+                  {Number(value) === 0 ? (
+                    <span className="text-(--color-text-faint)"></span>
+                  ) : (
+                    <CalcValue
+                      calc={calcShare(`${CATEGORY_LABELS[category]}: ulush`, Q.money(CATEGORY_LABELS[category], value), Q.money('Tarkib yuklangan oylardagi ish haqi', unit.coveredPayrollTiyin))}
+                      className="no-underline"
+                    >
+                      <span title={formatTiyin(value)}>{formatPercent(p)}</span>
+                    </CalcValue>
+                  )}
+                </Td>
+              );
+            })}
+            {Number(unit.unallocatedTiyin) === 0 ? <Td className="text-(--color-text-faint)"></Td> : <MoneyCell value={Number(unit.unallocatedTiyin)} className="text-(--color-text-muted)" />}
+          </Tr>
+        ))}
+      </tbody>
+    </RTable>
   );
 }
 
-function PeopleCard({
-  title,
-  description,
-  people,
-  tone,
-  what,
-  empty,
-}: {
-  title: string;
-  description: string;
-  people: StructurePerson[];
-  tone: 'income' | 'expense';
-  /** "Premiya" yoki "Jarima" — hisob-kitob matni uchun */
-  what: string;
-  empty: string;
-}) {
+function PeopleCard({ title, people, what, empty }: { title: string; people: StructurePerson[]; /** "Premiya" yoki "Jarima" */ what: string; empty: string }) {
   // «Qanday hisoblandi?»: summa — oylar yig'indisi; ulush — summa ÷ xodim ish haqi × 100
   const sumCalc = (p: StructurePerson): Calc =>
     calcSum(`${p.fullName}: ${what.toLowerCase()}`, p.months.map((m) => Q.money(formatPeriod(m.period), m.amountTiyin, 'Ish haqi tarkibi')), {
       note: `${p.unitName}. Faqat tarkib yuklangan oylar.`,
     });
   const shareCalc = (p: StructurePerson): Calc =>
-    calcShare(`${p.fullName}: ${what.toLowerCase()} ulushi`, Q.money(what, p.amountTiyin, 'Ish haqi tarkibi'), Q.money("Xodimning ish haqi (tarkib yuklangan oylarda)", p.payrollTiyin, 'Ish haqi qaydnomasi'));
+    calcShare(`${p.fullName}: ${what.toLowerCase()} ulushi`, Q.money(what, p.amountTiyin, 'Ish haqi tarkibi'), Q.money('Xodimning ish haqi (tarkib yuklangan oylarda)', p.payrollTiyin, 'Ish haqi qaydnomasi'));
   return (
-    <Card className="overflow-hidden">
-      <CardHeader title={title} description={description} />
-
+    <ReportCard title={title} badge="oraliq bo'yicha jami · ulushi — xodim ish haqida">
       {people.length === 0 ? (
-        <EmptyState title={empty} />
+        <EmptyNote>{empty}</EmptyNote>
       ) : (
-        <div className="divide-y divide-(--color-line)">
-          {people.map((person, index) => (
-            <div key={person.pinfl} className="flex items-center gap-3 px-4 py-2 text-sm">
-              <span className="money w-6 shrink-0 text-center text-xs text-(--color-text-faint)">
-                {index + 1}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{person.fullName}</span>
-                <span className="text-xs text-(--color-text-muted)">{person.unitName}</span>
-              </span>
-              <span className="w-14 shrink-0 text-right text-xs text-(--color-text-muted)">
-                <CalcValue calc={shareCalc(person)}>{formatPercent(person.sharePercent)}</CalcValue>
-              </span>
-              <span className="w-32 shrink-0 text-right">
-                <CalcValue calc={sumCalc(person)}>
-                  <Money tiyin={person.amountTiyin} tone={tone} className="font-medium" />
-                </CalcValue>
-              </span>
-            </div>
-          ))}
-        </div>
+        <RTable minWidth={620}>
+          <thead>
+            <tr>
+              <Th className="w-12">№</Th>
+              <Th className="text-left">Xodim</Th>
+              <Th>{what}, so&apos;m</Th>
+              <Th>Ulushi</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {people.map((person, index) => (
+              <Tr key={person.pinfl}>
+                <Td className="text-(--color-text-faint)">{index + 1}</Td>
+                <NameCell sticky={false} sub={person.unitName}>
+                  {person.fullName}
+                </NameCell>
+                <MoneyCell value={Number(person.amountTiyin)} calc={sumCalc(person)} strong className={what === 'Jarima' ? 'text-(--color-expense)' : 'text-(--color-income)'} />
+                <Td>
+                  <CalcValue calc={shareCalc(person)} className="no-underline">
+                    {formatPercent(person.sharePercent)}
+                  </CalcValue>
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </RTable>
       )}
-    </Card>
+    </ReportCard>
   );
 }

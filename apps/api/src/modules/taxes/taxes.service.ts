@@ -14,7 +14,7 @@ import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 //       MANUAL           — har oy summa kiritiladi (jadval: hudud/Markaz × soliq turi; Excel shablon ham bor);
 //       PAYROLL_PERCENT  — ish haqidan foiz (masalan ijtimoiy soliq 12%): har oy vedomostdan avtomatik,
 //                          xodim ishlagan hudud (Markazda — bo'lim) bo'yicha.
-//       Daromaddan foiz (har qanday turga, faqat belgilangan oylar uchun) — masalan QQS 2026-04: Markaz va har hudud
+//       Daromaddan foiz (har qanday turga, faqat belgilangan oylar uchun; hozir hech biriga qo'yilmagan): Markaz va har hudud
 //                          daromadining 12% i; shu oylarda katak avtomatik (qo'lda kiritilmaydi), boshqa oylarda — o'z usuli.
 //   • Yozuvlar — Xarajatlar jadvalida (source = TAX): Tahlil, Solishtirma, hisobotlar o'zi ko'radi.
 //     documentNo: «TAX» — qo'lda, «TAX-AUTO» — avtomatik (qayta hisoblanadi). Xarajatlar ro'yxatidan tahrirlanmaydi.
@@ -46,12 +46,12 @@ export interface TaxType {
   incomePeriods?: string[];
 }
 
-/** Bir martalik sozlama: QQS 2026-04 — daromadning 12% i (foydalanuvchi so'rovi) */
-const QQS_APRIL_KEY = 'tax.qqs-2026-04.applied';
+/** Bir martalik: QQS «2026-04 daromaddan 12%» avtomatik hisobi olib tashlandi */
+const QQS_REMOVED_KEY = 'tax.qqs-2026-04.removed';
 
 export const DEFAULT_TAX_TYPES: TaxType[] = [
   { code: 'IJTIMOIY', name: 'Ijtimoiy soliq', method: 'PAYROLL_PERCENT', rate: 12, center: false, active: true, order: 10 },
-  { code: 'QQS', name: "Qo'shilgan qiymat solig'i (QQS)", method: 'MANUAL', rate: null, center: true, active: true, order: 20, incomeRate: 12, incomePeriods: ['2026-04'] },
+  { code: 'QQS', name: "Qo'shilgan qiymat solig'i (QQS)", method: 'MANUAL', rate: null, center: true, active: true, order: 20 },
   { code: 'FOYDA', name: "Foyda solig'i", method: 'MANUAL', rate: null, center: true, active: true, order: 30 },
   { code: 'MOLMULK', name: "Mol-mulk solig'i", method: 'MANUAL', rate: null, center: false, active: true, order: 40 },
   { code: 'YER', name: "Yer solig'i", method: 'MANUAL', rate: null, center: false, active: true, order: 50 },
@@ -95,6 +95,19 @@ export interface TaxMonth {
   /** tur → 12 oy */
   trend: Record<string, string[]>;
   hasPayroll: boolean;
+  /**
+   * Ish haqi bilan bog'liq ikki soliq yonma-yon (har hudud / Markaz):
+   *  • ijtimoiy soliq — korxona to'laydi, XARAJAT (yozilgan avtomatik summa);
+   *  • daromad solig'i (JShDS) — xodimning ish haqidan USHLANADI, ish haqi xarajati ichida (alohida xarajat emas):
+   *    ish haqi fondi × foiz («Ish haqi solishtirma» sozlamasi, standart 12%) — ma'lumot uchun.
+   */
+  payrollTaxes: {
+    socialName: string;
+    socialPct: number | null;
+    incomeTaxPct: number;
+    rows: { key: string; name: string; fundTiyin: string; socialTiyin: string; incomeTaxTiyin: string }[];
+    totals: { fundTiyin: string; socialTiyin: string; incomeTaxTiyin: string };
+  };
 }
 
 export interface CellInput {
@@ -141,7 +154,7 @@ export class TaxesService implements OnApplicationBootstrap {
   onApplicationBootstrap(): void {
     setTimeout(
       () =>
-        void this.applyQqsApril()
+        void this.removeQqsApril()
           .then(() => this.syncAll())
           .catch((e: unknown) => this.logger.warn(`Soliqlar: ${(e as Error).message}`)),
       10_000,
@@ -149,24 +162,25 @@ export class TaxesService implements OnApplicationBootstrap {
   }
 
   /**
-   * Bir marta: saqlangan soliq turlarida QQS ga «2026-04 — daromaddan 12%» qo'shiladi
-   * (keyin foydalanuvchi o'zgartirsa yoki olib tashlasa — qayta qo'shilmaydi).
+   * Bir marta: QQS dan «2026-04 — daromadning 12% i» avtomatik hisobi olib tashlanadi (foydalanuvchi so'rovi:
+   * QQS keyin aniq summa bilan qo'lda kiritiladi). Shu oy avtomatik QQS yozuvlari keyingi sinxronlashda o'chadi.
    */
-  async applyQqsApril(): Promise<boolean> {
-    const flag = await this.prisma.setting.findUnique({ where: { key: QQS_APRIL_KEY } });
+  async removeQqsApril(): Promise<boolean> {
+    const flag = await this.prisma.setting.findUnique({ where: { key: QQS_REMOVED_KEY } });
     if (flag) return false;
     const row = await this.prisma.setting.findUnique({ where: { key: TAX_TYPES_KEY } });
     if (Array.isArray(row?.value)) {
       const list = (row!.value as unknown[]).map((x) => ({ ...(x as Record<string, unknown>) }));
-      const qqs = list.find((x) => x.code === 'QQS') ?? list.find((x) => /qqs|qo.?shilgan qiymat/i.test(String(x.name ?? '')));
-      if (qqs) {
-        qqs.incomeRate = typeof qqs.incomeRate === 'number' && qqs.incomeRate > 0 ? qqs.incomeRate : 12;
-        qqs.incomePeriods = cleanPeriods([...(Array.isArray(qqs.incomePeriods) ? qqs.incomePeriods : []), '2026-04']);
-        await this.prisma.setting.update({ where: { key: TAX_TYPES_KEY }, data: { value: list as unknown as object } });
+      for (const t of list) {
+        if (t.code === 'QQS' || /qqs|qo.?shilgan qiymat/i.test(String(t.name ?? ''))) {
+          delete t.incomeRate;
+          delete t.incomePeriods;
+        }
       }
+      await this.prisma.setting.update({ where: { key: TAX_TYPES_KEY }, data: { value: list as unknown as object } });
     }
-    await this.prisma.setting.upsert({ where: { key: QQS_APRIL_KEY }, create: { key: QQS_APRIL_KEY, value: { at: new Date().toISOString() } }, update: {} });
-    this.logger.log("Soliqlar: QQS 2026-04 — daromadning 12% i (avtomatik) yoqildi");
+    await this.prisma.setting.upsert({ where: { key: QQS_REMOVED_KEY }, create: { key: QQS_REMOVED_KEY, value: { at: new Date().toISOString() } }, update: {} });
+    this.logger.log("Soliqlar: QQS 2026-04 avtomatik hisobi (daromaddan 12%) olib tashlandi — QQS qo'lda kiritiladi");
     return true;
   }
 
@@ -493,6 +507,28 @@ export class TaxesService implements OnApplicationBootstrap {
       }
     }
     for (const t of types) trend[t.code] = trendN[t.code]!.map(String);
+    // ── Ish haqi bilan bog'liq soliqlar: ijtimoiy (xarajat) va daromad solig'i (ushlanadi, ma'lumot uchun) ──
+    const social = types.find((t) => t.method === 'PAYROLL_PERCENT' && t.active) ?? null;
+    const pctRow = await this.prisma.setting.findUnique({ where: { key: 'payroll.solishtirma' } }).catch(() => null);
+    const rawPct = Number((pctRow?.value as { taxPct?: unknown } | null)?.taxPct);
+    const incomeTaxPct = Number.isFinite(rawPct) && rawPct >= 0 && rawPct <= 100 ? rawPct : 12;
+    const itBp = BigInt(Math.round(incomeTaxPct * 100));
+    const fundBy = new Map<string, bigint>();
+    for (const u of base.values()) {
+      const key = u.regionCode === CENTRAL ? 'center' : `r:${u.regionCode}`;
+      fundBy.set(key, (fundBy.get(key) ?? 0n) + u.base);
+    }
+    const socialBy = social ? (cells[social.code] ?? {}) : {};
+    const ptKeys = [...new Set([...fundBy.keys(), ...Object.keys(socialBy)])];
+    const unitName = new Map(units.map((u) => [u.key, u.name]));
+    const ptRows = ptKeys
+      .map((key) => {
+        const fund = fundBy.get(key) ?? 0n;
+        return { key, name: unitName.get(key) ?? (key === 'center' ? 'Markaz' : `Hudud ${key.slice(2)}`), fund, social: BigInt(socialBy[key]?.amountTiyin ?? '0'), incomeTax: (fund * itBp + 5000n) / 10000n };
+      })
+      .filter((r) => r.fund > 0n || r.social > 0n)
+      .sort((a, b) => (a.key === 'center' ? -1 : b.key === 'center' ? 1 : b.fund > a.fund ? 1 : b.fund < a.fund ? -1 : 0));
+    const ptSum = (k: 'fund' | 'social' | 'incomeTax') => ptRows.reduce((s, r) => s + r[k], 0n).toString();
     const total = [...byType.values()].reduce((s, x) => s + x.cur, 0n);
     const previous = [...byType.values()].reduce((s, x) => s + x.prev, 0n);
     // Hududlar ro'yxatida bo'lmagan hudud yozuvi bo'lsa — qo'shiladi
@@ -518,6 +554,13 @@ export class TaxesService implements OnApplicationBootstrap {
       months,
       trend,
       hasPayroll: base.size > 0,
+      payrollTaxes: {
+        socialName: social?.name ?? 'Ijtimoiy soliq',
+        socialPct: social?.rate ?? null,
+        incomeTaxPct,
+        rows: ptRows.map((r) => ({ key: r.key, name: r.name, fundTiyin: r.fund.toString(), socialTiyin: r.social.toString(), incomeTaxTiyin: r.incomeTax.toString() })),
+        totals: { fundTiyin: ptSum('fund'), socialTiyin: ptSum('social'), incomeTaxTiyin: ptSum('incomeTax') },
+      },
     };
   }
 

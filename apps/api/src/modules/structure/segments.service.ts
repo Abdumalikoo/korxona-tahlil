@@ -1,3 +1,4 @@
+import { safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { SEGMENTS, entryUnitLabel, entryUnitOf, segmentKey, segmentLabel } from '../../common/segments/segments';
 import { policyRouting, readPolicy, unitOfKey } from '../expense-policy/policy.util';
@@ -123,6 +124,8 @@ const TUZILMA = {
   asset: { label: 'Asosiy vositalar', order: 5 },
   ad: { label: 'Reklama xarajatlari', order: 6 },
   tmz: { label: 'TMZ', order: 6.5 },
+  vehicle: { label: 'Mashina xarajatlari', order: 6.7 },
+  safar: { label: 'Xizmat safari', order: 6.8 },
   entries: { label: 'Boshqa xarajatlar', order: 7 },
   other: { label: 'Boshqa moddalar', order: 8 },
   in: { label: "Boshqa bo'limlardan (siyosat bo'yicha)", order: 9 },
@@ -216,10 +219,23 @@ export class SegmentsService {
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true, order: true } }),
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
       this.prisma.income.findMany({ where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere }, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, clientName: true } }),
-      this.prisma.expense.findMany({ where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere }, select: { date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, source: true, counterparty: true, description: true } }),
+      this.prisma.expense.findMany({ where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere }, select: { id: true, date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, source: true, counterparty: true, description: true } }),
       readPolicy(this.prisma),
     ]);
     const routing = policyRouting(policy, cats);
+    // Mashina xarajatlari: xarajat → mashina (raqami, rusumi) va biriktirish izohi
+    const vehicleIds = expenses.filter((e) => e.source === 'VEHICLE').map((e) => e.id);
+    const [vehicleRecs, placesRow] = await Promise.all([
+      vehicleIds.length
+        ? this.prisma.vehicleRecord.findMany({ where: { expenseId: { in: vehicleIds } }, select: { expenseId: true, kind: true, vehicleId: true, vehicle: { select: { plateNumber: true, model: true } } } })
+        : Promise.resolve([]),
+      this.prisma.setting.findUnique({ where: { key: 'vehicles.places' } }),
+    ]);
+    const vehicleOf = new Map(vehicleRecs.map((v) => [v.expenseId!, v]));
+    // 23106 › xarajatga o'tkazilgan xizmat safarlari — «Xizmat safari» → xodim
+    const safarIds = await safarExpenseMeta(this.prisma);
+    const placeMeta = (placesRow?.value && typeof placesRow.value === 'object' ? placesRow.value : {}) as Record<string, { comment?: string | null }>;
+    const KIND_LABEL: Record<string, string> = { FUEL: "Yoqilg'i", WASH: 'Moyka', REPAIR: "Ta'mirlash", SERVICE: 'Texnik xizmat', OTHER: 'Boshqa' };
     const catLabel = new Map(cats.map((c) => [c.code, c.label]));
     const catParent = new Map(cats.map((c) => [c.code, c.parentCode]));
     const catOrder = new Map(cats.map((c) => [c.code, c.order ?? 0]));
@@ -339,7 +355,7 @@ export class SegmentsService {
           path.push(g, u, u.child(`c:${code}`, catLabel.get(code) ?? code, N, { unit: exploreUnit(from), cats: [code], exact: true }));
         } else if (code === 'PAYROLL_BASE') {
           path.push(t('payroll', { unit: key, cats: [code], exact: true }));
-        } else if (code.startsWith('IHQ_')) {
+        } else if (code.startsWith('IHQ_') || code.startsWith('QMT_')) {
           const g = t('parts');
           path.push(g, g.child(`c:${code}`, catLabel.get(code) ?? code, N, { unit: key, cats: [code], exact: true }));
         } else if (LEASE_CODES.includes(code)) {
@@ -349,6 +365,19 @@ export class SegmentsService {
         } else if (code === 'BANK_XARAJAT') {
           const g = t('bank', { unit: key, cats: [code], exact: true });
           path.push(g, g.child(`p:${party}`, party || "Oluvchi ko'rsatilmagan", N, { unit: key, cats: [code], exact: true, party }));
+        } else if (r.source === 'VEHICLE') {
+          // Mashina xarajatlari → mashina (izoh bilan) → tur (yoqilg'i, ta'mirlash …)
+          const g = t('vehicle', { unit: key, cats: [code], exact: true });
+          const v = vehicleOf.get(r.id);
+          const vk = v?.vehicleId ?? '-';
+          const comment = v?.vehicleId ? placeMeta[v.vehicleId]?.comment : null;
+          const car = g.child(`v:${vk}`, v ? `${v.vehicle.plateNumber} · ${v.vehicle.model}` : 'Mashina aniqlanmagan', N, undefined, comment ? `Izoh: ${comment}` : undefined);
+          const kind = v?.kind ?? 'OTHER';
+          path.push(g, car, car.child(`k:${kind}`, KIND_LABEL[kind] ?? kind, N, { unit: key, cats: [code], exact: true }));
+        } else if (safarIds.has(r.id)) {
+          const g = t('safar', { unit: key, cats: [code], exact: true });
+          const who = safarIds.get(r.id)!;
+          path.push(g, g.child(`x:${who.pinfl ?? who.fullName}`, who.fullName, N, { unit: key, cats: [code], exact: true, party: (r.counterparty ?? '').trim() || undefined }, who.placeLabel || undefined));
         } else if (ENTRY_CODES[code]) {
           const g = t(ENTRY_CODES[code]!, { unit: key, cats: [code], exact: true });
           const name = (r.description ?? '').split(' — ')[0]?.trim() || '—';

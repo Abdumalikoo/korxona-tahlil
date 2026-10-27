@@ -42,6 +42,7 @@ import { RoleTabs } from '@/features/roles/role-tabs';
 import { VehicleDemoPanel } from '@/features/vehicles/demo-panel';
 import { RecordForm } from '@/features/vehicles/record-form';
 import { VehicleForm } from '@/features/vehicles/vehicle-form';
+import { FuelImportDialog } from '@/features/vehicles/fuel-import';
 
 type ToastState = { message: string; tone: 'success' | 'error' } | null;
 
@@ -384,7 +385,7 @@ export function VehiclesBoard({ dashboard = false }: { dashboard?: boolean }) {
   const brief = useBrief();
   const { canWrite } = useAuth();
   /** Tuzatish (tahrirlash, o'chirish) huquqi */
-  const isAdmin = canWrite('/mashinalar');
+  const isAdmin = canWrite('/mashinalar') || canWrite('/xarajatlar/mashinalar');
   /** Yangi mashina / xarajat qo'shish — faqat rol bo'limida */
   const canAdd = isAdmin && !dashboard;
 
@@ -398,6 +399,8 @@ export function VehiclesBoard({ dashboard = false }: { dashboard?: boolean }) {
   const [deleteRecord, setDeleteRecord] = useState<VehicleRecordItem | null>(null);
   const [deleteVehicle, setDeleteVehicle] = useState<VehicleItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** Benzin (AZS) hisobotini yuklash oynasi — avvalgi shakl («ОТЧЕТ ПО ПРОДАЖАМ», .xls / .xlsx) */
+  const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
 
   const lookups = useAsync(() => vehiclesApi.lookups().then((r) => r.data), []);
@@ -485,6 +488,11 @@ export function VehiclesBoard({ dashboard = false }: { dashboard?: boolean }) {
         }
         actions={
           <>
+            {isAdmin && (
+              <Button variant="secondary" onClick={() => setImporting(true)} title="AZS yoqilg'i kartasi hisoboti (.xls / .xlsx) — avvalgi shakl">
+                Hisobotni yuklash
+              </Button>
+            )}
             {canAdd && (
               <>
                 <Button variant="secondary" onClick={() => setVehicleTarget('new')}>
@@ -852,6 +860,16 @@ export function VehiclesBoard({ dashboard = false }: { dashboard?: boolean }) {
         onCancel={() => setDeleteVehicle(null)}
       />
 
+      {importing && (
+        <FuelImportDialog
+          onClose={() => setImporting(false)}
+          onDone={(message) => {
+            setImporting(false);
+            setToast({ message, tone: 'success' });
+            reloadAll();
+          }}
+        />
+      )}
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
     </>
   );

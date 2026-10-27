@@ -17,6 +17,7 @@ import { Toast } from '@/components/ui/toast';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/states';
 import { IconPlus, IconEdit, IconChevronDown } from '@/components/ui/icons';
 import { CategoryFormDrawer } from '@/features/settings/category-form-drawer';
+import { IncomeCategoriesCard } from '@/features/settings/income-categories-card';
 import { cn } from '@/lib/utils';
 import type { CategoryTree, Category } from '@/lib/types';
 
@@ -79,6 +80,18 @@ export default function ExpenseSettingsPage() {
     }
   }
 
+  /** Butunlay o'chirish — faqat ishlatilmagan modda / bo'sh guruh (aks holda server sababini aytadi: arxivlang) */
+  async function handleRemove(category: Category) {
+    if (!window.confirm(`"${category.label}" butunlay o'chirilsinmi? Yozuvi bo'lsa, o'chirilmaydi — arxivlang.`)) return;
+    try {
+      await categoriesApi.remove(category.code);
+      setToast("O'chirildi");
+      tree.reload();
+    } catch (err) {
+      setToast(errorMessage(err, 'Xatolik'));
+    }
+  }
+
   if (!ready || !isAdmin) return <LoadingState />;
 
   const groups = tree.data?.data ?? [];
@@ -132,11 +145,14 @@ export default function ExpenseSettingsPage() {
                 onToggle={() => toggle(group.code)}
                 onEdit={setEditing}
                 onArchive={handleArchive}
+                onRemove={handleRemove}
                 onAddChild={() => setCreatingIn(group.code)}
               />
             ))}
           </div>
         )}
+
+        <IncomeCategoriesCard onToast={setToast} />
       </div>
 
       <CategoryFormDrawer
@@ -164,10 +180,11 @@ interface GroupCardProps {
   onToggle: () => void;
   onEdit: (category: Category) => void;
   onArchive: (category: Category) => void;
+  onRemove: (category: Category) => void;
   onAddChild: () => void;
 }
 
-function GroupCard({ group, open, onToggle, onEdit, onArchive, onAddChild }: GroupCardProps) {
+function GroupCard({ group, open, onToggle, onEdit, onArchive, onRemove, onAddChild }: GroupCardProps) {
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-2 border-b border-(--color-line) px-4 py-3">
@@ -197,6 +214,12 @@ function GroupCard({ group, open, onToggle, onEdit, onArchive, onAddChild }: Gro
         <Button variant="ghost" size="sm" onClick={() => onEdit(group)}>
           <IconEdit className="size-4" />
         </Button>
+
+        {group.children.length === 0 && (
+          <Button variant="ghost" size="sm" onClick={() => onRemove(group)} className="text-(--color-text-muted) hover:text-(--color-expense)">
+            O&rsquo;chirish
+          </Button>
+        )}
       </div>
 
       {open && (
@@ -236,6 +259,16 @@ function GroupCard({ group, open, onToggle, onEdit, onArchive, onAddChild }: Gro
                       Arxiv
                     </Button>
                   )}
+
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onRemove(item)}
+                    className="text-(--color-text-muted) hover:text-(--color-expense)"
+                    title="Butunlay o'chirish — faqat yozuvi bo'lmasa"
+                  >
+                    O&rsquo;chirish
+                  </Button>
                 </div>
               </div>
             ))

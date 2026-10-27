@@ -12,7 +12,7 @@ import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatSum, formatTiyin, parseSum, todayInput } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   DOC_KIND_HINTS,
@@ -143,7 +143,9 @@ export function DocEntry({ kind }: { kind: DocKind }) {
   const { user, canWrite } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
-  const editable = canWrite('/ombor');
+  /** Xarajatlar › Ombor kirimi orqali ochilgan (Omborchi zonasidan tashqarida) */
+  const inExpenses = (usePathname() ?? '').startsWith('/xarajatlar/');
+  const editable = canWrite('/ombor') || (inExpenses && canWrite('/xarajatlar'));
   const myName = user?.fullName ?? '';
 
   const [form, setForm] = useState<FormDraft>(() => emptyForm(kind, myName));
@@ -550,10 +552,10 @@ export function DocEntry({ kind }: { kind: DocKind }) {
                 </Button>
               ) : (
                 <Link
-                  href="/ombor/ish-stoli"
+                  href={inExpenses ? '/dashbord/ombor' : '/ombor/ish-stoli'}
                   className="inline-flex h-11 items-center justify-center rounded-(--radius-control) border border-(--color-line-strong) bg-white px-5 text-base text-(--color-text) hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
                 >
-                  Ish stoliga
+                  {inExpenses ? 'Ombor dashbordiga' : 'Ish stoliga'}
                 </Link>
               )}
             </div>

@@ -36,7 +36,7 @@ const METHOD_LABEL: Record<string, string> = Object.fromEntries(METHODS.map((m) 
 
 export default function PostalPage() {
   const { canWrite } = useAuth();
-  const editable = canWrite('/ombor');
+  const editable = canWrite('/ombor') || canWrite('/xarajatlar/pochta');
   const { range } = usePeriod();
   const list = useAsync(() => warehouseApi.postal(range.from, range.to), [range.from, range.to]);
 

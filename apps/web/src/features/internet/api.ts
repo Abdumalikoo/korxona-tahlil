@@ -46,7 +46,10 @@ export interface ContractSummary {
 
 export interface Analysis {
   fileName: string;
-  format: 'pairs' | 'template';
+  /** pairs — oy juftliklari, template — shablon, bank — bank ko'chirmasi (выписка) */
+  format: 'pairs' | 'template' | 'bank';
+  /** Bank ko'chirmasi: chiqim qatorlari va internet bo'lmagani (o'tkazib yuborilgan) */
+  bank: { rows: number; skipped: number; skippedTiyin: string } | null;
   months: string[];
   payments: Payment[];
   contracts: ContractSummary[];

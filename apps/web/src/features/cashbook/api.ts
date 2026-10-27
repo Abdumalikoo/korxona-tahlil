@@ -92,6 +92,7 @@ export const cashApi = {
   accounts: () => api.get<ApiResponse<CashAccount[]>>('/cashbook/accounts'),
   createAccount: (input: CashAccountInput) => api.post<ApiResponse<CashAccount>>('/cashbook/accounts', input),
   updateAccount: (id: string, input: CashAccountInput) => api.patch<ApiResponse<CashAccount>>(`/cashbook/accounts/${id}`, input),
+  removeAccount: (id: string) => api.delete<ApiResponse<{ success: true }>>(`/cashbook/accounts/${id}`),
   move: (id: string, dir: 'up' | 'down') => api.post<ApiResponse<CashAccount[]>>(`/cashbook/accounts/${id}/move`, { dir }),
 };
 

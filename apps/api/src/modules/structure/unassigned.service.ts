@@ -23,7 +23,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   IMPORT: 'Fayldan yuklangan',
   PAYROLL: 'Ish haqi vedomosti',
   LEASE: 'Ijara',
-  VEHICLE: 'Mashinalar',
+  VEHICLE: 'Mashina xarajatlari',
   WAREHOUSE: 'Ombor kirimi',
   ASSET: 'Asosiy vositalar sarfi',
   TAX: 'Soliqlar',

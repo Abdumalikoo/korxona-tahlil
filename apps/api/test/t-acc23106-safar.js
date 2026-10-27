@@ -108,6 +108,15 @@ const safar = (d, who) => `${d} йилдаги 00001-xs-son буйрукка а�
 
   v = await sf.view('2026-01', '2026-02');
   assert.deepStrictEqual([v.summary.postedCount, v.summary.readyCount, v.summary.issueCount], [4, 2, 1]);
+
+  // ── Hamma to'lovlar joyi (23106 tahlili — bo'limlar bo'yicha): mukofot ham, safar holati bilan ──
+  const pl = await sf.places('2026-01', '2026-02');
+  assert.strictEqual(pl.length, 8, "mukofot ham kiradi");
+  const mk = pl.find((x) => x.pinfl === P.C && x.posted === null);
+  assert.deepStrictEqual([mk.place.label, mk.posted], ['Markaz › AUP', null], "mukofot — xodim bo'limi, safar emas");
+  assert.strictEqual(pl.filter((x) => x.posted === true).length, 4, 'tasdiqlangan safarlar');
+  assert.ok(pl.every((x) => !x.key.includes('#')), "kalit ko'rishdagi bilan bir xil");
+  assert.strictEqual(pl.filter((x) => x.issue === 'NOT_FOUND' && x.place === null).length, 1, "xodimi topilmagani — joysiz");
   assert.strictEqual(by(P.G).posted.place.label, 'Hududlar › Sinov viloyati › Ikkinchi tuman');
   assert.strictEqual(by(P.G).posted.auto, false);
   assert.strictEqual(by(P.C).posted.auto, true);

@@ -67,9 +67,54 @@ export interface VehicleItem {
   fuelCardNo?: string | null;
   /** Kuzov turi (3D): bo'sh — rusumidan aniqlanadi */
   bodyType?: VehicleBodyType | null;
+  /** Yo'nalishga biriktirilgan bo'lsa (Tax free, Marksheyder …) */
+  segment?: string | null;
+  segmentLabel?: string | null;
+  /** Bo'limga biriktirish izohi */
+  placeComment?: string | null;
   lastOdometerKm: number | null;
   month: { totalTiyin: string; count: number; liters: number; byKind: KindAmounts };
   recordCount: number;
+}
+
+/** Mashina qaysi birlikniki: Markaz (bo'lim bilan), hudud yoki yo'nalish */
+export type VehicleUnit = 'CENTER' | 'REGION' | 'TAX_FREE' | 'MARKSHEYDER' | 'FERMER' | 'BUXGALTERIYA' | 'QOMITA';
+
+export interface VehiclePlaceRow {
+  id: string;
+  plateNumber: string;
+  model: string;
+  driverName: string | null;
+  fleetGroup: string | null;
+  fleetGroupLabel: string | null;
+  isActive: boolean;
+  unit: VehicleUnit;
+  regionCode: number;
+  regionName: string;
+  departmentId: string | null;
+  departmentName: string | null;
+  segment: string | null;
+  placeLabel: string;
+  comment: string | null;
+  commentAt: string | null;
+  totalTiyin: string;
+  count: number;
+  months: Record<string, string>;
+}
+
+export interface VehiclePlaces {
+  from: string;
+  to: string;
+  months: string[];
+  items: VehiclePlaceRow[];
+}
+
+export interface VehiclePlaceInput {
+  id: string;
+  unit: VehicleUnit;
+  regionCode?: number | null;
+  departmentId?: string | null;
+  comment?: string | null;
 }
 
 export interface VehicleList {
@@ -355,6 +400,11 @@ export const vehiclesApi = {
   /** Oldingi AZS / moyka / servis nomlari */
   counterparties: (kind?: string) => api.get<ApiResponse<string[]>>('/vehicles/counterparties', { params: { kind } }),
 
+  /** Bo'limlarga biriktirish: mashinalar, joyi va davr xarajati */
+  places: (from: string, to: string) => api.get<ApiResponse<VehiclePlaces>>('/vehicles/places', { params: { from, to } }),
+  setPlaces: (items: VehiclePlaceInput[], fromPeriod: string | null) =>
+    api.post<ApiResponse<{ vehicles: number; expenses: number }>>('/vehicles/places', { items, fromPeriod }),
+
   summary: (from: string, to: string) =>
     api.get<ApiResponse<VehicleSummary>>('/vehicles/summary', { params: { from, to } }),
 
@@ -362,4 +412,89 @@ export const vehiclesApi = {
   demoStatus: () => api.get<ApiResponse<VehicleDemoStatus>>('/vehicles/demo'),
   createDemo: () => api.post<ApiResponse<VehicleDemoStatus>>('/vehicles/demo'),
   removeDemo: () => api.delete<ApiResponse<VehicleDemoStatus>>('/vehicles/demo'),
+};
+// ═══════════ Choraklik hisobot (24-ilova) ═══════════
+
+export type QuarterScale = 'THOUSAND' | 'SOM';
+
+export interface QuarterRow {
+  n: number;
+  org: string;
+  model: string;
+  plate: string;
+  plateKey: string;
+  madeYear: number | null;
+  balanceYear: number | null;
+  count: number | null;
+  balanceValueTiyin: string;
+  storageTiyin: string;
+  equipTiyin: string;
+  distancePeriodKm: number | null;
+  distanceTotalKm: number | null;
+  vehicleId: string | null;
+  vehicleLabel: string | null;
+}
+
+export interface QuarterAnalysis {
+  year: number | null;
+  quarter: number | null;
+  scale: QuarterScale;
+  rows: QuarterRow[];
+  warnings: string[];
+  exists: boolean;
+}
+
+export interface QuarterStored {
+  key: string;
+  year: number;
+  quarter: number;
+  fileName: string;
+  scale: QuarterScale;
+  savedAt: string;
+  savedBy: string;
+  rows: QuarterRow[];
+  repairTiyin: string;
+  records: number;
+}
+
+/** Choraklik hisobotni o'qish — hech narsa yozilmaydi */
+export async function analyzeQuarterReport(file: File, scale: QuarterScale): Promise<QuarterAnalysis> {
+  const form = new FormData();
+  form.append('file', file);
+  const token = getToken();
+  const response = await fetch(`${BASE}/vehicles/quarterly/analyze?scale=${scale}`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: form });
+  if (!response.ok) {
+    let message = "Faylni o'qib bo'lmadi";
+    try {
+      const body = (await response.json()) as { error?: { message?: string | string[] } };
+      const m = body.error?.message;
+      if (m) message = Array.isArray(m) ? (m[0] ?? message) : m;
+    } catch {
+      // javob JSON emas
+    }
+    throw new Error(message);
+  }
+  return ((await response.json()) as ApiResponse<QuarterAnalysis>).data;
+}
+
+/** Bo'sh shablon (mashinalar ro'yxati bilan) */
+export async function downloadQuarterTemplate(year: number, quarter: number): Promise<void> {
+  const token = getToken();
+  const response = await fetch(`${BASE}/vehicles/quarterly/template?year=${year}&quarter=${quarter}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) throw new Error("Shablonni yuklab bo'lmadi");
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Choraklik-hisobot-${year}-${quarter}-chorak.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export const quarterlyApi = {
+  list: () => api.get<ApiResponse<QuarterStored[]>>('/vehicles/quarterly'),
+  commit: (body: { year: number; quarter: number; scale: QuarterScale; fileName: string; rows: QuarterRow[] }) =>
+    api.post<ApiResponse<{ key: string; vehicles: number; createdVehicles: number; records: number; repairTiyin: string }>>('/vehicles/quarterly/commit', body),
+  remove: (key: string) => api.delete<ApiResponse<{ key: string; removed: number }>>(`/vehicles/quarterly/${key}`),
 };

@@ -737,6 +737,21 @@ function StaffCard({
     }
   }
 
+  /** Xato qo'shilganni butunlay o'chirish (Xodimlar bazasidan / ko'chish bilan kelganlar — faqat «chiqarish») */
+  async function removeOne(s: UnitStaff) {
+    if (!window.confirm(`${s.fullName} ro'yxatdan butunlay o'chirilsinmi? (Ishdan ketgan bo'lsa — «Chiqarish» yetarli)`)) return;
+    setBusy(s.pinfl);
+    try {
+      await unitPayrollApi.removeStaff(unit.code, s.pinfl);
+      onToast({ message: `${s.fullName} ro'yxatdan o'chirildi`, tone: 'success' });
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'chirib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function saveLink(body: { departmentIds?: string[] | null; byPosition?: boolean; byHr?: boolean }) {
     setBusy('link');
     try {
@@ -964,6 +979,17 @@ function StaffCard({
                   )}
                 >
                   {busy === s.pinfl ? '…' : s.active ? 'Chiqarish' : 'Qaytarish'}
+                </button>
+              )}
+              {isAdmin && (s.source === 'MANUAL' || s.source === 'UPLOAD') && (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void removeOne(s)}
+                  title="Xato qo'shilgan bo'lsa — ro'yxatdan butunlay o'chirish"
+                  className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-(--color-expense) hover:bg-(--color-expense-soft)"
+                >
+                  O&apos;chirish
                 </button>
               )}
             </li>

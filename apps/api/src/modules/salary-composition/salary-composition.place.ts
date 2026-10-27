@@ -647,6 +647,75 @@ export class CompositionPlaceService {
     return { saved: map.size };
   }
 
+  // ═══════════ Tarkib bo'yicha hamma xodimni joylashtirish ═══════════
+
+  /**
+   * Saqlangan tarkib bo'yicha shu oy HAMMA xodim: «miya»dagi joyi tarkibdagidan farq qiladiganlar (hech narsa saqlanmaydi).
+   * Tarkibdagi nom bizdagi bo'limga bog'lanmagan bo'lsa — ro'yxatda (unmapped), taxminiy moslik — guessed.
+   */
+  async syncPreview(period: string) {
+    let month = await this.month(period);
+    if (!Object.keys(month.depts).length) {
+      await this.repairDepts(period).catch(() => null);
+      month = await this.month(period);
+    }
+    const pins = Object.keys(month.depts);
+    if (!pins.length) return { period, hasTarkib: false, total: 0, manual: 0, items: [], byTarget: [], unmapped: [], guessed: [] };
+    const resolve = await this.resolver();
+    const miya = await this.miya(pins, period, month);
+    const unmapped = new Map<string, number>();
+    const guessed = new Map<string, string>();
+    const items: { pinfl: string; fullName: string; deptName: string; from: string; to: string; departmentId: string; unitChange: boolean }[] = [];
+    let manual = 0;
+    for (const p of pins) {
+      const name = month.depts[p]!;
+      // Bo'lim sahifasida qo'lda tanlangan joy — foydalanuvchi qarori, tegilmaydi
+      if (month.fixes[p]?.source === 'MANUAL') {
+        manual += 1;
+        continue;
+      }
+      const r = resolve(name);
+      if (r.skipped) continue;
+      if (!r.option) {
+        unmapped.set(name, (unmapped.get(name) ?? 0) + 1);
+        continue;
+      }
+      const target = r.option;
+      const before = miya.get(p)!;
+      if (before.unit === target.unit && (target.unit !== 'CENTER' || before.departmentId === target.id)) continue;
+      if (r.guessed) guessed.set(name, target.name);
+      const place = (unit: string | null, dep: string | null) => (unit === 'CENTER' ? `Markaz › ${dep ?? "bo'limsiz"}` : unit ? entryUnitLabel(unit) : "miyada yo'q");
+      items.push({ pinfl: p, fullName: before.fullName ?? p, deptName: name, from: place(before.unit, before.departmentName), to: place(target.unit, target.name), departmentId: target.id, unitChange: before.unit !== target.unit });
+    }
+    const byTarget = new Map<string, number>();
+    for (const i of items) byTarget.set(i.to, (byTarget.get(i.to) ?? 0) + 1);
+    items.sort((a, b) => a.to.localeCompare(b.to) || a.fullName.localeCompare(b.fullName));
+    return {
+      period,
+      hasTarkib: true,
+      total: pins.length,
+      /** Qo'lda tanlangan joyi bor (tegilmadi) */
+      manual,
+      items,
+      byTarget: [...byTarget.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count),
+      unmapped: [...unmapped.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+      guessed: [...guessed.entries()].map(([name, departmentName]) => ({ name, departmentName })),
+    };
+  }
+
+  /** Saqlangan tarkib bo'yicha shu oy hamma xodimning joyini tarkibdagidek qilish; ish haqi xarajatlari qayta guruhlanadi */
+  async syncApply(period: string, userId: string) {
+    const preview = await this.syncPreview(period);
+    if (!preview.hasTarkib) throw new BadRequestException(`${monthLabel(period)} uchun ish haqi tarkibida bo'limlar yo'q — tarkibni (bo'lim ustuni bilan) yuklang`);
+    if (!preview.items.length) return { period, departments: 0, fixed: 0, moved: 0, redistributed: false, warnings: [] as string[], unmapped: preview.unmapped };
+    const month = await this.month(period);
+    const map: Record<string, string> = {};
+    for (const i of preview.items) map[i.deptName] = i.departmentId;
+    const rows = Object.entries(month.depts).map(([pinfl, dept]) => ({ pinfl, fullName: null, dept }));
+    const out = await this.apply(period, month.batchId, rows, { map, apply: preview.items.map((i) => i.pinfl) }, userId, false);
+    return { period, ...out, unmapped: preview.unmapped };
+  }
+
   /** Bo'lim sahifasidan: tanlangan xodimlarning shu oy joyini saqlangan tarkibdagidek qilish */
   async fixStored(period: string, pinfls: string[], userId: string) {
     const month = await this.month(period);

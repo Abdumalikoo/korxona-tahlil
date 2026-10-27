@@ -108,6 +108,13 @@ export class UnitPayrollController {
     return { data: await this.service.updateStaff(this.service.unitOf(unit), pinfl, body, userId) };
   }
 
+  /** Qo'lda qo'shilgan xodimni ro'yxatdan o'chirish */
+  @Roles(UserRole.ADMIN)
+  @Delete(':unit/staff/:pinfl')
+  async removeStaff(@Param('unit') unit: string, @Param('pinfl') pinfl: string, @CurrentUser('id') userId: string) {
+    return { data: await this.service.removeStaff(this.service.unitOf(unit), pinfl, userId) };
+  }
+
   @Get(':unit/template')
   async template(@Param('unit') unit: string, @Query('period') period: string, @Res() response: Response, @Query('from') from?: string, @Query('to') to?: string) {
     // ?from=&to= — oylar oralig'i; bo'lmasa — bitta oy (?period=)

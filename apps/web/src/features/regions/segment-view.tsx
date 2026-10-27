@@ -1,14 +1,34 @@
 'use client';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
-import { Card } from '@/components/ui/card';
-import { IconArrowRight, IconChevronRight } from '@/components/ui/icons';
-import { ErrorState, LoadingState } from '@/components/ui/states';
-import { SubTabs } from '@/components/ui/tabs';
-import { change, monthLabel, pct, pctSigned, short, som } from '@/features/explore/api';
+import {
+  changeOf,
+  Field,
+  FilterBar,
+  MoneyCell,
+  NameCell,
+  PctBadge,
+  PctInline,
+  PillTabs,
+  ReportCard,
+  RTable,
+  SelectBox,
+  StatTiles,
+  STICKY_NAME,
+  STICKY_NO,
+  sum,
+  TableNote,
+  Td,
+  Th,
+  Tr,
+  type StatTile,
+} from '@/components/report/report';
+import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
+import { IconArrowRight } from '@/components/ui/icons';
+import { monthLabel } from '@/features/explore/api';
 import { DrillProvider, useDrill } from '@/features/explore/drill';
-import { Kpi } from '@/features/explore/parts';
-import type { CompareMode, SectionFilter } from '@/features/structure/api';
+import { COMPARE_OPTIONS, SECTION_OPTIONS, type CompareMode, type SectionFilter } from '@/features/structure/api';
+import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { unitByCode, type EntryUnit } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
@@ -17,13 +37,15 @@ import { useState, type ReactNode } from 'react';
 import { segmentApi, type DrillNode, type SegFlow, type SegmentView } from './segment-api';
 
 // ═══════════════════════════════════════════════════════════
-// Solishtirma › Tax free / Marksheyder / Fermer xo'jaligi / Buxgalteriya xizmatlari — Markaz sahifasidagidek:
-//  ko'rsatkichlar (daromad, xarajat, natija, rentabellik) → daromad manbalari → xarajat tarkibi (guruh → modda)
-//  → siyosat oqimlari (kelgan / boshqa bo'limga o'tgan) → 12 oy.
-//  Istalgan summa bosilsa — o'sha summani tashkil qilgan yozuvlar ochiladi (Bosh sahifadagidek).
+// Solishtirma › Tax free / Marksheyder / Fermer xo'jaligi / Buxgalteriya xizmatlari / Qo'mita —
+// yagona hisobot uslubida: kartalar → yorliqlar (xarajat, daromad — ichma-ich jadval; siyosat oqimlari; oylar).
+// Istalgan summa bosilsa — o'sha summani tashkil qilgan yozuvlar ochiladi.
 // ═══════════════════════════════════════════════════════════
 
 const n = (s: string) => Number(s);
+const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+type View = 'expense' | 'income' | 'flows' | 'months';
 
 export function SegmentSolishtirma({ unit, range }: { unit: EntryUnit; range: DateRange }) {
   const [section, setSection] = useState<SectionFilter>('ALL');
@@ -33,135 +55,17 @@ export function SegmentSolishtirma({ unit, range }: { unit: EntryUnit; range: Da
   return (
     <DrillProvider range={{ from: range.from, to: range.to }}>
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <SubTabs
-            value={section}
-            onChange={setSection}
-            options={[
-              { value: 'ALL', label: 'Hammasi' },
-              { value: 'DOIMIY', label: 'Doimiy' },
-              { value: 'BOSHQA', label: 'Boshqa' },
-            ]}
-          />
-          <SubTabs
-            value={compare}
-            onChange={setCompare}
-            className="ml-auto"
-            options={[
-              { value: 'prev', label: "O'tgan davr bilan" },
-              { value: 'yoy', label: "O'tgan yil bilan" },
-            ]}
-          />
-        </div>
-        {res.error ? (
-          <Card>
-            <ErrorState message={res.error} onRetry={res.reload} />
-          </Card>
-        ) : !res.data ? (
-          <Card>
-            <LoadingState />
-          </Card>
-        ) : (
-          <Body d={res.data} unit={unit} />
-        )}
+        <FilterBar>
+          <Field label="Yozuvlar">
+            <SelectBox value={section} options={SECTION_OPTIONS} onChange={setSection} />
+          </Field>
+          <Field label="Solishtirish">
+            <SelectBox value={compare} options={COMPARE_OPTIONS} onChange={setCompare} />
+          </Field>
+        </FilterBar>
+        {!res.data ? <LoadingCard label="Hisoblanmoqda" error={res.error} onRetry={res.reload} /> : <Body d={res.data} unit={unit} />}
       </div>
     </DrillProvider>
-  );
-}
-
-function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
-  const t = d.totals;
-  const ROOT = d.label;
-  const income = n(t.incomeTiyin);
-  const expense = n(t.expenseTiyin);
-  const result = n(t.resultTiyin);
-  const empty = !income && !expense && !n(t.previousIncomeTiyin) && !n(t.previousExpenseTiyin);
-  const policyHref = `/xarajatlar/bolim/${unit.slug}/siyosat`;
-
-  return (
-    <>
-      <p className="text-xs text-(--color-text-muted)">
-        Davr: <b className="text-heading">{fmtRange(d.range)}</b> · taqqoslash ({d.compareLabel}): {fmtRange(d.previousRange)} · summa bosilsa — yozuvlar ochiladi
-      </p>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Daromad" cur={income} prev={n(t.previousIncomeTiyin)} kind="income" drill={{ kind: 'income', f: { unit: d.unitKey }, title: `${ROOT} › Daromad` }} sub={`${t.incomeCount} ta yozuv · korxonadagi ulushi ${pct(t.incomeShare)}`} />
-        <Kpi
-          label="Xarajat"
-          cur={expense}
-          prev={n(t.previousExpenseTiyin)}
-          kind="expense"
-          sub={
-            <>
-              {t.expenseCount} ta yozuv · ish haqi {short(n(t.payrollTiyin))}
-              {n(t.incomingTiyin) || n(t.outgoingTiyin) ? (
-                <span className="block">
-                  siyosat: +{short(n(t.incomingTiyin))} kelgan, −{short(n(t.outgoingTiyin))} o&apos;tgan
-                </span>
-              ) : null}
-            </>
-          }
-        />
-        <Kpi label="Natija (foyda / zarar)" cur={result} prev={n(t.previousResultTiyin)} kind="result" tone="auto" />
-        <Card className="p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-(--color-text-muted)">Rentabellik</p>
-          <p className={cn('mt-1.5 text-xl font-semibold tabular-nums', t.margin === null ? 'text-(--color-text-faint)' : t.margin < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{t.margin === null ? '—' : pct(t.margin)}</p>
-          <p className="mt-1.5 text-xs text-(--color-text-muted)">
-            {d.compareLabel}: {t.previousMargin === null ? '—' : pct(t.previousMargin)} · natija / daromad
-          </p>
-        </Card>
-      </div>
-
-      {empty ? (
-        <Card className="px-6 py-12 text-center">
-          <p className="text-sm font-semibold text-heading">Bu davrda «{d.label}» bo&apos;yicha yozuv yo&apos;q</p>
-          <p className="mt-1 text-xs text-(--color-text-muted)">
-            Daromad va xarajat «{d.label}» bo&apos;limida kiritilgach shu yerda chiqadi:{' '}
-            <Link href={`/xarajatlar/bolim/${unit.slug}`} className="font-semibold text-brand-700 hover:underline">
-              Xarajatlar › {d.label}
-            </Link>
-          </p>
-        </Card>
-      ) : (
-        <>
-          <TreeCard
-            title="Xarajat — ichma-ich"
-            hint="Tuzilma (Ish haqi, Ijara va kommunal, Bank …) → xodim / filial / to'lov oluvchi / modda → oylar → yozuvlar"
-            nodes={d.tree.expense}
-            months={d.tree.months}
-            total={expense}
-            kind="expense"
-            root={`${ROOT} › Xarajat`}
-            compareLabel={d.compareLabel}
-          />
-          <TreeCard
-            title="Daromad — ichma-ich"
-            hint="Xizmat turi → mijoz → oylar → yozuvlar"
-            nodes={d.tree.income}
-            months={d.tree.months}
-            total={income}
-            kind="income"
-            root={`${ROOT} › Daromad`}
-            compareLabel={d.compareLabel}
-          />
-
-          {(d.incoming.length > 0 || d.outgoing.length > 0) && (
-            <div className="grid gap-4 xl:grid-cols-2">
-              <FlowCard title={`Boshqa bo'limlardan «${d.label}» hisobiga`} hint="Xarajatlar siyosati bo'yicha — xarajatga qo'shilgan" flows={d.incoming} dir="in" root={ROOT} />
-              <FlowCard title={`«${d.label}»dan boshqa bo'lim hisobiga`} hint="Shu yerda yozilgan, lekin xarajatga kirmaydi" flows={d.outgoing} dir="out" root={ROOT} />
-            </div>
-          )}
-          <p className="text-xs text-(--color-text-muted)">
-            Qaysi modda kim hisobida —{' '}
-            <Link href={policyHref} className="font-semibold text-brand-700 hover:underline">
-              Xarajatlar › {d.label} › Xarajatlar siyosati
-            </Link>
-          </p>
-
-          <TrendCard d={d} />
-        </>
-      )}
-    </>
   );
 }
 
@@ -170,96 +74,229 @@ function fmtRange(r: { from: string; to: string }) {
   return `${f(r.from)} — ${f(r.to)}`;
 }
 
+function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
+  const [view, setView] = useState<View>('expense');
+  const t = d.totals;
+  const ROOT = d.label;
+  const income = n(t.incomeTiyin);
+  const expense = n(t.expenseTiyin);
+  const result = n(t.resultTiyin);
+  const empty = !income && !expense && !n(t.previousIncomeTiyin) && !n(t.previousExpenseTiyin);
+  const policyHref = `/xarajatlar/bolim/${unit.slug}/siyosat`;
+  const hasFlows = d.incoming.length > 0 || d.outgoing.length > 0;
+  const pctText = (v: number | null) => (v === null ? '' : `${(v * 100).toFixed(1).replace('.', ',')}%`);
+
+  const tiles: StatTile[] = [
+    { label: 'Daromad', value: income, previous: n(t.previousIncomeTiyin), tone: 'green' },
+    { label: 'Xarajat', value: expense, previous: n(t.previousExpenseTiyin), growthGood: false, tone: 'red' },
+    { label: result >= 0 ? 'Natija (foyda)' : 'Natija (zarar)', value: result, previous: n(t.previousResultTiyin), signed: true, tone: 'blue' },
+    { label: 'Rentabellik', value: 0, text: pctText(t.margin), note: `Avval ${pctText(t.previousMargin)} · natija ÷ daromad`, tone: 'purple' },
+    {
+      label: "Korxonadagi ulushi",
+      value: 0,
+      text: pctText(t.incomeShare),
+      note: `${t.incomeCount} ta daromad · ${t.expenseCount} ta xarajat yozuvi`,
+      tone: 'cyan',
+    },
+  ];
+
+  const views: { value: View; label: string }[] = [
+    { value: 'expense', label: 'Xarajat — ichma-ich' },
+    { value: 'income', label: 'Daromad — ichma-ich' },
+    ...(hasFlows ? [{ value: 'flows' as const, label: 'Siyosat oqimlari' }] : []),
+    { value: 'months', label: 'Oylar kesimida' },
+  ];
+
+  return (
+    <>
+      <StatTiles items={tiles} compareLabel="Avval" />
+
+      {empty ? (
+        <div className="rounded-2xl bg-white px-6 py-12 text-center shadow-card">
+          <p className="text-sm font-semibold text-heading">Bu davrda «{d.label}» bo&apos;yicha yozuv yo&apos;q</p>
+          <p className="mt-1 text-xs text-(--color-text-muted)">
+            Daromad va xarajat «{d.label}» bo&apos;limida kiritilgach shu yerda chiqadi:{' '}
+            <Link href={`/xarajatlar/bolim/${unit.slug}`} className="font-semibold text-brand-700 hover:underline">
+              Xarajatlar › {d.label}
+            </Link>
+          </p>
+        </div>
+      ) : (
+        <>
+          <PillTabs value={view} onChange={setView} options={views} />
+
+          {view === 'expense' && (
+            <TreeCard
+              title={`${d.label}: xarajat`}
+              hint="Tuzilma → xodim / filial / to'lov oluvchi / modda → oylar → yozuvlar"
+              nodes={d.tree.expense}
+              months={d.tree.months}
+              total={expense}
+              kind="expense"
+              root={`${ROOT} › Xarajat`}
+              compareLabel={d.compareLabel}
+              badge={`Joriy: ${fmtRange(d.range)} · ${d.compareLabel}: ${fmtRange(d.previousRange)}`}
+              footer={
+                <>
+                  Ish haqi {sum(n(t.payrollTiyin))} so&apos;m.
+                  {n(t.incomingTiyin) || n(t.outgoingTiyin) ? ` Siyosat: +${sum(n(t.incomingTiyin))} kelgan, −${sum(n(t.outgoingTiyin))} o'tgan.` : ''} Qaysi modda kim hisobida —{' '}
+                  <Link href={policyHref} className="font-semibold text-brand-700 hover:underline">
+                    Xarajatlar › {d.label} › Xarajatlar siyosati
+                  </Link>
+                </>
+              }
+            />
+          )}
+          {view === 'income' && (
+            <TreeCard
+              title={`${d.label}: daromad`}
+              hint="Xizmat turi → mijoz → oylar → yozuvlar"
+              nodes={d.tree.income}
+              months={d.tree.months}
+              total={income}
+              kind="income"
+              root={`${ROOT} › Daromad`}
+              compareLabel={d.compareLabel}
+              badge={`Joriy: ${fmtRange(d.range)} · ${d.compareLabel}: ${fmtRange(d.previousRange)}`}
+            />
+          )}
+          {view === 'flows' && (
+            <>
+              <FlowCard title={`Boshqa bo'limlardan «${d.label}» hisobiga`} hint="Xarajatlar siyosati bo'yicha — xarajatga qo'shilgan" flows={d.incoming} dir="in" root={ROOT} />
+              <FlowCard title={`«${d.label}»dan boshqa bo'lim hisobiga`} hint="Shu yerda yozilgan, lekin xarajatga kirmaydi" flows={d.outgoing} dir="out" root={ROOT} />
+            </>
+          )}
+          {view === 'months' && <MonthsCard d={d} />}
+        </>
+      )}
+    </>
+  );
+}
+
 function FlowCard({ title, hint, flows, dir, root }: { title: string; hint: string; flows: SegFlow[]; dir: 'in' | 'out'; root: string }) {
   const { open } = useDrill();
   const total = flows.reduce((s, f) => s + n(f.amountTiyin), 0);
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-start gap-3 border-b border-(--color-line) px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-heading">{title}</p>
-          <p className="text-xs text-(--color-text-muted)">{hint}</p>
-        </div>
-        <p className={cn('money text-sm font-semibold', dir === 'in' ? 'text-(--color-expense)' : 'text-(--color-income)')}>
-          {dir === 'in' ? '+' : '−'} {som(total)}
-        </p>
-      </div>
+    <ReportCard title={title} badge={hint}>
       {flows.length ? (
-        <table className="w-full text-sm">
+        <RTable minWidth={760}>
+          <thead>
+            <tr>
+              <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+              <Th className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>Yo&apos;nalish</Th>
+              <Th className="text-left">Modda</Th>
+              <Th>Summasi</Th>
+              <Th>Yozuvlar</Th>
+            </tr>
+          </thead>
           <tbody>
-            {flows.map((f) => (
-              <tr key={`${f.unit}-${f.code}`} className="border-t border-(--color-line) first:border-t-0">
-                <td className="px-4 py-2 text-(--color-text-muted)">
-                  <span className="inline-flex items-center gap-1">
+            <Tr total>
+              <Td className={STICKY_NO} />
+              <NameCell>Jami</NameCell>
+              <Td />
+              <Td className={cn('whitespace-nowrap', dir === 'in' ? 'text-(--color-expense)' : 'text-(--color-income)')}>
+                {dir === 'in' ? '+' : '−'}
+                {sum(total)}
+              </Td>
+              <Td>{flows.reduce((s, f) => s + f.count, 0)}</Td>
+            </Tr>
+            {flows.map((f, i) => (
+              <Tr key={`${f.unit}-${f.code}`}>
+                <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                <NameCell>
+                  <span className="inline-flex items-center gap-1 text-(--color-text-muted)">
                     {dir === 'in' ? f.unitLabel : root}
                     <IconArrowRight className="size-3 text-brand-600" />
                     {dir === 'in' ? root : f.unitLabel}
                   </span>
-                </td>
-                <td className="px-2 py-2 text-heading">{f.label}</td>
-                <td className="px-4 py-2 text-right">
-                  <button type="button" disabled={!n(f.amountTiyin)} onClick={() => open({ kind: 'expense', f: f.f, title: `${f.unitLabel} › ${f.label}`, expected: n(f.amountTiyin) })} className="money text-heading hover:text-brand-700 hover:underline disabled:text-(--color-text-faint)">
-                    {n(f.amountTiyin) ? som(n(f.amountTiyin)) : '—'}
+                </NameCell>
+                <Td className="text-left text-heading">{f.label}</Td>
+                <Td className="whitespace-nowrap">
+                  <button
+                    type="button"
+                    disabled={!n(f.amountTiyin)}
+                    onClick={() => open({ kind: 'expense', f: f.f, title: `${f.unitLabel} › ${f.label}`, expected: n(f.amountTiyin) })}
+                    className="font-semibold text-heading hover:text-brand-700 hover:underline disabled:text-(--color-text-faint)"
+                  >
+                    {n(f.amountTiyin) ? sum(n(f.amountTiyin)) : ''}
                   </button>
-                  <span className="block text-[11px] text-(--color-text-faint)">{f.count} ta</span>
-                </td>
-              </tr>
+                </Td>
+                <Td className="text-(--color-text-muted)">{f.count}</Td>
+              </Tr>
             ))}
           </tbody>
-        </table>
+        </RTable>
       ) : (
-        <p className="px-4 py-6 text-sm text-(--color-text-muted)">Yo&apos;q</p>
+        <EmptyNote>Yo&apos;q</EmptyNote>
       )}
-    </Card>
+    </ReportCard>
   );
 }
 
-function TrendCard({ d }: { d: SegmentView }) {
-  const inc = d.trend.income.map(n);
-  const exp = d.trend.expense.map(n);
-  const res = d.trend.result.map(n);
-  const max = Math.max(1, ...inc, ...exp);
-  const [hover, setHover] = useState<number | null>(null);
+function MonthsCard({ d }: { d: SegmentView }) {
+  const rows = d.months.map((m, i) => ({ m, inc: n(d.trend.income[i] ?? '0'), exp: n(d.trend.expense[i] ?? '0'), res: n(d.trend.result[i] ?? '0') })).filter((r) => r.inc || r.exp || r.res);
+  const ti = rows.reduce((a, r) => a + r.inc, 0);
+  const te = rows.reduce((a, r) => a + r.exp, 0);
+  const tr = rows.reduce((a, r) => a + r.res, 0);
+  const exportCsv = () =>
+    downloadCsv(
+      `solishtirma-${d.label}-oylar`,
+      ['Oy', "Daromad, so'm", "Xarajat, so'm", "Natija, so'm"],
+      rows.map((r) => [monthLabel(r.m), csvSom(r.inc), csvSom(r.exp), csvSom(r.res)]),
+    );
   return (
-    <Card className="p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm font-semibold text-heading">So&apos;nggi 12 oy</p>
-        <span className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
-          <span className="size-2.5 rounded-sm bg-(--color-income)" /> Daromad
-        </span>
-        <span className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
-          <span className="size-2.5 rounded-sm bg-brand-500" /> Xarajat
-        </span>
-        <p className="ml-auto text-xs text-(--color-text-muted)">
-          {hover !== null ? (
-            <>
-              <b className="text-heading">{monthLabel(d.months[hover]!)}</b>: daromad {som(inc[hover]!)} · xarajat {som(exp[hover]!)} · natija{' '}
-              <b className={res[hover]! < 0 ? 'text-(--color-expense)' : 'text-(--color-income)'}>{som(res[hover]!)}</b>
-            </>
-          ) : (
-            'Ustun ustiga olib boring'
-          )}
-        </p>
-      </div>
-      <div className="mt-4 flex h-40 items-end gap-1.5">
-        {d.months.map((m, i) => (
-          <div key={m} className="flex h-full flex-1 flex-col justify-end" onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-            <div className={cn('flex h-full items-end gap-0.5 rounded px-0.5', hover === i && 'bg-brand-50')}>
-              <div className="flex-1 rounded-t bg-(--color-income)" style={{ height: `${(inc[i]! / max) * 100}%` }} />
-              <div className="flex-1 rounded-t bg-brand-500" style={{ height: `${(exp[i]! / max) * 100}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-1 flex gap-1.5">
-        {d.months.map((m, i) => (
-          <div key={m} className="flex-1 text-center">
-            <p className="truncate text-[10px] text-(--color-text-muted)">{monthLabel(m).split(' ')[0]?.slice(0, 3)}</p>
-            <p className={cn('money truncate text-[10px] font-semibold', res[i]! < 0 ? 'text-(--color-expense)' : res[i] ? 'text-(--color-income)' : 'text-(--color-text-faint)')}>{res[i] ? short(res[i]!) : '—'}</p>
-          </div>
-        ))}
-      </div>
-    </Card>
+    <ReportCard
+      title={`${d.label}: so'nggi ${d.months.length} oy`}
+      badge="Daromad, xarajat va natija oyma-oy"
+      actions={
+        rows.length ? (
+          <button type="button" onClick={exportCsv} className="inline-flex h-9 items-center rounded-lg bg-[#1e9e55] px-3 text-xs font-semibold text-white hover:bg-[#178a49]">
+            Excelga eksport
+          </button>
+        ) : undefined
+      }
+    >
+      {rows.length === 0 ? (
+        <EmptyNote>Ma&apos;lumot yo&apos;q</EmptyNote>
+      ) : (
+        <RTable minWidth={640}>
+          <thead>
+            <tr>
+              <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+              <Th className={cn(STICKY_NAME, 'z-[2] min-w-40 text-left')}>Oy</Th>
+              <Th>Daromad</Th>
+              <Th>Xarajat</Th>
+              <Th>Natija</Th>
+              <Th>Rentabellik</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <Tr total>
+              <Td className={STICKY_NO} />
+              <NameCell>Jami · {rows.length} oy</NameCell>
+              <MoneyCell value={ti} />
+              <MoneyCell value={te} />
+              <MoneyCell value={tr} strong signedColor />
+              <Td>
+                <PctBadge value={ti > 0 ? (tr / ti) * 100 : null} plain />
+              </Td>
+            </Tr>
+            {[...rows].reverse().map((r, i) => (
+              <Tr key={r.m}>
+                <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                <NameCell>{monthLabel(r.m)}</NameCell>
+                <MoneyCell value={r.inc} className="text-(--color-income)" />
+                <MoneyCell value={r.exp} className="text-(--color-expense)" />
+                <MoneyCell value={r.res} strong signedColor />
+                <Td>
+                  <PctBadge value={r.inc > 0 ? (r.res / r.inc) * 100 : null} plain />
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </RTable>
+      )}
+    </ReportCard>
   );
 }
 
@@ -269,15 +306,48 @@ export function segmentUnit(code: string | null | undefined): EntryUnit | null {
   return u && u.code !== 'CENTER' && u.code !== 'REGION' ? u : null;
 }
 
+const HEAD = 'border-b border-l border-(--color-line) bg-[#f3f6fd] px-2 py-2.5 text-center text-xs font-bold text-heading first:border-l-0';
+const CELL = 'border-b border-l border-(--color-line) px-2 py-1.5 text-center text-[13px] tabular-nums first:border-l-0';
+
 /** Ichma-ich jadval: ▸ — ichiga; summa — yozuvlar; «Oylar kesimida» — har oy ustuni (katak bosilsa — o'sha oy yozuvlari) */
-function TreeCard({ title, hint, nodes, months, total, kind, root, compareLabel }: { title: string; hint: string; nodes: DrillNode[]; months: string[]; total: number; kind: 'income' | 'expense'; root: string; compareLabel: string }) {
+function TreeCard({
+  title,
+  hint,
+  nodes,
+  months,
+  total,
+  kind,
+  root,
+  compareLabel,
+  badge,
+  footer,
+}: {
+  title: string;
+  hint: string;
+  nodes: DrillNode[];
+  months: string[];
+  total: number;
+  kind: 'income' | 'expense';
+  root: string;
+  compareLabel: string;
+  badge: string;
+  footer?: ReactNode;
+}) {
   const { open } = useDrill();
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const [byMonth, setByMonth] = useState(false);
-  const toggle = (id: string) => setOpened((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
+  const toggle = (id: string) =>
+    setOpened((s) => {
+      const x = new Set(s);
+      if (x.has(id)) x.delete(id);
+      else x.add(id);
+      return x;
+    });
   const drill = (node: DrillNode, path: string[], month?: string, value?: number) =>
     node.f && open({ kind, f: { ...node.f, ...(month ? { month } : {}) }, title: [root, ...path, ...(month ? [monthLabel(month)] : [])].join(' › '), expected: value });
   const many = months.length > 1;
+  const growthGood = kind === 'income';
+  const prevTotal = nodes.reduce((s, nd) => s + n(nd.previousTiyin), 0);
 
   const rows: ReactNode[] = [];
   const walk = (list: DrillNode[], depth: number, parentId: string, path: string[]) => {
@@ -285,66 +355,70 @@ function TreeCard({ title, hint, nodes, months, total, kind, root, compareLabel 
       const id = `${parentId}/${nd.key}`;
       const cur = n(nd.amountTiyin);
       const prev = n(nd.previousTiyin);
-      const c = change(cur, prev);
-      const good = c === null || c === 0 ? null : c > 0 === (kind === 'income');
+      const diff = cur - prev;
       const kids = nd.children ?? [];
-      // Eng pastki tugun — ichida oylar (bir nechta oy bo'lsa)
       const monthKids = !kids.length && many ? months.map((m, i) => ({ m, v: n(nd.values[i] ?? '0') })).filter((x) => x.v !== 0) : [];
       const expandable = kids.length > 0 || monthKids.length > 1;
       const isOpen = opened.has(id);
       const p = [...path, nd.label];
+      const good = Math.round(diff / 100) === 0 ? null : diff > 0 === growthGood;
       rows.push(
-        <tr key={id} className={cn('border-t border-(--color-line)', depth === 0 ? 'bg-white font-medium' : depth === 1 ? 'bg-(--color-surface-sunken)/30' : 'bg-(--color-surface-sunken)/60')}>
-          <td className="py-1.5 pr-2" style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}>
-            <div className="flex items-center gap-1.5">
-              {expandable ? (
-                <button type="button" onClick={() => toggle(id)} className="flex size-5 shrink-0 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50" aria-expanded={isOpen}>
-                  <IconChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
-                </button>
-              ) : (
-                <span className="size-5 shrink-0" />
-              )}
+        <tr key={id} className={cn(depth === 0 ? 'bg-white font-medium' : depth === 1 ? 'bg-[#fafbfe]' : 'bg-[#f4f6fb]', expandable && 'cursor-pointer hover:bg-brand-50')} onClick={expandable ? () => toggle(id) : undefined}>
+          <td className={cn(CELL, 'text-left')} style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}>
+            <span className="flex items-center gap-1.5">
+              <span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90', !expandable && 'invisible')}>▸</span>
               <span className={cn('text-heading', depth === 0 && 'font-semibold')} title={nd.hint}>
                 {nd.label}
               </span>
               {kids.length > 0 && <span className="text-xs text-(--color-text-faint)">{kids.length}</span>}
-            </div>
-            {depth === 0 && total > 0 && (
-              <div className="ml-6 mt-1 h-1 max-w-56 rounded bg-(--color-surface-sunken)">
-                <div className={cn('h-1 rounded', kind === 'income' ? 'bg-(--color-income)' : 'bg-brand-500')} style={{ width: `${Math.max(0, Math.min(100, (cur / total) * 100))}%` }} />
-              </div>
-            )}
-          </td>
-          <td className="px-2 py-1.5 text-right whitespace-nowrap">
-            {nd.f && cur ? (
-              <button type="button" onClick={() => drill(nd, p, undefined, cur)} className="money text-heading hover:text-brand-700 hover:underline">
-                {som(cur)}
-              </button>
-            ) : (
-              <span className={cn('money', cur < 0 ? 'text-(--color-expense)' : cur ? 'text-heading' : 'text-(--color-text-faint)')}>{cur ? som(cur) : '—'}</span>
-            )}
-            <span className="block text-[10.5px] text-(--color-text-faint)">
-              {total ? pct(cur / total) : ''}
-              {nd.count ? ` · ${nd.count} ta` : ''}
+              {nd.count ? <span className="text-[11px] text-(--color-text-faint)">· {nd.count} ta</span> : null}
             </span>
           </td>
           {!byMonth && (
-            <td className="px-2 py-1.5 text-right text-xs whitespace-nowrap">
-              <span className="money text-(--color-text-muted)">{prev ? short(prev) : '—'}</span>
-              <span className={cn('money block font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{c === null ? (cur ? 'yangi' : '—') : pctSigned(c)}</span>
-            </td>
+            <>
+              <td className={cn(CELL, 'whitespace-nowrap text-(--color-text-muted)')}>{prev ? sum(prev) : ''}</td>
+              <td className={cn(CELL, 'whitespace-nowrap')}>
+                {nd.f && cur ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      drill(nd, p, undefined, cur);
+                    }}
+                    className="text-heading hover:text-brand-700 hover:underline"
+                  >
+                    {sum(cur)}
+                  </button>
+                ) : (
+                  <span className={cn(cur < 0 ? 'text-(--color-expense)' : cur ? 'text-heading' : 'text-(--color-text-faint)')}>{cur ? sum(cur) : ''}</span>
+                )}
+              </td>
+              <td className={cn(CELL, 'whitespace-nowrap font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>
+                {diff > 0 ? '+' : ''}
+                {sum(diff)}
+                <PctInline value={changeOf(cur, prev)} growthGood={growthGood} />
+              </td>
+              <td className={CELL}>{total ? <PctBadge value={(cur / total) * 100} plain /> : ''}</td>
+            </>
           )}
           {byMonth &&
             months.map((m, i) => {
               const v = n(nd.values[i] ?? '0');
               return (
-                <td key={m} className="px-1.5 py-1.5 text-right text-xs whitespace-nowrap">
+                <td key={m} className={cn(CELL, 'whitespace-nowrap')}>
                   {v && nd.f ? (
-                    <button type="button" onClick={() => drill(nd, p, m, v)} className="money text-heading hover:text-brand-700 hover:underline">
-                      {short(v)}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        drill(nd, p, m, v);
+                      }}
+                      className="text-heading hover:text-brand-700 hover:underline"
+                    >
+                      {sum(v)}
                     </button>
                   ) : (
-                    <span className={cn('money', v < 0 ? 'text-(--color-expense)' : v ? 'text-heading' : 'text-(--color-text-faint)')}>{v ? short(v) : '·'}</span>
+                    <span className={cn(v < 0 ? 'text-(--color-expense)' : v ? 'text-heading' : 'text-(--color-text-faint)')}>{v ? sum(v) : '·'}</span>
                   )}
                 </td>
               );
@@ -356,21 +430,27 @@ function TreeCard({ title, hint, nodes, months, total, kind, root, compareLabel 
       else
         for (const { m, v } of monthKids)
           rows.push(
-            <tr key={`${id}@${m}`} className="border-t border-(--color-line) bg-brand-50/30 text-xs">
-              <td className="py-1 pr-2 text-(--color-text-muted)" style={{ paddingLeft: `${0.5 + (depth + 1) * 1.25 + 1.6}rem` }}>
+            <tr key={`${id}@${m}`} className="bg-brand-50/40 text-xs">
+              <td className={cn(CELL, 'text-left text-(--color-text-muted)')} style={{ paddingLeft: `${0.5 + (depth + 1) * 1.25 + 1}rem` }}>
                 {monthLabel(m)}
               </td>
-              <td className="px-2 py-1 text-right">
+              {!byMonth && <td className={CELL} />}
+              <td className={CELL}>
                 {nd.f ? (
-                  <button type="button" onClick={() => drill(nd, p, m, v)} className="money text-heading hover:text-brand-700 hover:underline">
-                    {som(v)}
+                  <button type="button" onClick={() => drill(nd, p, m, v)} className="text-heading hover:text-brand-700 hover:underline">
+                    {sum(v)}
                   </button>
                 ) : (
-                  <span className="money text-heading">{som(v)}</span>
+                  <span className="text-heading">{sum(v)}</span>
                 )}
               </td>
-              {!byMonth && <td />}
-              {byMonth && months.map((x) => <td key={x} />)}
+              {!byMonth && (
+                <>
+                  <td className={CELL} />
+                  <td className={CELL} />
+                </>
+              )}
+              {byMonth && months.slice(1).map((x) => <td key={x} className={CELL} />)}
             </tr>,
           );
     }
@@ -379,44 +459,75 @@ function TreeCard({ title, hint, nodes, months, total, kind, root, compareLabel 
   const allIds = (list: DrillNode[], parentId: string): string[] => list.flatMap((nd) => [`${parentId}/${nd.key}`, ...allIds(nd.children ?? [], `${parentId}/${nd.key}`)]);
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-heading">{title}</p>
-          <p className="text-xs text-(--color-text-muted)">{hint}</p>
-        </div>
-        <button type="button" onClick={() => setOpened(opened.size ? new Set() : new Set(allIds(nodes, '')))} className="h-8 rounded-(--radius-control) border border-(--color-line) px-2.5 text-xs font-medium text-heading hover:bg-brand-50">
-          {opened.size ? 'Hammasini yopish' : 'Hammasini ochish'}
-        </button>
-        {many && (
-          <label className="flex items-center gap-2 text-xs font-medium text-(--color-text-muted)">
-            <input type="checkbox" checked={byMonth} onChange={(e) => setByMonth(e.target.checked)} />
-            Oylar kesimida
-          </label>
-        )}
-      </div>
+    <ReportCard
+      title={title}
+      badge={badge}
+      actions={
+        <>
+          <button type="button" onClick={() => setOpened(opened.size ? new Set() : new Set(allIds(nodes, '')))} className="rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+            {opened.size ? 'Hammasini yopish' : 'Hammasini ochish'}
+          </button>
+          {many && (
+            <PillTabs
+              value={byMonth ? 'months' : 'compare'}
+              onChange={(v) => setByMonth(v === 'months')}
+              options={[
+                { value: 'compare', label: 'Solishtirma' },
+                { value: 'months', label: 'Oylar kesimida' },
+              ]}
+            />
+          )}
+        </>
+      }
+    >
       {nodes.length ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
+        <div className="overflow-x-auto px-4 pb-2">
+          <table className="w-full border-separate border-spacing-0 overflow-hidden rounded-xl border border-(--color-line) text-sm" style={{ minWidth: byMonth ? 320 + months.length * 110 : 900 }}>
+            <thead>
               <tr>
-                <th className="px-3 py-2 text-left font-semibold">Nomi</th>
-                <th className="w-40 px-2 py-2 text-right font-semibold">Joriy davr</th>
-                {!byMonth && <th className="w-28 px-2 py-2 text-right font-semibold">{compareLabel}</th>}
+                <th className={cn(HEAD, 'min-w-72 text-left')}>Nomi</th>
+                {!byMonth && (
+                  <>
+                    <th className={HEAD}>{cap(compareLabel)}</th>
+                    <th className={HEAD}>Joriy davr</th>
+                    <th className={HEAD}>Farqi, foizda</th>
+                    <th className={HEAD}>Ulushi</th>
+                  </>
+                )}
                 {byMonth &&
                   months.map((m) => (
-                    <th key={m} className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">
-                      {monthLabel(m).split(' ')[0]?.slice(0, 3)} {m.slice(2, 4)}
+                    <th key={m} className={cn(HEAD, 'whitespace-nowrap')}>
+                      {monthLabel(m)}
                     </th>
                   ))}
               </tr>
             </thead>
-            <tbody>{rows}</tbody>
+            <tbody>
+              {!byMonth && (
+                <tr className="bg-[#eaf0fd] font-bold text-heading">
+                  <td className={cn(CELL, 'text-left')}>Jami</td>
+                  <td className={cn(CELL, 'whitespace-nowrap')}>{sum(prevTotal)}</td>
+                  <td className={cn(CELL, 'whitespace-nowrap')}>{sum(total)}</td>
+                  <td className={cn(CELL, 'whitespace-nowrap')}>
+                    {total - prevTotal > 0 ? '+' : ''}
+                    {sum(total - prevTotal)}
+                    <PctInline value={changeOf(total, prevTotal)} growthGood={growthGood} />
+                  </td>
+                  <td className={CELL}>
+                    <PctBadge value={100} plain />
+                  </td>
+                </tr>
+              )}
+              {rows}
+            </tbody>
           </table>
         </div>
       ) : (
-        <p className="px-4 py-8 text-center text-sm text-(--color-text-muted)">Bu davrda yo&apos;q</p>
+        <EmptyNote>Bu davrda yo&apos;q</EmptyNote>
       )}
-    </Card>
+      <TableNote>
+        {hint}. Qatorni bosing — ichiga; summani bosing — yozuvlar ochiladi.{footer ? <> {footer}</> : null}
+      </TableNote>
+    </ReportCard>
   );
 }

@@ -17,7 +17,10 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
 import { SafarPanel } from './safar-panel';
-import { acc23106Api, analyzeAcc23106, downloadAcc23106Template, type ControlState, type PayoutAnalysis, type PayoutBatch, type PayoutKind, type PayoutRow, type PayoutSummary } from './api';
+import { KindAnalysis, type KindMover } from './kind-analysis';
+import { RulesCard } from './rules-card';
+import { ReanalyzeMoves, SmartPanel } from './smart-panel';
+import { acc23106Api, safarApi, analyzeAcc23106, downloadAcc23106Template, KIND_LABEL, KIND_OPTIONS, normMatch, type ControlState, type PayoutAnalysis, type PayoutBatch, type PayoutKind, type PayoutRow, type PayoutSummary, type ReclassifyResult, type SafarConfirmItem } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › 23106 — xodimlarga to'lovlar hisob raqami ko'chirmasi.
@@ -55,7 +58,68 @@ export function Acc23106View() {
   const [cancelling, setCancelling] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const [safarKey, setSafarKey] = useState(0);
+  /** Tahlildan «Ro'yxatda ko'rsatish» — jadval shu turga filtrlanadi (n — har bosishda yangilanadi) */
+  const [savedKind, setSavedKind] = useState<{ kind: PayoutKind; n: number } | null>(null);
+  const [fileKind, setFileKind] = useState<{ kind: PayoutKind; n: number } | null>(null);
+  const showIn = (set: typeof setSavedKind, id: string) => (kind: PayoutKind) => {
+    set((prev) => ({ kind, n: (prev?.n ?? 0) + 1 }));
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
   const inputRef = useRef<HTMLInputElement>(null);
+  const [rulesKey, setRulesKey] = useState(0);
+
+  // ─────────── Guruhga o'tkazish (qoida yoki qo'lda) ───────────
+  function afterChange(r: ReclassifyResult, what: string) {
+    setToast({
+      message: `${what}${r.changed ? ` · saqlanganlardan ${r.changed} ta to'lov (${formatTiyin(r.changedTiyin)} so'm) guruhi o'zgardi` : ''}${r.safarDropped ? ` · ${r.safarDropped} ta xizmat safari xarajati bekor qilindi (endi safar emas)` : ''}`,
+      tone: 'success',
+    });
+    view.reload();
+    setSafarKey((k) => k + 1);
+    setRulesKey((k) => k + 1);
+  }
+  /** Tahlil qilingan (hali saqlanmagan) fayldagi qatorlarni ham shu zahoti yangilash */
+  function patchAnalysis(pred: (r: PayoutRow) => boolean, kind: PayoutKind, source: 'RULE' | 'MANUAL') {
+    setAnalysis((a) => (a ? { ...a, rows: a.rows.map((r) => (pred(r) ? { ...r, kind, kindLabel: KIND_LABEL[kind], kindSource: source } : r)) } : a));
+  }
+  const keyOf = (r: PayoutRow) => r.key ?? `${r.docDate}|${r.docNo}|${r.debitTiyin}|${r.inn}`;
+  const mover: KindMover | undefined = isAdmin
+    ? {
+        move: async (keys, kind) => {
+          const r = (await acc23106Api.override(keys, kind)).data;
+          const set = new Set(keys);
+          patchAnalysis((x) => set.has(keyOf(x)), kind, 'MANUAL');
+          afterChange(r, `${keys.length} ta to'lov «${KIND_LABEL[kind]}»ga o'tkazildi`);
+        },
+        rule: async (text, kind) => {
+          const r = (await acc23106Api.addRule(text, kind)).data;
+          const norm = normMatch(text);
+          patchAnalysis((x) => x.kindSource !== 'MANUAL' && normMatch(x.purpose).includes(norm), kind, 'RULE');
+          afterChange(r, `Qoida saqlandi: izohida «${text}» bo'lsa — «${KIND_LABEL[kind]}»`);
+        },
+      }
+    : undefined;
+  /** Xizmat safari: bo'lim / hudud bo'yicha kutayotgan to'lovlarni xarajatga o'tkazish (har biri o'z oyiga) */
+  const safarPost = isAdmin
+    ? async (items: SafarConfirmItem[], categoryCode: string) => {
+        const r = (await safarApi.confirm({ items, categoryCode })).data;
+        setToast({ message: `Xarajatga o'tkazildi: ${r.count} ta to'lov · ${formatTiyin(r.totalTiyin)} so'm · ${r.units} ta joy (har biri to'langan oyiga)`, tone: 'success' });
+        setSafarKey((k) => k + 1);
+      }
+    : undefined;
+
+  /** Jadvaldagi bitta to'lov (kind=null — avtomatikka qaytarish) */
+  const moveOne = isAdmin
+    ? async (r: PayoutRow, kind: PayoutKind | null) => {
+        try {
+          const res = (await acc23106Api.override([keyOf(r)], kind)).data;
+          if (kind) patchAnalysis((x) => keyOf(x) === keyOf(r), kind, 'MANUAL');
+          afterChange(res, kind ? `To'lov «${KIND_LABEL[kind]}»ga o'tkazildi` : "To'lov avtomatik guruhiga qaytarildi");
+        } catch (err) {
+          setToast({ message: errorMessage(err, "Saqlab bo'lmadi"), tone: 'error' });
+        }
+      }
+    : undefined;
 
   const view = useAsync(() => (range.error ? Promise.resolve(null) : acc23106Api.view(range.from, range.to).then((r) => r.data)), [range.from, range.to, range.error]);
   const batches = useAsync(() => acc23106Api.batches().then((r) => r.data), []);
@@ -92,7 +156,8 @@ export function Acc23106View() {
       const months = [...picked];
       const rows = analysis.rows.filter((r) => picked.has(r.docDate.slice(0, 7)));
       const r = (await acc23106Api.commit({ fileName: analysis.fileName, months, rows })).data;
-      setToast({ message: `Saqlandi: ${r.saved} ta to'lov · ${formatTiyin(r.totalTiyin)} so'm${r.replacedMonths ? ` · ${r.replacedMonths} oyning oldingi ko'chirmasi almashtirildi` : ''}${r.safarDropped ? ` · o'sha oylarning ${r.safarDropped} ta xizmat safari xarajati bekor qilindi — qayta tasdiqlang` : ''}`, tone: 'success' });
+      setToast({ message: `Saqlandi: ${r.saved} ta to'lov · ${formatTiyin(r.totalTiyin)} so'm${r.replacedMonths ? ` · ${r.replacedMonths} oyning oldingi ko'chirmasi almashtirildi` : ''}${r.safarDropped ? ` · o'sha oylarning ${r.safarDropped} ta xizmat safari xarajati bekor qilindi — qayta tasdiqlang` : ''}${r.reanalyzed?.changed ? ` · aqlli tahlil: eski oylardagi ${r.reanalyzed.changed} ta to'lov guruhi yangilandi` : ''}${r.reanalyzed?.safarDropped ? ` (${r.reanalyzed.safarDropped} ta safar xarajati bekor)` : ''}`, tone: 'success' });
+      setRulesKey((k) => k + 1);
       setSafarKey((k) => k + 1);
       range.include(months);
       reset();
@@ -226,7 +291,12 @@ export function Acc23106View() {
               )}
             </CardBody>
           </Card>
-          <PayoutTable rows={analysis.rows} title="Ko'chirmadagi to'lovlar" />
+          <KindAnalysis rows={analysis.rows} title={`Tahlil: ${analysis.fileName} — pul nima uchun chiqqan`} onShow={showIn(setFileKind, 'acc23106-file-table')} mover={mover} />
+          {analysis.reanalyze && <ReanalyzeMoves preview={analysis.reanalyze} />}
+          <SmartPanel rows={analysis.rows} isAdmin={isAdmin} move={mover?.move} />
+          <div id="acc23106-file-table" className="scroll-mt-24">
+            <PayoutTable rows={analysis.rows} title="Ko'chirmadagi to'lovlar" pick={fileKind} onMove={moveOne} />
+          </div>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={reset} disabled={saving}>
               Boshqa fayl
@@ -247,7 +317,20 @@ export function Acc23106View() {
       ) : view.data && view.data.rows.length ? (
         <>
           <SummaryBoxes s={view.data.summary} />
-          <PayoutTable rows={view.data.rows} title={`Saqlangan to'lovlar · ${range.text}`} />
+          <KindAnalysis
+            rows={view.data.rows}
+            title={`Tahlil: ${range.text} — pul nima uchun chiqqan`}
+            onShow={showIn(setSavedKind, 'acc23106-saved-table')}
+            mover={mover}
+            placesLoader={() => safarApi.places(range.from, range.to).then((r) => r.data)}
+            placesKey={`${range.from}|${range.to}|${safarKey}|${rulesKey}`}
+            safarPost={safarPost}
+          />
+          <SmartPanel rows={view.data.rows} isAdmin={isAdmin} move={mover?.move} />
+          <RulesCard isAdmin={isAdmin} reloadKey={rulesKey} onChanged={afterChange} />
+          <div id="acc23106-saved-table" className="scroll-mt-24">
+            <PayoutTable rows={view.data.rows} title={`Saqlangan to'lovlar · ${range.text}`} pick={savedKind} onMove={moveOne} />
+          </div>
         </>
       ) : (
         <EmptyState title={`${range.text || 'Tanlangan davr'} uchun ko'chirma saqlanmagan`} hint="upload" />
@@ -339,12 +422,19 @@ function Box({ label, value, sub, tone = 'neutral' }: { label: string; value: st
 
 const PAGE = 100;
 
-function PayoutTable({ rows, title }: { rows: PayoutRow[]; title: string }) {
+function PayoutTable({ rows, title, pick, onMove }: { rows: PayoutRow[]; title: string; /** Tashqaridan tanlangan tur (tahlildan) */ pick?: { kind: PayoutKind; n: number } | null; onMove?: (r: PayoutRow, kind: PayoutKind | null) => Promise<void> }) {
   const [kind, setKind] = useState<PayoutKind | 'ALL'>('ALL');
   const [control, setControl] = useState<ControlState | 'ALL' | 'PROBLEM'>('ALL');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState<string | null>(null);
+  // Tahlildan tur tanlansa — filtr shu turga o'tadi (render vaqtida, effektsiz)
+  const [pickSeen, setPickSeen] = useState(pick?.n ?? 0);
+  if (pick && pick.n !== pickSeen) {
+    setPickSeen(pick.n);
+    setKind(pick.kind);
+    setPage(1);
+  }
   const kinds = useMemo(() => [...new Map(rows.map((r) => [r.kind, r.kindLabel])).entries()], [rows]);
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -423,9 +513,12 @@ function PayoutTable({ rows, title }: { rows: PayoutRow[]; title: string }) {
                     </span>
                   </td>
                   <td className="px-2 py-2">
-                    <Badge tone="brand" className="px-1.5 py-0 text-[11px]">
+                    <Badge tone={r.kind === 'BOSHQA' ? 'neutral' : 'brand'} className="px-1.5 py-0 text-[11px]">
                       {r.kindLabel}
                     </Badge>
+                    {r.kindSource === 'RULE' && <span className="ml-1 text-[10px] text-(--color-text-faint)">qoida bilan</span>}
+                    {r.kindSource === 'MANUAL' && <span className="ml-1 text-[10px] text-amber-700">qo&apos;lda</span>}
+                    {r.kind === 'BOSHQA' && open !== id && <p className="mt-0.5 line-clamp-2 max-w-md text-[11px] leading-snug text-(--color-text)">{r.purpose}</p>}
                     <span className="mt-0.5 block text-[11px] text-(--color-text-muted)">
                       {r.orderNo || r.orderDate ? `Buyruq ${r.orderDate ? formatDate(r.orderDate) : ''}${r.orderNo ? ` № ${r.orderNo}` : ''} · ` : ''}
                       hisoblangan oy: {formatPeriod(r.accrual)}
@@ -433,7 +526,32 @@ function PayoutTable({ rows, title }: { rows: PayoutRow[]; title: string }) {
                     <button type="button" className="text-[11px] font-medium text-brand-700 hover:underline" onClick={() => setOpen(open === id ? null : id)}>
                       {open === id ? 'Izohni yashirish' : 'Izoh'}
                     </button>
-                    {open === id && <p className="mt-1 max-w-md text-[11px] leading-snug text-(--color-text)">{r.purpose}</p>}
+                    {open === id && (
+                      <div className="mt-1 max-w-md space-y-1.5">
+                        <p className="text-[11px] leading-snug text-(--color-text)">{r.purpose}</p>
+                        {onMove && (
+                          <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="text-(--color-text-muted)">Guruhi:</span>
+                            <select
+                              value={r.kind}
+                              onChange={(e) => void onMove(r, e.target.value as PayoutKind)}
+                              className="h-7 rounded-md border border-(--color-line-strong) bg-white px-1.5 text-xs"
+                            >
+                              {KIND_OPTIONS.map((o) => (
+                                <option key={o.kind} value={o.kind}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                            {r.kindSource === 'MANUAL' && (
+                              <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => void onMove(r, null)}>
+                                avtomatikka qaytarish
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="money px-2 py-2 text-right">
                     <Money tiyin={r.debitTiyin} tone="expense" />

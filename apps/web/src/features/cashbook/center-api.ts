@@ -14,6 +14,18 @@ export const MODE_LABEL: Record<CenterMode, string> = {
   NONE: 'Daromad emas',
 };
 
+/** Qator egasi: Markaz yoki yo'nalish (Tax free, Marksheyder …) — yo'nalish daromadi o'z xarajatlari bilan birga ko'rinadi */
+export type CenterOwner = 'CENTER' | 'TAX_FREE' | 'MARKSHEYDER' | 'FERMER' | 'BUXGALTERIYA' | 'QOMITA';
+
+export const OWNER_LABEL: Record<CenterOwner, string> = {
+  CENTER: 'Markaz',
+  TAX_FREE: 'Tax free',
+  MARKSHEYDER: 'Marksheyder',
+  FERMER: "Fermer xo'jaligi",
+  BUXGALTERIYA: 'Buxgalteriya xizmatlari',
+  QOMITA: "Qo'mita",
+};
+
 export interface CenterMonth {
   period: string;
   label: string;
@@ -27,6 +39,8 @@ export interface CenterMonth {
   inSync: boolean;
   otherCenterTiyin: string;
   regionIncomeTiyin: string;
+  /** Shundan yo'nalishlarga yozilgan */
+  segmentsTiyin: string;
 }
 
 export interface CenterRow {
@@ -38,6 +52,8 @@ export interface CenterRow {
   isHeader: boolean;
   mode: CenterMode | null;
   defaultMode: CenterMode | null;
+  owner: CenterOwner | null;
+  defaultOwner: CenterOwner | null;
   months: Record<string, string | null>;
   totalTiyin: string;
 }
@@ -95,7 +111,8 @@ export const centerIncomeApi = {
   upload: (file: File, date?: string) => send<CenterPreview & { year: CenterYear }>(`/cashbook/center-income/upload${dateQ(date)}`, file),
   sync: async (year: number, period?: string) =>
     (await api.post<ApiResponse<CenterYear>>(`/cashbook/center-income/sync?year=${year}${period ? `&period=${period}` : ''}`)).data,
-  setModes: async (year: number, modes: Record<string, CenterMode>) => (await api.patch<ApiResponse<CenterYear>>('/cashbook/center-income/modes', { year, modes })).data,
+  setModes: async (year: number, modes: Record<string, CenterMode>, owners: Record<string, CenterOwner> = {}) =>
+    (await api.patch<ApiResponse<CenterYear>>('/cashbook/center-income/modes', { year, modes, owners })).data,
   async template(): Promise<void> {
     const token = getToken();
     const response = await fetch(`${BASE}/cashbook/center-income/template`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });

@@ -4,10 +4,10 @@ import type { DateRange } from '@/components/shared/date-range-picker';
 import { IconChevronRight, IconSpinner } from '@/components/ui/icons';
 import { useDrill, type DrillTarget } from '@/features/explore/drill';
 import { compact, pct, som, type CompareMode, type SectionFilter } from '@/features/structure/api';
-import { formatPeriod } from '@/lib/format';
+import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { regionsApi, type UnitPart, type UnitStats } from './api';
+import { partDetailApi, partOpens, regionsApi, safarCostsApi, vehicleCostsApi, type UnitPart, type UnitStats } from './api';
 import { centerDrillApi, drillApi, type MoneyPart } from './drill-api';
 import { money, type Fmt } from './overall-tables';
 import { segmentApi, type DrillNode } from './segment-api';
@@ -47,10 +47,67 @@ interface Ctx {
 
 const n = (s: string | null | undefined) => Number(s ?? 0);
 
-function parts(prefix: string, list: (UnitPart | MoneyPart)[], side: 'income' | 'expense'): TNode[] {
+function parts(prefix: string, list: (UnitPart | MoneyPart)[], side: 'income' | 'expense', vehicles?: { unit: string; c: Ctx }): TNode[] {
   return list
     .filter((p) => n(p.amountTiyin) !== 0 || n(p.previousTiyin) !== 0)
-    .map((p) => ({ id: `${prefix}:${p.key}`, label: p.label, [side]: n(p.amountTiyin), [side === 'income' ? 'prevIncome' : 'prevExpense']: n(p.previousTiyin) }));
+    .map((p) => ({
+      id: `${prefix}:${p.key}`,
+      label: p.label,
+      [side]: n(p.amountTiyin),
+      [side === 'income' ? 'prevIncome' : 'prevExpense']: n(p.previousTiyin),
+      ...(vehicles && side === 'expense' && p.key === 'VEHICLE' ? { load: () => vehicleNodes(`${prefix}:${p.key}`, vehicles.unit, vehicles.c) } : {}),
+      ...(vehicles && side === 'expense' && p.key === 'SAFAR' ? { load: () => safarNodes(`${prefix}:${p.key}`, vehicles.unit, vehicles.c) } : {}),
+      ...(vehicles && side === 'expense' && partOpens(vehicles.unit, p.key) ? { load: () => partNodes(`${prefix}:${p.key}`, vehicles.unit, p.key, vehicles.c) } : {}),
+    }));
+}
+
+/** Boshqa moddalar ichi — ichma-ich: guruh → moddalar → kontragent / joy (kalitli qator yana ochiladi) */
+async function partNodes(prefix: string, unit: string, key: string, c: Ctx): Promise<TNode[]> {
+  const d = (await partDetailApi.detail({ unit, key, range: c.range, compare: c.compare, section: c.section })).data;
+  return d.items.map((v, i) => {
+    const id = `${prefix}:p:${v.key ?? i}`;
+    const next = v.key;
+    return {
+      id,
+      label: v.label,
+      sub: [v.count ? `${v.count} ta yozuv` : '', v.sub ? `Izoh: ${v.sub}` : ''].filter(Boolean).join(' · ') || undefined,
+      expense: n(v.amountTiyin),
+      prevExpense: n(v.previousTiyin),
+      ...(next ? { load: () => partNodes(id, unit, next, c) } : {}),
+    };
+  });
+}
+
+/** «Mashina xarajatlari» ichi: mashina (raqam · rusum, izoh) → turlari (yoqilg'i, ta'mirlash …) */
+/** «Xizmat safari» ichi: xodim (ishlagan joyi) → oylar */
+async function safarNodes(prefix: string, unit: string, c: Ctx): Promise<TNode[]> {
+  const d = (await safarCostsApi.costs({ unit, range: c.range, compare: c.compare, section: c.section })).data;
+  return d.items.map((v) => {
+    const id = `${prefix}:x:${v.key}`;
+    return {
+      id,
+      label: v.fullName,
+      sub: [v.placeLabel, v.count > 1 ? `${v.count} ta to'lov` : ''].filter(Boolean).join(' · ') || undefined,
+      expense: n(v.amountTiyin),
+      prevExpense: n(v.previousTiyin),
+      children: Object.entries(v.months).map(([m, t]) => ({ id: `${id}:${m}`, label: formatPeriod(m), expense: n(t) })),
+    };
+  });
+}
+
+async function vehicleNodes(prefix: string, unit: string, c: Ctx): Promise<TNode[]> {
+  const d = (await vehicleCostsApi.costs({ unit, range: c.range, compare: c.compare, section: c.section })).data;
+  return d.items.map((v) => {
+    const id = `${prefix}:v:${v.vehicleId ?? '-'}`;
+    return {
+      id,
+      label: [v.plateNumber, v.model].filter(Boolean).join(' · '),
+      sub: [v.comment ? `Izoh: ${v.comment}` : '', v.driverName ? `haydovchi ${v.driverName}` : '', v.count ? `${v.count} ta yozuv` : ''].filter(Boolean).join(' · ') || undefined,
+      expense: n(v.amountTiyin),
+      prevExpense: n(v.previousTiyin),
+      children: v.kinds.map((k) => ({ id: `${id}:k:${k.kind}`, label: k.label, expense: n(k.amountTiyin), prevExpense: n(k.previousTiyin) })),
+    };
+  });
 }
 
 function group(id: string, label: string, kids: TNode[] | (() => Promise<TNode[]>), extra: Partial<TNode> = {}): TNode {
@@ -101,14 +158,14 @@ function regionTree(s: UnitStats, c: Ctx): TNode[] {
               'Xizmatlar (daromad)',
               x.services.map((sv) => ({ id: `${p}:s:${sv.code}`, label: sv.label, sub: sv.quantity ? `${sv.quantity} ta` : undefined, income: n(sv.amountTiyin), prevIncome: n(sv.previousTiyin) })),
             ),
-            group(`${p}:x`, 'Xarajat tarkibi', parts(`${p}:x`, x.expenseParts, 'expense')),
+            group(`${p}:x`, 'Xarajat tarkibi', parts(`${p}:x`, x.expenseParts, 'expense', { unit: t.unassigned ? `rnd:${code}` : `dist:${t.id}`, c })),
             group(`${p}:e`, `Xodimlar · ${x.employees.length}`, x.employees.map((e) => employeeNode(p, e, c))),
           ].filter((g) => g.children!.length);
         },
       }));
     }),
     group(`r${code}:inc`, 'Daromad tarkibi', parts(`r${code}:inc`, s.unit.incomeParts, 'income'), { records: { kind: 'income', f: { unit: s.unit.key }, title: `${s.unit.name} › Daromad` } }),
-    group(`r${code}:exp`, 'Xarajat tarkibi', parts(`r${code}:exp`, s.unit.expenseParts, 'expense')),
+    group(`r${code}:exp`, 'Xarajat tarkibi', parts(`r${code}:exp`, s.unit.expenseParts, 'expense', { unit: `r:${code}`, c })),
   ];
 }
 
@@ -132,18 +189,31 @@ function centerTree(s: UnitStats, c: Ctx): TNode[] {
           const p = `c:dep:${d.id}`;
           return [
             group(`${p}:i`, 'Daromad tarkibi', parts(`${p}:i`, x.incomeParts, 'income')),
-            group(`${p}:x`, 'Xarajat tarkibi', parts(`${p}:x`, x.expenseParts, 'expense')),
-            group(`${p}:e`, `Xodimlar · ${x.employees.length}`, x.employees.map((e) => employeeNode(p, e, c))),
+            group(`${p}:x`, 'Xarajat tarkibi', parts(`${p}:x`, x.expenseParts, 'expense', { unit: d.unassigned ? 'cnd' : `dep:${d.id}`, c })),
+            group(`${p}:e`, `Xodimlar · ${x.employees.length}`, [
+              ...x.employees.map((e) => employeeNode(p, e, c)),
+              // Tekshiruv: bo'lim ish haqi − ro'yxatdagilar jami (0 bo'lmasa — ko'rinib tursin)
+              ...(x.payrollTiyin !== undefined && n(x.payrollTiyin) - n(x.listedPayrollTiyin) !== 0
+                ? [
+                    {
+                      id: `${p}:e:gap`,
+                      label: n(x.payrollTiyin) > n(x.listedPayrollTiyin) ? 'Xodimga bog‘lanmagan ish haqi' : 'Siyosat bo‘yicha boshqa hisobga o‘tgan',
+                      sub: `bo‘lim ish haqi ${som(n(x.payrollTiyin))} · ro‘yxatda ${som(n(x.listedPayrollTiyin))}`,
+                      expense: n(x.payrollTiyin) - n(x.listedPayrollTiyin),
+                    },
+                  ]
+                : []),
+            ]),
           ].filter((g) => g.children!.length);
         },
       })),
     ),
     group('c:inc', 'Daromad manbalari', async () => parts('c:inc', (await data()).incomeParts, 'income'), { records: { kind: 'income', f: { unit: 'center' }, title: 'Markaz › Daromad' } }),
-    group('c:own', "O'z xarajati", async () => parts('c:own', (await data()).ownParts, 'expense')),
+    group('c:own', "O'z xarajati", async () => parts('c:own', (await data()).ownParts, 'expense', { unit: 'center', c })),
     group('c:reg', 'Hududlar uchun to‘langan (siyosat bo‘yicha)', async () => {
       const d = await data();
       return [
-        ...parts('c:reg', d.regionalParts, 'expense'),
+        ...parts('c:reg', d.regionalParts, 'expense', { unit: 'center:regional', c }),
         ...(d.regionalBy.length
           ? [group('c:regby', 'Qaysi hudud uchun', d.regionalBy.map((r) => ({ id: `c:regby:${r.regionCode ?? '-'}`, label: r.name, expense: n(r.amountTiyin) })))]
           : []),
@@ -224,7 +294,7 @@ function unassignedTree(c: Ctx): TNode[] {
         [key]: n(g.totalTiyin),
         children: d.items
           .filter((i) => i.categoryCode === g.key)
-          .map((i) => ({ id: `u:${key}:${g.key}:${i.id}`, label: `${i.date.slice(8, 10)}.${i.date.slice(5, 7)}.${i.date.slice(0, 4)} · ${i.counterparty ?? i.description ?? '—'}`, sub: [i.documentNo, i.fileName].filter(Boolean).join(' · ') || undefined, [key]: n(i.amountTiyin) })),
+          .map((i) => ({ id: `u:${key}:${g.key}:${i.id}`, label: `${i.date.slice(8, 10)}.${i.date.slice(5, 7)}.${i.date.slice(0, 4)} · ${i.counterparty ?? i.description ?? ''}`, sub: [i.documentNo, i.fileName].filter(Boolean).join(' · ') || undefined, [key]: n(i.amountTiyin) })),
       }));
     });
   return [side('income', 'Daromad — moddalar → yozuvlar'), side('expense', 'Xarajat — moddalar → yozuvlar')];
@@ -238,11 +308,70 @@ export function unitTree(s: UnitStats, c: Ctx): TNode[] {
 }
 
 const MAX_AUTO_LOADS = 60;
+/** Oylar ustunlari: davr 2–12 oy bo'lsa (ko'p bo'lsa — jadval juda kengayadi) */
+const MAX_MONTH_COLS = 12;
 
-/** Kengayadigan daraxt jadvali (Umumiy jadvaldagi qator ichida) */
+const pad2 = (x: number) => String(x).padStart(2, '0');
+
+/** Davr ichidagi oylar: «2026-01» … (har biri davr chegarasida kesilgan oraliq bilan) */
+function monthsOf(range: DateRange): { period: string; range: DateRange }[] {
+  const out: { period: string; range: DateRange }[] = [];
+  let y = Number(range.from.slice(0, 4));
+  let m = Number(range.from.slice(5, 7));
+  const endY = Number(range.to.slice(0, 4));
+  const endM = Number(range.to.slice(5, 7));
+  while (y < endY || (y === endY && m <= endM)) {
+    const period = `${y}-${pad2(m)}`;
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const from = `${period}-01` < range.from ? range.from : `${period}-01`;
+    const to = `${period}-${pad2(last)}` > range.to ? range.to : `${period}-${pad2(last)}`;
+    out.push({ period, range: { from, to } });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+    if (out.length > 60) break;
+  }
+  return out;
+}
+
+/** Ichi oylardan iborat tugunlar (xodim oylari, «@oy») — ular uchun oylar ustuni kerak emas */
+const isMonthLeafParent = (id: string) => /:e:[^:]+$/.test(id);
+
+const HEAD = 'border-b border-l border-(--color-line) bg-[#f3f6fd] px-2 py-2 text-center text-xs font-bold text-heading first:border-l-0';
+const CELL = 'border-b border-l border-(--color-line) px-2 py-1.5 text-right text-[12.5px] tabular-nums first:border-l-0';
+
+/**
+ * Kengayadigan daraxt jadvali (Umumiy jadvaldagi qator ichida).
+ * Davr bir necha oy bo'lsa — har qator oylarga bo'linadi (har oy ustunida: natija yoki summa),
+ * ochilgan har daraja ham oylar bo'yicha yuklanadi.
+ */
 export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; range: DateRange; section: SectionFilter; compare: CompareMode; fmt: Fmt }) {
   const { open: openRecords } = useDrill();
   const [roots] = useState(() => unitTree(s, { range, section, compare }));
+  const [months] = useState(() => {
+    const list = monthsOf(range);
+    return list.length > 1 && list.length <= MAX_MONTH_COLS ? list : [];
+  });
+  /** Har oy uchun alohida daraxt (shu oy oralig'i bilan) va tugunlar ro'yxati (id bo'yicha) */
+  const monthIndex = useRef<Map<string, Map<string, TNode>> | null>(null);
+  if (monthIndex.current === null) {
+    const idx = new Map<string, Map<string, TNode>>();
+    const register = (map: Map<string, TNode>, list: TNode[]) => {
+      for (const nd of list) {
+        map.set(nd.id, nd);
+        if (nd.children) register(map, nd.children);
+      }
+    };
+    for (const m of months) {
+      const map = new Map<string, TNode>();
+      register(map, unitTree(s, { range: m.range, section, compare }));
+      idx.set(m.period, map);
+    }
+    monthIndex.current = idx;
+  }
+  const [monthTick, setMonthTick] = useState(0);
   const [opened, setOpened] = useState<Set<string>>(() => new Set(roots.slice(0, 1).map((r) => r.id)));
   const [loaded, setLoaded] = useState<Map<string, TNode[]>>(new Map());
   const [loading, setLoading] = useState<Set<string>>(new Set());
@@ -253,30 +382,62 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
 
   const kidsOf = useCallback((nd: TNode) => nd.children ?? loadedRef.current.get(nd.id), []);
 
-  const ensure = useCallback(async (nd: TNode): Promise<TNode[]> => {
-    const have = nd.children ?? loadedRef.current.get(nd.id);
-    if (have) return have;
-    if (!nd.load) return [];
-    setLoading((x) => new Set(x).add(nd.id));
-    try {
-      const kids = await nd.load();
-      setLoaded((m) => {
-        const next = new Map(m).set(nd.id, kids);
-        loadedRef.current = next;
-        return next;
-      });
-      return kids;
-    } catch (e) {
-      setErrors((m) => new Map(m).set(nd.id, e instanceof Error ? e.message : "Yuklab bo'lmadi"));
-      return [];
-    } finally {
-      setLoading((x) => {
-        const y = new Set(x);
-        y.delete(nd.id);
-        return y;
-      });
-    }
+  /** Shu tugunning ichini har oy daraxtida ham yuklaydi (oylar ustunlari uchun) */
+  const ensureMonths = useCallback(async (nd: TNode) => {
+    const idx = monthIndex.current;
+    if (!idx || !idx.size || isMonthLeafParent(nd.id)) return;
+    await Promise.all(
+      [...idx.values()].map(async (map) => {
+        const twin = map.get(nd.id);
+        if (!twin || twin.children || !twin.load) return;
+        try {
+          const kids = await twin.load();
+          twin.children = kids;
+          const register = (list: TNode[]) => {
+            for (const k of list) {
+              map.set(k.id, k);
+              if (k.children) register(k.children);
+            }
+          };
+          register(kids);
+        } catch {
+          // Oy yuklanmasa — o'sha oy ustuni bo'sh qoladi
+        }
+      }),
+    );
+    setMonthTick((x) => x + 1);
   }, []);
+
+  const ensure = useCallback(
+    async (nd: TNode): Promise<TNode[]> => {
+      const have = nd.children ?? loadedRef.current.get(nd.id);
+      if (have) {
+        void ensureMonths(nd);
+        return have;
+      }
+      if (!nd.load) return [];
+      setLoading((x) => new Set(x).add(nd.id));
+      try {
+        const [kids] = await Promise.all([nd.load(), ensureMonths(nd)]);
+        setLoaded((m) => {
+          const next = new Map(m).set(nd.id, kids);
+          loadedRef.current = next;
+          return next;
+        });
+        return kids;
+      } catch (e) {
+        setErrors((m) => new Map(m).set(nd.id, e instanceof Error ? e.message : "Yuklab bo'lmadi"));
+        return [];
+      } finally {
+        setLoading((x) => {
+          const y = new Set(x);
+          y.delete(nd.id);
+          return y;
+        });
+      }
+    },
+    [ensureMonths],
+  );
 
   // Birinchi guruh — darhol ochiq (yuklanadi)
   useEffect(() => {
@@ -319,13 +480,26 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
     setBusyAll(false);
   }
 
+  const has = (v: number | null | undefined): v is number => v !== null && v !== undefined;
+  /** Oy qiymati: daromad ham, xarajat ham bo'lsa — natija; bittasi bo'lsa — o'sha summa (bo'limlar — xarajati) */
+  const valueOf = (nd: TNode | undefined) => {
+    if (!nd) return null;
+    const inc = nd.income ?? 0;
+    const exp = nd.expense ?? 0;
+    if (inc !== 0 && exp !== 0) return { v: inc - exp, kind: 'result' as const, nd };
+    if (inc !== 0) return { v: inc, kind: 'income' as const, nd };
+    if (exp !== 0) return { v: exp, kind: 'expense' as const, nd };
+    return null;
+  };
+  void monthTick;
+
+  const cols = 6 + months.length;
   const rows: ReactNode[] = [];
   const walk = (list: TNode[], depth: number) => {
     for (const nd of list) {
       const kids = kidsOf(nd);
       const expandable = Boolean(nd.children?.length || nd.load);
       const isOpen = opened.has(nd.id);
-      const has = (v: number | null | undefined) => v !== null && v !== undefined;
       const result = has(nd.income) || has(nd.expense) ? (nd.income ?? 0) - (nd.expense ?? 0) : null;
       const prevResult = has(nd.prevIncome) || has(nd.prevExpense) ? (nd.prevIncome ?? 0) - (nd.prevExpense ?? 0) : null;
       // O'zgarish: natija (ikkala tomon bo'lsa) yoki bitta summa
@@ -337,9 +511,9 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
         <tr
           key={nd.id}
           onClick={expandable ? () => toggle(nd) : undefined}
-          className={cn('border-t border-(--color-line)/70', expandable && 'cursor-pointer hover:bg-brand-50/50', nd.group ? 'bg-white' : depth % 2 ? 'bg-(--color-surface-muted)/40' : 'bg-white/70')}
+          className={cn('[&>td]:bg-inherit', expandable && 'cursor-pointer hover:bg-brand-50', nd.group ? 'bg-[#eef2fb]' : depth % 2 ? 'bg-[#fafbfe]' : 'bg-white')}
         >
-          <td className="py-1.5 pr-2" style={{ paddingLeft: `${0.25 + depth * 1.15}rem` }}>
+          <td className={cn(CELL, 'sticky left-0 z-[1] min-w-64 text-left shadow-[1px_0_0_var(--color-line)]')} style={{ paddingLeft: `${0.4 + depth * 1.1}rem` }}>
             <span className="flex items-center gap-1.5">
               {expandable ? (
                 loading.has(nd.id) ? (
@@ -351,7 +525,7 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
                 <span className="size-3.5 shrink-0" />
               )}
               <span className="min-w-0">
-                <span className={cn('block truncate', nd.group ? 'text-[11px] font-semibold uppercase tracking-wide text-(--color-text-muted)' : 'text-heading')}>{nd.label}</span>
+                <span className={cn('block leading-snug', nd.group ? 'text-[11px] font-bold uppercase tracking-wide text-brand-700' : 'text-heading')}>{nd.label}</span>
                 {nd.sub && <span className="block truncate text-[10.5px] text-(--color-text-faint)">{nd.sub}</span>}
               </span>
               {nd.records && (
@@ -369,25 +543,36 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
               )}
             </span>
           </td>
-          <td className="px-2 py-1.5 text-right tabular-nums" title={has(nd.income) ? som(nd.income!) : undefined}>
-            {has(nd.income) ? money(nd.income!, fmt) : ''}
+          <td className={CELL} title={has(nd.income) ? som(nd.income) : undefined}>
+            {has(nd.income) ? money(nd.income, fmt) : ''}
           </td>
-          <td className="px-2 py-1.5 text-right tabular-nums" title={has(nd.expense) ? som(nd.expense!) : undefined}>
-            {has(nd.expense) ? money(nd.expense!, fmt) : ''}
+          <td className={CELL} title={has(nd.expense) ? som(nd.expense) : undefined}>
+            {has(nd.expense) ? money(nd.expense, fmt) : ''}
           </td>
-          <td className={cn('px-2 py-1.5 text-right font-medium tabular-nums', result === null ? '' : result >= 0 ? 'text-(--color-income)' : 'text-(--color-expense)')}>
+          <td className={cn(CELL, 'font-semibold', result === null ? '' : result >= 0 ? 'text-(--color-income)' : 'text-(--color-expense)')}>
             {has(nd.income) && has(nd.expense) && result !== null ? money(result, fmt) : ''}
           </td>
-          <td className="px-2 py-1.5 text-right text-xs tabular-nums">
-            {prev !== null && prev !== 0 ? <span className="text-(--color-text-muted)">{money(prev, fmt)}</span> : ''}
+          {months.map((m) => {
+            const x = nd.group ? null : valueOf(monthIndex.current?.get(m.period)?.get(nd.id));
+            return (
+              <td
+                key={m.period}
+                className={cn(CELL, 'whitespace-nowrap', x?.kind === 'result' && (x.v >= 0 ? 'text-(--color-income)' : 'text-(--color-expense)'))}
+                title={x ? `${formatPeriod(m.period)}: ${[has(x.nd.income) ? `daromad ${som(x.nd.income)}` : '', has(x.nd.expense) ? `xarajat ${som(x.nd.expense)}` : ''].filter(Boolean).join(' · ')}` : undefined}
+              >
+                {x ? money(x.v, fmt) : ''}
+              </td>
+            );
+          })}
+          <td className={cn(CELL, 'whitespace-nowrap text-xs')}>
             {delta !== null && (
-              <span className={cn('ml-1.5 font-semibold', delta === 0 ? 'text-(--color-text-faint)' : delta > 0 === upGood ? 'text-(--color-income)' : 'text-(--color-expense)')}>
+              <span className={cn('font-semibold', delta === 0 ? 'text-(--color-text-faint)' : delta > 0 === upGood ? 'text-(--color-income)' : 'text-(--color-expense)')} title={prev !== null ? `O'tgan davr: ${som(prev)}` : undefined}>
                 {delta > 0 ? '+' : ''}
                 {pct(delta)}
               </span>
             )}
           </td>
-          <td className="px-2 py-1.5 text-right tabular-nums">{nd.headcount ? nd.headcount : ''}</td>
+          <td className={CELL}>{nd.headcount ? nd.headcount : ''}</td>
         </tr>,
       );
       if (!isOpen) continue;
@@ -395,7 +580,7 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
       if (err)
         rows.push(
           <tr key={`${nd.id}!`}>
-            <td colSpan={6} className="py-1.5 text-xs text-(--color-expense)" style={{ paddingLeft: `${1.4 + (depth + 1) * 1.15}rem` }}>
+            <td colSpan={cols} className="border-b border-(--color-line) py-1.5 text-xs text-(--color-expense)" style={{ paddingLeft: `${1.4 + (depth + 1) * 1.1}rem` }}>
               {err}
             </td>
           </tr>,
@@ -404,7 +589,7 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
         if (!kids.length)
           rows.push(
             <tr key={`${nd.id}~`}>
-              <td colSpan={6} className="py-1.5 text-xs text-(--color-text-faint)" style={{ paddingLeft: `${1.4 + (depth + 1) * 1.15}rem` }}>
+              <td colSpan={cols} className="border-b border-(--color-line) py-1.5 text-xs text-(--color-text-faint)" style={{ paddingLeft: `${1.4 + (depth + 1) * 1.1}rem` }}>
                 Bu davrda yo&apos;q
               </td>
             </tr>,
@@ -416,27 +601,50 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
   walk(roots, 0);
 
   return (
-    <div className="overflow-hidden rounded-(--radius-card) border border-(--color-line) bg-white">
+    <div className="overflow-hidden rounded-xl border border-(--color-line) bg-white">
       <div className="flex flex-wrap items-center gap-2 border-b border-(--color-line) px-3 py-2">
-        <p className="text-xs font-semibold text-heading">«{s.unit.name}» — to&apos;liq tarkib</p>
-        <span className="text-[11px] text-(--color-text-faint)">qatorni bosing — ochiladi; «yozuvlar» — o&apos;sha summa yozuvlari</span>
-        <button type="button" onClick={() => void expandAll()} disabled={busyAll} className="ml-auto rounded-(--radius-control) border border-(--color-line) px-2.5 py-1 text-xs font-medium text-heading hover:bg-brand-50 disabled:opacity-60">
+        <p className="text-sm font-bold text-heading">«{s.unit.name}» — to&apos;liq tarkib</p>
+        <span className="text-[11px] text-(--color-text-faint)">
+          {months.length ? 'oylar: daromad va xarajat bo‘lsa — natija, aks holda — summa' : 'qatorni bosing — ochiladi; «yozuvlar» — o‘sha summa yozuvlari'}
+        </span>
+        <button type="button" onClick={() => void expandAll()} disabled={busyAll} className="ml-auto rounded-lg border border-(--color-line-strong) px-2.5 py-1 text-xs font-semibold text-heading hover:bg-brand-50 disabled:opacity-60">
           {busyAll ? 'Ochilmoqda…' : 'Hammasini ochish'}
         </button>
-        <button type="button" onClick={() => setOpened(new Set())} className="rounded-(--radius-control) border border-(--color-line) px-2.5 py-1 text-xs font-medium text-heading hover:bg-brand-50">
+        <button type="button" onClick={() => setOpened(new Set())} className="rounded-lg border border-(--color-line-strong) px-2.5 py-1 text-xs font-semibold text-heading hover:bg-brand-50">
           Yopish
         </button>
       </div>
       <div className="max-h-[38rem] overflow-auto">
-        <table className="w-full min-w-[760px] text-[13px]">
-          <thead className="sticky top-0 z-[2] bg-(--color-surface-muted) text-[10.5px] uppercase tracking-wider text-(--color-text-muted)">
+        <table className="w-full border-separate border-spacing-0 text-[13px]" style={{ minWidth: 640 + months.length * 110 }}>
+          <thead className="sticky top-0 z-[2]">
             <tr>
-              <th className="px-2 py-1.5 text-left font-semibold">Nomi</th>
-              <th className="w-32 px-2 py-1.5 text-right font-semibold">Daromad</th>
-              <th className="w-32 px-2 py-1.5 text-right font-semibold">Xarajat</th>
-              <th className="w-32 px-2 py-1.5 text-right font-semibold">Natija</th>
-              <th className="w-40 px-2 py-1.5 text-right font-semibold">O&apos;tgan davr · o&apos;zgarish</th>
-              <th className="w-16 px-2 py-1.5 text-right font-semibold">Xodim</th>
+              <th rowSpan={2} className={cn(HEAD, 'sticky left-0 z-[3] text-left')}>
+                Nomi
+              </th>
+              <th colSpan={3} className={cn(HEAD, 'uppercase tracking-wider')}>
+                Jami davr
+              </th>
+              {months.length > 0 && (
+                <th colSpan={months.length} className={cn(HEAD, 'uppercase tracking-wider')}>
+                  Oylar bo&apos;yicha
+                </th>
+              )}
+              <th rowSpan={2} className={HEAD} title="O'tgan davrga nisbatan o'zgarish (natija yoki summa)">
+                O&apos;zgarish
+              </th>
+              <th rowSpan={2} className={HEAD}>
+                Xodim
+              </th>
+            </tr>
+            <tr>
+              <th className={cn(HEAD, 'first:border-l')}>Daromad</th>
+              <th className={HEAD}>Xarajat</th>
+              <th className={HEAD}>Natija</th>
+              {months.map((m) => (
+                <th key={m.period} className={cn(HEAD, 'whitespace-nowrap')}>
+                  {formatPeriodShort(m.period)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>{rows}</tbody>

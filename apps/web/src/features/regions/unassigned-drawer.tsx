@@ -3,7 +3,8 @@
 import type { DateRange } from '@/components/shared/date-range-picker';
 import { Drawer } from '@/components/ui/drawer';
 import { ErrorState, LoadingState } from '@/components/ui/states';
-import { compact, pct, som, TONE, type SectionFilter } from '@/features/structure/api';
+import { sum } from '@/components/report/report';
+import { pct, som, TONE, type SectionFilter } from '@/features/structure/api';
 import { SearchBox, SmallButton } from '@/features/structure/parts';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatDate, formatDateTime, formatPeriod, formatPeriodShort } from '@/lib/format';
@@ -12,6 +13,9 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { regionsApi, SOURCE_LABELS, type UnassignedDetail, type UnassignedGroup, type UnassignedItem, type UnassignedResult, type UnassignedSide } from './api';
+
+/** To'liq summa (so'msiz) */
+const compact = (v: string | number) => sum(v);
 
 // ═══════════════════════════════════════════════════════════
 // «Hududga biriktirilmagan» — ichida nima bor.
@@ -209,10 +213,10 @@ function SideTile({ active, onClick, label, total, count, color, soft }: { activ
       className={cn('rounded-xl border px-4 py-3 text-left transition-all', active ? 'shadow-sm' : 'border-(--color-line) opacity-80 hover:opacity-100')}
       style={active ? { borderColor: color, background: soft } : undefined}
     >
-      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color }}>
+      <span className="text-[13px] font-semibold" style={{ color }}>
         {label}
       </span>
-      <span className="mt-0.5 block text-2xl font-bold tabular-nums tracking-tight text-heading" title={som(total)}>
+      <span className="mt-0.5 block text-lg font-bold tabular-nums tracking-tight text-heading" title={som(total)}>
         {compact(total)}
       </span>
       <span className="text-xs text-(--color-text-muted)">{count} ta yozuv</span>
@@ -287,23 +291,28 @@ function Chips({ groups, active, onPick }: { groups: UnassignedGroup[]; active: 
 
 function Months({ data, side }: { data: UnassignedResult; side: Side }) {
   const key = side === 'expense' ? 'expenseTiyin' : 'incomeTiyin';
-  const max = Math.max(1, ...data.months.map((m) => Number(m[key])));
+  const rows = data.months.filter((m) => Number(m[key]) !== 0);
   const color = side === 'expense' ? TONE.expense : TONE.income;
   return (
     <section>
-      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">Oylar bo&apos;yicha</h4>
-      <div className="flex h-24 items-end gap-1">
-        {data.months.map((m) => {
-          const v = Number(m[key]);
-          return (
-            <div key={m.period} className="flex min-w-0 flex-1 flex-col items-center gap-1" title={`${formatPeriodShort(m.period)}: ${som(v)}`}>
-              <span className="text-[10px] tabular-nums text-(--color-text-faint)">{v > 0 ? compact(v) : ''}</span>
-              <span className="w-full max-w-10 rounded-t" style={{ height: `${Math.max(v > 0 ? 3 : 0, (v / max) * 56)}px`, background: color, opacity: 0.75 }} />
-              <span className="truncate text-[10px] text-(--color-text-muted)">{formatPeriodShort(m.period).split(' ')[0]}</span>
-            </div>
-          );
-        })}
-      </div>
+      <h4 className="mb-2 flex items-center gap-2 text-sm font-bold text-heading">
+        <span className="h-4 w-1 rounded-full bg-brand-600" aria-hidden />
+        Oylar bo&apos;yicha
+      </h4>
+      {rows.length === 0 ? (
+        <p className="text-sm text-(--color-text-faint)">Yozuv yo&apos;q</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {rows.map((m) => (
+            <span key={m.period} className="rounded-lg border border-(--color-line) bg-[#f8f9fc] px-3 py-1.5 text-xs">
+              <span className="text-(--color-text-muted)">{formatPeriodShort(m.period)}</span>
+              <b className="ml-2 tabular-nums" style={{ color }}>
+                {compact(m[key])}
+              </b>
+            </span>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -314,7 +323,7 @@ function ItemsTable({ items, side, onOpen }: { items: UnassignedItem[]; side: Si
     <div className="mt-2 overflow-x-auto rounded-lg border border-(--color-line)">
       <table className="w-full min-w-[640px] text-sm">
         <thead>
-          <tr className="bg-(--color-surface-muted) text-left text-[10.5px] font-semibold uppercase tracking-wider text-(--color-text-muted)">
+          <tr className="bg-[#f3f6fd] text-left text-xs font-bold text-heading">
             <th className="px-3 py-2">Sana</th>
             <th className="px-3 py-2">Modda</th>
             <th className="px-3 py-2">{side === 'expense' ? 'Kontragent / izoh' : 'Mijoz / izoh'}</th>
@@ -341,7 +350,7 @@ function ItemsTable({ items, side, onOpen }: { items: UnassignedItem[]; side: Si
                 {it.counterparty && <span className="block truncate font-medium" title={it.counterparty}>{it.counterparty}</span>}
                 {it.description && <span className="line-clamp-2 text-xs text-(--color-text-muted)" title={it.description}>{it.description}</span>}
                 {it.documentNo && <span className="block text-[10.5px] text-(--color-text-faint)">№ {it.documentNo}</span>}
-                {!it.counterparty && !it.description && !it.documentNo && <span className="text-(--color-text-faint)">—</span>}
+                {!it.counterparty && !it.description && !it.documentNo && <span className="text-(--color-text-faint)"></span>}
               </td>
               <td className="px-3 py-2 text-xs">
                 <span className="whitespace-nowrap">{SOURCE_LABELS[it.source] ?? it.source}</span>

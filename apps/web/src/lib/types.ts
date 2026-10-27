@@ -96,6 +96,8 @@ interface UserRef {
 
 export interface Expense {
   id: string;
+  /** O'chirilgan vaqti (savat) */
+  deletedAt?: string | null;
   date: string;
   period: string;
   /** TIYIN da, satr korinishida */
@@ -137,6 +139,8 @@ export interface Expense {
 
 export interface Income {
   id: string;
+  /** O'chirilgan vaqti (savat) */
+  deletedAt?: string | null;
   date: string;
   period: string;
   amountTiyin: string;

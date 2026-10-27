@@ -84,6 +84,18 @@ export function TariffsPage() {
                             <>
                               <p className="money font-bold">{som(s.current.priceTiyin)}</p>
                               <p className="text-[11px] text-(--color-text-muted)">{dmy(s.current.validFrom)} dan</p>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  className="text-[11px] text-(--color-text-muted) hover:text-(--color-expense) hover:underline"
+                                  onClick={() => {
+                                    const t = s.current!;
+                                    if (window.confirm(`«${s.label}» — ${dmy(t.validFrom)} dan amaldagi tarif o'chirilsinmi? Oldingi tasdiqlangan tarif (bo'lsa) yana amalga kiradi.`)) void run(() => rdData.deleteTariff(t.id), "Tarif o'chirildi");
+                                  }}
+                                >
+                                  o&apos;chirish
+                                </button>
+                              )}
                             </>
                           ) : (
                             <span className="text-xs text-(--color-text-faint)">kiritilmagan</span>

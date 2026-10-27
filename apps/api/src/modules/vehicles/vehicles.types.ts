@@ -131,6 +131,11 @@ export interface VehicleListItem {
   regionName: string;
   departmentId: string | null;
   departmentName: string | null;
+  /** Yo'nalish (Tax free, Marksheyder …) — biriktirilgan bo'lsa xarajati shu yo'nalishga yoziladi */
+  segment: string | null;
+  segmentLabel: string | null;
+  /** Biriktirish izohi */
+  placeComment: string | null;
   driverName: string | null;
   driverPhone: string | null;
   initialOdometerKm: number | null;

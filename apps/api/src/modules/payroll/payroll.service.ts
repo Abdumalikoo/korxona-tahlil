@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { createHash } from 'node:crypto';
 import { ensureCenterCategories, ensurePayrollPartCategories, PAYROLL_CENTER_CATEGORY, PAYROLL_CENTER_OTHER, payrollCenterCategory, payrollPartCategory, readPolicy } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { ensureQomitaPartCategories, QOMITA_SEGMENT, qomitaCoverage, qomitaPartOf, qomitaPayrollKey, readQomita, splitWithQomita, type QomitaPayrollSummary } from '../qomita/qomita.util';
 import { TaxesService } from '../taxes/taxes.service';
 import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
@@ -322,26 +323,19 @@ export class PayrollService {
 
   // ═══════════ Guruhlash ═══════════
 
-  /** Xodim qaysi xarajat guruhiga tushishi */
   /**
-   * scope REGIONS (hududlar vedomosti) — shartnoma asosidagi hudud xodimlari ham o'z hududi ish haqiga yoziladi
-   * (hudud vedomostida faqat hudud xodimlari bo'ladi; umumiy vedomostda shartnoma — alohida guruh).
+   * Xodim qaysi xarajat guruhiga tushishi: Markaz xodimi — o'z bo'limiga, hudud xodimi — o'z hududiga.
+   * Shartnoma asosidagi xodimlar ham SHTAT kabi — qaysi hududda (yoki Markaz bo'limida) bo'lsa, o'sha yerga
+   * (ilgari umumiy vedomostda alohida «Shartnoma asosidagi ish haqi» — hududsiz guruh edi va Solishtirmada
+   * «Hududga biriktirilmagan»ga tushardi). scope endi farq qilmaydi.
    */
-  private groupOf(employee: GroupEmployee, scope: string = 'ALL'): {
+  private groupOf(employee: GroupEmployee, _scope: string = 'ALL'): {
     key: string;
     label: string;
     departmentId: string | null;
     regionCode: number | null;
   } {
-    if (employee.employmentType === 'SHARTNOMA' && !(scope === 'REGIONS' && employee.regionCode !== CENTRAL_REGION)) {
-      return {
-        key: 'shartnoma',
-        label: 'Shartnoma asosidagi ish haqi',
-        departmentId: null,
-        regionCode: null,
-      };
-    }
-
+    void _scope;
     if (employee.regionCode === CENTRAL_REGION) {
       return {
         key: `markaz-${employee.departmentId ?? 'none'}`,
@@ -360,7 +354,35 @@ export class PayrollService {
   }
 
   /** Xarajat yozuvi qaysi guruhga tegishli */
-  private expenseKey(expense: { regionCode: number | null; departmentId: string | null }): string {
+  /** Qo'mita yozuvi xodimlari: xulosadan shu komponent (yozuv izohidagi bo'lim; bitta bo'lim bo'lsa — o'zi) */
+  private async qomitaAmounts(period: string, comp: string, description: string): Promise<Map<string, bigint>> {
+    const out = new Map<string, bigint>();
+    const row = await this.prisma.setting.findUnique({ where: { key: qomitaPayrollKey(period) } });
+    const deps = Object.entries(((row?.value ?? {}) as Partial<QomitaPayrollSummary>).deps ?? {});
+    const names = new Map((await this.prisma.department.findMany({ where: { id: { in: deps.map(([id]) => id) } }, select: { id: true, name: true } })).map((d) => [d.id, d.name]));
+    const mine = deps.filter(([id]) => deps.length === 1 || description.includes(`${names.get(id) ?? '\u0000'} xodimlari`));
+    for (const [, dep] of mine)
+      for (const e of dep.employees ?? []) {
+        const v = e.parts?.[comp];
+        if (v) out.set(e.pinfl, (out.get(e.pinfl) ?? 0n) + BigInt(v));
+      }
+    return out;
+  }
+
+  /** Qo'mita xulosasi: sozlama bo'lsa — yoziladi, bo'lmasa — eskisi o'chiriladi */
+  private async saveQomitaSummary(period: string, configured: boolean, summary: QomitaPayrollSummary): Promise<void> {
+    const key = qomitaPayrollKey(period);
+    if (!configured) {
+      await this.prisma.setting.deleteMany({ where: { key } });
+      return;
+    }
+    for (const dep of Object.values(summary.deps)) dep.employees.sort((a, b) => a.fullName.localeCompare(b.fullName));
+    const value = summary as unknown as object;
+    await this.prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  }
+
+  private expenseKey(expense: { regionCode: number | null; departmentId: string | null; segment?: string | null }): string {
+    if (expense.segment) return `seg-${expense.segment}`;
     if (expense.regionCode === null && expense.departmentId === null) return 'shartnoma';
     if (expense.regionCode === CENTRAL_REGION) return `markaz-${expense.departmentId ?? 'none'}`;
     return `region-${expense.regionCode}`;
@@ -866,9 +888,12 @@ export class PayrollService {
    *    «Hududda qoladi» deb belgilangani — ajratilmaydi.
    *  • Markaz xodimi: Markaz bo'limi siyosatidagi «ish haqi qismlari» — «IHQ_<kod>».
    */
-  async componentShares(period: string): Promise<{ region: Map<string, CenterParts>; center: Map<string, CenterParts> }> {
-    const out = { region: new Map<string, CenterParts>(), center: new Map<string, CenterParts>() };
-    const policy = await readPolicy(this.prisma);
+  async componentShares(period: string): Promise<{ region: Map<string, CenterParts>; center: Map<string, CenterParts>; qomita: Map<string, CenterParts>; coverage: Map<string, string[]>; tarkib: boolean }> {
+    const [policy, qomitaConfig] = await Promise.all([readPolicy(this.prisma), readQomita(this.prisma)]);
+    // Qo'mita: bo'lim → qoplanadigan komponentlar (xodim bo'limi qayta guruhlashda aniqlanadi)
+    const coverage = qomitaCoverage(qomitaConfig);
+    const qomitaCodes = new Set([...coverage.values()].flat());
+    const out = { region: new Map<string, CenterParts>(), center: new Map<string, CenterParts>(), qomita: new Map<string, CenterParts>(), coverage, tarkib: false };
     const regionRules = policy.unitPayroll.REGION ?? {};
     const centerRules = policy.unitPayroll.CENTER ?? {};
     const regionCat = new Map<string, string>();
@@ -876,15 +901,16 @@ export class PayrollService {
     for (const [c, t] of Object.entries(regionRules)) if (t !== 'REGION') regionCat.set(c, payrollPartCategory(c));
     const centerCat = new Map<string, string>();
     for (const [c, t] of Object.entries(centerRules)) if (t !== 'CENTER') centerCat.set(c, payrollPartCategory(c));
-    if (!regionCat.size && !centerCat.size) return out;
+    if (!regionCat.size && !centerCat.size && !qomitaCodes.size) return out;
     const batch = await this.prisma.salaryCompositionBatch.findFirst({
       where: { period, cancelledAt: null },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
     });
     if (!batch) return out;
+    out.tarkib = true;
     const components = await this.prisma.salaryComponent.findMany({
-      where: { code: { in: [...new Set([...regionCat.keys(), ...centerCat.keys()])] } },
+      where: { code: { in: [...new Set([...regionCat.keys(), ...centerCat.keys(), ...qomitaCodes])] } },
       select: { code: true, name: true, sign: true },
     });
     // Ayiriladigan (jarima) komponent ajratilmaydi
@@ -892,6 +918,8 @@ export class PayrollService {
     if (!positive.size) return out;
     const parts = components.filter((c) => c.sign > 0 && [...regionCat.values(), ...centerCat.values()].includes(payrollPartCategory(c.code)));
     if (parts.length) await ensurePayrollPartCategories(this.prisma, parts);
+    const qomitaParts = components.filter((c) => c.sign > 0 && qomitaCodes.has(c.code));
+    if (qomitaParts.length) await ensureQomitaPartCategories(this.prisma, qomitaParts);
     const items = await this.prisma.salaryCompositionItem.findMany({
       where: { batchId: batch.id, componentCode: { in: [...positive] } },
       select: { componentCode: true, amountTiyin: true, row: { select: { employeePinfl: true } } },
@@ -908,6 +936,8 @@ export class PayrollService {
       if (rc) put(out.region, pinfl, rc, item.amountTiyin);
       const cc = centerCat.get(item.componentCode);
       if (cc) put(out.center, pinfl, cc, item.amountTiyin);
+      // Qo'mita: komponent kodi bilan (qaysi bo'limniki — keyin, xodim bo'limiga qarab)
+      if (qomitaCodes.has(item.componentCode)) put(out.qomita, pinfl, item.componentCode, item.amountTiyin);
     }
     return out;
   }
@@ -964,6 +994,8 @@ export class PayrollService {
     ]);
 
     const report: RegroupReport = { period, batches: batches.length, changedBatches: 0, moved: [], centerTiyin: 0n, centerEmployees: 0 };
+    // Qo'mita hisobiga ajratilgan ish haqi: bo'lim → qism → xodim (Qo'mita sahifasi uchun xulosa)
+    const qomitaSummary: QomitaPayrollSummary = { updatedAt: new Date().toISOString(), tarkib: shares.tarkib, deps: {} };
     const movedMap = new Map<string, MovedEmployee>();
     const centerPins = new Set<string>();
     let categoriesReady = false;
@@ -996,10 +1028,14 @@ export class PayrollService {
         // Hudud xodimi — hudud qismlari; Markaz xodimi — Markaz siyosatidagi qismlar; shartnoma — o'zgarmaydi
         const isRegion = after.regionCode !== null && after.regionCode !== CENTRAL_REGION;
         const isCenter = after.regionCode === CENTRAL_REGION;
+        // Qo'mita qoplaydigan bo'lim xodimi: belgilangan qismlar (Oklad, ustama …) — Qo'mita hisobiga
+        const covered = isCenter && after.departmentId ? shares.coverage.get(after.departmentId) : undefined;
         const parts = isRegion
           ? capCenterParts(full, shares.region.get(entry.employeePinfl))
           : isCenter
-            ? capCenterParts(full, shares.center.get(entry.employeePinfl))
+            ? covered
+              ? splitWithQomita(full, shares.center.get(entry.employeePinfl), shares.qomita.get(entry.employeePinfl), covered, payrollPartCategory)
+              : capCenterParts(full, shares.center.get(entry.employeePinfl))
             : new Map<string, bigint>();
         let center = 0n;
         for (const v of parts.values()) center += v;
@@ -1014,9 +1050,25 @@ export class PayrollService {
       );
       // Markaz hisobidagi qism: hudud × modda
       const centerRows = new Map<string, { regionCode: number; regionName: string; categoryCode: string; amount: bigint; count: number }>();
+      // Qo'mita hisobidagi qism: bo'lim × modda («QMT_<kod>», yo'nalish QOMITA)
+      const qomitaRows = new Map<string, { departmentId: string; departmentName: string; categoryCode: string; amount: bigint; count: number }>();
       for (const i of items) {
         if (i.group.regionCode === null) continue;
         for (const [code, amount] of i.parts) {
+          const comp = qomitaPartOf(code);
+          if (comp !== null && i.group.departmentId) {
+            const key = `${i.group.departmentId}|${code}`;
+            const row = qomitaRows.get(key) ?? { departmentId: i.group.departmentId, departmentName: i.employee.department?.name ?? "Bo'lim", categoryCode: code, amount: 0n, count: 0 };
+            row.amount += amount;
+            row.count += 1;
+            qomitaRows.set(key, row);
+            const dep = (qomitaSummary.deps[i.group.departmentId] ??= { parts: {}, employees: [] });
+            dep.parts[comp] = (BigInt(dep.parts[comp] ?? '0') + amount).toString();
+            let emp = dep.employees.find((e) => e.pinfl === i.entry.employeePinfl);
+            if (!emp) dep.employees.push((emp = { pinfl: i.entry.employeePinfl, fullName: i.employee.fullName, parts: {} }));
+            emp.parts[comp] = (BigInt(emp.parts[comp] ?? '0') + amount).toString();
+            continue;
+          }
           const key = `${i.group.regionCode}|${code}`;
           const row = centerRows.get(key) ?? { regionCode: i.group.regionCode, regionName: i.employee.region.name, categoryCode: code, amount: 0n, count: 0 };
           row.amount += amount;
@@ -1027,7 +1079,7 @@ export class PayrollService {
 
       const current = await this.prisma.expense.findMany({
         where: { payrollBatchId: batch.id, deletedAt: null },
-        select: { regionCode: true, departmentId: true, amountTiyin: true, categoryCode: true },
+        select: { regionCode: true, departmentId: true, segment: true, amountTiyin: true, categoryCode: true },
       });
 
       // Guruhlar o'zgarmagan bo'lsa — tegmaymiz
@@ -1043,14 +1095,15 @@ export class PayrollService {
       const nextSignature = signature([
         ...groups.map((group) => ({ key: `${group.key}#${PAYROLL_CATEGORY}`, amount: group.totalTiyin })),
         ...[...centerRows.values()].map((row) => ({ key: `region-${row.regionCode}#${row.categoryCode}`, amount: row.amount })),
+        ...[...qomitaRows.values()].map((row) => ({ key: `seg-${QOMITA_SEGMENT}#${row.categoryCode}`, amount: row.amount })),
       ]);
 
       const changedEntries = items.filter((i) => i.entry.baseTiyin !== i.full || i.entry.bonusTiyin !== i.center || i.entry.totalTiyin !== i.net);
       if (currentSignature === nextSignature && changedEntries.length === 0) continue;
 
-      if (centerRows.size > 0 && !categoriesReady) {
-        await ensureCenterCategories(this.prisma);
-        const cats = await this.prisma.category.findMany({ where: { code: { in: [...new Set([...centerRows.values()].map((r) => r.categoryCode))] } }, select: { code: true, label: true } });
+      if ((centerRows.size > 0 || qomitaRows.size > 0) && !categoriesReady) {
+        if (centerRows.size > 0) await ensureCenterCategories(this.prisma);
+        const cats = await this.prisma.category.findMany({ where: { code: { in: [...new Set([...centerRows.values(), ...qomitaRows.values()].map((r) => r.categoryCode))] } }, select: { code: true, label: true } });
         for (const c of cats) categoryLabels.set(c.code, c.label);
         categoriesReady = true;
       }
@@ -1110,6 +1163,25 @@ export class PayrollService {
                 })),
               });
             }
+            if (qomitaRows.size > 0) {
+              await tx.expense.createMany({
+                data: [...qomitaRows.values()].map((row) => ({
+                  date,
+                  period,
+                  amountTiyin: row.amount,
+                  categoryCode: row.categoryCode,
+                  departmentId: null,
+                  regionCode: null,
+                  segment: QOMITA_SEGMENT,
+                  description: `${categoryLabels.get(row.categoryCode) ?? row.categoryCode} \u2014 ${row.departmentName} xodimlari (${row.count} xodim) \u00b7 Qo'mita mablag'idan qoplanadi`.slice(0, 500),
+                  paymentMethod: 'BANK' as const,
+                  paymentStatus: 'PAID' as const,
+                  source: 'PAYROLL' as const,
+                  payrollBatchId: batch.id,
+                  createdById: batch.uploadedById,
+                })),
+              });
+            }
           }
 
           const created = await tx.expense.aggregate({
@@ -1130,6 +1202,7 @@ export class PayrollService {
     }
 
     report.centerEmployees = centerPins.size;
+    await this.saveQomitaSummary(period, shares.coverage.size > 0, qomitaSummary).catch((error: unknown) => this.logger.warn(`Qo'mita xulosasi saqlanmadi (${period}): ${(error as Error).message}`));
     this.retax(period);
     report.moved = [...movedMap.values()].sort((a, b) =>
       b.amountTiyin > a.amountTiyin ? 1 : -1,
@@ -1347,7 +1420,10 @@ export class PayrollService {
     const isContract = key === 'shartnoma';
     // Markaz hisobidagi qism (bayram, choraklik …) — hudud xodimlari bo'yicha, shu modda summasi
     const centerPart = expense.categoryCode !== PAYROLL_CATEGORY;
-    const shares = centerPart ? await this.centerShares(expense.period) : null;
+    // Qo'mita hisobidagi qism («QMT_<kod>») — xodimlar Qo'mita xulosasidan (shu bo'lim, shu komponent)
+    const qomitaComp = expense.segment === QOMITA_SEGMENT ? qomitaPartOf(expense.categoryCode) : null;
+    const qomitaAmounts = qomitaComp ? await this.qomitaAmounts(expense.period, qomitaComp, expense.description ?? '') : null;
+    const shares = centerPart && !qomitaAmounts ? await this.centerShares(expense.period) : null;
     const batchScope = (await this.prisma.payrollBatch.findUnique({ where: { id: expense.payrollBatchId }, select: { scope: true } }))?.scope ?? 'ALL';
     const isCentral = expense.regionCode === CENTRAL_REGION;
 
@@ -1385,14 +1461,18 @@ export class PayrollService {
 
         return { entry, location, effective };
       })
-      .filter(({ effective }) => this.groupOf(effective, batchScope).key === key)
+      .filter(({ entry, effective }) => (qomitaAmounts ? qomitaAmounts.has(entry.employeePinfl) : this.groupOf(effective, batchScope).key === key))
       .map(({ entry, location, effective }) => ({
         entry,
         location,
         effective,
-        amount: shares ? (capCenterParts(this.fullOf(entry), shares.get(entry.employeePinfl)).get(expense.categoryCode) ?? 0n) : entry.totalTiyin,
+        amount: qomitaAmounts
+          ? (qomitaAmounts.get(entry.employeePinfl) ?? 0n)
+          : shares
+            ? (capCenterParts(this.fullOf(entry), shares.get(entry.employeePinfl)).get(expense.categoryCode) ?? 0n)
+            : entry.totalTiyin,
       }))
-      .filter((x) => !shares || x.amount > 0n)
+      .filter((x) => !(shares || qomitaAmounts) || x.amount > 0n)
       .map(({ entry, location, effective, amount }) => ({
         id: entry.id,
         totalTiyin: amount,
@@ -1412,7 +1492,7 @@ export class PayrollService {
 
     const groups: { key: string; label: string; count: number; totalTiyin: bigint }[] = [];
 
-    if (!isCentral && !isContract) {
+    if (!isCentral && !isContract && !qomitaAmounts) {
       const byDistrict = new Map<string, { label: string; count: number; total: bigint }>();
 
       for (const entry of entries) {
@@ -1437,14 +1517,14 @@ export class PayrollService {
       groups.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
     }
 
-    if (shares) entries.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
+    if (shares || qomitaAmounts) entries.sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : -1));
 
     return {
       isPayroll: true,
       expense,
       /** Markaz hisobidagi qism (bayram, choraklik …) — hudud xodimlari ish haqi tarkibidan */
       centerPart,
-      isCentral: isCentral || isContract,
+      isCentral: isCentral || isContract || Boolean(qomitaAmounts),
       groups,
       entries,
       count: entries.length,

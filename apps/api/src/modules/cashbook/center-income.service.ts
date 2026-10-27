@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { EntrySection } from '@prisma/client';
+import { isSegment, segmentLabel, type SegmentCode } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CashbookService, type CashAccountView, type CashLineInput } from './cashbook.service';
@@ -18,11 +19,19 @@ import { CashbookService, type CashAccountView, type CashLineInput } from './cas
 //   • DOIMIY va BOSHQA — Daromadlar jadvaliga Markaz (kod 0) daromadi bo'lib yoziladi
 //     (importBatchId = «kassa:YYYY-MM»): Tahlil, Solishtirma, bosh sahifa ularni o'zi ko'radi.
 //     Qayta yuklash yoki tuzatish — shu oy yozuvlari almashtiriladi (ikki marta sanalmaydi).
+//   • Har tushum qatori kimniki: Markaz (odatiy) yoki yo'nalish — «Tax free» nomli qator (masalan, «Tax free (10 %)»)
+//     Tax free daromadi, «marksheyder» so'zi bor qator — Marksheyder daromadi. Yo'nalish daromadi `segment` bilan yoziladi:
+//     Solishtirmada o'sha yo'nalishning o'z xarajatlari bilan bir qatorda (daromad − xarajat = natija) ko'rinadi.
+//     Buxgalter qatorning egasini o'zgartirishi mumkin (center-income.segments sozlamasi).
 // ═══════════════════════════════════════════════════════════
 
 export type CenterMode = 'DOIMIY' | 'BOSHQA' | 'REGION' | 'NONE';
 const MODES: CenterMode[] = ['DOIMIY', 'BOSHQA', 'REGION', 'NONE'];
 const MAP_KEY = 'center-income.map';
+/** Qator egasi: Markaz yoki yo'nalish (Tax free, Marksheyder …) */
+const SEG_KEY = 'center-income.segments';
+export type CenterOwner = 'CENTER' | SegmentCode;
+const isOwner = (v: unknown): v is CenterOwner => v === 'CENTER' || isSegment(v);
 const CENTRAL = 0;
 const MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
 
@@ -65,6 +74,8 @@ export interface CenterMonth {
   otherCenterTiyin: string;
   /** Hududlar tushumi (Daromadlar › Hududlar tushumi) — hududiy bo'limlar bilan solishtirish */
   regionIncomeTiyin: string;
+  /** Shundan yo'nalishlarga (Tax free, Marksheyder …) yozilgan daromad */
+  segmentsTiyin: string;
 }
 
 export interface CenterRow {
@@ -77,6 +88,9 @@ export interface CenterRow {
   /** Qator turi (tushum qatorlari uchun); sarlavha — null */
   mode: CenterMode | null;
   defaultMode: CenterMode | null;
+  /** Qator egasi (tushum qatorlari uchun): Markaz yoki yo'nalish */
+  owner: CenterOwner | null;
+  defaultOwner: CenterOwner | null;
   months: Record<string, string | null>;
   totalTiyin: string;
 }
@@ -123,13 +137,14 @@ export class CenterIncomeService implements OnApplicationBootstrap {
       void (async () => {
         const KEY = 'center-income.rule';
         const row = await this.prisma.setting.findUnique({ where: { key: KEY } });
-        if ((row?.value as { v?: number } | null)?.v === 2) return;
+        // v3 — yo'nalish qatorlari (Tax free, Marksheyder) o'z yo'nalishiga yoziladi
+        if ((row?.value as { v?: number } | null)?.v === 3) return;
         const admin = await this.prisma.user.findFirst({ where: { role: 'ADMIN' }, orderBy: { createdAt: 'asc' }, select: { id: true } });
         if (!admin) return;
         const r = await this.syncAll(admin.id);
-        const value = { v: 2, at: new Date().toISOString(), periods: r.periods };
+        const value = { v: 3, at: new Date().toISOString(), periods: r.periods };
         await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
-        this.logger.log(`Markaz daromadi qayta hisoblandi («Oy boshidan» farqi): ${r.periods} oy`);
+        this.logger.log(`Markaz daromadi qayta yozildi (yo'nalishlar bilan): ${r.periods} oy`);
       })().catch((e: unknown) => this.logger.warn(`Markaz daromadi qayta hisoblanmadi: ${(e as Error).message}`));
     }, 6_000);
   }
@@ -152,6 +167,27 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     return 'NONE';
   }
 
+  /** Boshlang'ich egasi: nomida «Tax free» — Tax free, «marksheyder» — Marksheyder, qolgani — Markaz */
+  defaultOwner(a: CashAccountView): CenterOwner {
+    const n = norm(a.name);
+    if (/taxfree/.test(n)) return 'TAX_FREE';
+    if (/marksheyd|маркшейд/.test(n)) return 'MARKSHEYDER';
+    return 'CENTER';
+  }
+
+  private async ownerMap(): Promise<Record<string, CenterOwner>> {
+    const row = await this.prisma.setting.findUnique({ where: { key: SEG_KEY } });
+    const v = row?.value;
+    const out: Record<string, CenterOwner> = {};
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k, o] of Object.entries(v as Record<string, unknown>)) if (isOwner(o)) out[k] = o;
+    return out;
+  }
+
+  private async owners(accounts: CashAccountView[]): Promise<Map<string, CenterOwner>> {
+    const map = await this.ownerMap();
+    return new Map(accounts.filter(counted).map((a) => [a.id, map[a.id] ?? this.defaultOwner(a)]));
+  }
+
   private async modeMap(): Promise<Record<string, CenterMode>> {
     const row = await this.prisma.setting.findUnique({ where: { key: MAP_KEY } });
     const v = row?.value;
@@ -167,13 +203,27 @@ export class CenterIncomeService implements OnApplicationBootstrap {
   }
 
   async setModes(input: unknown, userId: string): Promise<CenterYear> {
-    const body = (input ?? {}) as { modes?: Record<string, unknown>; year?: unknown };
-    if (!body.modes || typeof body.modes !== 'object') throw new BadRequestException("O'zgartirish yuborilmadi");
+    const body = (input ?? {}) as { modes?: Record<string, unknown>; owners?: Record<string, unknown>; year?: unknown };
+    const hasModes = Boolean(body.modes && typeof body.modes === 'object');
+    const hasOwners = Boolean(body.owners && typeof body.owners === 'object');
+    if (!hasModes && !hasOwners) throw new BadRequestException("O'zgartirish yuborilmadi");
     const accounts = await this.cashbook.accounts();
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const map = await this.modeMap();
     const changed: string[] = [];
-    for (const [id, raw] of Object.entries(body.modes)) {
+    if (hasOwners) {
+      const owners = await this.ownerMap();
+      for (const [id, raw] of Object.entries(body.owners!)) {
+        const a = byId.get(id);
+        if (!a || !counted(a)) throw new BadRequestException('Hisobraqam topilmadi (sahifani yangilang)');
+        if (!isOwner(raw)) throw new BadRequestException(`${a.name}: egasi noto'g'ri`);
+        if ((owners[id] ?? this.defaultOwner(a)) !== raw) changed.push(`${a.name} → ${raw === 'CENTER' ? 'Markaz' : segmentLabel(raw)}`);
+        if (raw === this.defaultOwner(a)) delete owners[id];
+        else owners[id] = raw;
+      }
+      await this.prisma.setting.upsert({ where: { key: SEG_KEY }, create: { key: SEG_KEY, value: owners }, update: { value: owners } });
+    }
+    for (const [id, raw] of Object.entries(body.modes ?? {})) {
       const a = byId.get(id);
       if (!a || !counted(a)) throw new BadRequestException('Hisobraqam topilmadi (sahifani yangilang)');
       if (!MODES.includes(raw as CenterMode)) throw new BadRequestException(`${a.name}: tur noto'g'ri`);
@@ -279,15 +329,17 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new BadRequestException("Oy noto'g'ri (YYYY-MM)");
     const accounts = await this.cashbook.accounts();
     const modes = await this.modes(accounts);
+    const owners = await this.owners(accounts);
     const month = (await this.monthValues([period])).get(period);
     const center = await this.prisma.region.findUnique({ where: { code: CENTRAL }, select: { code: true } });
-    const rows: { a: CashAccountView; amount: bigint; section: EntrySection; category: string }[] = [];
+    const rows: { a: CashAccountView; amount: bigint; section: EntrySection; category: string; segment: SegmentCode | null }[] = [];
     if (month) {
       for (const a of accounts) {
         const m = modes.get(a.id);
         const amount = month.values.get(a.id) ?? 0n;
         if ((m !== 'DOIMIY' && m !== 'BOSHQA') || amount <= 0n) continue;
-        rows.push({ a, amount, section: m, category: await this.categoryFor(a) });
+        const owner = owners.get(a.id) ?? 'CENTER';
+        rows.push({ a, amount, section: m, category: await this.categoryFor(a), segment: owner === 'CENTER' ? null : owner });
       }
     }
     const date = month ? new Date(`${month.date}T00:00:00Z`) : null;
@@ -303,7 +355,9 @@ export class CenterIncomeService implements OnApplicationBootstrap {
             amountTiyin: r.amount,
             paidTiyin: r.amount,
             categoryCode: r.category,
-            regionCode: center ? CENTRAL : null,
+            // Yo'nalish daromadi — hudud/bo'limsiz, `segment` bilan (yo'nalish xarajatlari bilan bir birlikda)
+            regionCode: r.segment ? null : center ? CENTRAL : null,
+            segment: r.segment,
             description: `${r.a.code ? `${r.a.code}. ` : ''}${r.a.name} — kunlik ma'lumotnoma ${dmy} holatiga («Oy boshidan», o'tgan oyga nisbatan farq)`.slice(0, 500),
             paymentStatus: 'PAID' as const,
             paymentMethod: 'BANK' as const,
@@ -349,10 +403,11 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     const periods = Array.from({ length: 12 }, (_, i) => `${year}-${pad(i + 1)}`);
     const accounts = await this.cashbook.accounts();
     const modes = await this.modes(accounts);
+    const owners = await this.owners(accounts);
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const values = await this.monthValues(periods);
     const [synced, incomes, latest] = await Promise.all([
-      this.prisma.income.findMany({ where: { deletedAt: null, period: { in: periods }, importBatchId: { startsWith: 'kassa:' } }, select: { period: true, amountTiyin: true } }),
+      this.prisma.income.findMany({ where: { deletedAt: null, period: { in: periods }, importBatchId: { startsWith: 'kassa:' } }, select: { period: true, amountTiyin: true, segment: true } }),
       this.prisma.income.findMany({ where: { deletedAt: null, period: { in: periods } }, select: { period: true, amountTiyin: true, regionCode: true, departmentId: true, importBatchId: true } }),
       this.prisma.cashReport.findFirst({ orderBy: { date: 'desc' }, select: { date: true } }),
     ]);
@@ -382,6 +437,7 @@ export class CenterIncomeService implements OnApplicationBootstrap {
         inSync: syncedT === expected,
         otherCenterTiyin: other.toString(),
         regionIncomeTiyin: regionIncome.toString(),
+        segmentsTiyin: synced.filter((x) => x.period === p && x.segment).reduce((s, x) => s + x.amountTiyin, 0n).toString(),
       };
     });
 
@@ -426,6 +482,8 @@ export class CenterIncomeService implements OnApplicationBootstrap {
           isHeader: a.isHeader,
           mode: modes.get(a.id) ?? null,
           defaultMode: counted(a) ? this.defaultMode(a, byId) : null,
+          owner: owners.get(a.id) ?? null,
+          defaultOwner: counted(a) ? this.defaultOwner(a) : null,
           months: ms,
           totalTiyin: total.toString(),
         };

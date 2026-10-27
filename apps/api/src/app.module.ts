@@ -64,6 +64,7 @@ import { RegionalDataModule } from './modules/regional-data/regional-data.module
 import { RegionalEconModule } from './modules/regional-econ/regional-econ.module';
 import { HealthModule } from './modules/health/health.module';
 import { ExpensePolicyModule } from './modules/expense-policy/expense-policy.module';
+import { QomitaModule } from './modules/qomita/qomita.module';
 import { BulkDeleteModule } from './modules/bulk-delete/bulk-delete.module';
 import { RateLimitGuard } from './common/security/rate-limit';
 
@@ -126,6 +127,7 @@ import { RateLimitGuard } from './common/security/rate-limit';
     RegionalEconModule,
     HealthModule,
     ExpensePolicyModule,
+    QomitaModule,
     BulkDeleteModule,
     IntegrityModule,
     BackupModule,

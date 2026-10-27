@@ -1,3 +1,4 @@
+import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { loadCenterCategories } from '../expense-policy/policy.util';
@@ -396,11 +397,12 @@ export class DistrictsService {
       addExpense(row.date, { districtId, amount: row.amountTiyin }, 'LEASE', 'LEASE', 'Ijara', row.period);
     }
 
-    // Qolganlari: mashinalar va boshqa xarajatlar — yozuvda tuman bo'lsa o'sha tumanga
+    // Qolganlari: mashinalar, xizmat safari (23106) va boshqa xarajatlar — yozuvda tuman bo'lsa o'sha tumanga
+    const safarIds = await safarExpenseMeta(this.prisma);
     for (const row of expenses) {
       if (row.source === 'PAYROLL' || row.source === 'LEASE') continue;
       const top = categoryParent.get(row.categoryCode) ?? row.categoryCode;
-      const [key, label] = row.source === 'VEHICLE' ? ['VEHICLE', 'Mashinalar'] : [`c:${top}`, categoryLabel.get(top) ?? top];
+      const [key, label] = row.source === 'VEHICLE' ? ['VEHICLE', 'Mashina xarajatlari'] : safarIds.has(row.id) ? [SAFAR_PART.key, SAFAR_PART.label] : [`c:${top}`, categoryLabel.get(top) ?? top];
       addExpense(row.date, { districtId: row.districtId, amount: row.amountTiyin }, 'OTHER', key, label, row.period);
     }
     // PAYROLL yozuvi partiyasiz bo'lsa (qo'lda) — tumanga bo'linmagan

@@ -62,6 +62,13 @@ export interface MatrixRow {
   children?: MatrixRow[];
 }
 
+/**
+ * Daromad solig'i (JShDS) — ish haqidan ushlanadi: jadvallarda ish haqi yozuvidan ajratib «Soliqlar» ichida ko'rsatiladi
+ * (ish haqi fondi — sof qism). Bazadagi yozuvlar o'zgarmaydi, jami summa ham o'zgarmaydi — faqat ko'rinishi.
+ * Foiz — «Ish haqi solishtirma» sozlamasi (standart 12%).
+ */
+export const JSHDS_CAT = { code: 'SOLIQ_JSHDS', label: "Daromad solig'i (ish haqidan ushlanadi)", parent: 'SOLIQLAR', parentLabel: 'Soliqlar' };
+
 interface Row {
   cat: string;
   unit: string;
@@ -128,30 +135,35 @@ export class ExploreService {
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true, order: true } }),
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true, order: true } }),
     ]);
+    const exp = new Map(expenseCats.map((c) => [c.code, { label: c.label, parent: c.parentCode ?? null, order: c.order ?? 0 }]));
+    // Ish haqidan ushlanadigan daromad solig'i — «Soliqlar» ichida (yozuvlardan ajratiladi, pastda)
+    if (!exp.has(JSHDS_CAT.parent)) exp.set(JSHDS_CAT.parent, { label: JSHDS_CAT.parentLabel, parent: null, order: 900 });
+    exp.set(JSHDS_CAT.code, { label: JSHDS_CAT.label, parent: JSHDS_CAT.parent, order: 5 });
     return {
       regions: new Map(regions.map((r) => [r.code, r.code === 0 ? 'Markaz' : r.name])),
       departments: new Map(departments.map((d) => [d.id, d.name])),
       incomeCats: new Map(incomeCats.map((c) => [c.code, { label: c.label, order: c.order ?? 0 }])),
-      expenseCats: new Map(expenseCats.map((c) => [c.code, { label: c.label, parent: c.parentCode ?? null, order: c.order ?? 0 }])),
+      expenseCats: exp,
     };
   }
 
   private async load(kind: Kind, s: Span, opts: { period?: boolean; party?: boolean } = {}): Promise<Row[]> {
     const partyField = kind === 'income' ? 'clientName' : 'counterparty';
     // Mijoz / kontragent kesimi alohida yuklanadi (aks holda guruhlar soni juda ko'payadi)
-    const by = opts.party ? [partyField, 'paymentStatus'] : ['categoryCode', 'regionCode', 'departmentId', 'segment', 'paymentStatus', ...(opts.period ? ['period'] : [])];
+    const by = [...(opts.party ? [partyField, 'paymentStatus'] : ['categoryCode', 'regionCode', 'departmentId', 'segment', 'paymentStatus', ...(opts.period ? ['period'] : [])]), ...(kind === 'expense' ? ['source'] : [])];
+    const pct = kind === 'expense' ? await this.jshdsPct() : 0;
     const groups = await this.model(kind).groupBy({
       by,
       where: { deletedAt: null, date: { gte: s.start, lt: s.end } },
       _sum: kind === 'income' ? { amountTiyin: true, paidTiyin: true } : { amountTiyin: true },
       _count: { _all: true },
     });
-    return groups.map((g) => {
+    return groups.flatMap((g) => {
       const sum = num(g._sum.amountTiyin);
       const status = String(g.paymentStatus ?? 'PAID');
       // Daromadda to'langan qism alohida yoziladi; xarajatda — holat bo'yicha (qisman to'langani ham ochiq hisoblanadi)
       const open = status === 'PAID' ? 0 : kind === 'income' ? Math.max(0, sum - num(g._sum.paidTiyin)) : sum;
-      return {
+      const row: Row = {
         cat: String(g.categoryCode ?? ''),
         unit: unitKey((g.regionCode as number | null) ?? null, (g.departmentId as string | null) ?? null, (g.segment as string | null) ?? null),
         dep: (g.departmentId as string | null) ?? 'none',
@@ -162,7 +174,22 @@ export class ExploreService {
         open,
         count: g._count._all,
       };
+      // Ish haqi yozuvi: daromad solig'i (JShDS) ajratiladi — «Soliqlar › Daromad solig'i», ish haqi — sof qism
+      if (kind !== 'expense' || g.source !== 'PAYROLL' || pct <= 0 || sum <= 0) return [row];
+      const tax = Math.round((sum * pct) / 100);
+      const taxOpen = Math.round((open * pct) / 100);
+      return [
+        { ...row, sum: sum - tax, open: open - taxOpen },
+        { ...row, cat: JSHDS_CAT.code, sum: tax, open: taxOpen },
+      ];
     });
+  }
+
+  /** Daromad solig'i foizi — «Ish haqi solishtirma» sozlamasi (standart 12%) */
+  private async jshdsPct(): Promise<number> {
+    const row = await this.prisma.setting.findUnique({ where: { key: 'payroll.solishtirma' } }).catch(() => null);
+    const v = Number((row?.value as { taxPct?: unknown } | null)?.taxPct);
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 12;
   }
 
   private async sets(kind: Kind, r: Ranges, party = false): Promise<Sets> {

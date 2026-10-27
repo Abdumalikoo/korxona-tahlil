@@ -194,6 +194,17 @@ export class PurchasesService {
     return row;
   }
 
+  /** Yetkazuvchini o'chirish — faqat bitta ham xaridi bo'lmasa (aks holda — nofaol qilish) */
+  async removeSupplier(id: string, userId: string) {
+    const base = await this.prisma.supplier.findUnique({ where: { id } });
+    if (!base) throw new NotFoundException('Yetkazuvchi topilmadi');
+    const used = await this.prisma.purchase.count({ where: { supplierId: id } });
+    if (used) throw new BadRequestException(`«${base.name}» bo'yicha ${used} ta xarid bor — o'chirib bo'lmaydi, nofaol qiling`);
+    await this.prisma.supplier.delete({ where: { id } });
+    await this.audit.log({ userId, action: 'DELETE', entity: 'supplier', entityId: id, summary: `Yetkazuvchi o'chirildi: ${base.name}` });
+    return { success: true as const };
+  }
+
   /** Yetkazuvchilar: kimdan qancha olingan, qarz, oxirgi xarid */
   async suppliers() {
     const [suppliers, purchases] = await Promise.all([
@@ -302,6 +313,20 @@ export class PurchasesService {
     await this.prisma.purchaseRequest.update({ where: { id }, data: { status, rejectReason: status === 'REJECTED' ? why : null } });
     await this.audit.log({ userId, action: 'UPDATE', entity: 'purchase_request', entityId: id, summary: `Ariza ${base.number}: ${status === 'DONE' ? 'bajarildi' : status === 'REJECTED' ? `rad etildi (${why})` : status === 'IN_PROGRESS' ? 'ishga olindi' : 'qayta ochildi'}` });
     return (await this.requests({ status: 'all' })).find((r) => r.id === id)!;
+  }
+
+  /** Arizani o'chirish — faqat unga bog'langan xarid bo'lmasa (aks holda — rad etish) */
+  async removeRequest(id: string, userId: string) {
+    const base = await this.prisma.purchaseRequest.findUnique({ where: { id } });
+    if (!base) throw new NotFoundException('Ariza topilmadi');
+    const used = await this.prisma.purchase.count({ where: { requestId: id } });
+    if (used) throw new BadRequestException(`Ariza ${base.number} bo'yicha ${used} ta xarid rasmiylashtirilgan — o'chirib bo'lmaydi`);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.purchaseRequestLine.deleteMany({ where: { requestId: id } });
+      await tx.purchaseRequest.delete({ where: { id } });
+    });
+    await this.audit.log({ userId, action: 'DELETE', entity: 'purchase_request', entityId: id, summary: `Xarid arizasi o'chirildi: ${base.number} — ${base.title}` });
+    return { success: true as const };
   }
 
   // ═══════════ Xaridlar ═══════════

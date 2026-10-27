@@ -2,6 +2,7 @@ import {
     Body,
     Controller,
     DefaultValuePipe,
+    Delete,
     Get,
     Param,
     ParseBoolPipe,
@@ -10,14 +11,18 @@ import {
     Query,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { Roles } from '../../common/decorators';
+import { CurrentUser, Roles } from '../../common/decorators';
+import { AuditService } from '../audit/audit.service';
 import { CategoriesService } from './categories.service';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 
 @Controller('categories')
 export class CategoriesController {
-  constructor(private readonly categories: CategoriesService) {}
+  constructor(
+    private readonly categories: CategoriesService,
+    private readonly audit: AuditService,
+  ) {}
 
   @Get()
   async findAll(
@@ -53,6 +58,30 @@ export class CategoriesController {
     return { data };
   }
 
+  /** Daromad xizmat turlari (arxivdagilari bilan) — har biri nechta yozuvda ishlatilgani */
+  @Get('income/usage')
+  async incomeUsage() {
+    return { data: await this.categories.incomeUsage() };
+  }
+
+  /** Daromad xizmat turini arxivlash / qaytarish: { isActive } */
+  @Roles(UserRole.ADMIN)
+  @Patch('income/:code/active')
+  async incomeActive(@Param('code') code: string, @Body() body: { isActive?: boolean }, @CurrentUser('id') userId: string) {
+    const data = await this.categories.setIncomeActive(code, body?.isActive !== false);
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'income_category', entityId: code, summary: `Daromad xizmat turi ${data.isActive ? 'qaytarildi' : 'arxivlandi'}: ${data.label}` });
+    return { data };
+  }
+
+  /** Daromad xizmat turini o'chirish — faqat ishlatilmagan bo'lsa */
+  @Roles(UserRole.ADMIN)
+  @Delete('income/:code')
+  async removeIncome(@Param('code') code: string, @CurrentUser('id') userId: string) {
+    const data = await this.categories.removeIncome(code);
+    await this.audit.log({ userId, action: 'DELETE', entity: 'income_category', entityId: code, summary: `Daromad xizmat turi o'chirildi: ${data.label}` });
+    return { data };
+  }
+
   @Get(':code')
   async findOne(@Param('code') code: string) {
     const data = await this.categories.findOne(code);
@@ -84,6 +113,15 @@ export class CategoriesController {
   @Post()
   async create(@Body() dto: CreateCategoryDto) {
     const data = await this.categories.create(dto);
+    return { data };
+  }
+
+  /** Xarajat moddasini o'chirish — faqat ishlatilmagan bo'lsa (aks holda arxivlash) */
+  @Roles(UserRole.ADMIN)
+  @Delete(':code')
+  async remove(@Param('code') code: string, @CurrentUser('id') userId: string) {
+    const data = await this.categories.remove(code);
+    await this.audit.log({ userId, action: 'DELETE', entity: 'category', entityId: code, summary: `Xarajat moddasi o'chirildi: ${data.label}` });
     return { data };
   }
 

@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { BriefNote, useBrief } from '@/lib/view-mode';
 import { Mark } from '@/features/reactions/mark';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { centerIncomeApi, MODE_LABEL, type CenterMode, type CenterPreview, type CenterYear } from './center-api';
+import { centerIncomeApi, MODE_LABEL, OWNER_LABEL, type CenterMode, type CenterOwner, type CenterPreview, type CenterYear } from './center-api';
 
 // ═══════════════════════════════════════════════════════════
 // Markaz daromadlari (Buxgalteriya › Markaz daromadi, Daromadlar › Markaz tushumi, Tahlil › Markaz tushumi).
@@ -32,6 +32,7 @@ const MODE_TONE: Record<CenterMode, string> = {
   NONE: 'bg-slate-100 text-slate-500',
 };
 const MODES: CenterMode[] = ['DOIMIY', 'BOSHQA', 'REGION', 'NONE'];
+const OWNERS: CenterOwner[] = ['CENTER', 'TAX_FREE', 'MARKSHEYDER', 'FERMER', 'BUXGALTERIYA', 'QOMITA'];
 const SHORT = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek'];
 const dmy = (d: string | null) => (d ? d.split('-').reverse().join('.') : '—');
 
@@ -162,6 +163,8 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [edits, setEdits] = useState<Record<string, CenterMode>>({});
+  /** Qator egasi o'zgarishlari (Markaz ↔ yo'nalish) */
+  const [ownerEdits, setOwnerEdits] = useState<Record<string, CenterOwner>>({});
   const [askModes, setAskModes] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'error' } | null>(null);
 
@@ -228,9 +231,10 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const saveModes = async () => {
     setSaving(true);
     try {
-      setData(await centerIncomeApi.setModes(year, edits));
+      setData(await centerIncomeApi.setModes(year, edits, ownerEdits));
       setEdits({});
-      setToast({ message: "Qator turlari saqlandi — oylar Daromadlarga qayta yozildi" });
+      setOwnerEdits({});
+      setToast({ message: "Qator turlari va egalari saqlandi — oylar Daromadlarga qayta yozildi" });
     } catch (e) {
       setToast({ message: errorMessage(e), tone: 'error' });
     } finally {
@@ -244,7 +248,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const chart = months.map((m) => ({ period: m.period, amountTiyin: m.reportDate ? m.markazTiyin : '0' }));
   const outOfSync = months.filter((m) => m.reportDate && !m.inSync).length + months.filter((m) => !m.reportDate && m.syncedTiyin !== '0').length;
   const doubled = months.filter((m) => m.otherCenterTiyin !== '0');
-  const editCount = Object.keys(edits).length;
+  const editCount = Object.keys(edits).length + Object.keys(ownerEdits).length;
 
   return (
     <>
@@ -374,6 +378,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                       <th className="px-4 py-2.5">Oy</th>
                       <th className="px-3 py-2.5">Oxirgi kun</th>
                       <th className="px-3 py-2.5 text-right">Markaz daromadi</th>
+                      {!brief && <th className="px-3 py-2.5 text-right" title="Tax free, Marksheyder va boshqa yo'nalishlarga yozilgani (Kimniki ustunida tanlangan)">shundan yo&apos;nalishlarga</th>}
                       {!brief && <th className="px-3 py-2.5 text-right">Doimiy</th>}
                       {!brief && <th className="px-3 py-2.5 text-right">Boshqa</th>}
                       <th className="px-3 py-2.5 text-right">Hududlardan tushgan</th>
@@ -395,6 +400,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                           )}
                         </td>
                         <td className="money px-3 py-2 text-right font-bold">{m.reportDate ? som(m.markazTiyin) : '—'}</td>
+                        {!brief && <td className="money px-3 py-2 text-right text-amber-800">{m.segmentsTiyin !== '0' ? som(m.segmentsTiyin) : '—'}</td>}
                         {!brief && <td className="money px-3 py-2 text-right">{m.reportDate ? som(m.doimiyTiyin) : '—'}</td>}
                         {!brief && <td className="money px-3 py-2 text-right">{m.reportDate && m.boshqaTiyin !== '0' ? som(m.boshqaTiyin) : '—'}</td>}
                         <td className="money px-3 py-2 text-right text-violet-700">{m.reportDate ? som(m.regionsTiyin) : '—'}</td>
@@ -421,6 +427,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                         Jami {year}
                       </td>
                       <td className="money px-3 py-2.5 text-right">{som(data.totals.markazTiyin)}</td>
+                      {!brief && <td className="money px-3 py-2.5 text-right text-amber-800">{som(months.reduce((x, m) => x + BigInt(m.segmentsTiyin ?? '0'), 0n).toString())}</td>}
                       {!brief && <td className="money px-3 py-2.5 text-right">{som(data.totals.doimiyTiyin)}</td>}
                       {!brief && <td className="money px-3 py-2.5 text-right">{som(data.totals.boshqaTiyin)}</td>}
                       <td className="money px-3 py-2.5 text-right text-violet-700">{som(data.totals.regionsTiyin)}</td>
@@ -435,12 +442,19 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
             {!brief && (
             <Section
               title="Hisobraqamlar bo'yicha"
-              hint={manage ? "har qatorning turi — Markaz daromadi, Boshqa, Hududlar (hisobot) yoki Daromad emas" : "oy daromadi, so'm (qisqa)"}
+              hint={manage ? "har qatorning turi (Markaz daromadi, Boshqa, Hududlar, Daromad emas) va kimniki — Markaz yoki yo'nalish (Tax free, Marksheyder …)" : "oy daromadi, so'm (qisqa)"}
               open={manage}
               right={
                 manage && editCount > 0 ? (
                   <div className="flex items-center gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setEdits({})}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setEdits({});
+                        setOwnerEdits({});
+                      }}
+                    >
                       Bekor
                     </Button>
                     <Button size="sm" onClick={() => setAskModes(true)}>
@@ -456,6 +470,9 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                     <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-(--color-text-muted)">
                       <th className="sticky left-0 z-10 min-w-[300px] bg-slate-50 px-4 py-2">Hisobraqam</th>
                       <th className="px-2 py-2">Turi</th>
+                      <th className="px-2 py-2" title="Daromad kimniki: Markaz yoki yo'nalish (Tax free, Marksheyder …) — yo'nalish daromadi o'z xarajatlari bilan Solishtirmada birga ko'rinadi">
+                        Kimniki
+                      </th>
                       {SHORT.map((s) => (
                         <th key={s} className="px-2 py-2 text-right">
                           {s}
@@ -467,12 +484,17 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                   <tbody className="divide-y divide-(--color-line)">
                     {data.rows.map((r) => {
                       const m = r.mode ? (edits[r.id] ?? r.mode) : null;
+                      const o = r.owner ? (ownerEdits[r.id] ?? r.owner) : null;
+                      const income = m === 'DOIMIY' || m === 'BOSHQA';
                       const head = r.mode === null;
                       return (
                         <tr key={r.id} className={cn(head ? 'bg-amber-50/50 font-semibold' : '', m === 'NONE' ? 'text-(--color-text-faint)' : '')}>
                           <td className={cn('sticky left-0 z-[1] px-4 py-1.5', head ? 'bg-amber-50' : 'bg-white')} style={{ paddingLeft: 16 + Math.max(0, r.level) * 14 }}>
                             {(r.mode === 'DOIMIY' || r.mode === 'BOSHQA') && (
-                              <Mark className="mr-1.5 align-middle" item={{ kind: 'INCOME', label: `Markaz tushumi: ${r.name}`, filter: { unit: 'center', categoryCode: `KASSA-${r.key}`.slice(0, 60) }, origin: 'Markaz tushumi' }} />
+                              <Mark
+                                className="mr-1.5 align-middle"
+                                item={{ kind: 'INCOME', label: `${o && o !== 'CENTER' ? OWNER_LABEL[o] : 'Markaz'} tushumi: ${r.name}`, filter: { unit: o && o !== 'CENTER' ? `s:${o}` : 'center', categoryCode: `KASSA-${r.key}`.slice(0, 60) }, origin: 'Markaz tushumi' }}
+                              />
                             )}
                             {r.code && <span className="mr-1.5 text-(--color-text-faint)">{r.code}</span>}
                             {r.name}
@@ -505,6 +527,41 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                                 <ModePill mode={m} />
                               ))}
                           </td>
+                          <td className="px-2 py-1.5">
+                            {o &&
+                              income &&
+                              (manage ? (
+                                <select
+                                  value={o}
+                                  onChange={(e) => {
+                                    const v = e.target.value as CenterOwner;
+                                    setOwnerEdits((x) => {
+                                      const n = { ...x };
+                                      if (v === r.owner) delete n[r.id];
+                                      else n[r.id] = v;
+                                      return n;
+                                    });
+                                  }}
+                                  className={cn(
+                                    'rounded-lg border-0 px-2 py-1 text-[11px] font-semibold',
+                                    o === 'CENTER' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-800',
+                                    ownerEdits[r.id] && 'ring-2 ring-brand-400',
+                                  )}
+                                  aria-label={`${r.name} kimniki`}
+                                >
+                                  {OWNERS.map((x) => (
+                                    <option key={x} value={x}>
+                                      {OWNER_LABEL[x]}
+                                      {x === r.defaultOwner ? ' (odatiy)' : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className={cn('whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold', o === 'CENTER' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-800')}>
+                                  {OWNER_LABEL[o]}
+                                </span>
+                              ))}
+                          </td>
                           {months.map((mo) => {
                             const v = r.months[mo.period];
                             return (
@@ -530,7 +587,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
       <ConfirmDialog
         open={askModes}
         title="Qator turlarini saqlash"
-        message={`${editCount} ta hisobraqam turi o'zgaradi. Hamma oylarning Markaz daromadi Daromadlarga qayta yoziladi. Davom etilsinmi?`}
+        message={`${editCount} ta o'zgarish (hisobraqam turi yoki kimniki). Hamma oylarning daromadi Daromadlarga qayta yoziladi: Markaz yoki tanlangan yo'nalish nomiga. Davom etilsinmi?`}
         confirmLabel="Ha, saqlash"
         loading={saving}
         onConfirm={() => void saveModes()}

@@ -312,6 +312,18 @@ export class UnitPayrollService {
     return re ? deps.filter((d) => re.test(d.name)) : [];
   }
 
+  /**
+   * Yo'nalishlarga (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) bog'langan Markaz bo'limlari:
+   * tanlanganlari yoki (avtomatik) nomida yo'nalish nomi borlar. «Foyda keltirmaydigan bo'limlar»da ko'rsatilmaydi.
+   */
+  async segmentDepartmentIds(): Promise<Set<string>> {
+    const out = new Set<string>();
+    for (const unit of Object.keys(NAME_PATTERNS)) {
+      for (const d of await this.linkedDepartments(unit, await this.linkOf(unit))) out.add(d.id);
+    }
+    return out;
+  }
+
   /** Xodimlar bazasidagi shu yo'nalish xodimlari (faol): bog'langan bo'limda yoki lavozimida yo'nalish nomi bor */
   private async registryStaff(unit: string): Promise<{ pinfl: string; fullName: string; position: string | null }[]> {
     const link = await this.linkOf(unit);
@@ -738,6 +750,22 @@ export class UnitPayrollService {
     else items.push({ pinfl, fullName, position, active: true, addedAt: now, source: 'MANUAL', leftAt: null });
     await this.saveStaff(unit, items);
     await this.audit.log({ userId, action: 'CREATE', entity: 'unit_staff', entityId: `${unit}:${pinfl}`, summary: `${entryUnitLabel(unit)} xodimlari: + ${fullName}` });
+    return this.staff(unit);
+  }
+
+  /**
+   * Qo'lda (yoki vedomostdan) qo'shilgan xodimni ro'yxatdan butunlay o'chirish (xato qo'shilgan bo'lsa).
+   * Xodimlar bazasidan kelganlar o'chirilmaydi — ular uchun «chiqarish» (ishdan ketgan).
+   */
+  @Exclusive('unit-payroll')
+  async removeStaff(unit: string, pinflRaw: string, userId: string) {
+    const pinfl = parsePinfl(pinflRaw);
+    const items = await this.ownStaff(unit);
+    const item = pinfl ? items.find((s) => s.pinfl === pinfl) : undefined;
+    if (!item) throw new NotFoundException("Xodim bo'lim ro'yxatida topilmadi");
+    if (item.source !== 'MANUAL' && item.source !== 'UPLOAD') throw new BadRequestException("Bu xodim Xodimlar bazasidan yoki ko'chish bilan keladi — o'chirib bo'lmaydi, «chiqarish»dan foydalaning");
+    await this.saveStaff(unit, items.filter((s) => s !== item));
+    await this.audit.log({ userId, action: 'DELETE', entity: 'unit_staff', entityId: `${unit}:${item.pinfl}`, summary: `${entryUnitLabel(unit)} xodimlari: o'chirildi — ${item.fullName}` });
     return this.staff(unit);
   }
 

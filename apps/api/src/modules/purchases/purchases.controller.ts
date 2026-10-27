@@ -59,6 +59,12 @@ export class PurchasesController {
     return { data: await this.purchases.updateSupplier(id, body, userId) };
   }
 
+  @Roles(UserRole.ADMIN, UserRole.XARIDCHI)
+  @Delete('suppliers/:id')
+  async removeSupplier(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.purchases.removeSupplier(id, userId) };
+  }
+
   // ── Arizalar ──
   @Get('requests')
   async requests(@Query('status') status?: string) {
@@ -78,6 +84,12 @@ export class PurchasesController {
     const allowed = ['NEW', 'IN_PROGRESS', 'DONE', 'REJECTED'];
     const status = allowed.includes(String(body?.status)) ? (body!.status as 'NEW' | 'IN_PROGRESS' | 'DONE' | 'REJECTED') : 'NEW';
     return { data: await this.purchases.setRequestStatus(id, status, body?.reason, userId) };
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.XARIDCHI)
+  @Delete('requests/:id')
+  async removeRequest(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.purchases.removeRequest(id, userId) };
   }
 
   // ── Xaridlar ──

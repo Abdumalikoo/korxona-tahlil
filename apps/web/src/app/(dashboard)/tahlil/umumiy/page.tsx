@@ -1,11 +1,9 @@
 'use client';
 
-import { SubTabs } from '@/components/ui/tabs';
+import { PillTabs } from '@/components/report/report';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { usePeriod } from '@/lib/period';
-import { BriefOverview } from '@/features/brief/brief-overview';
-import { BriefNote, useBrief } from '@/lib/view-mode';
 
 import { ANALYSIS_TABS, tabQuestion, type AnalysisTab } from './_components/analysis-nav';
 import { DynamicsTab } from './_components/dynamics-tab';
@@ -23,8 +21,8 @@ const VALID_TABS = ANALYSIS_TABS.map((item) => item.key);
 /**
  * Umumiy tahlil.
  *
- * Tepada tahlil bo'limlari doim ko'rinib turadi (Umumiy holat, Dinamika, Samaradorlik…) —
- * bittasidan ikkinchisiga to'g'ridan-to'g'ri o'tiladi, "orqaga qaytish" kerak emas.
+ * Tepada tahlil bo'limlari doim ko'rinib turadi (Natija jadvali, Umumiy holat, Dinamika…) —
+ * bittasidan ikkinchisiga to'g'ridan-to'g'ri o'tiladi. Har bo'lim — kartalar va jadvallar, grafiklarsiz.
  * Tanlangan bo'lim va sana oralig'i manzilga yoziladi — havolani ulashsa, o'sha holat ochiladi.
  */
 export default function GeneralAnalysisPage() {
@@ -35,15 +33,11 @@ export default function GeneralAnalysisPage() {
   /** Davr — yuqori paneldagi «Davr» tugmasidan (u manzilga ham yozadi) */
   const { range } = usePeriod();
 
-  /** Qisqa (rahbar) rejimi: faqat «Umumiy holat», boshqa yorliqlar yashiriladi */
-  const brief = useBrief();
-
   const [tab, setTab] = useState<AnalysisTab>(() => {
     const value = searchParams.get('tab') as AnalysisTab | null;
     return value && VALID_TABS.includes(value) ? value : 'result';
   });
 
-  /** Holatni manzilga yozamiz — sahifa yangilansa ham saqlanadi */
   /** Tanlangan yorliq manzilga yoziladi — sahifa yangilansa ham saqlanadi */
   function openTab(next: AnalysisTab) {
     setTab(next);
@@ -53,48 +47,33 @@ export default function GeneralAnalysisPage() {
   }
 
   return (
-    <div className="space-y-5 p-4 md:p-6">
-      {/* Tahlil bo'limlari (davr — yuqori panelda) */}
-      <div className="rounded-(--radius-card) bg-white p-2 shadow-card">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {brief ? (
-            <p className="px-2 text-sm font-semibold text-heading">Umumiy holat</p>
-          ) : (
-            <SubTabs
-              value={tab}
-              onChange={openTab}
-              options={ANALYSIS_TABS.map((t) => ({ value: t.key, label: t.label, hint: t.question }))}
-            />
-          )}
-        </div>
+    <div className="space-y-4 p-4 md:p-6">
+      <div className="rounded-2xl bg-white p-3 shadow-card">
+        <PillTabs value={tab} onChange={openTab} options={ANALYSIS_TABS.map((t) => ({ value: t.key, label: t.label, hint: t.question }))} />
+        <p className="mt-2.5 px-1 text-sm text-(--color-text-muted)">
+          <span className="font-semibold text-heading">Savol: </span>
+          {tabQuestion(tab)}
+        </p>
       </div>
 
-      <BriefNote shows="Daromad, xarajat, foyda; foyda nima uchun o'zgardi (5 ta asosiy modda) va eng jiddiy 3 ta holat" hidden="oylik grafik, dinamika, samaradorlik, tarkib, daromad va xarajat tahlili yorliqlari, oldingi davr jadvali" />
-
-      <p className="text-sm text-(--color-text-muted)">
-        <span className="font-semibold text-heading">Savol: </span>
-        {tabQuestion(brief ? 'overview' : tab)}
-      </p>
-
-      {brief && <BriefOverview range={range} />}
-      {!brief && tab === 'result' && <ResultExplorer range={range} />}
-      {!brief && tab === 'overview' && <OverviewTab range={range} />}
-      {!brief && tab === 'dynamics' && <DynamicsTab range={range} />}
-      {!brief && tab === 'efficiency' && <EfficiencyTab range={range} />}
-      {!brief && tab === 'structure' && <StructureOverview range={range} />}
-      {!brief && tab === 'revenue' && (
-        <div className="space-y-6">
+      {tab === 'result' && <ResultExplorer range={range} />}
+      {tab === 'overview' && <OverviewTab range={range} />}
+      {tab === 'dynamics' && <DynamicsTab range={range} />}
+      {tab === 'efficiency' && <EfficiencyTab range={range} />}
+      {tab === 'structure' && <StructureOverview range={range} />}
+      {tab === 'revenue' && (
+        <div className="space-y-4">
           <StructureExplorer kind="income" range={range} />
           <RevenueTab range={range} />
         </div>
       )}
-      {!brief && tab === 'expenses' && (
-        <div className="space-y-6">
+      {tab === 'expenses' && (
+        <div className="space-y-4">
           <StructureExplorer kind="expense" range={range} />
           <ExpensesTab range={range} />
         </div>
       )}
-      {!brief && tab === 'insights' && <InsightsTab range={range} />}
+      {tab === 'insights' && <InsightsTab range={range} />}
     </div>
   );
 }

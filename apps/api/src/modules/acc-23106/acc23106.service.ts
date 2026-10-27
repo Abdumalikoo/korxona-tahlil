@@ -12,6 +12,8 @@ import { Acc23106SafarService } from './acc23106.safar.service';
 import { PayrollFactsService } from '../payroll-facts/payroll-facts.service';
 import { accrualMonth, KIND_LABELS, kindComponents, nameKey, purposeKind, purposeMonth, purposeName, purposeOrder, type PayoutKind } from './acc23106.purpose';
 import { readStore, STORE_KEY, type ControlState, type MatchBy, type PayoutRow, type Store } from './acc23106.store';
+import { purposeBody, smartKind } from './acc23106.smart';
+import { classify, KINDS, MAX_OVERRIDES, MAX_RULES, normMatch, payoutKey, readRules, RULES_KEY, sortedRules, type RulesStore } from './acc23106.rules';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › 23106 — xodimlarga to'lovlar hisob raqami (bayram puli, mukofot, xizmat safari …) ko'chirmasi.
@@ -50,6 +52,35 @@ export class Acc23106Service {
 
   private async store(): Promise<Store> {
     return readStore((await this.prisma.setting.findUnique({ where: { key: KEY } }))?.value ?? null);
+  }
+
+  private async rulesStore(): Promise<RulesStore> {
+    return readRules((await this.prisma.setting.findUnique({ where: { key: RULES_KEY } }))?.value ?? null);
+  }
+
+  /**
+   * Qatorlarga tur: qo'lda > qoida > dastur. Har qatorga aqlli tahlil xulosasi ham qo'shiladi:
+   * confidence (HIGH / LOW «tekshirish kerak» / NONE), alt — ikkinchi ehtimol, hits — topilgan so'zlar,
+   * smartKind — aqlli tahlil hozir nima deydi (saqlangan eski tur bilan farq qilsa — «Qayta tahlil» taklif qiladi).
+   */
+  private withKinds<T extends PayoutRow>(rows: T[], rs: RulesStore) {
+    const sorted = sortedRules(rs);
+    return rows.map((r) => {
+      const c = classify(r, rs, sorted);
+      const sm = smartKind(r.purpose);
+      const same = c.source === 'AUTO' && c.kind === sm.kind;
+      return {
+        ...r,
+        kind: c.kind,
+        kindSource: c.source,
+        ruleId: c.ruleId,
+        key: payoutKey(r),
+        confidence: c.source !== 'AUTO' ? ('HIGH' as const) : same ? sm.confidence : ('LOW' as const),
+        alt: c.source !== 'AUTO' ? null : same ? sm.alt : sm.kind,
+        hits: sm.hits,
+        smartKind: sm.kind,
+      };
+    });
   }
 
   // ═══════════ Shablon ═══════════
@@ -145,6 +176,7 @@ export class Acc23106Service {
       debitTiyin: raw.debitTiyin,
       purpose: cap(raw.purpose, 1000),
       kind: purposeKind(raw.purpose),
+      autoKind: purposeKind(raw.purpose),
       orderDate: order.date,
       orderNo: order.no,
       // Buyruq to'lovdan 13 oydan ko'p oldin bo'lsa (sana xato) — to'lov oyi
@@ -239,10 +271,14 @@ export class Acc23106Service {
     const p = parseBankStatement(wb);
     if (!p.rows.length) throw new BadRequestException(`Faylda to'lov (debet) qatori topilmadi${p.inflowCount ? ` — ${p.inflowCount} ta faqat kirim (kredit) qatori bor` : ''}`);
     const ppl = await this.people([]);
-    const rows: PayoutRow[] = p.rows.map((r) => {
-      const base = this.toRow(r);
-      return { ...base, ...this.resolve(base, ppl) };
-    });
+    const rs = await this.rulesStore();
+    const rows: PayoutRow[] = this.withKinds(
+      p.rows.map((r) => {
+        const base = this.toRow(r);
+        return { ...base, ...this.resolve(base, ppl) };
+      }),
+      rs,
+    );
     const controlled = await this.withControl(rows);
     const saved = (await this.store()).months;
     const months = [...new Set(rows.map((r) => r.docDate.slice(0, 7)))].sort().map((period) => {
@@ -264,6 +300,8 @@ export class Acc23106Service {
       invalid: p.invalid,
       inflow: { count: p.inflowCount, totalTiyin: p.inflowTiyin.toString() },
       summary: this.summary(controlled),
+      // Saqlashda avval saqlangan (boshqa) oylar ham aqlli tahlil bilan yangilanadi — nima o'zgarishi oldindan
+      reanalyze: await this.reanalyzePreview(months.map((m) => m.period)),
     };
   }
 
@@ -277,6 +315,8 @@ export class Acc23106Service {
     if (body.rows.length > MAX_ROWS) throw new BadRequestException(`Qatorlar juda ko'p — ${MAX_ROWS} tagacha`);
     const fileName = typeof body.fileName === 'string' && body.fileName.trim() ? body.fileName.trim().slice(0, 200) : '23106.xlsx';
     const ppl = await this.people([]);
+    const rs = await this.rulesStore();
+    const sorted = sortedRules(rs);
     const byMonth = new Map<string, PayoutRow[]>(months.map((p) => [p, []]));
     for (const raw of body.rows as Record<string, unknown>[]) {
       const docDate = parseDate(raw?.docDate);
@@ -290,7 +330,8 @@ export class Acc23106Service {
       if (debit <= 0n) throw new BadRequestException(`Debet summasi bo'lmagan qator: ${cap(raw?.docNo, 30)}`);
       // Tur, buyruq va xodim serverda qayta aniqlanadi (qoidalar bitta joyda)
       const base = this.toRow({ no: cap(raw.no, 20), docDate, procDate: parseDate(raw.procDate), docNo: cap(raw.docNo, 60), accountName: cap(raw.accountName, 200), inn: cap(raw.inn, 20), mfo: cap(raw.mfo, 10), debitTiyin: debit.toString(), purpose: cap(raw.purpose, 1000) });
-      byMonth.get(docDate.slice(0, 7))?.push({ ...base, ...this.resolve(base, ppl) });
+      const k = classify(base, rs, sorted);
+      byMonth.get(docDate.slice(0, 7))?.push({ ...base, kind: k.kind, ...this.resolve(base, ppl) });
     }
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null);
     const batchId = randomUUID();
@@ -319,6 +360,8 @@ export class Acc23106Service {
     });
     // Almashtirilgan oylardagi xizmat safari tasdiqlari bekor (eski to'lovlar xarajatda qolmasin) — qayta tasdiqlanadi
     const safarDropped = this.safar ? await this.safar.dropMonths(result.replacedMonths, "ko'chirma almashtirildi", userId) : 0;
+    // Yuklash bilan birga — avval saqlangan oylar ham aqlli tahlil bilan yangilanadi (alohida «qayta tahlil» shart emas)
+    const reanalyzed = await this.reanalyzeApply(userId, true);
     await this.audit.log({
       userId,
       action: 'IMPORT',
@@ -326,7 +369,7 @@ export class Acc23106Service {
       entityId: batchId,
       summary: `23106 ko'chirmasi: ${months.map(monthLabel).join(', ')} — ${result.count} ta to'lov, ${(Number(result.total) / 100).toLocaleString('uz-UZ')} so'm${result.replaced ? `, ${result.replaced} oy almashtirildi` : ''}`,
     });
-    return { success: true as const, batchId, months, saved: result.count, replacedMonths: result.replaced, totalTiyin: result.total.toString(), safarDropped };
+    return { success: true as const, batchId, months, saved: result.count, replacedMonths: result.replaced, totalTiyin: result.total.toString(), safarDropped, reanalyzed: { changed: reanalyzed.changed, changedTiyin: reanalyzed.changedTiyin, safarDropped: reanalyzed.safarDropped } };
   }
 
   // ═══════════ Ko'rish, tarix, bekor qilish ═══════════
@@ -337,8 +380,8 @@ export class Acc23106Service {
     const store = await this.store();
     // Xodim nomlari jonli yangilanadi (reestrga keyin qo'shilganlar ham topiladi)
     const ppl = await this.people([]);
-    const rows = months
-      .flatMap((p) => store.months[p]?.rows ?? [])
+    const rs = await this.rulesStore();
+    const rows = this.withKinds(months.flatMap((p) => store.months[p]?.rows ?? []), rs)
       .map((r) => ({ ...r, ...this.resolve(r, ppl) }))
       .sort((a, b) => a.docDate.localeCompare(b.docDate) || a.docNo.localeCompare(b.docNo));
     const controlled = await this.withControl(rows);
@@ -353,6 +396,223 @@ export class Acc23106Service {
 
   async batches() {
     return [...(await this.store()).batches].reverse();
+  }
+
+  // ═══════════ Guruhlash: qoidalar va qo'lda belgilash ═══════════
+
+  async rules() {
+    const rs = await this.rulesStore();
+    // Qoida qancha saqlangan to'lovga tushadi (hamma oylar)
+    const store = await this.store();
+    const all = Object.values(store.months).flatMap((m) => m.rows);
+    const kinds = this.withKinds(all, rs);
+    const hits = new Map<string, { count: number; total: bigint }>();
+    for (const r of kinds) {
+      if (!r.ruleId) continue;
+      const h = hits.get(r.ruleId) ?? { count: 0, total: 0n };
+      h.count += 1;
+      h.total += BigInt(r.debitTiyin);
+      hits.set(r.ruleId, h);
+    }
+    const manual = kinds.filter((r) => r.kindSource === 'MANUAL');
+    return {
+      rules: rs.rules.map((r) => ({ ...r, kindLabel: KIND_LABELS[r.kind], count: hits.get(r.id)?.count ?? 0, totalTiyin: (hits.get(r.id)?.total ?? 0n).toString() })),
+      manual: { count: manual.length, totalTiyin: manual.reduce((s, r) => s + BigInt(r.debitTiyin), 0n).toString(), keys: Object.keys(rs.overrides).length },
+      kinds: KINDS.map((k) => ({ kind: k, label: KIND_LABELS[k] })),
+    };
+  }
+
+  private kindOf(raw: unknown): PayoutKind {
+    const k = String(raw ?? '') as PayoutKind;
+    if (!KINDS.includes(k)) throw new BadRequestException("Guruh noto'g'ri");
+    return k;
+  }
+
+  private async userName(userId: string): Promise<string> {
+    return (await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null))?.fullName ?? '';
+  }
+
+  private async saveRules(mut: (rs: RulesStore) => void) {
+    await runExclusive(`setting:${RULES_KEY}`, async () => {
+      const rs = await this.rulesStore();
+      mut(rs);
+      const value = rs as unknown as object;
+      await this.prisma.setting.upsert({ where: { key: RULES_KEY }, create: { key: RULES_KEY, value }, update: { value } });
+    });
+  }
+
+  /**
+   * Saqlangan ko'chirmadagi turlarni qoidalar bo'yicha yangilash (boshqa sahifalar — uchlik nazorat, solishtirma,
+   * xizmat safari — saqlangan turni o'qiydi). Xizmat safaridan chiqqan to'lovlarning tasdiqlari bekor qilinadi.
+   */
+  private async reclassify(userId: string, reason: string) {
+    const rs = await this.rulesStore();
+    const sorted = sortedRules(rs);
+    const out = await runExclusive(`setting:${KEY}`, async () => {
+      const store = await this.store();
+      let changed = 0;
+      let changedTiyin = 0n;
+      const leftSafar: string[] = [];
+      for (const m of Object.values(store.months)) {
+        m.rows = m.rows.map((r) => {
+          const k = classify(r, rs, sorted).kind;
+          if (k === r.kind) return r;
+          changed += 1;
+          changedTiyin += BigInt(r.debitTiyin);
+          if (r.kind === 'SAFAR') leftSafar.push(payoutKey(r));
+          return { ...r, kind: k };
+        });
+      }
+      if (changed) {
+        const value = store as unknown as object;
+        await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
+      }
+      return { changed, changedTiyin, leftSafar };
+    });
+    const safarDropped = this.safar ? await this.safar.dropKeys(out.leftSafar, reason, userId) : 0;
+    return { changed: out.changed, changedTiyin: out.changedTiyin.toString(), safarDropped };
+  }
+
+  /** Qoida qo'shish: «izohida shu matn bo'lsa — shu guruh» (saqlanganlarga ham, keyingi yuklashlarga ham) */
+  async addRule(body: { text?: unknown; kind?: unknown }, userId: string) {
+    const textIn = typeof body?.text === 'string' ? body.text.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    const norm = normMatch(textIn);
+    if (norm.length < 3) throw new BadRequestException("Qoida matni kamida 3 harf bo'lsin (raqamlar hisobga olinmaydi)");
+    const kind = this.kindOf(body?.kind);
+    const by = await this.userName(userId);
+    let id = '';
+    await this.saveRules((rs) => {
+      const same = rs.rules.find((r) => normMatch(r.text) === norm);
+      if (same) {
+        same.kind = kind;
+        id = same.id;
+        return;
+      }
+      if (rs.rules.length >= MAX_RULES) throw new BadRequestException(`Qoidalar juda ko'p — ${MAX_RULES} tagacha`);
+      id = randomUUID();
+      rs.rules.push({ id, text: textIn, kind, createdAt: new Date().toISOString(), createdBy: by });
+    });
+    const r = await this.reclassify(userId, "to'lov turi qoida bilan o'zgartirildi");
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'acc_23106_rule', entityId: id, summary: `23106 qoida: izohida «${textIn.slice(0, 80)}» → ${KIND_LABELS[kind]} (${r.changed} ta to'lov o'zgardi)` });
+    return { success: true as const, id, ...r };
+  }
+
+  async deleteRule(id: string, userId: string) {
+    let removed: { text: string; kind: PayoutKind } | null = null;
+    await this.saveRules((rs) => {
+      const i = rs.rules.findIndex((r) => r.id === id);
+      if (i < 0) throw new NotFoundException('Qoida topilmadi');
+      removed = rs.rules[i]!;
+      rs.rules.splice(i, 1);
+    });
+    const r = await this.reclassify(userId, "to'lov turi qoidasi o'chirildi");
+    const rm = removed as { text: string; kind: PayoutKind } | null;
+    await this.audit.log({ userId, action: 'DELETE', entity: 'acc_23106_rule', entityId: id, summary: `23106 qoida o'chirildi: «${rm?.text.slice(0, 80) ?? ''}» → ${rm ? KIND_LABELS[rm.kind] : ''} (${r.changed} ta to'lov qaytdi)` });
+    return { success: true as const, ...r };
+  }
+
+  /** Qo'lda: aniq to'lovlar guruhi (kind=null — qo'lda belgini olib tashlash, dastur/qoida aniqlagani qaytadi) */
+  async setOverride(body: { keys?: unknown; kind?: unknown }, userId: string) {
+    if (!Array.isArray(body?.keys) || !body.keys.length) throw new BadRequestException("To'lov tanlanmagan");
+    if (body.keys.length > 5000) throw new BadRequestException("Bir martada 5000 tagacha to'lov");
+    const keys = [...new Set(body.keys.map((k) => String(k).slice(0, 300)))];
+    const kind = body.kind === null || body.kind === '' || body.kind === undefined ? null : this.kindOf(body.kind);
+    const by = await this.userName(userId);
+    await this.saveRules((rs) => {
+      for (const k of keys) {
+        if (kind === null) delete rs.overrides[k];
+        else rs.overrides[k] = { kind, at: new Date().toISOString(), by };
+      }
+      if (Object.keys(rs.overrides).length > MAX_OVERRIDES) throw new BadRequestException(`Qo'lda belgilanganlar juda ko'p — ${MAX_OVERRIDES} tagacha`);
+    });
+    const r = await this.reclassify(userId, "to'lov turi qo'lda o'zgartirildi");
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'acc_23106_rule', entityId: 'manual', summary: `23106: ${keys.length} ta to'lov qo'lda → ${kind ? KIND_LABELS[kind] : 'avtomatik'} (${r.changed} ta o'zgardi)` });
+    return { success: true as const, keys: keys.length, ...r };
+  }
+
+  // ═══════════ Qayta tahlil (aqlli): avval sinov, keyin qo'llash ═══════════
+
+  /** Saqlangan to'lovlarni aqlli tahlil bilan qayta ko'rish — HECH NARSA O'ZGARTIRILMAYDI */
+  async reanalyzePreview(skipMonths: string[] = []) {
+    const skip = new Set(skipMonths);
+    const store = await this.store();
+    const rs = await this.rulesStore();
+    const sorted = sortedRules(rs);
+    const moves = new Map<string, { from: PayoutKind; to: PayoutKind; count: number; total: bigint; samples: { docDate: string; purpose: string; amountTiyin: string; hits: string[] }[] }>();
+    let rows = 0;
+    let changed = 0;
+    let changedTiyin = 0n;
+    let pendingAuto = 0;
+    let leftSafar = 0;
+    const months = new Set<string>();
+    for (const [period, m] of Object.entries(store.months)) {
+      if (skip.has(period)) continue;
+      for (const r of m.rows) {
+        rows += 1;
+        const sm = smartKind(r.purpose);
+        if ((r.autoKind ?? null) !== sm.kind) pendingAuto += 1;
+        const before = classify(r, rs, sorted).kind;
+        const after = classify({ ...r, autoKind: sm.kind }, rs, sorted).kind;
+        if (before === after) continue;
+        changed += 1;
+        changedTiyin += BigInt(r.debitTiyin);
+        months.add(period);
+        if (before === 'SAFAR') leftSafar += 1;
+        const k = `${before}>${after}`;
+        const g = moves.get(k) ?? { from: before, to: after, count: 0, total: 0n, samples: [] };
+        g.count += 1;
+        g.total += BigInt(r.debitTiyin);
+        // Namuna: izohning ismsiz qismi (shaxsiy ma'lumot ko'rsatilmaydi)
+        if (g.samples.length < 8) g.samples.push({ docDate: r.docDate, purpose: purposeBody(r.purpose).replace(/\s+/g, ' ').trim().slice(0, 300), amountTiyin: r.debitTiyin, hits: sm.hits });
+        moves.set(k, g);
+      }
+    }
+    return {
+      rows,
+      changed,
+      changedTiyin: changedTiyin.toString(),
+      pendingAuto,
+      leftSafar,
+      months: [...months].sort(),
+      moves: [...moves.values()]
+        .sort((a, b) => (b.total > a.total ? 1 : b.total < a.total ? -1 : 0))
+        .map((g) => ({ from: g.from, fromLabel: KIND_LABELS[g.from], to: g.to, toLabel: KIND_LABELS[g.to], count: g.count, totalTiyin: g.total.toString(), samples: g.samples })),
+    };
+  }
+
+  /** Qo'llash: saqlangan har to'lovga aqlli tahlil natijasi yoziladi (qo'lda belgilangan va qoidalar ustun qoladi) */
+  async reanalyzeApply(userId: string, quiet = false) {
+    const rs = await this.rulesStore();
+    const sorted = sortedRules(rs);
+    const out = await runExclusive(`setting:${KEY}`, async () => {
+      const store = await this.store();
+      let changed = 0;
+      let changedTiyin = 0n;
+      let touched = 0;
+      const leftSafar: string[] = [];
+      for (const m of Object.values(store.months)) {
+        m.rows = m.rows.map((r) => {
+          const auto = smartKind(r.purpose).kind;
+          const next = { ...r, autoKind: auto };
+          const k = classify(next, rs, sorted).kind;
+          if (r.autoKind !== auto) touched += 1;
+          if (k !== r.kind) {
+            changed += 1;
+            changedTiyin += BigInt(r.debitTiyin);
+            if (r.kind === 'SAFAR') leftSafar.push(payoutKey(r));
+          }
+          return { ...next, kind: k };
+        });
+      }
+      if (touched || changed) {
+        const value = store as unknown as object;
+        await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
+      }
+      return { changed, changedTiyin, leftSafar };
+    });
+    const safarDropped = this.safar ? await this.safar.dropKeys(out.leftSafar, 'aqlli qayta tahlil — endi xizmat safari emas', userId) : 0;
+    if (!quiet || out.changed) await this.audit.log({ userId, action: 'UPDATE', entity: 'acc_23106', entityId: 'reanalyze', summary: `23106 aqlli qayta tahlil qo'llandi: ${out.changed} ta to'lov guruhi o'zgardi (${(Number(out.changedTiyin) / 100).toLocaleString('uz-UZ')} so'm)${safarDropped ? `, ${safarDropped} ta xizmat safari xarajati bekor` : ''}` });
+    return { success: true as const, changed: out.changed, changedTiyin: out.changedTiyin.toString(), safarDropped };
   }
 
   async cancel(id: string, userId: string) {

@@ -39,6 +39,14 @@ export interface TaxMonth {
   months: string[];
   trend: Record<string, string[]>;
   hasPayroll: boolean;
+  /** Ish haqi bilan bog'liq soliqlar: ijtimoiy (xarajat) va daromad solig'i (ish haqidan ushlanadi — ma'lumot uchun) */
+  payrollTaxes?: {
+    socialName: string;
+    socialPct: number | null;
+    incomeTaxPct: number;
+    rows: { key: string; name: string; fundTiyin: string; socialTiyin: string; incomeTaxTiyin: string }[];
+    totals: { fundTiyin: string; socialTiyin: string; incomeTaxTiyin: string };
+  };
 }
 
 export interface CellInput {

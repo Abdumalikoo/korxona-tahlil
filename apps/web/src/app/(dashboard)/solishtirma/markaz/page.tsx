@@ -6,7 +6,6 @@ import { Card } from '@/components/ui/card';
 import { LoadingState } from '@/components/ui/states';
 import { RegionsCompare } from '@/features/regions/regions-compare';
 import { usePeriod } from '@/lib/period';
-import { BriefNote } from '@/lib/view-mode';
 import { Suspense } from 'react';
 
 /**
@@ -30,7 +29,6 @@ export default function SolishtirmaMarkazPage() {
         >
           <RegionsCompare range={range} center />
         </Suspense>
-        <BriefNote className="mt-4" shows="Markaz daromadi, o'z xarajati, hududlar uchun to'langan, sof natija va bo'limlar jadvali" hidden="daromad manbalari, xarajat tarkibi, 12 oylik grafik, hududlar uchun — kimga" />
       </div>
     </>
   );

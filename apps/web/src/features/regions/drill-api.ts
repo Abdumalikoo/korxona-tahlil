@@ -211,6 +211,10 @@ export interface DepartmentDetailResult extends DrillBase {
   expenseParts: MoneyPart[];
   incomeParts: MoneyPart[];
   employees: CenterEmployeeRow[];
+  /** Bo'lim ish haqi xarajati (joriy davr) */
+  payrollTiyin?: string;
+  /** Xodimlar ro'yxatidagi ish haqi jami */
+  listedPayrollTiyin?: string;
   notes: string[];
 }
 

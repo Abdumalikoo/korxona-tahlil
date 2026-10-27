@@ -9,12 +9,15 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
+import type { Response } from 'express';
 import { CurrentUser, Roles } from '../../common/decorators';
+import { VehicleQuarterlyService } from './vehicles.quarterly';
 import { VehiclesDemo } from './vehicles.demo';
 import { VehicleFuelImportService, type FuelCommitInput } from './vehicles.fuel-import';
 import { VehiclesService } from './vehicles.service';
@@ -30,7 +33,47 @@ export class VehiclesController {
     private readonly vehicles: VehiclesService,
     private readonly demo: VehiclesDemo,
     private readonly fuelImport: VehicleFuelImportService,
+    private readonly quarterly: VehicleQuarterlyService,
   ) {}
+
+  // ═══════════ Choraklik hisobot (24-ilova): jihozlash → ta'mirlash, qolgani — statistika ═══════════
+
+  @Get('quarterly')
+  async quarterlyList() {
+    return { data: await this.quarterly.list() };
+  }
+
+  /** Bo'sh shablon (mashinalar ro'yxati bilan) */
+  @Get('quarterly/template')
+  async quarterlyTemplate(@Query('year') year: string | undefined, @Query('quarter') quarter: string | undefined, @Res() response: Response) {
+    const { buffer, filename } = await this.quarterly.template(year, quarter);
+    response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    response.send(buffer);
+  }
+
+  /** Faylni o'qish — hech narsa yozilmaydi */
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('quarterly/analyze')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  async quarterlyAnalyze(@UploadedFile() file: Express.Multer.File, @Query('scale') scale?: string) {
+    return { data: await this.quarterly.analyze(file, scale) };
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('quarterly/commit')
+  @HttpCode(HttpStatus.OK)
+  async quarterlyCommit(@Body() body: Record<string, unknown>, @CurrentUser('id') userId: string) {
+    return { data: await this.quarterly.commit(body ?? {}, userId) };
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Delete('quarterly/:key')
+  @HttpCode(HttpStatus.OK)
+  async quarterlyRemove(@Param('key') key: string, @CurrentUser('id') userId: string) {
+    return { data: await this.quarterly.remove(key, userId) };
+  }
 
   // ═══════════ Yoqilg'i hisoboti (AZS «ОТЧЕТ ПО ПРОДАЖАМ») ═══════════
 
@@ -52,6 +95,22 @@ export class VehiclesController {
   }
 
   // ═══════════ Ma'lumotnomalar va tahlil ═══════════
+
+  // ═══════════ Bo'limlarga biriktirish ═══════════
+
+  /** Mashinalar, joyi va davrdagi xarajati (oylar bilan) */
+  @Get('places')
+  async places(@Query('from') from?: string, @Query('to') to?: string) {
+    return { data: await this.vehicles.places(from, to) };
+  }
+
+  /** Mashina(lar)ni Markaz bo'limi / hudud / yo'nalishga biriktirish — xarajatlari ko'chadi, keyingilari avtomatik */
+  @Roles(UserRole.ADMIN, UserRole.SKLADCHI)
+  @Post('places')
+  @HttpCode(HttpStatus.OK)
+  async setPlaces(@Body() body: { items?: unknown; fromPeriod?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.vehicles.setPlaces(body ?? {}, userId) };
+  }
 
   /** Hududlar, bo'limlar, yoqilg'i va xarajat turlari */
   @Get('lookups')

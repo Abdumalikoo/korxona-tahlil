@@ -46,6 +46,11 @@ export interface NavPage {
   description?: string;
   /** Yorliqlar qatorida ko'rinmaydi (faqat qidiruvda) */
   hidden?: boolean;
+  /**
+   * Ichma-ich guruh: bir xil guruhdagi sahifalar yorliqlar qatorida BITTA yorliq bo'lib turadi
+   * (masalan, «Ish haqi xarajatlari»), bosilganda — ikkinchi qatorda ichidagi sahifalar.
+   */
+  group?: string;
 }
 
 export interface NavItem extends NavPage {
@@ -93,6 +98,7 @@ export const MENU: NavItem[] = [
       { label: 'Boshqa', href: '/daromadlar/boshqa', description: 'Bir martalik daromadlar' },
       { label: 'Markaz tushumi', href: '/daromadlar/markaz', description: "Kunlik tushum va qoldiq fayli — Markaz oylik daromadi" },
       { label: 'Hududlar tushumi', href: '/daromadlar/hududlar', description: 'Hududlardan Excel orqali kelgan tushum' },
+      { label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', description: "Qo'mita ajratgan pullar (daromad) va ular qoplaydigan bo'lim xarajatlari: Oklad, ustama, boshqa moddalar — qoldiq / kamomad" },
       { label: 'Natijalar', href: '/daromadlar/natijalar', description: 'Oylik natijalar' },
       { label: 'Bank ko‘chirmasi', href: '/daromadlar/bank-kochirma', description: "Bankka tushgan kirimlar: o'xshashlar oyma-oy va o'sib boruvchi (daromadga faqat tanlab yo'naltiriladi)" },
       { label: 'Schyot-fakturalar', href: '/daromadlar/fakturalar', description: "Biz yozgan (chiquvchi) schyot-fakturalar: mijoz va xizmat bo'yicha oyma-oy nazorat" },
@@ -112,16 +118,24 @@ export const MENU: NavItem[] = [
       { label: 'Umumiy', href: '/xarajatlar', description: 'Doimiy, Boshqa va qismlar bir qarashda' },
       { label: 'Doimiy', href: '/xarajatlar/doimiy', description: "Muntazam xarajatlar ro'yxati" },
       { label: 'Boshqa', href: '/xarajatlar/boshqa', description: 'Bir martalik xarajatlar' },
-      { label: 'Ish haqi', href: '/xarajatlar/ish-haqi', description: 'Ish haqi vedomostlari' },
-      { label: 'Soliq hisoboti', href: '/xarajatlar/soliq-hisoboti', description: "JShDS hisob-kitobi (4 va 5-ilova) to'g'ridan-to'g'ri: shu oy oylik va boshqa daromadlar" },
-      { label: 'Ish haqi tarkibi', href: '/xarajatlar/tarkib', description: "Ish haqi komponentlar bo'yicha" },
-      { label: '23106', href: '/xarajatlar/23106', description: "Xodimlarga to'lovlar ko'chirmasi (bayram puli, mukofot, xizmat safari): xodim, sana, nima uchun — tarkib va soliq hisoboti bilan nazorat" },
+      { label: 'Ish haqi', href: '/xarajatlar/ish-haqi', description: 'Ish haqi vedomostlari', group: 'Ish haqi xarajatlari' },
+      { label: 'Soliq hisoboti', href: '/xarajatlar/soliq-hisoboti', description: "JShDS hisob-kitobi (4 va 5-ilova) to'g'ridan-to'g'ri: shu oy oylik va boshqa daromadlar", group: 'Ish haqi xarajatlari' },
+      { label: 'Ish haqi tarkibi', href: '/xarajatlar/tarkib', description: "Ish haqi komponentlar bo'yicha", group: 'Ish haqi xarajatlari' },
+      { label: '23106', href: '/xarajatlar/23106', description: "Xodimlarga to'lovlar ko'chirmasi (bayram puli, mukofot, xizmat safari): xodim, sana, nima uchun — tarkib va soliq hisoboti bilan nazorat", group: 'Ish haqi xarajatlari' },
       { label: 'Schyot-fakturalar', href: '/xarajatlar/fakturalar', description: "Kiruvchi schyot-fakturalar (Didox reyestri) nazorati: kontragent va xizmat (IKPU) bo'yicha oyma-oy, faqat Подписан va Ожидает, QQS bilan" },
       { label: 'Kontragentlar', href: '/xarajatlar/kontragentlar', description: "Yetkazib beruvchilar: nima beradi, fakturada hisoblangan va bankdan to'langan, farq (qarz), shartnomalar" },
       { label: 'Bank ko‘chirmasi', href: '/xarajatlar/bank-kochirma', description: "Bankdan olingan ko'chirma tahlili: chiqim va kirim, o'xshash to'lovlar oyma-oy va o'sib boruvchi, turlari (xarajat va daromadga yozilmaydi)" },
-      { label: 'Ish haqi solishtirma', href: '/xarajatlar/ish-haqi-solishtirma', description: "FOT − soliq (− kasaba uyushmasi) = 23106: bankdan to'langani hisoblanganiga mosmi — shtat va shartnoma, Markaz va hududlar kesimida" },
+      { label: 'Ish haqi solishtirma', href: '/xarajatlar/ish-haqi-solishtirma', description: "FOT − soliq (− kasaba uyushmasi) = 23106: bankdan to'langani hisoblanganiga mosmi — shtat va shartnoma, Markaz va hududlar kesimida", group: 'Ish haqi xarajatlari' },
       { label: 'Ijara', href: '/xarajatlar/ijara', description: "Ijara shartnomalari va to'lovlar" },
       { label: 'Internet', href: '/xarajatlar/internet', description: "Internet shartnomalari: kimga to'lanadi, qayerga biriktiriladi, oylik to'lovlar" },
+      { label: 'Mashinalar', href: '/xarajatlar/mashinalar', description: "Mashina xarajatlari: benzin, moyka, ta'mir yozish va benzin hisobotini (Excel) yuklash", group: 'Mashina xarajatlari' },
+      { label: 'Mashinalar hisoboti', href: '/xarajatlar/mashinalar/royxat', description: "Mashinalar guruhlar bo'yicha, haydovchilar, oylik sarf va me'yor", group: 'Mashina xarajatlari' },
+      { label: 'Mashinalar · bo‘limlarga', href: '/xarajatlar/mashinalar/bolimlar', description: "Har mashina qaysi bo'limniki (Markaz bo'limi, hudud, Tax free, Marksheyder …), izoh bilan — xarajati o'sha joyga, keyingi yuklashlar ham", group: 'Mashina xarajatlari' },
+      { label: 'Choraklik hisobot', href: '/xarajatlar/mashinalar/chorak', description: "24-ilova: jihozlash xarajati — mashina ta'mirlashi (bo'limiga avtomatik), balans qiymati va masofa — statistika", group: 'Mashina xarajatlari' },
+      { label: 'Mashina yozuvlari', href: '/xarajatlar/mashinalar/tahlil', description: "Mashina yozuvlari: tahrirlash, o'chirish va 12 oylik tahlil", group: 'Mashina xarajatlari' },
+      { label: '3D avtopark', href: '/xarajatlar/mashinalar/avtopark', description: "Hamma mashinalar 3D'da: raqami, oy xarajati, tafsilot", group: 'Mashina xarajatlari' },
+      { label: 'Ombor kirimi', href: '/xarajatlar/ombor-kirim', description: "Omborga kelgan TMZ va asosiy vositalar — xarajatga yoziladi (asosiy vosita — balansga)" },
+      { label: 'Pochta', href: '/xarajatlar/pochta', description: "Pochta korxonalariga to'lovlar" },
       { label: 'Tahlil', href: '/xarajatlar/tahlil', description: 'Xarajat dinamikasi va tarkibi' },
       { label: 'Soliqlar', href: '/xarajatlar/soliqlar', description: "Hamma soliqlar: hudud va Markaz bo'yicha, ish haqidan foizlilar avtomatik" },
       { label: 'Asosiy vositalar', href: '/xarajatlar/asosiy-vositalar', description: "Balansdagi vositalar va oylik sarfi (eskirish)" },
@@ -129,6 +143,7 @@ export const MENU: NavItem[] = [
       { label: 'Yangi xarajat', href: '/xarajatlar/yangi', description: "Xarajat qo'shish", hidden: true },
       // 6 bo'lim — chap menyuda «Xarajatlar» ostida; yorliqlar qatorida emas (qidiruvda bor)
       ...ENTRY_UNITS.map((u) => ({ label: `Xarajatlar · ${u.label}`, href: `/xarajatlar/bolim/${u.slug}`, description: `${u.hint}: xarajatlar va moddalar`, hidden: true })),
+      { label: "Foyda keltirmaydigan bo'limlar", href: '/xarajatlar/bolimlar', description: "Markaz bo'limlari: xarajat moddalari oyma-oy va bo'lim xarajatlar siyosati", hidden: true },
     ],
   },
   { label: 'Xodimlar', href: '/xodimlar', icon: NavUsers, description: "Xodimlar ro'yxati, ko'chishlar, ma'lumotnomalar (10/16/37/51-jadval) va miya — xodim kartasi" },
@@ -168,6 +183,8 @@ export const MENU: NavItem[] = [
       { label: "Ro'yxat va hisobot", href: '/mashinalar/royxat', description: "Mashinalar guruhlar bo'yicha, oylik sarf va me'yor" },
       { label: 'Yozuvlar va tahlil', href: '/mashinalar/tahlil', description: "Oy yozuvlari (tahrirlash, o'chirish) va 12 oylik tahlil" },
       { label: '3D avtopark', href: '/mashinalar/avtopark', description: "Hamma mashinalar 3D'da: raqami, oy xarajati, tafsilot" },
+      { label: "Bo'limlarga biriktirish", href: '/mashinalar/bolimlar', description: "Har mashina qaysi bo'limniki (Markaz bo'limi, hudud, Tax free, Marksheyder …), izoh bilan — xarajati o'sha joyga, keyingi yuklashlar ham" },
+      { label: 'Choraklik hisobot', href: '/mashinalar/chorak', description: "24-ilova: jihozlash xarajati — mashina ta'mirlashi, qolgani — statistika" },
     ],
   },
   // ── Umumiy hudud: rollar (har biri administrator qo'ygan nom bilan) va ularning dashbordlari ──
@@ -446,6 +463,8 @@ export const WORKER_MENUS: Record<string, WorkerNavGroup[]> = {
       order: 2,
       items: [
         { label: 'Mashinalar hisoboti', href: '/mashinalar/royxat', hint: 'Guruhlar, haydovchilar, oylik sarf', icon: NavBars },
+        { label: "Bo'limlarga biriktirish", href: '/mashinalar/bolimlar', hint: "Mashina qaysi bo'limniki — xarajati o'sha yerga", icon: NavSwap },
+        { label: 'Choraklik hisobot', href: '/mashinalar/chorak', hint: "24-ilova: jihozlash → ta'mirlash", icon: NavReport },
         { label: 'Mashina yozuvlari', href: '/mashinalar/tahlil', hint: "Tuzatish, o'chirish, 12 oy", icon: NavCar },
         { label: '3D avtopark', href: '/mashinalar/avtopark', hint: "Hamma mashinalar 3D'da", icon: NavCar },
       ],
@@ -500,8 +519,13 @@ export interface SideChild {
 }
 
 /** Daromadlar / Xarajatlar ichidagi 6 bo'lim: Markaz, Hududlar, Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari */
-const unitChildren = (base: '/daromadlar' | '/xarajatlar'): SideChild[] =>
-  ENTRY_UNITS.map((u) => ({ label: u.label, href: `${base}/bolim/${u.slug}`, match: [`${base}/bolim/${u.slug}`], description: u.hint }));
+const unitChildren = (base: '/daromadlar' | '/xarajatlar'): SideChild[] => [
+  ...ENTRY_UNITS.map((u) => ({ label: u.label, href: `${base}/bolim/${u.slug}`, match: [`${base}/bolim/${u.slug}`], description: u.hint })),
+  // Xarajatlarda — 6 bo'lim tagida: Markazning har bir bo'limi alohida (xarajat moddalari va bo'lim siyosati)
+  ...(base === '/xarajatlar'
+    ? [{ label: "Foyda keltirmaydigan bo'limlar", href: '/xarajatlar/bolimlar', match: ['/xarajatlar/bolimlar'], description: "Markaz bo'limlari: har biriga qilingan xarajatlar moddalar bo'yicha va bo'lim xarajatlar siyosati" }]
+    : [{ label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', match: ['/daromadlar/qomita'], description: "Qo'mita ajratgan pullar va ular qoplaydigan xarajatlar" }]),
+];
 
 export interface SideGroup {
   kind: 'group';

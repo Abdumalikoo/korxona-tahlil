@@ -203,6 +203,67 @@ export class CategoriesService {
     });
   }
 
+  /**
+   * Xarajat moddasini butunlay o'chirish — faqat hech qayerda ishlatilmagan bo'lsa (yozuv, savatdagi yozuv,
+   * ombor buyumi, asosiy vosita, byudjet, tahlil hodisasi) va ichida modda bo'lmasa. Aks holda — arxivlash.
+   */
+  async remove(code: string): Promise<{ success: true; label: string }> {
+    const cat = await this.prisma.category.findUnique({ where: { code } });
+    if (!cat) throw new NotFoundException('Kategoriya topilmadi');
+    const [kids, expenses, items, assets, budgets, events] = await Promise.all([
+      this.prisma.category.count({ where: { parentCode: code } }),
+      this.prisma.expense.count({ where: { categoryCode: code } }),
+      this.prisma.stockItem.count({ where: { categoryCode: code } }),
+      this.prisma.fixedAsset.count({ where: { categoryCode: code } }),
+      this.prisma.expenseBudget.count({ where: { categoryCode: code } }),
+      this.prisma.analysisEvent.count({ where: { categoryCode: code } }),
+    ]);
+    if (kids) throw new BadRequestException(`«${cat.label}» ichida ${kids} ta modda bor — avval ularni o'chiring`);
+    const used = [expenses && `${expenses} ta xarajat yozuvi (savatdagilar bilan)`, items && `${items} ta ombor buyumi`, assets && `${assets} ta asosiy vosita`, budgets && `${budgets} ta byudjet`, events && `${events} ta tahlil hodisasi`].filter(Boolean);
+    if (used.length) throw new BadRequestException(`«${cat.label}» ishlatilgan: ${used.join(', ')} — o'chirib bo'lmaydi, arxivlang`);
+    await this.prisma.category.delete({ where: { code } });
+    // Ota guruhda boshqa modda qolmasa — u yana oddiy modda (barg) bo'ladi
+    if (cat.parentCode && !(await this.prisma.category.count({ where: { parentCode: cat.parentCode } }))) {
+      await this.prisma.category.update({ where: { code: cat.parentCode }, data: { isLeaf: true } });
+    }
+    return { success: true, label: cat.label };
+  }
+
+  /** Daromad xizmat turini arxivlash / qaytarish */
+  async setIncomeActive(code: string, isActive: boolean) {
+    const cat = await this.prisma.incomeCategory.findUnique({ where: { code } });
+    if (!cat) throw new NotFoundException('Xizmat turi topilmadi');
+    return this.prisma.incomeCategory.update({ where: { code }, data: { isActive } });
+  }
+
+  /** Daromad xizmat turlari — har biri nechta yozuvda ishlatilgani bilan */
+  async incomeUsage() {
+    const [cats, incomes, tariffs] = await Promise.all([
+      this.prisma.incomeCategory.findMany({ orderBy: { order: 'asc' } }),
+      this.prisma.income.groupBy({ by: ['categoryCode'], _count: { _all: true } }).catch(() => [] as { categoryCode: string; _count: { _all: number } }[]),
+      this.prisma.serviceTariff.groupBy({ by: ['categoryCode'], _count: { _all: true } }).catch(() => [] as { categoryCode: string; _count: { _all: number } }[]),
+    ]);
+    const inc = new Map(incomes.map((x) => [x.categoryCode, x._count._all]));
+    const tar = new Map(tariffs.map((x) => [x.categoryCode, x._count._all]));
+    return cats.map((c) => ({ code: c.code, label: c.label, isActive: c.isActive, incomes: inc.get(c.code) ?? 0, tariffs: tar.get(c.code) ?? 0 }));
+  }
+
+  /** Daromad xizmat turini o'chirish — faqat daromad yozuvi va tarifi bo'lmasa */
+  async removeIncome(code: string): Promise<{ success: true; label: string }> {
+    const cat = await this.prisma.incomeCategory.findUnique({ where: { code } });
+    if (!cat) throw new NotFoundException('Xizmat turi topilmadi');
+    const [incomes, tariffs, budgets, events] = await Promise.all([
+      this.prisma.income.count({ where: { categoryCode: code } }),
+      this.prisma.serviceTariff.count({ where: { categoryCode: code } }),
+      this.prisma.expenseBudget.count({ where: { categoryCode: code } }),
+      this.prisma.analysisEvent.count({ where: { categoryCode: code } }),
+    ]);
+    const used = [incomes && `${incomes} ta daromad yozuvi (savatdagilar bilan)`, tariffs && `${tariffs} ta tarif`, budgets && `${budgets} ta reja`, events && `${events} ta tahlil hodisasi`].filter(Boolean);
+    if (used.length) throw new BadRequestException(`«${cat.label}» ishlatilgan: ${used.join(', ')} — o'chirib bo'lmaydi, arxivlang`);
+    await this.prisma.incomeCategory.delete({ where: { code } });
+    return { success: true, label: cat.label };
+  }
+
   /** Kategoriyada nechta yozuv borligini korsatadi */
   async getUsage(code: string): Promise<{ expenses: number }> {
     const expenses = await this.prisma.expense.count({

@@ -6,6 +6,8 @@
 // Kirill va lotin yozuvida, katta-kichik harfdan qat'i nazar.
 // ═══════════════════════════════════════════════════════════
 
+import { smartKind } from './acc23106.smart';
+
 export type PayoutKind = 'BAYRAM' | 'MUKOFOT' | 'SAFAR' | 'MODDIY' | 'TATIL' | 'KASALLIK' | 'ISH_HAQI' | 'BOSHQA';
 
 export const KIND_LABELS: Record<PayoutKind, string> = {
@@ -30,8 +32,14 @@ const KIND_RULES: { kind: PayoutKind; re: RegExp }[] = [
   { kind: 'ISH_HAQI', re: /ish\s*haq|иш\s*ҳақ|иш\s*хақ|иш\s*хак|заработн|oylik|ойлик|аванс|avans/i },
 ];
 
-export function purposeKind(text: string): PayoutKind {
+/** Eski (oddiy kalit so'z) usul — aqlli tahlil qo'llanmagan saqlangan to'lovlar uchun (natija o'zgarmasin) */
+export function legacyPurposeKind(text: string): PayoutKind {
   return KIND_RULES.find((r) => r.re.test(text))?.kind ?? 'BOSHQA';
+}
+
+/** To'lov turi — aqlli tahlil (acc23106.smart.ts): har xil yozilish, xatolar, ruscha / o'zbekcha */
+export function purposeKind(text: string): PayoutKind {
+  return smartKind(text).kind;
 }
 
 /** Buyruq: «13.01.2026 даги 00003-son», «07.01.2026 йилдаги 00001-xs-son», «29.12.2025 даги 358-if-sonli» */
@@ -65,11 +73,14 @@ export function purposeName(text: string): string | null {
 
 const TR: Record<string, string> = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'j', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'x', ц: 's', ч: 'ch', ш: 'sh', щ: 'sh', ъ: '', ы: 'i', ь: '', э: 'e', ю: 'yu', я: 'ya', ў: 'o', қ: 'q', ғ: 'g', ҳ: 'h' };
 
+/** Kirill → lotin (kichik harf) */
+export function toLatin(text: string): string {
+  return text.toLowerCase().replace(/[а-яёўқғҳ]/g, (ch) => TR[ch] ?? ch);
+}
+
 /** Ismni solishtirish kaliti: lotin, kichik harf, tutuq belgisiz; familiya va ism (birinchi ikki so'z) */
 export function nameKey(full: string): string {
-  const latin = full
-    .toLowerCase()
-    .replace(/[а-яёўқғҳ]/g, (ch) => TR[ch] ?? ch)
+  const latin = toLatin(full)
     .replace(/[‘’ʻʼ`'.]/g, '')
     .replace(/[^a-z\s-]/g, ' ')
     .replace(/\s+/g, ' ')

@@ -50,6 +50,21 @@ export function RequestsPage() {
     }
   }
 
+  /** Arizani o'chirish — faqat unga xarid bog'lanmagan bo'lsa */
+  async function remove(r: PurchaseRequest) {
+    if (!window.confirm(`Ariza ${r.number} («${r.title}») butunlay o'chirilsinmi?`)) return;
+    setBusy(r.id);
+    try {
+      await purchasesApi.removeRequest(r.id);
+      setToast({ text: "Ariza o'chirildi", tone: 'success' });
+      list.reload();
+    } catch (e) {
+      setToast({ text: errorMessage(e, 'Bo‘lmadi'), tone: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -104,6 +119,13 @@ export function RequestsPage() {
                       {r.status === 'NEW' && <Button size="sm" variant="secondary" loading={busy === r.id} onClick={() => void setStatus(r, 'IN_PROGRESS')}>Ishga olish</Button>}
                       <Button size="sm" variant="secondary" loading={busy === r.id} onClick={() => void setStatus(r, 'DONE')}>Bajarildi</Button>
                       <Button size="sm" variant="ghost" onClick={() => { setRejecting(r); setReason(''); }}>Rad etish</Button>
+                    </div>
+                  )}
+                  {writable && r.purchases.length === 0 && (
+                    <div className={cn('flex justify-end', !active && 'mt-3 border-t border-(--color-line) pt-3')}>
+                      <Button size="sm" variant="ghost" className="text-(--color-expense) hover:bg-red-50" loading={busy === r.id} onClick={() => void remove(r)}>
+                        O&apos;chirish
+                      </Button>
                     </div>
                   )}
                 </Card>

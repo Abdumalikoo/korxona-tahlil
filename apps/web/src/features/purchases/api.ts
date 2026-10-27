@@ -162,6 +162,8 @@ export const purchasesApi = {
   lastPrices: (ids: string[]) => api.get<ApiResponse<Record<string, { priceTiyin: string; date: string; supplier: string }>>>(`/purchases/last-prices?ids=${ids.join(',')}`),
   suppliers: () => api.get<ApiResponse<Supplier[]>>('/purchases/suppliers'),
   createSupplier: (input: { name: string; inn?: string | null; phone?: string | null; note?: string | null }) => api.post<ApiResponse<Supplier>>('/purchases/suppliers', input),
+  removeSupplier: (id: string) => api.delete<ApiResponse<{ success: true }>>(`/purchases/suppliers/${id}`),
+  removeRequest: (id: string) => api.delete<ApiResponse<{ success: true }>>(`/purchases/requests/${id}`),
   updateSupplier: (id: string, input: { name?: string; inn?: string | null; phone?: string | null; note?: string | null; isActive?: boolean }) => api.patch<ApiResponse<Supplier>>(`/purchases/suppliers/${id}`, input),
   requests: (status = 'active') => api.get<ApiResponse<PurchaseRequest[]>>(`/purchases/requests?status=${status}`),
   createRequest: (input: { date?: string; departmentId: string | null; requester: string | null; title: string; note: string | null; lines: { name: string; qty: number; unit: string; itemId: string | null }[] }) =>

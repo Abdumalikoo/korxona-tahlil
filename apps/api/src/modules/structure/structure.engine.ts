@@ -167,7 +167,7 @@ export function classify(level: LevelKey, row: Row, kind: StructureKind, lk: Loo
     case 'group': {
       if (row.source === 'PAYROLL') return { key: 'm:PAYROLL', label: 'Ish haqi (reestr)', module: 'PAYROLL' };
       if (row.source === 'LEASE') return { key: 'm:LEASE', label: 'Ijara shartnomalari', module: 'LEASE' };
-      if (row.source === 'VEHICLE') return { key: 'm:VEHICLE', label: 'Mashinalar', module: 'VEHICLE' };
+      if (row.source === 'VEHICLE') return { key: 'm:VEHICLE', label: 'Mashina xarajatlari', module: 'VEHICLE' };
       const parent = lk.categoryParent.get(row.categoryCode) ?? null;
       const code = parent ?? row.categoryCode;
       return { key: `c:${code}`, label: lk.categoryLabel.get(code) ?? code, module: null };
@@ -182,7 +182,7 @@ export function classify(level: LevelKey, row: Row, kind: StructureKind, lk: Loo
       return { key: `k:${row.categoryCode}`, label: lk.categoryLabel.get(row.categoryCode) ?? row.categoryCode, module: null };
 
     case 'place': {
-      if (kind === 'expense' && row.source === 'PAYROLL' && row.regionCode === null && row.departmentId === null) {
+      if (kind === 'expense' && row.source === 'PAYROLL' && row.regionCode === null && row.departmentId === null && !row.categoryCode.startsWith('QMT_')) {
         return { key: 'shartnoma', label: 'Shartnoma asosidagi xodimlar', module: null };
       }
       if (row.departmentId) {

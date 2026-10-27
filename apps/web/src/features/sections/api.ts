@@ -112,6 +112,11 @@ export const SECTION_NAV: Record<SectionKind, KindNav> = {
           { href: '/xarajatlar/kontragentlar', label: 'Kontragentlar' },
           { href: '/xarajatlar/ish-haqi-solishtirma', label: 'Ish haqi solishtirma' },
           { href: '/xarajatlar/ijara', label: 'Ijara' },
+          { href: '/xarajatlar/mashinalar', label: 'Mashinalar' },
+          { href: '/xarajatlar/mashinalar/royxat', label: 'Mashinalar hisoboti' },
+          { href: '/xarajatlar/mashinalar/bolimlar', label: 'Mashinalar · bo‘limlarga' },
+          { href: '/xarajatlar/ombor-kirim', label: 'Ombor kirimi' },
+          { href: '/xarajatlar/pochta', label: 'Pochta' },
         ],
       },
       BOSHQA: {
@@ -122,7 +127,7 @@ export const SECTION_NAV: Record<SectionKind, KindNav> = {
     parts: {
       PAYROLL: '/xarajatlar/ish-haqi',
       LEASE: '/xarajatlar/ijara',
-      VEHICLE: '/dashbord/mashinalar',
+      VEHICLE: '/xarajatlar/mashinalar',
       WAREHOUSE: '/dashbord/ombor',
       ASSET: '/xarajatlar/asosiy-vositalar',
       TAX: '/xarajatlar/soliqlar',

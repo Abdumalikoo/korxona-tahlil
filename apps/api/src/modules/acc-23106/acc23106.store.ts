@@ -28,6 +28,13 @@ export interface PayoutRow {
   pinfl: string | null;
   fullName: string | null;
   matchBy: MatchBy;
+  /** Dastur (aqlli tahlil) aniqlagan tur — saqlangan; yo'q bo'lsa (eski yozuv) — eski usul bilan */
+  autoKind?: PayoutKind;
+  /** Tur qayerdan: dastur (kalit so'z), qoida yoki qo'lda (har ko'rishda qayta hisoblanadi) */
+  kindSource?: 'AUTO' | 'RULE' | 'MANUAL';
+  ruleId?: string | null;
+  /** To'lov kaliti (qo'lda belgilash uchun) */
+  key?: string;
 }
 
 export interface MonthState {

@@ -160,8 +160,8 @@ export class Acc23106SafarService {
     return unit;
   }
 
-  /** Saqlangan ko'chirmadagi xizmat safari to'lovlari: xodim va dastur aniqlagan joy */
-  private async collect(periods: string[]) {
+  /** Saqlangan ko'chirmadagi xizmat safari to'lovlari (all=true — hamma turlar): xodim va dastur aniqlagan joy */
+  private async collect(periods: string[], all = false) {
     const months = await this.months();
     const ppl = await this.people();
     const lk = await this.lookups();
@@ -170,7 +170,7 @@ export class Acc23106SafarService {
       const rows = months[p]?.rows ?? [];
       const keys = rowKeys(rows);
       rows.forEach((r, i) => {
-        if (r.kind !== 'SAFAR') return;
+        if (!all && r.kind !== 'SAFAR') return;
         // Xodim jonli aniqlanadi (reestrga keyin qo'shilganlar ham topiladi)
         const d = r.inn.replace(/\D/g, '');
         let pinfl: string | null = /^\d{14}$/.test(d) && ppl.byPin.has(d) ? d : null;
@@ -214,6 +214,37 @@ export class Acc23106SafarService {
     const opts = list.filter((c) => c.code === SAFAR_CATEGORY.code || SAFAR_LABEL_RE.test(c.label)).map((c) => ({ code: c.code, label: c.label }));
     const exists = opts.some((c) => c.code === SAFAR_CATEGORY.code);
     return { options: exists ? opts : [{ ...SAFAR_CATEGORY, label: `${SAFAR_CATEGORY.label} — yangi modda yaratiladi` }, ...opts], defaultCode: SAFAR_CATEGORY.code };
+  }
+
+  // ═══════════ Hamma to'lovlar — qaysi bo'lim / hududga tegishli ═══════════
+
+  /**
+   * 23106 tahlili uchun: har saqlangan to'lov (har qanday tur) — xodim va uning to'langan oydagi joyi
+   * (Markaz › bo'lim, Hududlar › viloyat › tuman, yo'nalish). Xizmat safari uchun — xarajatga o'tganmi.
+   * Hech narsa o'zgartirilmaydi.
+   */
+  async places(from: string, to: string) {
+    if (!PERIOD_RE.test(from ?? '') || !PERIOD_RE.test(to ?? '')) throw new BadRequestException("Oy noto'g'ri (YYYY-MM)");
+    const periods = monthsBetween(from, to);
+    const [rows, store] = await Promise.all([this.collect(periods, true), this.safar()]);
+    const posted = new Map<string, SafarPlace>();
+    for (const p of store.posts) if (p.status === 'POSTED') for (const it of p.items) posted.set(`${it.period}|${it.key}`, it.place);
+    return rows.map((x) => {
+      const pp = x.r.kind === 'SAFAR' ? posted.get(`${x.period}|${x.key}`) : undefined;
+      return {
+        /** To'lov kaliti (23106 ko'rishdagi key bilan bir xil — takror qatorlar #n siz) */
+        key: x.key.replace(/#\d+$/, ''),
+        /** Xizmat safarini tasdiqlash uchun aniq kalit */
+        safarKey: x.key,
+        period: x.period,
+        pinfl: x.pinfl,
+        fullName: x.fullName,
+        place: pp ?? x.place,
+        issue: pp ? null : x.issue,
+        issueText: pp || !x.issue ? null : ISSUE_TEXT[x.issue],
+        posted: x.r.kind === 'SAFAR' ? Boolean(pp) : null,
+      };
+    });
   }
 
   // ═══════════ Ko'rish ═══════════
@@ -440,6 +471,17 @@ export class Acc23106SafarService {
   }
 
   /** Ko'chirma oylari almashtirilsa yoki bekor qilinsa — o'sha oylardagi tasdiqlar ham bekor (eski to'lovlar xarajatda qolmasin) */
+  /** Turi o'zgargan (endi xizmat safari emas) to'lovlar tasdiqlari bekor — faqat shu to'lovlar kirgan tasdiqlar */
+  async dropKeys(keys: string[], reason: string, userId: string): Promise<number> {
+    if (!keys.length) return 0;
+    const set = new Set(keys);
+    const out = await this.drop((p) => p.items.some((i) => set.has(i.key.replace(/#\d+$/, ''))), reason);
+    if (out.posts.length) {
+      await this.audit.log({ userId, action: 'DELETE', entity: 'acc_23106_safar', entityId: out.posts.map((p) => p.id).join(',').slice(0, 190), summary: `23106 xizmat safari tasdiqlari bekor qilindi (${reason}) — ${out.expenses} ta xarajat yozuvi o'chirildi` });
+    }
+    return out.expenses;
+  }
+
   async dropMonths(months: string[], reason: string, userId: string): Promise<number> {
     if (!months.length) return 0;
     const set = new Set(months);

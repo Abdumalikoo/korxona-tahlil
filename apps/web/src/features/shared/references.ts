@@ -51,4 +51,13 @@ export const categoriesApi = {
 
   usage: (code: string) =>
     api.get<ApiResponse<{ expenses: number }>>(`/categories/${code}/usage`),
+
+  /** Xarajat moddasini butunlay o'chirish (faqat ishlatilmagan bo'lsa) */
+  remove: (code: string) => api.delete<ApiResponse<{ success: true; label: string }>>(`/categories/${encodeURIComponent(code)}`),
+
+  /** Daromad xizmat turlari (arxivdagilari bilan) va ishlatilishi */
+  incomeUsage: () =>
+    api.get<ApiResponse<{ code: string; label: string; isActive: boolean; incomes: number; tariffs: number }[]>>("/categories/income/usage"),
+  incomeActive: (code: string, isActive: boolean) => api.patch<ApiResponse<IncomeCategory>>(`/categories/income/${encodeURIComponent(code)}/active`, { isActive }),
+  removeIncome: (code: string) => api.delete<ApiResponse<{ success: true; label: string }>>(`/categories/income/${encodeURIComponent(code)}`),
 };

@@ -1,15 +1,17 @@
 'use client';
 
-import { IconChevronRight, IconSearch } from '@/components/ui/icons';
+import { changeOf, DiffCell, ExcelButton, GroupTh, ReportCard, RTable, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { LinkMoneyCell, STICKY_LEFT, TreeNameCell } from '@/components/report/report-extra-a';
 import { cn } from '@/lib/utils';
 import { useMemo, useState, type ReactNode } from 'react';
 import { change, csvSom, downloadCsv, goodUp, pct, pctSigned, share, short, som, type Filter, type Kind, type Vals, type Which, type XNode } from './api';
 import { useDrill } from './drill';
 
 // ═══════════════════════════════════════════════════════════
-// Ichiga kirib boriladigan jadval.
-//  Nomi | Joriy | Ulushi | O'tgan davr | O'zgarish | O'tgan yil | O'zgarish | Soni (+ qo'shimcha ustunlar)
-//  • nom yonidagi ▸ — ichini ochadi; ichi yo'q qator nomi — yozuvlarni ochadi;
+// Ichiga kirib boriladigan jadval (yagona hisobot uslubida).
+//  Nomi | Joriy davr | Ulushi | O'TGAN DAVR: summa, farqi | O'TGAN YIL: summa, farqi | Soni (+ qo'shimcha ustunlar)
+//  • tepada — Jami qatori (och ko'k);
+//  • nom yonidagi › — ichini ochadi; ichi yo'q qator nomi — yozuvlarni ochadi;
 //  • har bir summa bosilsa — aynan o'sha summani tashkil qilgan yozuvlar (o'tgan davr / yil ham).
 // ═══════════════════════════════════════════════════════════
 
@@ -45,6 +47,8 @@ interface Props {
 }
 
 const sumVals = (list: XNode[]): Vals => list.reduce((a, n) => ({ cur: a.cur + n.cur, prev: a.prev + n.prev, ly: a.ly + n.ly, count: a.count + n.count }), { cur: 0, prev: 0, ly: 0, count: 0 });
+
+const SMALL_BTN = 'inline-flex h-10 items-center rounded-lg border border-(--color-line-strong) bg-white px-3 text-sm font-medium text-heading hover:bg-brand-50';
 
 export function DrillTable({ nodes, title, description, nameHeader = 'Nomi', root, openDepth = 0, extra = [], total, csv, note, limit, hideLy, actions }: Props) {
   const { open: drill } = useDrill();
@@ -104,6 +108,12 @@ export function DrillTable({ nodes, title, description, nameHeader = 'Nomi', roo
     downloadCsv(csv ?? root, rows);
   };
 
+  // O'tgan davr / o'tgan yil uchun ma'lumot umuman yo'q bo'lsa — bu ustunlar yashiriladi
+  // (aks holda hamma qatorda bir xil bo'sh farq takrorlanib, jadval keraksiz kengayadi)
+  const showPrev = tot.prev !== 0;
+  const showLy = !hideLy && tot.ly !== 0;
+  const missing = [!showPrev && "o'tgan davr", !hideLy && !showLy && "o'tgan yil"].filter(Boolean) as string[];
+
   const shown = term ? nodes.filter(hit) : nodes;
   const cut = limit && !all && !term && shown.length > limit ? shown.slice(0, limit) : shown;
   const up = goodUp(kind);
@@ -118,136 +128,144 @@ export function DrillTable({ nodes, title, description, nameHeader = 'Nomi', roo
       const p = `${ppath}/${n.key}`;
       const has = Boolean(n.children?.length);
       const isOpen = has && (Boolean(term) || expanded.has(p));
-      const c1 = change(n.cur, n.prev);
-      const c2 = change(n.cur, n.ly);
       const sh = share(n.cur, parentCur);
       rows.push(
-        <tr key={p} className={cn('group border-t border-(--color-line)', depth === 0 ? 'bg-white' : depth === 1 ? 'bg-(--color-surface-muted)/40' : 'bg-(--color-surface-muted)/70')}>
-          <td className="py-1.5 pr-2" style={{ paddingLeft: 10 + depth * 20 }}>
-            <div className="flex min-w-0 items-center gap-1.5">
-              {has ? (
-                <button type="button" onClick={() => toggle(p)} aria-expanded={isOpen} aria-label={isOpen ? 'Yopish' : 'Ochish'} className="flex size-6 shrink-0 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50 hover:text-brand-700">
-                  <IconChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
-                </button>
-              ) : (
-                <span className="size-6 shrink-0" />
-              )}
-              <button
-                type="button"
-                onClick={() => (has ? toggle(p) : open(n, path, 'cur'))}
-                title={has ? 'Ichini ochish' : "Yozuvlarni ko'rish"}
-                className={cn('min-w-0 truncate text-left hover:text-brand-700 hover:underline', depth === 0 ? 'font-semibold text-heading' : 'text-heading', n.x?.exact && 'italic text-(--color-text-muted)')}
-              >
-                {n.label}
-              </button>
-              {has && <span className="shrink-0 text-[11px] text-(--color-text-faint)">{n.children!.length}</span>}
-            </div>
-          </td>
-          <Num v={n.cur} strong={depth === 0} onClick={() => open(n, path, 'cur')} />
-          <td className="px-2 py-1.5 text-right">
-            <div className="money text-xs text-(--color-text-muted)">{pct(sh)}</div>
-            <div className="ml-auto mt-0.5 h-1 w-14 overflow-hidden rounded-full bg-(--color-surface-sunken)">
-              <div className="h-full rounded-full bg-brand-500/70" style={{ width: `${Math.max(0, Math.min(100, (sh ?? 0) * 100))}%` }} />
-            </div>
-          </td>
-          <Cmp base={n.prev} c={c1} diff={n.cur - n.prev} up={up} onClick={() => open(n, path, 'prev')} />
-          {!hideLy && <Cmp base={n.ly} c={c2} diff={n.cur - n.ly} up={up} onClick={() => open(n, path, 'ly')} />}
-          <td className="money px-2 py-1.5 text-right text-xs text-(--color-text-muted)">{n.count.toLocaleString('uz')}</td>
+        <Tr key={p} muted={depth > 0} className={cn(depth === 0 && 'font-semibold text-heading')}>
+          <TreeNameCell depth={depth} open={has ? isOpen : undefined} onToggle={has ? () => toggle(p) : undefined} sub={has ? `${n.children!.length} ta ichki qator` : undefined}>
+            <button
+              type="button"
+              onClick={() => (has ? toggle(p) : open(n, path, 'cur'))}
+              title={has ? 'Ichini ochish' : "Yozuvlarni ko'rish"}
+              className={cn('max-w-full truncate text-left hover:text-brand-700 hover:underline', n.x?.exact && 'italic text-(--color-text-muted)')}
+            >
+              {n.label}
+            </button>
+          </TreeNameCell>
+          <LinkMoneyCell value={n.cur} strong={depth === 0} onClick={() => open(n, path, 'cur')} />
+          <Td className="text-xs text-(--color-text-muted)">{pct(sh)}</Td>
+          {showPrev && <LinkMoneyCell value={n.prev} onClick={() => open(n, path, 'prev')} className="font-normal text-(--color-text-muted)" />}
+          {showPrev && <DiffCell value={n.cur - n.prev} growthGood={up} pct={changeOf(n.cur, n.prev)} className="font-semibold" />}
+          {showLy && <LinkMoneyCell value={n.ly} onClick={() => open(n, path, 'ly')} className="font-normal text-(--color-text-muted)" />}
+          {showLy && <DiffCell value={n.cur - n.ly} growthGood={up} pct={changeOf(n.cur, n.ly)} />}
+          <Td className="text-xs font-normal text-(--color-text-muted)">{n.count.toLocaleString('uz')}</Td>
           {extra.map((e) => {
             const v = e.get(n);
-            return <Num key={e.key} v={v} muted={e.tone === 'muted'} tone={e.tone === 'expense' && v > 0 ? 'expense' : undefined} onClick={e.drill && v ? () => open(n, path, 'cur', e.drill!(n), e.label) : undefined} />;
+            return (
+              <LinkMoneyCell
+                key={e.key}
+                value={v}
+                onClick={e.drill && v ? () => open(n, path, 'cur', e.drill!(n), e.label) : undefined}
+                className={cn('font-normal', e.tone === 'muted' && 'text-(--color-text-muted)', e.tone === 'expense' && v > 0 && 'text-(--color-expense)')}
+              />
+            );
           })}
-        </tr>,
+        </Tr>,
       );
       if (isOpen) walk(n.children!, depth + 1, [...path, n.label], p, n.cur);
     }
   };
   walk(cut, 0, [], '', tot.cur);
 
+  const groups = (showPrev ? 1 : 0) + (showLy ? 1 : 0);
+  const cols = 4 + groups * 2 + extra.length;
+  const minWidth = 250 + 110 + 70 + groups * 2 * 112 + 64 + extra.length * 112;
+
   return (
-    <section className="overflow-hidden rounded-(--radius-card) border border-(--color-line) bg-white shadow-card">
-      <header className="flex flex-wrap items-start gap-3 border-b border-(--color-line) px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-heading">{title}</h2>
-          {description && <p className="mt-0.5 text-xs text-(--color-text-muted)">{description}</p>}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <ReportCard
+      title={
+        <span>
+          {title}
+          {description && <span className="mt-0.5 block text-xs font-normal text-(--color-text-muted)">{description}</span>}
+        </span>
+      }
+      actions={
+        <>
           {actions}
-          <label className="relative">
-            <IconSearch className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-(--color-text-faint)" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Qidirish" data-skip-focus className="h-8 w-40 rounded-(--radius-control) border border-(--color-line) pr-2 pl-7 text-sm" />
-          </label>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Qidirish…" data-skip-focus className="h-10 w-44 rounded-lg border border-(--color-line-strong) bg-white px-3 text-sm outline-none placeholder:text-(--color-text-faint) focus:border-brand-500" />
           {anyChildren && (
-            <button type="button" onClick={() => (expanded.size ? setOpened(new Set()) : expandAll())} className="h-8 rounded-(--radius-control) border border-(--color-line) px-2.5 text-xs font-medium text-heading hover:bg-brand-50">
+            <button type="button" onClick={() => (expanded.size ? setOpened(new Set()) : expandAll())} className={SMALL_BTN}>
               {expanded.size ? 'Hammasini yopish' : 'Hammasini ochish'}
             </button>
           )}
-          <button type="button" onClick={exportCsv} className="h-8 rounded-(--radius-control) border border-(--color-line) px-2.5 text-xs font-medium text-heading hover:bg-brand-50">
-            Excel
+          <ExcelButton onClick={exportCsv} label="Excel" />
+        </>
+      }
+    >
+      <RTable minWidth={minWidth}>
+        <thead>
+          <tr>
+            <Th rowSpan={2} className={cn(STICKY_LEFT, 'z-[2] min-w-60 text-left')}>
+              {nameHeader}
+            </Th>
+            <Th rowSpan={2}>Joriy davr</Th>
+            <Th rowSpan={2} title="Yuqori qatordagi summaga nisbatan">
+              Ulushi
+            </Th>
+            {showPrev && <GroupTh span={2}>O&apos;tgan davr</GroupTh>}
+            {showLy && <GroupTh span={2}>O&apos;tgan yil</GroupTh>}
+            <Th rowSpan={2} title="Yozuvlar soni">
+              Soni
+            </Th>
+            {extra.map((e) => (
+              <Th key={e.key} rowSpan={2} title={e.hint}>
+                {e.label}
+              </Th>
+            ))}
+          </tr>
+          {groups > 0 && (
+            <tr>
+              {showPrev && <Th className="first:border-l">Summa</Th>}
+              {showPrev && <Th>Farqi, foizda</Th>}
+              {showLy && <Th className={cn(!showPrev && 'first:border-l')}>Summa</Th>}
+              {showLy && <Th>Farqi, foizda</Th>}
+            </tr>
+          )}
+        </thead>
+        <tbody>
+          <Tr total>
+            <TreeNameCell>Jami</TreeNameCell>
+            <LinkMoneyCell value={tot.cur} />
+            <Td className="text-xs">100%</Td>
+            {showPrev && <LinkMoneyCell value={tot.prev} />}
+            {showPrev && <DiffCell value={tot.cur - tot.prev} growthGood={up} pct={changeOf(tot.cur, tot.prev)} />}
+            {showLy && <LinkMoneyCell value={tot.ly} />}
+            {showLy && <DiffCell value={tot.cur - tot.ly} growthGood={up} pct={changeOf(tot.cur, tot.ly)} />}
+            <Td className="text-xs">{tot.count.toLocaleString('uz')}</Td>
+            {extra.map((e) => (
+              <LinkMoneyCell key={e.key} value={nodes.reduce((a, n) => a + e.get(n), 0)} />
+            ))}
+          </Tr>
+          {rows.length ? (
+            rows
+          ) : (
+            <tr>
+              <td colSpan={cols} className="px-4 py-8 text-center text-sm text-(--color-text-muted)">
+                {term ? 'Topilmadi' : "Bu davrda ma'lumot yo'q"}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </RTable>
+      {(cut.length < shown.length || all) && limit && !term && shown.length > limit && (
+        <div className="px-4 pb-3">
+          <button type="button" onClick={() => setAll((x) => !x)} className="w-full rounded-lg border border-dashed border-brand-300 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+            {all ? 'Qisqartirish' : `Yana ${shown.length - limit} ta qatorni ko'rsatish`}
           </button>
         </div>
-      </header>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-[13px]">
-          <thead className="bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
-            <tr>
-              <th className="px-3 py-2 text-left font-semibold">{nameHeader}</th>
-              <th className="w-32 px-2 py-2 text-right font-semibold">Joriy davr</th>
-              <th className="w-20 px-2 py-2 text-right font-semibold" title="Yuqori qatordagi summaga nisbatan">Ulushi</th>
-              <th className="w-36 px-2 py-2 text-right font-semibold" title="Summa va joriy davrning unga nisbatan o'zgarishi">
-                O&apos;tgan davr <span className="normal-case">· o&apos;zgarish</span>
-              </th>
-              {!hideLy && (
-                <th className="w-36 px-2 py-2 text-right font-semibold" title="Summa va joriy davrning unga nisbatan o'zgarishi">
-                  O&apos;tgan yil <span className="normal-case">· o&apos;zgarish</span>
-                </th>
-              )}
-              <th className="w-16 px-2 py-2 text-right font-semibold" title="Yozuvlar soni">Soni</th>
-              {extra.map((e) => (
-                <th key={e.key} className="w-28 px-2 py-2 text-right font-semibold" title={e.hint}>
-                  {e.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length ? rows : (
-              <tr>
-                <td colSpan={(hideLy ? 5 : 6) + extra.length} className="px-4 py-8 text-center text-sm text-(--color-text-muted)">
-                  {term ? 'Topilmadi' : "Bu davrda ma'lumot yo'q"}
-                </td>
-              </tr>
-            )}
-          </tbody>
-          <tfoot className="border-t-2 border-(--color-line-strong) bg-(--color-surface-muted) font-semibold text-heading">
-            <tr>
-              <td className="px-3 py-2">Jami</td>
-              <td className="money px-2 py-2 text-right">{som(tot.cur)}</td>
-              <td className="money px-2 py-2 text-right text-xs">100%</td>
-              <Cmp base={tot.prev} c={change(tot.cur, tot.prev)} diff={tot.cur - tot.prev} up={up} strong />
-              {!hideLy && <Cmp base={tot.ly} c={change(tot.cur, tot.ly)} diff={tot.cur - tot.ly} up={up} strong />}
-              <td className="money px-2 py-2 text-right text-xs">{tot.count.toLocaleString('uz')}</td>
-              {extra.map((e) => (
-                <td key={e.key} className="money px-2 py-2 text-right">
-                  {som(nodes.reduce((a, n) => a + e.get(n), 0))}
-                </td>
-              ))}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      {(cut.length < shown.length || all) && limit && !term && shown.length > limit && (
-        <button type="button" onClick={() => setAll((x) => !x)} className="w-full border-t border-(--color-line) py-2 text-xs font-semibold text-brand-700 hover:bg-brand-50">
-          {all ? 'Qisqartirish' : `Yana ${shown.length - limit} ta qatorni ko'rsatish`}
-        </button>
       )}
-      {note && <p className="border-t border-(--color-line) px-4 py-2 text-xs text-(--color-text-muted)">{note}</p>}
-    </section>
+      {missing.length > 0 && (
+        <TableNote>
+          {missing.join(' va ')[0]!.toUpperCase() + missing.join(' va ').slice(1)} uchun ma&apos;lumot yo&apos;q — solishtirish ustunlari ko&apos;rsatilmadi. Davrni ma&apos;lumoti bor oyga
+          o&apos;zgartirsangiz, farq va foizlar paydo bo&apos;ladi.
+        </TableNote>
+      )}
+      {note && <TableNote>{note}</TableNote>}
+    </ReportCard>
   );
 }
 
 export function Num({ v, strong, muted, tone, onClick }: { v: number; strong?: boolean; muted?: boolean; tone?: 'expense' | 'income'; onClick?: () => void }) {
-  const text = v === 0 ? '—' : som(v);
+  const text = v === 0 ? '' : som(v);
   return (
     <td className="px-2 py-1.5 text-right">
       {onClick && v !== 0 ? (
@@ -269,9 +287,9 @@ export function Num({ v, strong, muted, tone, onClick }: { v: number; strong?: b
 export function Chg({ v, diff, up }: { v: number | null; diff: number; up: boolean }) {
   const good = v === null || v === 0 ? null : v > 0 === up;
   return (
-    <td className="px-2 py-1.5 text-right">
-      <div className={cn('money text-xs font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{v === null ? (diff ? 'yangi' : '—') : pctSigned(v)}</div>
-      {diff !== 0 && <div className="money text-[11px] text-(--color-text-faint)">{`${diff > 0 ? '+' : '−'}${short(Math.abs(diff))}`}</div>}
+    <td className="whitespace-nowrap px-2 py-1.5 text-right">
+      {diff !== 0 && <span className="money text-[11px] text-(--color-text-muted)">{`${diff > 0 ? '+' : '−'}${short(Math.abs(diff))}`}</span>}
+      <span className={cn('money ml-1 text-xs font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{v === null ? '' : `(${pctSigned(v)})`}</span>
     </td>
   );
 }
@@ -286,10 +304,10 @@ export function Cmp({ base, c, diff, up, onClick, strong }: { base: number; c: n
           {som(base)}
         </button>
       ) : (
-        <span className={cn('money', base === 0 ? 'text-(--color-text-faint)' : strong ? 'text-heading' : 'text-(--color-text-muted)')}>{base === 0 ? '—' : som(base)}</span>
+        <span className={cn('money', base === 0 ? 'text-(--color-text-faint)' : strong ? 'text-heading' : 'text-(--color-text-muted)')}>{base === 0 ? '' : som(base)}</span>
       )}
       <div className="money mt-0.5 text-[11px] leading-tight whitespace-nowrap">
-        <span className={cn('font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{c === null ? (diff ? 'yangi' : '0') : pctSigned(c)}</span>
+        <span className={cn('font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{c === null ? '' : pctSigned(c)}</span>
         {diff !== 0 && <span className="text-(--color-text-faint)">{` · ${diff > 0 ? '+' : '−'}${short(Math.abs(diff))}`}</span>}
       </div>
     </td>

@@ -1,21 +1,38 @@
 'use client';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
-import { IconChevronRight } from '@/components/ui/icons';
+import {
+  changeOf,
+  DiffCell,
+  ExcelButton,
+  GroupTh,
+  PctBadge,
+  PctCell,
+  ReportCard,
+  RTable,
+  SelectBox,
+  StatTiles,
+  STICKY_NAME,
+  STICKY_NO,
+  TableNote,
+  Td,
+  Th,
+  Tr,
+} from '@/components/report/report';
+import { LinkMoneyCell, STICKY_LEFT, TreeNameCell } from '@/components/report/report-extra-a';
 import { ErrorState, LoadingState } from '@/components/ui/states';
+import { calcChange, calcMargin, calcResult, Q } from '@/lib/calc';
 import { formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
-import { useState, type ReactNode } from 'react';
-import { change, csvSom, downloadCsv, exploreApi, monthLabel, pct, pctSigned, SERIES, share, short, som, type PnlRow, type ResultExplore, type UnitRow, type XNode } from './api';
-import { ChartCard, StackedMonths, type Series } from './charts';
+import { Fragment, useState, type ReactNode } from 'react';
+import { csvSom, downloadCsv, exploreApi, monthLabel, pct, share, short, som, spanText, type PnlRow, type ResultExplore, type UnitRow, type XNode } from './api';
 import { DrillProvider, useDrill } from './drill';
-import { Chg } from './drill-table';
-import { Kpi, SectionTitle, SpansNote } from './parts';
 
 // ═══════════════════════════════════════════════════════════
-// Bosh sahifa › Tahlil › Natija jadvali:
-//  ko'rsatkichlar → foyda va zarar hisoboti (oylar kesimida) → Markaz va hududlar natijasi → grafiklar.
+// Bosh sahifa › Tahlil › Natija jadvali — bir qarashda:
+//  ko'rsatkich kartalari → foyda va zarar hisoboti (davrlar solishtirmasi + oylar) →
+//  Markaz, hududlar va yo'nalishlar natijasi. Grafiklar yo'q; har bir summa bosiladi — yozuvlar ochiladi.
 // ═══════════════════════════════════════════════════════════
 
 export function ResultExplorer({ range }: { range: DateRange }) {
@@ -23,61 +40,70 @@ export function ResultExplorer({ range }: { range: DateRange }) {
   if (res.loading && !res.data) return <LoadingState />;
   if (res.error) return <ErrorState message={res.error} onRetry={res.reload} />;
   const d = res.data!;
-  const t = d.totals;
-  const resultSeries: Series[] = [
-    { key: 'income', label: 'Daromad', color: SERIES[0]!, values: d.pnl.income.values, kind: 'income', f: {} },
-  ];
-  const expenseSeries: Series[] = [{ key: 'expense', label: 'Xarajat', color: SERIES[1]!, values: d.pnl.expense.values, kind: 'expense', f: {} }];
   return (
     <DrillProvider range={range}>
-      <div className="space-y-4">
-        <SpansNote cur={d.cur} prev={d.prev} ly={d.ly} />
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Kpi label="Daromad" cur={t.income.cur} prev={t.income.prev} ly={t.income.ly} kind="income" drill={{ kind: 'income', f: {}, title: 'Daromad › Jami' }} sub={`${t.income.count.toLocaleString('uz')} ta yozuv`} />
-          <Kpi label="Xarajat" cur={t.expense.cur} prev={t.expense.prev} ly={t.expense.ly} kind="expense" drill={{ kind: 'expense', f: {}, title: 'Xarajat › Jami' }} sub={`${t.expense.count.toLocaleString('uz')} ta yozuv`} />
-          <Kpi label="Natija (foyda / zarar)" cur={t.result.cur} prev={t.result.prev} ly={t.result.ly} kind="result" tone="auto" sub={`Daromad − xarajat`} />
-          <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4 shadow-card">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-(--color-text-muted)">Rentabellik</p>
-            <p className={cn('money mt-1.5 text-xl font-semibold', (t.margin ?? 0) < 0 ? 'text-(--color-expense)' : 'text-heading')}>{pct(t.margin)}</p>
-            <div className="mt-1.5 space-y-0.5 text-xs text-(--color-text-muted)">
-              <p className="flex justify-between gap-2">
-                <span>O&apos;tgan davr</span>
-                <span className="money">{pct(t.marginPrev)}</span>
-              </p>
-              <p className="flex justify-between gap-2">
-                <span>O&apos;tgan yil</span>
-                <span className="money">{pct(t.marginLy)}</span>
-              </p>
-              <p className="flex justify-between gap-2">
-                <span>Debitorlik / kreditorlik</span>
-                <span className="money">
-                  {short(t.receivable)} / {short(t.payable)}
-                </span>
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <SectionTitle hint="Daromad ▸ Markaz / Hududlar ▸ moddalar; Xarajat ▸ guruhlar ▸ moddalar">Foyda va zarar hisoboti</SectionTitle>
-        <PnlTable d={d} />
-
-        <SectionTitle hint="▸ bosilsa — eng katta daromad va xarajat moddalari">Markaz, hududlar va yo'nalishlar natijasi</SectionTitle>
-        <UnitsTable units={d.units} totals={d.totals} />
-
-        <SectionTitle hint="Jadvallar bilan bir xil ma'lumot; ustun bosilsa — o'sha oy yozuvlari">Grafiklar</SectionTitle>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <ChartCard title="Oylar bo'yicha daromad">
-            <StackedMonths months={d.monthList} series={resultSeries} root="Daromad" />
-          </ChartCard>
-          <ChartCard title="Oylar bo'yicha xarajat">
-            <StackedMonths months={d.monthList} series={expenseSeries} root="Xarajat" />
-          </ChartCard>
-          <ChartCard title="Oylar bo'yicha natija" description="Yashil — foyda, qizil — zarar">
-            <ResultBars months={d.monthList} values={d.pnl.result.values} />
-          </ChartCard>
-        </div>
-      </div>
+      <Body d={d} />
     </DrillProvider>
+  );
+}
+
+function Body({ d }: { d: ResultExplore }) {
+  const { open } = useDrill();
+  const t = d.totals;
+  const marginText = (v: number | null) => (v === null ? '' : pct(v));
+  return (
+    <div className="space-y-4">
+      <StatTiles
+        compareLabel="Avval"
+        items={[
+          {
+            label: 'Daromad',
+            value: t.income.cur,
+            previous: t.income.prev,
+            tone: 'green',
+            icon: <IconUp />,
+            onClick: () => open({ kind: 'income', f: {}, title: 'Daromad › Jami', expected: t.income.cur }),
+          },
+          {
+            label: 'Xarajat',
+            value: t.expense.cur,
+            previous: t.expense.prev,
+            growthGood: false,
+            tone: 'red',
+            icon: <IconDown />,
+            onClick: () => open({ kind: 'expense', f: {}, title: 'Xarajat › Jami', expected: t.expense.cur }),
+          },
+          {
+            label: t.result.cur >= 0 ? 'Natija (foyda)' : 'Natija (zarar)',
+            value: t.result.cur,
+            previous: t.result.prev,
+            signed: true,
+            tone: 'blue',
+            calc: calcResult(t.income.cur, t.expense.cur, { title: 'Natija' }),
+          },
+          {
+            label: 'Rentabellik',
+            value: 0,
+            text: marginText(t.margin),
+            note: `O'tgan davr ${marginText(t.marginPrev)} · o'tgan yil ${marginText(t.marginLy)}`,
+            tone: 'purple',
+            icon: <IconPercent />,
+            calc: calcMargin(t.income.cur, t.expense.cur, {}),
+          },
+          {
+            label: 'Debitorlik / kreditorlik',
+            value: 0,
+            text: `${short(t.receivable)} / ${short(t.payable)}`,
+            note: "Olinmagan daromad / to'lanmagan xarajat",
+            tone: 'orange',
+            icon: <IconScale />,
+          },
+        ]}
+      />
+
+      <PnlTable d={d} />
+      <UnitsTable units={d.units} totals={d.totals} />
+    </div>
   );
 }
 
@@ -87,168 +113,289 @@ function PnlTable({ d }: { d: ResultExplore }) {
   const { open } = useDrill();
   const [opened, setOpened] = useState<Set<string>>(new Set(['income', 'expense']));
   const months = d.monthList;
-  const toggle = (k: string) => setOpened((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const toggle = (k: string) =>
+    setOpened((s) => {
+      const n = new Set(s);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
 
-  const rowOf = (r: PnlRow, depth: number, path: string[], id: string, cls?: string, up = true): ReactNode[] => {
+  const rowOf = (r: PnlRow, depth: number, path: string[], id: string, up: boolean, total = false): ReactNode[] => {
     const has = Boolean(r.children?.length);
     const isOpen = opened.has(id);
-    const drill = (month?: string, which: 'cur' | 'prev' | 'ly' = 'cur', expected?: number) =>
-      r.kind && r.f ? open({ kind: r.kind, f: month ? { ...r.f, month } : r.f, which, title: [...path, r.label, ...(month ? [formatPeriod(month)] : [])].join(' › '), expected }) : undefined;
-    const money = (v: number, onClick?: () => void, strong?: boolean) => (
-      <td className={cn('px-2 py-1.5 text-right whitespace-nowrap', strong && 'font-semibold')}>
-        {v && r.kind ? (
-          <button type="button" onClick={onClick} className="money rounded px-1 -mx-1 hover:bg-brand-50 hover:text-brand-700 hover:underline" title={`${som(v)} so'm — yozuvlar`}>
-            {som(v)}
-          </button>
-        ) : (
-          <span className={cn('money', !v && 'text-(--color-text-faint)', !r.kind && v < 0 && 'text-(--color-expense)')}>{v ? som(v) : '—'}</span>
-        )}
-      </td>
-    );
+    const drill = (month: string | undefined, which: 'cur' | 'prev' | 'ly', expected: number) =>
+      r.kind && r.f ? () => open({ kind: r.kind!, f: month ? { ...r.f!, month } : r.f!, which, title: [...path, r.label, ...(month ? [formatPeriod(month)] : [])].join(' › '), expected }) : undefined;
+    const signed = !r.kind;
     const out: ReactNode[] = [
-      <tr key={id} className={cn('border-t border-(--color-line)', cls, depth === 1 && 'bg-(--color-surface-muted)/40', depth >= 2 && 'bg-(--color-surface-muted)/70')}>
-        <td className="sticky left-0 z-10 bg-inherit py-1.5 pr-2" style={{ paddingLeft: 10 + depth * 18 }}>
-          <div className="flex min-w-0 items-center gap-1">
-            {has ? (
-              <button type="button" onClick={() => toggle(id)} className="flex size-5 shrink-0 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50" aria-expanded={isOpen}>
-                <IconChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
-              </button>
-            ) : (
-              <span className="size-5 shrink-0" />
-            )}
-            <span className={cn('truncate', depth === 0 ? 'font-semibold text-heading' : 'text-heading')} title={r.label}>
-              {r.label}
-            </span>
-          </div>
-        </td>
+      <Tr key={id} total={total} muted={depth > 0} className={cn(depth === 0 && !total && 'font-semibold text-heading')}>
+        <TreeNameCell depth={depth} open={has ? isOpen : undefined} onToggle={has ? () => toggle(id) : undefined}>
+          {r.label}
+        </TreeNameCell>
+        <LinkMoneyCell value={r.prev} onClick={drill(undefined, 'prev', r.prev)} signedColor={signed} />
+        <LinkMoneyCell value={r.total} onClick={drill(undefined, 'cur', r.total)} strong signedColor={signed} />
+        <DiffCell value={r.total - r.prev} growthGood={up} pct={changeOf(r.total, r.prev)} />
+        <LinkMoneyCell value={r.ly} onClick={drill(undefined, 'ly', r.ly)} signedColor={signed} />
+        <DiffCell value={r.total - r.ly} growthGood={up} pct={changeOf(r.total, r.ly)} />
         {months.map((m, i) => (
-          <MoneyCell key={m} v={r.values[i] ?? 0} click={r.kind ? () => drill(m, 'cur', r.values[i]) : undefined} strong={depth === 0} signed={!r.kind} />
+          <LinkMoneyCell key={m} value={r.values[i] ?? 0} onClick={drill(m, 'cur', r.values[i] ?? 0)} signedColor={signed} className="font-normal" />
         ))}
-        {money(r.total, () => drill(undefined, 'cur', r.total), true)}
-        {money(r.prev, () => drill(undefined, 'prev', r.prev))}
-        <Chg v={change(r.total, r.prev)} diff={r.total - r.prev} up={up} />
-        {money(r.ly, () => drill(undefined, 'ly', r.ly))}
-        <Chg v={change(r.total, r.ly)} diff={r.total - r.ly} up={up} />
-      </tr>,
+      </Tr>,
     ];
-    if (has && isOpen) r.children!.forEach((c) => out.push(...rowOf(c, depth + 1, [...path, r.label], `${id}/${c.key}`, undefined, up)));
+    if (has && isOpen) r.children!.forEach((c) => out.push(...rowOf(c, depth + 1, [...path, r.label], `${id}/${c.key}`, up)));
     return out;
   };
 
+  const m = d.pnl.margin;
+  const pp = (a: number | null, b: number | null) => (a !== null && b !== null ? (a - b) * 100 : null);
+  const ppText = (v: number | null) => (v === null ? '' : `${v > 0 ? '+' : ''}${v.toFixed(1).replace('.', ',')} p.p.`);
   const marginRow = (
-    <tr className="border-t border-(--color-line) bg-(--color-surface-muted) text-(--color-text-muted)">
-      <td className="sticky left-0 z-10 bg-inherit py-1.5 pr-2 pl-[34px] font-medium">Rentabellik (natija / daromad)</td>
-      {d.pnl.margin.values.map((v, i) => (
-        <td key={i} className={cn('money px-2 py-1.5 text-right', (v ?? 0) < 0 && 'text-(--color-expense)')}>
+    <Tr muted>
+      <TreeNameCell>Rentabellik (natija / daromad)</TreeNameCell>
+      <Td>{pct(m.prev)}</Td>
+      <Td className="font-semibold text-heading">{pct(m.total)}</Td>
+      <Td className={cn('text-xs font-semibold', (pp(m.total, m.prev) ?? 0) < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{ppText(pp(m.total, m.prev))}</Td>
+      <Td>{pct(m.ly)}</Td>
+      <Td className={cn('text-xs font-semibold', (pp(m.total, m.ly) ?? 0) < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{ppText(pp(m.total, m.ly))}</Td>
+      {m.values.map((v, i) => (
+        <Td key={i} className={cn((v ?? 0) < 0 && 'text-(--color-expense)')}>
           {pct(v)}
-        </td>
+        </Td>
       ))}
-      <td className="money px-2 py-1.5 text-right font-semibold text-heading">{pct(d.pnl.margin.total)}</td>
-      <td className="money px-2 py-1.5 text-right">{pct(d.pnl.margin.prev)}</td>
-      <td className="money px-2 py-1.5 text-right text-xs">{d.pnl.margin.total !== null && d.pnl.margin.prev !== null ? `${pctSigned(d.pnl.margin.total - d.pnl.margin.prev).replace('%', ' p.p.')}` : '—'}</td>
-      <td className="money px-2 py-1.5 text-right">{pct(d.pnl.margin.ly)}</td>
-      <td className="money px-2 py-1.5 text-right text-xs">{d.pnl.margin.total !== null && d.pnl.margin.ly !== null ? `${pctSigned(d.pnl.margin.total - d.pnl.margin.ly).replace('%', ' p.p.')}` : '—'}</td>
-    </tr>
+    </Tr>
   );
 
   const exportCsv = () => {
-    const rows: (string | number | null)[][] = [['Ko‘rsatkich', ...months.map(formatPeriod), "Jami (so'm)", "O'tgan davr (so'm)", "O'tgan yil (so'm)"]];
+    const rows: (string | number | null)[][] = [['Ko‘rsatkich', "O'tgan davr (so'm)", "Joriy davr (so'm)", "O'tgan yil (so'm)", ...months.map(formatPeriod)]];
     const add = (r: PnlRow, depth: number) => {
-      rows.push([`${'   '.repeat(depth)}${r.label}`, ...r.values.map(csvSom), csvSom(r.total), csvSom(r.prev), csvSom(r.ly)]);
+      rows.push([`${'   '.repeat(depth)}${r.label}`, csvSom(r.prev), csvSom(r.total), csvSom(r.ly), ...r.values.map(csvSom)]);
       r.children?.forEach((c) => add(c, depth + 1));
     };
     add(d.pnl.income, 0);
     add(d.pnl.expense, 0);
     add(d.pnl.result, 0);
-    rows.push(['Rentabellik, %', ...d.pnl.margin.values.map((v) => (v === null ? null : Math.round(v * 1000) / 10)), d.pnl.margin.total === null ? null : Math.round(d.pnl.margin.total * 1000) / 10, d.pnl.margin.prev === null ? null : Math.round(d.pnl.margin.prev * 1000) / 10, d.pnl.margin.ly === null ? null : Math.round(d.pnl.margin.ly * 1000) / 10]);
+    const p = (v: number | null) => (v === null ? null : Math.round(v * 1000) / 10);
+    rows.push(['Rentabellik, %', p(m.prev), p(m.total), p(m.ly), ...m.values.map(p)]);
     downloadCsv('Foyda va zarar hisoboti', rows);
   };
 
   return (
-    <section className="overflow-hidden rounded-(--radius-card) border border-(--color-line) bg-white shadow-card">
-      <header className="flex flex-wrap items-start gap-3 border-b border-(--color-line) px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-heading">Daromad, xarajat va natija — oylar bo&apos;yicha</h2>
-          <p className="mt-0.5 text-xs text-(--color-text-muted)">Har bir summa bosiladi: o&apos;sha oy / davr yozuvlari ochiladi</p>
-        </div>
-        <button type="button" onClick={exportCsv} className="h-8 rounded-(--radius-control) border border-(--color-line) px-2.5 text-xs font-medium text-heading hover:bg-brand-50">
-          Excel
-        </button>
-      </header>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm" style={{ minWidth: 300 + months.length * 120 + 560 }}>
-          <thead className="bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
-            <tr>
-              <th className="sticky left-0 z-10 min-w-64 bg-(--color-surface-muted) px-3 py-2 text-left font-semibold">Ko&apos;rsatkich</th>
-              {months.map((m) => (
-                <th key={m} className="px-2 py-2 text-right font-semibold whitespace-nowrap">
-                  {monthLabel(m)}
-                </th>
-              ))}
-              <th className="px-2 py-2 text-right font-semibold">Jami</th>
-              <th className="px-2 py-2 text-right font-semibold">O&apos;tgan davr</th>
-              <th className="w-24 px-2 py-2 text-right font-semibold">O&apos;zgarish</th>
-              <th className="px-2 py-2 text-right font-semibold">O&apos;tgan yil</th>
-              <th className="w-24 px-2 py-2 text-right font-semibold">O&apos;zgarish</th>
-            </tr>
-          </thead>
-          <tbody className="[&>tr]:bg-white">
-            {rowOf(d.pnl.income, 0, [], 'income', 'text-(--color-income)')}
-            {rowOf(d.pnl.expense, 0, [], 'expense', 'border-t-2 border-(--color-line-strong)', false)}
-            {rowOf(d.pnl.result, 0, [], 'result', 'border-t-2 border-(--color-line-strong) bg-brand-50/50!')}
-            {marginRow}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function MoneyCell({ v, click, strong, signed }: { v: number; click?: () => void; strong?: boolean; signed?: boolean }) {
-  return (
-    <td className={cn('px-2 py-1.5 text-right whitespace-nowrap', strong && 'font-medium')}>
-      {v && click ? (
-        <button type="button" onClick={click} className="money rounded px-1 -mx-1 text-heading hover:bg-brand-50 hover:text-brand-700 hover:underline" title={`${som(v)} so'm — yozuvlar`}>
-          {som(v)}
-        </button>
-      ) : (
-        <span className={cn('money', !v ? 'text-(--color-text-faint)' : signed && v < 0 ? 'text-(--color-expense)' : signed ? 'text-(--color-income)' : 'text-heading')}>{v ? som(v) : '—'}</span>
-      )}
-    </td>
+    <ReportCard
+      title="Foyda va zarar hisoboti"
+      badge={`Joriy: ${spanText(d.cur)} · o'tgan davr: ${spanText(d.prev)} · o'tgan yil: ${spanText(d.ly)}`}
+      actions={<ExcelButton onClick={exportCsv} />}
+    >
+      <RTable minWidth={260 + 5 * 118 + months.length * 108}>
+        <thead>
+          <tr>
+            <Th rowSpan={2} className={cn(STICKY_LEFT, 'z-[2] min-w-60 text-left')}>
+              Ko&apos;rsatkich
+            </Th>
+            <GroupTh span={3}>O&apos;tgan davr bilan</GroupTh>
+            <GroupTh span={2}>O&apos;tgan yil bilan</GroupTh>
+            {months.length > 0 && <GroupTh span={months.length}>Oylar bo&apos;yicha (joriy davr)</GroupTh>}
+          </tr>
+          <tr>
+            <Th className="first:border-l">O&apos;tgan davr</Th>
+            <Th>Joriy davr</Th>
+            <Th>Farqi, foizda</Th>
+            <Th>O&apos;tgan yil</Th>
+            <Th>Farqi, foizda</Th>
+            {months.map((mo) => (
+              <Th key={mo} className="whitespace-nowrap">
+                {monthLabel(mo)}
+              </Th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rowOf(d.pnl.result, 0, [], 'result', true, true)}
+          {rowOf(d.pnl.income, 0, [], 'income', true)}
+          {rowOf(d.pnl.expense, 0, [], 'expense', false)}
+          {marginRow}
+        </tbody>
+      </RTable>
+      <TableNote>
+        ›-ni bosing — modda ichidagi qatorlar ochiladi. Istalgan summani bosing — uni tashkil qilgan yozuvlar ochiladi. Oylar jadvalning o&apos;ng qismida — o&apos;ngga suring.
+      </TableNote>
+    </ReportCard>
   );
 }
 
 // ───────────────────────── Birliklar ─────────────────────────
 
+type UnitSort = 'order' | 'result' | 'margin';
+const UNIT_SORTS: { value: UnitSort; label: string }[] = [
+  { value: 'order', label: "Markaz, hududlar, yo'nalishlar" },
+  { value: 'result', label: "Natija bo'yicha" },
+  { value: 'margin', label: "Rentabellik bo'yicha" },
+];
+
 function UnitsTable({ units, totals }: { units: UnitRow[]; totals: ResultExplore['totals'] }) {
   const { open } = useDrill();
   const [opened, setOpened] = useState<Set<string>>(new Set());
-  const [sort, setSort] = useState<'order' | 'result' | 'margin'>('order');
+  const [sort, setSort] = useState<UnitSort>('order');
   const list = [...units].sort((a, b) => (sort === 'result' ? b.result.cur - a.result.cur : sort === 'margin' ? (b.margin ?? -9) - (a.margin ?? -9) : 0));
   const filterOf = (u: UnitRow) => ({ unit: u.key });
+  const toggle = (k: string) =>
+    setOpened((s) => {
+      const n = new Set(s);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
 
   const exportCsv = () =>
-    downloadCsv('Markaz, hududlar va yo\'nalishlar natijasi', [
-      ['Birlik', "Daromad (so'm)", "Xarajat (so'm)", "Natija (so'm)", 'Rentabellik, %', "O'tgan davr natija (so'm)", "O'tgan yil natija (so'm)", 'Daromad ulushi, %'],
-      ...list.map((u) => [u.label, csvSom(u.income.cur), csvSom(u.expense.cur), csvSom(u.result.cur), u.margin === null ? null : Math.round(u.margin * 1000) / 10, csvSom(u.result.prev), csvSom(u.result.ly), totals.income.cur ? Math.round((u.income.cur / totals.income.cur) * 1000) / 10 : null]),
+    downloadCsv("Markaz, hududlar va yo'nalishlar natijasi", [
+      ['Birlik', "Daromad: o'tgan davr (so'm)", "Daromad: joriy (so'm)", "Xarajat: o'tgan davr (so'm)", "Xarajat: joriy (so'm)", "Natija: o'tgan davr (so'm)", "Natija: joriy (so'm)", "Natija: o'tgan yil (so'm)", 'Rentabellik, %', 'Daromad ulushi, %'],
+      ...list.map((u) => [
+        u.label,
+        csvSom(u.income.prev),
+        csvSom(u.income.cur),
+        csvSom(u.expense.prev),
+        csvSom(u.expense.cur),
+        csvSom(u.result.prev),
+        csvSom(u.result.cur),
+        csvSom(u.result.ly),
+        u.margin === null ? null : Math.round(u.margin * 1000) / 10,
+        totals.income.cur ? Math.round((u.income.cur / totals.income.cur) * 1000) / 10 : null,
+      ]),
     ]);
 
-  const sub = (u: UnitRow, title: string, nodes: XNode[], total: number) => (
+  const margin = (v: number | null) => (v === null ? null : v * 100);
+
+  return (
+    <ReportCard
+      title="Markaz, hududlar va yo'nalishlar natijasi"
+      actions={
+        <>
+          <SelectBox value={sort} options={UNIT_SORTS} onChange={setSort} className="h-9 min-w-52" />
+          <ExcelButton onClick={exportCsv} />
+        </>
+      }
+    >
+      <RTable minWidth={1000}>
+        <thead>
+          <tr>
+            <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>
+              №
+            </Th>
+            <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>
+              Birlik
+            </Th>
+            <GroupTh span={3}>Daromad</GroupTh>
+            <GroupTh span={3}>Xarajat</GroupTh>
+            <GroupTh span={3}>Natija</GroupTh>
+          </tr>
+          <tr>
+            <Th className="first:border-l">O&apos;tgan davr</Th>
+            <Th>Joriy davr</Th>
+            <Th>Farqi, foizda</Th>
+            <Th>O&apos;tgan davr</Th>
+            <Th>Joriy davr</Th>
+            <Th>Farqi, foizda</Th>
+            <Th>Joriy davr</Th>
+            <Th>Farqi, foizda</Th>
+            <Th>Rentabellik</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <Tr total>
+            <Td className={STICKY_NO} />
+            <TreeNameCell sticky={STICKY_NAME}>Jami</TreeNameCell>
+            <LinkMoneyCell value={totals.income.prev} />
+            <LinkMoneyCell value={totals.income.cur} />
+            <DiffCell value={totals.income.cur - totals.income.prev} pct={changeOf(totals.income.cur, totals.income.prev)} />
+            <LinkMoneyCell value={totals.expense.prev} />
+            <LinkMoneyCell value={totals.expense.cur} />
+            <DiffCell value={totals.expense.cur - totals.expense.prev} growthGood={false} pct={changeOf(totals.expense.cur, totals.expense.prev)} />
+            <LinkMoneyCell value={totals.result.cur} signedColor calc={calcResult(totals.income.cur, totals.expense.cur, { title: 'Jami natija' })} />
+            <DiffCell value={totals.result.cur - totals.result.prev} pct={changeOf(totals.result.cur, totals.result.prev)} />
+            <PctCell value={margin(totals.margin)} plain />
+          </Tr>
+          {list.map((u, i) => {
+            const isOpen = opened.has(u.key);
+            return (
+              <Fragment key={u.key}>
+                <Tr onClick={() => toggle(u.key)} muted={u.key === 'center'}>
+                  <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                  <TreeNameCell sticky={STICKY_NAME} open={isOpen} onToggle={() => toggle(u.key)} className="font-medium text-heading">
+                    {u.label}
+                  </TreeNameCell>
+                  <LinkMoneyCell value={u.income.prev} onClick={() => open({ kind: 'income', f: filterOf(u), which: 'prev', title: `Daromad › ${u.label}`, expected: u.income.prev })} />
+                  <LinkMoneyCell value={u.income.cur} onClick={() => open({ kind: 'income', f: filterOf(u), title: `Daromad › ${u.label}`, expected: u.income.cur })} />
+                  <DiffCell
+                    value={u.income.cur - u.income.prev}
+                    pct={changeOf(u.income.cur, u.income.prev)}
+                    calc={calcChange(`${u.label}: daromad o'zgarishi`, Q.money('Joriy davr', u.income.cur), Q.money("O'tgan davr", u.income.prev), { growthGood: true })}
+                  />
+                  <LinkMoneyCell value={u.expense.prev} onClick={() => open({ kind: 'expense', f: filterOf(u), which: 'prev', title: `Xarajat › ${u.label}`, expected: u.expense.prev })} />
+                  <LinkMoneyCell value={u.expense.cur} onClick={() => open({ kind: 'expense', f: filterOf(u), title: `Xarajat › ${u.label}`, expected: u.expense.cur })} />
+                  <DiffCell
+                    value={u.expense.cur - u.expense.prev}
+                    growthGood={false}
+                    pct={changeOf(u.expense.cur, u.expense.prev)}
+                    calc={calcChange(`${u.label}: xarajat o'zgarishi`, Q.money('Joriy davr', u.expense.cur), Q.money("O'tgan davr", u.expense.prev), { growthGood: false })}
+                  />
+                  <LinkMoneyCell value={u.result.cur} strong signedColor calc={calcResult(u.income.cur, u.expense.cur, { title: `Natija: ${u.label}` })} />
+                  <DiffCell value={u.result.cur - u.result.prev} pct={changeOf(u.result.cur, u.result.prev)} />
+                  <PctCell value={margin(u.margin)} plain />
+                </Tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={11} className="border-b border-(--color-line) bg-[#f8f9fc] px-6 py-3">
+                      <div className="flex flex-col gap-6 lg:flex-row">
+                        <TopList u={u} title="Eng katta daromad moddalari" nodes={u.incomeTop} total={u.income.cur} />
+                        <TopList u={u} title="Eng katta xarajat guruhlari" nodes={u.expenseTop} total={u.expense.cur} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </RTable>
+      <TableNote>
+        Qatorni bosing — eng katta daromad va xarajat moddalari ochiladi; summani bosing — yozuvlar. Birlik qoidasi Solishtirma bilan bir xil: hudud kodi bo&apos;lsa — o&apos;sha hudud; hudud
+        yo&apos;q, bo&apos;lim bor — Markaz. Markaz xarajatlari hududlarga taqsimlanmagan (taqsimlangan ko&apos;rinish — Solishtirma bo&apos;limida).
+      </TableNote>
+    </ReportCard>
+  );
+}
+
+function TopList({ u, title, nodes, total }: { u: UnitRow; title: string; nodes: XNode[]; total: number }) {
+  const { open } = useDrill();
+  return (
     <div className="min-w-0 flex-1">
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-(--color-text-muted)">{title}</p>
+      <p className="mb-1.5 text-xs font-bold text-heading">{title}</p>
       {nodes.length ? (
-        <table className="w-full text-xs">
+        <table className="w-full overflow-hidden rounded-lg border border-(--color-line) bg-white text-xs">
+          <thead>
+            <tr className="bg-[#f3f6fd] text-heading">
+              <th className="px-2 py-1.5 text-left font-semibold">Modda</th>
+              <th className="w-28 px-2 py-1.5 text-center font-semibold">Joriy davr</th>
+              <th className="w-16 px-2 py-1.5 text-center font-semibold">Ulushi</th>
+              <th className="w-20 px-2 py-1.5 text-center font-semibold">O&apos;zgarish</th>
+            </tr>
+          </thead>
           <tbody>
             {nodes.map((n) => (
-              <tr key={n.key} className="border-t border-(--color-line)/70">
-                <td className="py-1 pr-2">
-                  <button type="button" onClick={() => open({ kind: n.kind, f: n.f, title: [n.kind === 'income' ? 'Daromad' : 'Xarajat', u.label, n.label].join(' › '), expected: n.cur })} className="text-left text-heading hover:text-brand-700 hover:underline">
+              <tr key={n.key} className="border-t border-(--color-line)">
+                <td className="px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => open({ kind: n.kind, f: n.f, title: [n.kind === 'income' ? 'Daromad' : 'Xarajat', u.label, n.label].join(' › '), expected: n.cur })}
+                    className="text-left text-heading hover:text-brand-700 hover:underline"
+                  >
                     {n.label}
                   </button>
                 </td>
-                <td className="money w-28 py-1 text-right text-heading">{som(n.cur)}</td>
-                <td className="money w-14 py-1 text-right text-(--color-text-muted)">{pct(share(n.cur, total))}</td>
-                <td className="money w-16 py-1 text-right text-(--color-text-faint)">{pctSigned(change(n.cur, n.prev))}</td>
+                <td className="px-2 py-1.5 text-center tabular-nums text-heading">{som(n.cur)}</td>
+                <td className="px-2 py-1.5 text-center tabular-nums text-(--color-text-muted)">{pct(share(n.cur, total))}</td>
+                <td className="px-2 py-1.5 text-center">
+                  <PctBadge value={changeOf(n.cur, n.prev)} growthGood={n.kind !== 'expense'} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -258,141 +405,38 @@ function UnitsTable({ units, totals }: { units: UnitRow[]; totals: ResultExplore
       )}
     </div>
   );
+}
 
+// ─────────── Kartalar belgilari ───────────
+
+function IconUp() {
   return (
-    <section className="overflow-hidden rounded-(--radius-card) border border-(--color-line) bg-white shadow-card">
-      <header className="flex flex-wrap items-center gap-3 border-b border-(--color-line) px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-heading">Har bir birlik: daromad, xarajat, natija</h2>
-          <p className="mt-0.5 text-xs text-(--color-text-muted)">Daromad yoki xarajat summasi bosilsa — o&apos;sha birlik yozuvlari</p>
-        </div>
-        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-8 rounded-(--radius-control) border border-(--color-line) bg-white px-2 text-xs" aria-label="Tartib">
-          <option value="order">Markaz, hududlar, yo&apos;nalishlar</option>
-          <option value="result">Natija bo&apos;yicha</option>
-          <option value="margin">Rentabellik bo&apos;yicha</option>
-        </select>
-        <button type="button" onClick={exportCsv} className="h-8 rounded-(--radius-control) border border-(--color-line) px-2.5 text-xs font-medium text-heading hover:bg-brand-50">
-          Excel
-        </button>
-      </header>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1000px] text-sm">
-          <thead className="bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
-            <tr>
-              <th className="px-3 py-2 text-left font-semibold">Birlik</th>
-              <th className="w-36 px-2 py-2 text-right font-semibold">Daromad</th>
-              <th className="w-20 px-2 py-2 text-right font-semibold">Ulushi</th>
-              <th className="w-36 px-2 py-2 text-right font-semibold">Xarajat</th>
-              <th className="w-36 px-2 py-2 text-right font-semibold">Natija</th>
-              <th className="w-24 px-2 py-2 text-right font-semibold">Rentabellik</th>
-              <th className="w-32 px-2 py-2 text-right font-semibold">O&apos;tgan davr natija</th>
-              <th className="w-24 px-2 py-2 text-right font-semibold">O&apos;zgarish</th>
-              <th className="w-32 px-2 py-2 text-right font-semibold">O&apos;tgan yil natija</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.flatMap((u) => {
-              const isOpen = opened.has(u.key);
-              const rows: ReactNode[] = [
-                <tr key={u.key} className={cn('border-t border-(--color-line)', u.key === 'center' && 'bg-brand-50/30')}>
-                  <td className="py-1.5 pr-2 pl-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setOpened((s) => { const n = new Set(s); if (n.has(u.key)) n.delete(u.key); else n.add(u.key); return n; })}
-                      className="flex items-center gap-1.5 text-left font-medium text-heading hover:text-brand-700"
-                      aria-expanded={isOpen}
-                    >
-                      <IconChevronRight className={cn('size-3.5 text-(--color-text-muted) transition-transform', isOpen && 'rotate-90')} />
-                      {u.label}
-                    </button>
-                  </td>
-                  <td className="px-2 py-1.5 text-right">
-                    <button type="button" disabled={!u.income.cur} onClick={() => open({ kind: 'income', f: filterOf(u), title: `Daromad › ${u.label}`, expected: u.income.cur })} className="money text-heading hover:text-brand-700 hover:underline disabled:text-(--color-text-faint) disabled:no-underline">
-                      {u.income.cur ? som(u.income.cur) : '—'}
-                    </button>
-                  </td>
-                  <td className="money px-2 py-1.5 text-right text-xs text-(--color-text-muted)">{pct(share(u.income.cur, totals.income.cur))}</td>
-                  <td className="px-2 py-1.5 text-right">
-                    <button type="button" disabled={!u.expense.cur} onClick={() => open({ kind: 'expense', f: filterOf(u), title: `Xarajat › ${u.label}`, expected: u.expense.cur })} className="money text-heading hover:text-brand-700 hover:underline disabled:text-(--color-text-faint) disabled:no-underline">
-                      {u.expense.cur ? som(u.expense.cur) : '—'}
-                    </button>
-                  </td>
-                  <td className={cn('money px-2 py-1.5 text-right font-semibold', u.result.cur < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{som(u.result.cur)}</td>
-                  <td className={cn('money px-2 py-1.5 text-right', (u.margin ?? 0) < 0 && 'text-(--color-expense)')}>{pct(u.margin)}</td>
-                  <td className="money px-2 py-1.5 text-right text-(--color-text-muted)">{som(u.result.prev)}</td>
-                  <Chg v={change(u.result.cur, u.result.prev)} diff={u.result.cur - u.result.prev} up />
-                  <td className="money px-2 py-1.5 text-right text-(--color-text-muted)">{som(u.result.ly)}</td>
-                </tr>,
-              ];
-              if (isOpen)
-                rows.push(
-                  <tr key={`${u.key}-x`} className="bg-(--color-surface-muted)/50">
-                    <td colSpan={9} className="px-6 py-3">
-                      <div className="flex flex-col gap-6 lg:flex-row">
-                        {sub(u, 'Eng katta daromad moddalari', u.incomeTop, u.income.cur)}
-                        {sub(u, 'Eng katta xarajat guruhlari', u.expenseTop, u.expense.cur)}
-                      </div>
-                    </td>
-                  </tr>,
-                );
-              return rows;
-            })}
-          </tbody>
-          <tfoot className="border-t-2 border-(--color-line-strong) bg-(--color-surface-muted) font-semibold text-heading">
-            <tr>
-              <td className="px-3 py-2">Jami</td>
-              <td className="money px-2 py-2 text-right">{som(totals.income.cur)}</td>
-              <td className="money px-2 py-2 text-right text-xs">100%</td>
-              <td className="money px-2 py-2 text-right">{som(totals.expense.cur)}</td>
-              <td className={cn('money px-2 py-2 text-right', totals.result.cur < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{som(totals.result.cur)}</td>
-              <td className="money px-2 py-2 text-right">{pct(totals.margin)}</td>
-              <td className="money px-2 py-2 text-right">{som(totals.result.prev)}</td>
-              <Chg v={change(totals.result.cur, totals.result.prev)} diff={totals.result.cur - totals.result.prev} up />
-              <td className="money px-2 py-2 text-right">{som(totals.result.ly)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <p className="border-t border-(--color-line) px-4 py-2 text-xs text-(--color-text-muted)">
-        Birlik qoidasi Solishtirma bilan bir xil: hudud kodi bo&apos;lsa — o&apos;sha hudud; hudud yo&apos;q, bo&apos;lim bor — Markaz. Markaz xarajatlari hududlarga taqsimlanmagan (taqsimlangan ko&apos;rinish — Solishtirma bo&apos;limida).
-      </p>
-    </section>
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 17l6-6 4 4 8-8M15 7h6v6" />
+    </svg>
   );
 }
 
-/** Natija: musbat — yuqoriga (yashil), manfiy — pastga (qizil) */
-function ResultBars({ months, values }: { months: string[]; values: number[] }) {
-  const [hover, setHover] = useState<number | null>(null);
-  const max = Math.max(...values.map(Math.abs), 0);
-  if (!max) return <p className="py-10 text-center text-sm text-(--color-text-muted)">Bu davrda ma&apos;lumot yo&apos;q</p>;
-  const H = 110;
+function IconDown() {
   return (
-    <div className="relative" onMouseLeave={() => setHover(null)}>
-      <div className="relative flex gap-[2px]" style={{ height: H * 2 }}>
-        <div className="absolute inset-x-0 border-t border-(--color-line-strong)" style={{ top: H }} />
-        {months.map((m, i) => {
-          const v = values[i] ?? 0;
-          const h = Math.max(v ? 2 : 0, (Math.abs(v) / max) * (H - 4));
-          return (
-            <div key={m} className={cn('relative flex-1 rounded-sm', hover === i && 'bg-brand-50/60')} onMouseEnter={() => setHover(i)}>
-              <div className="absolute inset-x-[15%]" style={v >= 0 ? { bottom: H, height: h, background: 'var(--color-income)', borderRadius: '4px 4px 0 0' } : { top: H, height: h, background: 'var(--color-expense)', borderRadius: '0 0 4px 4px' }} />
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-1 flex gap-[2px]">
-        {months.map((m) => (
-          <span key={m} className="flex-1 truncate text-center text-[10px] text-(--color-text-muted)">
-            {monthLabel(m)}
-          </span>
-        ))}
-      </div>
-      {hover !== null && (
-        <div className="pointer-events-none absolute top-0 z-20 rounded-(--radius-control) border border-(--color-line) bg-white px-2.5 py-1.5 text-xs shadow-lg" style={{ left: `clamp(0px, calc(${((hover + 0.5) / months.length) * 100}% - 5rem), calc(100% - 10rem))` }}>
-          <p className="font-semibold text-heading">{formatPeriod(months[hover]!)}</p>
-          <p className={cn('money', (values[hover] ?? 0) < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{som(values[hover] ?? 0)} so&apos;m</p>
-        </div>
-      )}
-    </div>
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 7l6 6 4-4 8 8M15 17h6v-6" />
+    </svg>
+  );
+}
+
+function IconPercent() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M19 5L5 19M7 9a2 2 0 100-4 2 2 0 000 4zM17 19a2 2 0 100-4 2 2 0 000 4z" />
+    </svg>
+  );
+}
+
+function IconScale() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 3v18M5 7h14M5 7l-3 7a3 3 0 006 0L5 7zM19 7l-3 7a3 3 0 006 0l-3-7M8 21h8" />
+    </svg>
   );
 }

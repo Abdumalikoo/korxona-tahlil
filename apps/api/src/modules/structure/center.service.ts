@@ -1,5 +1,7 @@
+import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { loadLocationRefs } from '../payroll/payroll.service';
 import { ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
 import { NO_DEPARTMENT, type CenterDetailResult, type CenterEmployeeRow, type DepartmentDetailResult, type DepartmentRow } from './center.types';
 import type { DrillBase, MoneyPart } from './districts.types';
@@ -99,8 +101,11 @@ const addPart = (parts: Map<string, Part>, key: string, label: string, amount: b
 };
 const toParts = (map: Map<string, Part>, limit = 12): MoneyPart[] => {
   const sorted = [...map.entries()].filter(([, p]) => p.amount !== 0n || p.previous !== 0n).sort((a, b) => (b[1].amount > a[1].amount ? 1 : b[1].amount < a[1].amount ? -1 : 0));
-  const head = sorted.slice(0, limit).map(([key, p]) => ({ key, label: p.label, amountTiyin: p.amount.toString(), previousTiyin: p.previous.toString() }));
-  const tail = sorted.slice(limit);
+  // «Mashina xarajatlari» hech qachon «Boshqalar»ga qo'shilmaydi — ichida mashinalar bo'yicha ochiladi
+  const top = sorted.slice(0, limit);
+  const rest = sorted.slice(limit);
+  const head = [...top, ...rest.filter(([key]) => key === 'VEHICLE' || key === SAFAR_PART.key)].map(([key, p]) => ({ key, label: p.label, amountTiyin: p.amount.toString(), previousTiyin: p.previous.toString() }));
+  const tail = rest.filter(([key]) => key !== 'VEHICLE' && key !== SAFAR_PART.key);
   if (tail.length)
     head.push({
       key: 'rest',
@@ -170,7 +175,7 @@ export class CenterService {
       }),
       this.prisma.expense.findMany({
         where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere },
-        select: { date: true, period: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, payrollBatchId: true, segment: true },
+        select: { id: true, date: true, period: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, source: true, payrollBatchId: true, segment: true },
       }),
       this.prisma.employee.findMany({
         where: { regionCode: CENTRAL_REGION },
@@ -180,6 +185,8 @@ export class CenterService {
     ]);
     // Siyosat: Markaz hisobidagi moddalar; yo'nalishlar (Tax free …) hisobidagilari Markazga kirmaydi
     const routing = policyRouting(policy, expenseCategories);
+    // 23106 › xarajatga o'tkazilgan xizmat safarlari — alohida «Xizmat safari» moddasi (ichida xodim → oylar)
+    const safarIds = await safarExpenseMeta(this.prisma);
     const regionName = new Map(regions.map((r) => [r.code, r.name]));
     const categoryLabel = new Map(expenseCategories.map((c) => [c.code, c.label]));
     const categoryParent = new Map(expenseCategories.map((c) => [c.code, c.parentCode]));
@@ -291,11 +298,15 @@ export class CenterService {
           c.regionalBy.set(beneficiary, (c.regionalBy.get(beneficiary) ?? 0n) + row.amountTiyin);
         }
         if (isPrevious) c.previousRegional += row.amountTiyin;
-        if (isCurrent || isPrevious) addPart(c.regionalParts, row.categoryCode, categoryLabel.get(row.categoryCode) ?? row.categoryCode, row.amountTiyin, isCurrent, isPrevious);
+        if (isCurrent || isPrevious) {
+          if (safarIds.has(row.id)) addPart(c.regionalParts, SAFAR_PART.key, SAFAR_PART.label, row.amountTiyin, isCurrent, isPrevious);
+          else addPart(c.regionalParts, row.categoryCode, categoryLabel.get(row.categoryCode) ?? row.categoryCode, row.amountTiyin, isCurrent, isPrevious);
+        }
         if (i !== undefined) c.trend.regional[i]! += row.amountTiyin;
         continue;
       }
-      const d = dept(row.departmentId);
+      // Markaz bo'limlari siyosati: modda boshqa bo'lim hisobiga yoki «bo'limga biriktirilmagan»
+      const d = dept(routing.depOf(row));
       let key: string;
       let label: string;
       if (row.source === 'PAYROLL') {
@@ -317,7 +328,10 @@ export class CenterService {
         label = 'Ijara';
       } else if (row.source === 'VEHICLE') {
         key = 'VEHICLE';
-        label = 'Mashinalar';
+        label = 'Mashina xarajatlari';
+      } else if (safarIds.has(row.id)) {
+        key = SAFAR_PART.key;
+        label = SAFAR_PART.label;
       } else {
         const top = categoryParent.get(row.categoryCode) ?? row.categoryCode;
         key = `c:${top}`;
@@ -352,15 +366,38 @@ export class CenterService {
       }
       if (workedIn(e, prev)) c.previousHeadcount += 1;
     }
-    // Xodimlar ish haqi — Markaz ish haqi xarajati yozilgan vedomostlardan
-    if (payrollBatches.size && c.employees.size) {
+    // Xodimlar ish haqi — Markaz ish haqi xarajati yozilgan vedomostlardan. Xodim shu oy QAYSI bo'limda ish haqi
+    // olgan bo'lsa (natijalar fayli / joy o'zgarishi — ish haqi xarajati qanday guruhlangan bo'lsa), o'sha bo'lim
+    // ro'yxatida chiqadi: reestrdagi bo'limi boshqa bo'lsa ham (aks holda bo'lim xarajati va xodimlar jami farq qiladi).
+    if (payrollBatches.size) {
       const entries = await this.prisma.payrollEntry.findMany({
-        where: { batchId: { in: [...payrollBatches] }, deletedAt: null, employeePinfl: { in: [...c.employees.keys()] } },
+        where: { batchId: { in: [...payrollBatches] }, deletedAt: null },
         select: { employeePinfl: true, period: true, totalTiyin: true },
       });
+      const periods = [...new Set(entries.map((e) => e.period))];
+      const locs = new Map<string, Awaited<ReturnType<typeof loadLocationRefs>>>();
+      for (const p of periods) locs.set(p, await loadLocationRefs(this.prisma, p, [...new Set(entries.filter((e) => e.period === p).map((e) => e.employeePinfl))]));
+      // Reestrda Markazda bo'lmaganlar (shu oy Markazga o'tkazilgan) — nomi uchun
+      const outside = [...new Set(entries.map((e) => e.employeePinfl))].filter((p) => !c.employees.has(p));
+      const regOf = new Map<string, { regionCode: number; departmentId: string | null }>();
+      if (outside.length) {
+        const extra = await this.prisma.employee.findMany({
+          where: { pinfl: { in: outside } },
+          select: { pinfl: true, fullName: true, position: true, employmentType: true, departmentId: true, regionCode: true, isActive: true },
+        });
+        for (const e of extra) regOf.set(e.pinfl, { regionCode: e.regionCode, departmentId: e.departmentId });
+        for (const e of extra) {
+          const inCenter = periods.some((p) => locs.get(p)?.get(e.pinfl)?.regionCode === CENTRAL_REGION);
+          if (inCenter) c.employees.set(e.pinfl, { fullName: e.fullName, position: e.position, employmentType: e.employmentType, isActive: e.isActive, departmentId: e.departmentId });
+        }
+      }
       for (const en of entries) {
-        const emp = c.employees.get(en.employeePinfl)!;
-        const d = dept(emp.departmentId);
+        const emp = c.employees.get(en.employeePinfl);
+        if (!emp) continue;
+        const loc = locs.get(en.period)?.get(en.employeePinfl);
+        const region = loc ? loc.regionCode : (regOf.get(en.employeePinfl)?.regionCode ?? CENTRAL_REGION);
+        if (region !== CENTRAL_REGION) continue;
+        const d = dept(loc?.department ? loc.department.id : emp.departmentId);
         const row = d.employees.get(en.employeePinfl) ?? { salary: 0n, previousSalary: 0n, periods: new Set<string>() };
         if (curPeriods.has(en.period)) {
           row.salary += en.totalTiyin;
@@ -529,6 +566,15 @@ export class CenterService {
     if (ch !== null) notes.push(`Bo'lim xarajati ${fmt(acc.expense)} — ${c.base.compareLabel}ga nisbatan ${ch > 0 ? '+' : ''}${ch.toFixed(1).replace('.', ',')}%.`);
     else notes.push(`Bo'lim xarajati ${fmt(acc.expense)}.`);
     if (acc.headcount > 0) notes.push(`Xodimlar: ${acc.headcount} ta; bir xodimga ${fmt(acc.expense / BigInt(acc.headcount))}.`);
+    // Tekshiruv: bo'lim ish haqi xarajati = xodimlar ro'yxatidagi ish haqi jami (farq bo'lsa — sababi bilan)
+    const listed = employees.reduce((s, e) => s + BigInt(e.salaryTiyin), 0n);
+    const gap = acc.payroll - listed;
+    if (gap !== 0n)
+      notes.push(
+        gap > 0n
+          ? `Ish haqi xarajati ${fmt(acc.payroll)}, xodimlar ro'yxatida ${fmt(listed)} — ${fmt(gap)} ro'yxatdagi xodimlarga bog'lanmagan (bo'limga qo'lda yozilgan yoki boshqa joydan o'tkazilgan ish haqi).`
+          : `Xodimlar ro'yxatidagi ish haqi (${fmt(listed)}) bo'lim ish haqi xarajatidan (${fmt(acc.payroll)}) ${fmt(-gap)} ko'p — ularning bir qismi siyosat bo'yicha boshqa hisobga o'tgan.`,
+      );
     const unpaid = employees.filter((e) => e.isActive && e.salaryTiyin === '0').length;
     if (unpaid) notes.push(`${unpaid} ta faol xodimga shu davrda ish haqi yozilmagan.`);
     return {
@@ -538,6 +584,8 @@ export class CenterService {
       expenseParts: toParts(acc.parts, limit),
       incomeParts: toParts(acc.incomeParts, limit),
       employees,
+      payrollTiyin: acc.payroll.toString(),
+      listedPayrollTiyin: listed.toString(),
       notes,
     };
   }

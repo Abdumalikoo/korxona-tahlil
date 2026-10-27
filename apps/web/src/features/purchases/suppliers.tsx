@@ -96,6 +96,7 @@ function SupplierDrawer({ value, onClose, onSaved }: { value: Supplier | 'new' |
   const [note, setNote] = useState('');
   const [active, setActive] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -125,6 +126,21 @@ function SupplierDrawer({ value, onClose, onSaved }: { value: Supplier | 'new' |
     }
   }
 
+  /** Butunlay o'chirish — faqat bitta ham xaridi bo'lmasa (aks holda server rad etadi: nofaol qiling) */
+  async function remove() {
+    if (!cur || !window.confirm(`«${cur.name}» butunlay o'chirilsinmi? Xaridi bo'lsa, o'chirilmaydi — «Faol» belgisini olib tashlang.`)) return;
+    setError(null);
+    setRemoving(true);
+    try {
+      await purchasesApi.removeSupplier(cur.id);
+      onSaved();
+    } catch (e) {
+      setError(errorMessage(e, "O'chirib bo'lmadi"));
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   return (
     <Drawer
       open={open}
@@ -132,6 +148,11 @@ function SupplierDrawer({ value, onClose, onSaved }: { value: Supplier | 'new' |
       title={cur ? 'Yetkazuvchini tahrirlash' : 'Yangi yetkazuvchi'}
       footer={
         <>
+          {cur && (
+            <Button variant="ghost" className="mr-auto text-(--color-expense) hover:bg-red-50" loading={removing} onClick={() => void remove()}>
+              O&apos;chirish
+            </Button>
+          )}
           <Button variant="secondary" onClick={onClose}>Bekor</Button>
           <Button data-save loading={saving} onClick={() => void save()}>Saqlash</Button>
         </>

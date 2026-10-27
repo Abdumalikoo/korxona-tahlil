@@ -236,6 +236,7 @@ export const unitPayrollApi = {
     api.post<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff`, body),
   updateStaff: (unit: string, pinfl: string, body: { active?: boolean; fullName?: string; position?: string | null }) =>
     api.patch<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff/${enc(pinfl)}`, body),
+  removeStaff: (unit: string, pinfl: string) => api.delete<ApiResponse<UnitStaffList>>(`/unit-payroll/${enc(unit)}/staff/${enc(pinfl)}`),
   commit: (unit: string, period: string, body: { rows: { pinfl: string; amountTiyin: string; fullName?: string | null }[]; fileName: string }, replace: boolean) =>
     api.post<ApiResponse<UnitCommitResult>>(`/unit-payroll/${enc(unit)}/commit?period=${enc(period)}&replace=${replace ? 'true' : 'false'}`, body),
   batches: (unit: string, period: string) => api.get<ApiResponse<UnitBatch[]>>(`/unit-payroll/${enc(unit)}/batches?period=${enc(period)}`),

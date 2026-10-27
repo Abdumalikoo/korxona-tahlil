@@ -96,6 +96,8 @@ export const policyApi = {
   get: () => api.get<ApiResponse<PolicyData>>('/expense-policy'),
   save: (centerCategories: string[], excludeCategories: string[] = [], payers: Record<string, string> = {}) =>
     api.patch<ApiResponse<PolicyData>>('/expense-policy', { centerCategories, excludeCategories, payers }),
+  /** Bitta modda to'lovchisi: 'region' — yozilgan joyi, 'center' — Markaz, yoki yo'nalish (TAX_FREE …) */
+  setPayer: (code: string, payer: string) => api.patch<ApiResponse<PolicyData>>('/expense-policy/payer', { code, payer }),
   /** Ish haqi komponentlari bo'yicha davrdagi summa (tarkibdan): Markaz / hudud xodimlari / yo'nalishlar */
   payrollAmounts: (from: string, to: string) => api.get<ApiResponse<{ range: { from: string; to: string }; rows: PayrollComponentAmount[] }>>('/expense-policy/payroll-amounts', { params: { from, to } }),
   amounts: (from: string, to: string) => api.get<ApiResponse<{ range: { from: string; to: string }; rows: CategoryAmount[] }>>('/expense-policy/amounts', { params: { from, to } }),

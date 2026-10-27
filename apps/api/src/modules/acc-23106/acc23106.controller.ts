@@ -72,7 +72,60 @@ export class Acc23106Controller {
     return { data };
   }
 
+  // ═══════════ Guruhlash: qoidalar va qo'lda belgilash ═══════════
+
+  /** Qoidalar ro'yxati (har biri qancha to'lovga tushgani bilan) */
+  @Get('rules')
+  async rules() {
+    return { data: await this.service.rules() };
+  }
+
+  /** Qoida: izohida shu matn bo'lsa — shu guruh */
+  @Roles(UserRole.ADMIN)
+  @Post('rules')
+  @HttpCode(HttpStatus.OK)
+  async addRule(@Body() body: { text?: unknown; kind?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.addRule(body, userId) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('rules/:id/delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteRule(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.service.deleteRule(id, userId) };
+  }
+
+  /** Qo'lda: tanlangan to'lovlar guruhi (kind=null — avtomatikka qaytarish) */
+  @Roles(UserRole.ADMIN)
+  @Post('override')
+  @HttpCode(HttpStatus.OK)
+  async override(@Body() body: { keys?: unknown; kind?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.setOverride(body, userId) };
+  }
+
+  /** Aqlli qayta tahlil — sinov (hech narsa o'zgarmaydi): qaysi guruhdan qaysiga, nechta, qancha */
+  @Roles(UserRole.ADMIN)
+  @Get('reanalyze')
+  async reanalyzePreview() {
+    return { data: await this.service.reanalyzePreview() };
+  }
+
+  /** Aqlli qayta tahlilni qo'llash */
+  @Roles(UserRole.ADMIN)
+  @Post('reanalyze')
+  @HttpCode(HttpStatus.OK)
+  async reanalyzeApply(@CurrentUser('id') userId: string) {
+    return { data: await this.service.reanalyzeApply(userId) };
+  }
+
   // ═══════════ Xizmat safari — bo'limlarga yo'naltirish ═══════════
+
+  /** Hamma saqlangan to'lovlar — qaysi bo'lim / hudud / yo'nalishga tegishli (?from=YYYY-MM&to=YYYY-MM) */
+  @Personal()
+  @Get('places')
+  async places(@Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.safar.places(from, to) };
+  }
 
   /** Saqlangan ko'chirmadagi xizmat safari to'lovlari: xodim, aniqlangan joy, tasdiq holati (?from=YYYY-MM&to=YYYY-MM) */
   @Personal()

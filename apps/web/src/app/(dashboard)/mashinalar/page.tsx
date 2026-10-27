@@ -26,6 +26,7 @@ import {
 import { FuelImportDialog } from '@/features/vehicles/fuel-import';
 import { Car3DViewer } from '@/features/vehicles/car3d/viewer';
 import { useAuth } from '@/lib/auth-context';
+import { useVehicleBase } from '@/features/vehicles/base';
 import { errorMessage } from '@/lib/error-message';
 import { currentPeriod, formatDate, formatTiyin, todayInput } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -81,7 +82,9 @@ function num(v: string): number | null {
 
 export default function VehicleEntryPage() {
   const { canWrite } = useAuth();
-  const editable = canWrite('/mashinalar');
+  /** Xarajatlar › Mashinalar yoki Mashinalar (Omborchi) — havolalar shu joyda qoladi */
+  const base = useVehicleBase();
+  const editable = canWrite(base) || canWrite('/mashinalar');
   const month = currentPeriod();
   const today = todayInput();
 
@@ -246,8 +249,11 @@ export default function VehicleEntryPage() {
         description="Benzin, moyka, ta'mir, texnik xizmat — mashinani tanlang va yozing"
         actions={
           <div className="flex items-center gap-2">
-            <Link href="/mashinalar/avtopark" className="inline-flex h-9 items-center rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3.5 text-sm hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700">
+            <Link href={`${base}/avtopark`} className="inline-flex h-9 items-center rounded-(--radius-control) border border-(--color-line-strong) bg-white px-3.5 text-sm hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700">
               3D avtopark
+            </Link>
+            <Link href={`${base}/bolimlar`} title="Har mashina qaysi bo'limniki — xarajati o'sha joyga yoziladi" className="inline-flex h-9 items-center rounded-(--radius-control) border border-brand-300 bg-white px-3.5 text-sm font-semibold text-brand-700 hover:bg-brand-50">
+              Bo&apos;limlarga biriktirish
             </Link>
             {editable && (
               <Button size="sm" onClick={() => setImporting(true)} title="AZS yoqilg'i kartasi hisoboti (.xls / .xlsx)">
@@ -275,7 +281,7 @@ export default function VehicleEntryPage() {
               <p className="font-semibold text-heading">Hali mashina kiritilmagan</p>
               <p className="text-sm text-(--color-text-muted)">Avval mashinalarni guruhlari bilan qo&apos;shing: Toshkent shahri, Marksheyder, Rahbariyat, Qo&apos;shimcha.</p>
             </div>
-            <Link href="/mashinalar/royxat" className="inline-flex h-10 items-center rounded-(--radius-control) bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700">
+            <Link href={`${base}/royxat`} className="inline-flex h-10 items-center rounded-(--radius-control) bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700">
               Mashinalar ro&apos;yxati →
             </Link>
           </Card>

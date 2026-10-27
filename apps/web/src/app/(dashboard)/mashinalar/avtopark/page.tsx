@@ -10,6 +10,7 @@ import { Garage3D } from '@/features/vehicles/car3d/garage';
 import { Car3DViewer } from '@/features/vehicles/car3d/viewer';
 import { FuelImportDialog } from '@/features/vehicles/fuel-import';
 import { useAuth } from '@/lib/auth-context';
+import { useVehicleBase } from '@/features/vehicles/base';
 import { formatPeriod, formatTiyin } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
@@ -25,7 +26,9 @@ import { useEffect, useMemo, useState } from 'react';
 
 export default function AvtoparkPage() {
   const { canWrite } = useAuth();
-  const editable = canWrite('/mashinalar');
+  /** Xarajatlar › Mashinalar yoki Mashinalar (Omborchi) — havolalar shu joyda qoladi */
+  const base = useVehicleBase();
+  const editable = canWrite(base) || canWrite('/mashinalar');
   const { month } = usePeriod();
   const [tick, setTick] = useState(0);
   const list = useAsync(() => vehiclesApi.list(month).then((r) => r.data), [month, tick]);
@@ -85,7 +88,7 @@ export default function AvtoparkPage() {
         {items.length === 0 ? (
           <Card className="p-8 text-center text-sm text-(--color-text-muted)">
             Hali mashina yo&apos;q.{' '}
-            <Link href="/mashinalar/royxat" className="font-semibold text-brand-700 hover:underline">
+            <Link href={`${base}/royxat`} className="font-semibold text-brand-700 hover:underline">
               Ro&apos;yxatga qo&apos;shing
             </Link>{' '}
             yoki benzin hisobotini yuklang — mashinalar undan yaratiladi.
@@ -158,11 +161,11 @@ export default function AvtoparkPage() {
                     {v.fuelCardNo && <p className="text-xs text-(--color-text-muted)">Yoqilg&apos;i kartasi: {v.fuelCardNo}</p>}
                     <div className="flex gap-2">
                       {editable && v.isActive && (
-                        <Link href={`/mashinalar?v=${v.id}`} title="Benzin, moyka, ta'mir, texnik xizmat — qo'lda" className="inline-flex h-9 flex-1 items-center justify-center rounded-(--radius-control) bg-brand-600 px-3 text-sm font-semibold text-white hover:bg-brand-700">
+                        <Link href={`${base}?v=${v.id}`} title="Benzin, moyka, ta'mir, texnik xizmat — qo'lda" className="inline-flex h-9 flex-1 items-center justify-center rounded-(--radius-control) bg-brand-600 px-3 text-sm font-semibold text-white hover:bg-brand-700">
                           Xarajat yozish
                         </Link>
                       )}
-                      <Link href="/mashinalar/tahlil" className="inline-flex h-9 items-center justify-center rounded-(--radius-control) border border-(--color-line-strong) px-3 text-sm hover:bg-brand-50">
+                      <Link href={`${base}/tahlil`} className="inline-flex h-9 items-center justify-center rounded-(--radius-control) border border-(--color-line-strong) px-3 text-sm hover:bg-brand-50">
                         Yozuvlari
                       </Link>
                     </div>

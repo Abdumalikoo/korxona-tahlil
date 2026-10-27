@@ -3,6 +3,7 @@
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { ReactNode } from 'react';
+import { changeOf, DiffCell, ReportCard, RTable, Td, Th, Tr } from '@/components/report/report';
 import { change, goodUp, pctSigned, short, som, spanText, type Filter, type Kind, type RecordRow, type Span, type XNode } from './api';
 import { useDrill } from './drill';
 
@@ -65,7 +66,7 @@ function Delta({ label, cur, base, up }: { label: string; cur: number; base: num
       <span className="text-(--color-text-muted)">
         {label} <span className="money text-(--color-text-faint)">({short(base)})</span>
       </span>
-      <span className={cn('money font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{c === null ? (cur ? 'yangi' : '—') : pctSigned(c)}</span>
+      <span className={cn('money font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{c === null ? '' : pctSigned(c)}</span>
     </div>
   );
 }
@@ -73,14 +74,14 @@ function Delta({ label, cur, base, up }: { label: string; cur: number; base: num
 /** Qaysi davrlar solishtirilayotgani */
 export function SpansNote({ cur, prev, ly }: { cur: Span; prev: Span; ly: Span }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-(--radius-card) border border-(--color-line) bg-white px-4 py-2.5 text-xs text-(--color-text-muted)">
-      <span>
+    <div className="flex flex-wrap items-center gap-2 text-xs text-(--color-text-muted)">
+      <span className="rounded-full border border-(--color-line) bg-white px-3 py-1">
         <b className="text-heading">Joriy davr:</b> {spanText(cur)}
       </span>
-      <span>
+      <span className="rounded-full border border-(--color-line) bg-white px-3 py-1">
         <b className="text-heading">O&apos;tgan davr:</b> {spanText(prev)}
       </span>
-      <span>
+      <span className="rounded-full border border-(--color-line) bg-white px-3 py-1">
         <b className="text-heading">O&apos;tgan yil:</b> {spanText(ly)}
       </span>
       <span className="ml-auto text-(--color-text-faint)">Istalgan summani bosing — uni tashkil qilgan yozuvlar ochiladi</span>
@@ -91,20 +92,30 @@ export function SpansNote({ cur, prev, ly }: { cur: Span; prev: Span; ly: Span }
 export function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 pt-2">
-      <h2 className="text-base font-semibold text-heading">{children}</h2>
+      <h2 className="text-base font-bold text-heading">{children}</h2>
       {hint && <p className="text-xs text-(--color-text-muted)">{hint}</p>}
     </div>
   );
 }
 
-/** Kesim tanlash (jadval ustida) */
+/** Kesim tanlash (jadval ustida) — tabletka tugmalar */
 export function Switch<T extends string>({ value, options, onChange }: { value: T; options: { value: T; label: string; count?: number }[]; onChange: (v: T) => void }) {
   return (
-    <div className="inline-flex flex-wrap gap-0.5 rounded-(--radius-control) bg-(--color-surface-sunken) p-0.5 text-sm font-medium" role="tablist">
+    <div className="flex flex-wrap gap-1.5" role="tablist">
       {options.map((o) => (
-        <button key={o.value} type="button" role="tab" aria-selected={value === o.value} onClick={() => onChange(o.value)} className={value === o.value ? 'rounded-[calc(var(--radius-control)-2px)] bg-white px-3 py-1.5 text-heading shadow-sm' : 'px-3 py-1.5 text-(--color-text-muted) hover:text-heading'}>
+        <button
+          key={o.value}
+          type="button"
+          role="tab"
+          aria-selected={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            'h-10 whitespace-nowrap rounded-lg border px-3 text-sm font-semibold transition-colors',
+            value === o.value ? 'border-brand-600 bg-brand-600 text-white shadow-pill' : 'border-brand-300 bg-white text-brand-700 hover:bg-brand-50',
+          )}
+        >
           {o.label}
-          {o.count !== undefined && <span className="ml-1.5 text-xs text-(--color-text-faint)">{o.count}</span>}
+          {o.count !== undefined && <span className={cn('ml-1.5 text-xs font-medium', value === o.value ? 'text-white/80' : 'text-(--color-text-faint)')}>{o.count}</span>}
         </button>
       ))}
     </div>
@@ -115,52 +126,46 @@ export function Switch<T extends string>({ value, options, onChange }: { value: 
 export function TopRecords({ rows, kind, title }: { rows: RecordRow[]; kind: Kind; title: string }) {
   const income = kind === 'income';
   return (
-    <section className="overflow-hidden rounded-(--radius-card) border border-(--color-line) bg-white shadow-card">
-      <header className="border-b border-(--color-line) px-4 py-3">
-        <h2 className="text-sm font-semibold text-heading">{title}</h2>
-        <p className="mt-0.5 text-xs text-(--color-text-muted)">Joriy davrdagi eng katta {rows.length} ta yozuv</p>
-      </header>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] text-sm">
-          <thead className="bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
+    <ReportCard title={title} badge={`Joriy davrdagi eng katta ${rows.length} ta yozuv`}>
+      <RTable minWidth={900}>
+        <thead>
+          <tr>
+            <Th className="w-12">№</Th>
+            <Th className="w-28">Sana</Th>
+            <Th className="text-left">Modda</Th>
+            <Th className="text-left">Birlik / bo&apos;lim</Th>
+            <Th className="text-left">{income ? 'Mijoz' : 'Kontragent'} · izoh</Th>
+            <Th className="w-40">Summa</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((x, i) => (
+            <Tr key={x.id}>
+              <Td className="text-(--color-text-faint)">{i + 1}</Td>
+              <Td className="whitespace-nowrap">{formatDate(x.date)}</Td>
+              <Td className="text-left text-heading">{x.category}</Td>
+              <Td className="text-left">
+                {x.unitLabel}
+                {x.department && <span className="block text-[11px] text-(--color-text-muted)">{x.department}</span>}
+              </Td>
+              <Td className="max-w-[18rem] text-left">
+                {x.party && <span className="block truncate text-heading">{x.party}</span>}
+                {x.description && <span className="block truncate text-[11px] text-(--color-text-muted)">{x.description}</span>}
+                {!x.party && !x.description && <span className="text-(--color-text-faint)"></span>}
+              </Td>
+              <Td className="whitespace-nowrap font-semibold text-heading">{som(x.amount)}</Td>
+            </Tr>
+          ))}
+          {!rows.length && (
             <tr>
-              <th className="w-10 px-3 py-2 text-right font-semibold">№</th>
-              <th className="w-24 px-2 py-2 text-left font-semibold">Sana</th>
-              <th className="px-2 py-2 text-left font-semibold">Modda</th>
-              <th className="px-2 py-2 text-left font-semibold">Birlik / bo&apos;lim</th>
-              <th className="px-2 py-2 text-left font-semibold">{income ? 'Mijoz' : 'Kontragent'} · izoh</th>
-              <th className="w-36 px-3 py-2 text-right font-semibold">Summa</th>
+              <td colSpan={6} className="px-4 py-8 text-center text-sm text-(--color-text-muted)">
+                Bu davrda yozuv yo&apos;q
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {rows.map((x, i) => (
-              <tr key={x.id} className="border-t border-(--color-line) align-top">
-                <td className="px-3 py-1.5 text-right text-xs text-(--color-text-faint)">{i + 1}</td>
-                <td className="px-2 py-1.5 whitespace-nowrap">{formatDate(x.date)}</td>
-                <td className="px-2 py-1.5 text-heading">{x.category}</td>
-                <td className="px-2 py-1.5">
-                  {x.unitLabel}
-                  {x.department && <span className="block text-xs text-(--color-text-muted)">{x.department}</span>}
-                </td>
-                <td className="max-w-[18rem] px-2 py-1.5">
-                  {x.party && <span className="block truncate text-heading">{x.party}</span>}
-                  {x.description && <span className="block truncate text-xs text-(--color-text-muted)">{x.description}</span>}
-                  {!x.party && !x.description && <span className="text-(--color-text-faint)">—</span>}
-                </td>
-                <td className="money px-3 py-1.5 text-right font-semibold text-heading">{som(x.amount)}</td>
-              </tr>
-            ))}
-            {!rows.length && (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-(--color-text-muted)">
-                  Bu davrda yozuv yo&apos;q
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+          )}
+        </tbody>
+      </RTable>
+    </ReportCard>
   );
 }
 
@@ -175,54 +180,48 @@ export function ChangesTable({ nodes, kind, root, title }: { nodes: XNode[]; kin
     const good = positive === up;
     return (
       <div className="min-w-0 flex-1">
-        <p className={cn('mb-1 text-xs font-semibold', good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{label}</p>
-        {items.length ? (
-          <table className="w-full text-sm">
-            <thead className="text-[10px] uppercase tracking-wide text-(--color-text-faint)">
+        <p className={cn('mb-1.5 text-sm font-bold', good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{label}</p>
+        <table className="w-full border-separate border-spacing-0 overflow-hidden rounded-xl border border-(--color-line) text-[13px]">
+          <thead>
+            <tr>
+              <Th className="text-left">Modda</Th>
+              <Th className="w-28">O&apos;tgan davr</Th>
+              <Th className="w-28">Joriy davr</Th>
+              <Th className="w-32">Farqi, foizda</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((n) => (
+              <Tr key={n.key + JSON.stringify(n.f)}>
+                <Td className="text-left">
+                  <button type="button" onClick={() => open({ kind: n.kind, f: n.f, title: `${root} › ${n.label}`, expected: n.cur })} className="text-left text-heading hover:text-brand-700 hover:underline">
+                    {n.label}
+                  </button>
+                </Td>
+                <Td className="whitespace-nowrap text-(--color-text-muted)">{som(n.prev)}</Td>
+                <Td className="whitespace-nowrap text-heading">{som(n.cur)}</Td>
+                <DiffCell value={n.cur - n.prev} growthGood={up} pct={changeOf(n.cur, n.prev)} />
+              </Tr>
+            ))}
+            {!items.length && (
               <tr>
-                <th className="py-1 text-left font-semibold">Modda</th>
-                <th className="w-28 py-1 text-right font-semibold">O&apos;tgan</th>
-                <th className="w-28 py-1 text-right font-semibold">Joriy</th>
-                <th className="w-24 py-1 text-right font-semibold">Farq</th>
+                <td colSpan={4} className="px-3 py-4 text-center text-xs text-(--color-text-faint)">
+                  Yo&apos;q
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {items.map((n) => {
-                const c = change(n.cur, n.prev);
-                return (
-                  <tr key={n.key + JSON.stringify(n.f)} className="border-t border-(--color-line)">
-                    <td className="py-1.5 pr-2">
-                      <button type="button" onClick={() => open({ kind: n.kind, f: n.f, title: `${root} › ${n.label}`, expected: n.cur })} className="text-left text-heading hover:text-brand-700 hover:underline">
-                        {n.label}
-                      </button>
-                    </td>
-                    <td className="money py-1.5 pl-3 text-right text-(--color-text-muted)">{som(n.prev)}</td>
-                    <td className="money py-1.5 pl-3 text-right text-heading">{som(n.cur)}</td>
-                    <td className={cn('money py-1.5 pl-3 text-right font-semibold whitespace-nowrap', good ? 'text-(--color-income)' : 'text-(--color-expense)')}>
-                      {n.cur > n.prev ? '+' : '−'}
-                      {short(Math.abs(n.cur - n.prev))}
-                      <span className="block text-[10px] font-normal text-(--color-text-faint)">{c === null ? 'yangi' : pctSigned(c)}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <p className="py-3 text-xs text-(--color-text-faint)">Yo&apos;q</p>
-        )}
+            )}
+          </tbody>
+        </table>
       </div>
     );
   };
   return (
-    <section className="rounded-(--radius-card) border border-(--color-line) bg-white p-4 shadow-card">
-      <h2 className="text-sm font-semibold text-heading">{title}</h2>
-      <p className="mb-3 mt-0.5 text-xs text-(--color-text-muted)">O&apos;tgan davrga nisbatan, so&apos;mdagi farq bo&apos;yicha</p>
-      <div className="flex flex-col gap-6 lg:flex-row">
+    <ReportCard title={title} badge="O'tgan davrga nisbatan, so'mdagi farq bo'yicha">
+      <div className="flex flex-col gap-6 px-4 pb-4 lg:flex-row">
         {side("Ko'paygan", grow, true)}
         {side('Kamaygan', fall, false)}
       </div>
-    </section>
+    </ReportCard>
   );
 }
 

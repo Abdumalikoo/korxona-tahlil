@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma, Vehicle, VehicleRecord } from '@prisma/client';
+import { isSegment, segmentLabel, type SegmentCode } from '../../common/segments/segments';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   VEHICLE_BODY_TYPES,
@@ -200,6 +201,58 @@ interface ValidRecord {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Mashina qaysi bo'limniki (xarajati qayerga yoziladi)
+//  • Markaz bo'limi yoki hudud — mashinaning o'z maydonlarida (regionCode, departmentId);
+//  • yo'nalish (Tax free, Marksheyder …) va izoh — «vehicles.places» sozlamasida (migratsiyasiz).
+// Biriktirilganda mashinaning BOR xarajatlari (yoki tanlangan oydan boshlab) ko'chadi, keyingi
+// yuklashlar (benzin hisoboti, qo'lda kiritish) avtomatik shu joyga yoziladi.
+// ═══════════════════════════════════════════════════════════
+
+const PLACES_KEY = 'vehicles.places';
+
+export interface VehiclePlaceMeta {
+  segment: SegmentCode | null;
+  comment: string | null;
+  at: string;
+  by: string;
+}
+
+export type VehicleUnit = 'CENTER' | 'REGION' | SegmentCode;
+
+export interface VehiclePlaceInput {
+  id?: unknown;
+  unit?: unknown;
+  regionCode?: unknown;
+  departmentId?: unknown;
+  comment?: unknown;
+}
+
+export interface VehiclePlaceRow {
+  id: string;
+  plateNumber: string;
+  model: string;
+  driverName: string | null;
+  fleetGroup: string | null;
+  fleetGroupLabel: string | null;
+  isActive: boolean;
+  unit: VehicleUnit;
+  regionCode: number;
+  regionName: string;
+  departmentId: string | null;
+  departmentName: string | null;
+  segment: SegmentCode | null;
+  /** Joy matni: «Markaz › Buxgalteriya», «Andijon viloyati», «Marksheyder» */
+  placeLabel: string;
+  comment: string | null;
+  commentAt: string | null;
+  /** Tanlangan davrdagi xarajat */
+  totalTiyin: string;
+  count: number;
+  /** Oylar bo'yicha (davr ichida) */
+  months: Record<string, string>;
+}
+
+// ═══════════════════════════════════════════════════════════
 // Servis
 // ═══════════════════════════════════════════════════════════
 
@@ -385,6 +438,7 @@ export class VehiclesService {
   async list(periodInput?: string): Promise<VehicleListResult> {
     const period = periodInput ? assertPeriod(periodInput, 'Oy') : currentPeriod();
 
+    const metas = await this.placeMeta();
     const [vehicles, monthGroups, odometers, counts, names] = await Promise.all([
       this.prisma.vehicle.findMany({
         where: { deletedAt: null },
@@ -446,6 +500,9 @@ export class VehiclesService {
         regionName: names.regions.get(vehicle.regionCode) ?? `Hudud ${vehicle.regionCode}`,
         departmentId: vehicle.departmentId,
         departmentName: vehicle.departmentId ? (names.departments.get(vehicle.departmentId) ?? null) : null,
+        segment: metas[vehicle.id]?.segment ?? null,
+        segmentLabel: metas[vehicle.id]?.segment ? segmentLabel(metas[vehicle.id]!.segment!) : null,
+        placeComment: metas[vehicle.id]?.comment ?? null,
         driverName: vehicle.driverName,
         driverPhone: vehicle.driverPhone,
         initialOdometerKm: vehicle.initialOdometerKm,
@@ -495,6 +552,14 @@ export class VehiclesService {
     const placeChanged =
       data.regionCode !== existing.regionCode || data.departmentId !== existing.departmentId;
     const labelChanged = data.plateNumber !== existing.plateNumber || data.model !== existing.model;
+    // Formada hudud/bo'lim o'zgardi — yo'nalish biriktiruvi bekor bo'ladi (mashina endi o'sha joyniki)
+    const metas = await this.placeMeta();
+    let meta = metas[id] ?? null;
+    if (placeChanged && meta?.segment) {
+      meta = { ...meta, segment: null };
+      metas[id] = meta;
+      await this.savePlaceMeta(metas);
+    }
 
     await this.prisma.$transaction(
       async (tx) => {
@@ -508,13 +573,15 @@ export class VehiclesService {
           await tx.expense.updateMany({
             where: { id: record.expenseId!, deletedAt: null },
             data: {
-              regionCode: data.regionCode,
-              departmentId: data.departmentId,
+              regionCode: meta?.segment ? null : data.regionCode,
+              departmentId: meta?.segment ? null : data.departmentId,
+              segment: meta?.segment ?? null,
               description: this.expenseText(
                 { plateNumber: data.plateNumber, model: data.model },
                 record.kind as VehicleRecordKindValue,
                 record.liters,
                 record.description,
+                meta?.comment ?? null,
               ),
             },
           });
@@ -546,10 +613,12 @@ export class VehiclesService {
     kind: VehicleRecordKindValue,
     liters: number | null,
     description: string | null,
+    comment: string | null = null,
   ): string {
     let result = `${RECORD_KIND_LABELS[kind]}: ${vehicle.plateNumber} (${vehicle.model})`;
     if (kind === 'FUEL' && liters) result += ` · ${String(liters).replace('.', ',')} l`;
     if (description) result += ` — ${description}`;
+    if (comment) result += ` · Izoh: ${comment}`;
     return result.slice(0, 500);
   }
 
@@ -652,16 +721,19 @@ export class VehiclesService {
     };
   }
 
-  /** Xarajat yozuvi maydonlari (createdById alohida qo'shiladi) */
-  private expenseData(record: ValidRecord) {
+  /** Xarajat yozuvi maydonlari (createdById alohida qo'shiladi); meta — mashina yo'nalishi va izohi */
+  private expenseData(record: ValidRecord, meta?: VehiclePlaceMeta | null) {
+    const segment = meta?.segment ?? null;
     return {
       date: record.date,
       period: record.period,
       amountTiyin: record.amountTiyin,
       categoryCode: VEHICLE_CATEGORIES[record.kind].code,
-      departmentId: record.vehicle.departmentId,
-      regionCode: record.vehicle.regionCode,
-      description: this.expenseText(record.vehicle, record.kind, record.liters, record.description),
+      // Yo'nalish mashinasi — hudud/bo'limsiz, `segment` bilan (yo'nalish xarajati)
+      departmentId: segment ? null : record.vehicle.departmentId,
+      regionCode: segment ? null : record.vehicle.regionCode,
+      segment,
+      description: this.expenseText(record.vehicle, record.kind, record.liters, record.description, meta?.comment ?? null),
       paymentMethod: record.paymentMethod,
       documentNo: record.documentNo,
       counterparty: record.counterparty,
@@ -708,10 +780,11 @@ export class VehiclesService {
   async createRecord(input: RecordInput, userId: string): Promise<RecordItem> {
     const record = await this.buildRecord(input ?? {});
     await this.ensureCategories();
+    const meta = (await this.placeMeta())[record.vehicle.id] ?? null;
 
     const created = await this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
-        data: { ...this.expenseData(record), createdById: userId },
+        data: { ...this.expenseData(record, meta), createdById: userId },
         select: { id: true },
       });
       return tx.vehicleRecord.create({
@@ -726,9 +799,11 @@ export class VehiclesService {
   async createImportedFuel(input: RecordInput, importKey: string, userId: string): Promise<RecordItem> {
     const record = await this.buildRecord(input ?? {});
     await this.ensureCategories();
+    // Mashina avval biriktirilgan joyga (bo'lim, hudud yoki yo'nalish) — avtomatik
+    const meta = (await this.placeMeta())[record.vehicle.id] ?? null;
     const created = await this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
-        data: { ...this.expenseData(record), createdById: userId },
+        data: { ...this.expenseData(record, meta), createdById: userId },
         select: { id: true },
       });
       return tx.vehicleRecord.create({
@@ -745,6 +820,7 @@ export class VehiclesService {
 
     const record = await this.buildRecord(input ?? {}, existing);
     await this.ensureCategories();
+    const meta = (await this.placeMeta())[record.vehicle.id] ?? null;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       let expenseId = existing.expenseId;
@@ -753,11 +829,11 @@ export class VehiclesService {
         : null;
 
       if (alive) {
-        await tx.expense.update({ where: { id: alive.id }, data: this.expenseData(record) });
+        await tx.expense.update({ where: { id: alive.id }, data: this.expenseData(record, meta) });
       } else {
         // Xarajat yozuvi yo'qolgan bo'lsa (masalan, savatdan o'chirilgan) — qayta yaratiladi
         const expense = await tx.expense.create({
-          data: { ...this.expenseData(record), createdById: userId },
+          data: { ...this.expenseData(record, meta), createdById: userId },
           select: { id: true },
         });
         expenseId = expense.id;
@@ -795,6 +871,163 @@ export class VehiclesService {
    * Davr bo'yicha: oylar kesimida tur summalari va har mashina uchun
    * masofa, 100 km ga sarf (to'liq bak usuli) va 1 km narxi.
    */
+  // ═══════════ Bo'limlarga biriktirish ═══════════
+
+  /** Qisqa kesh: benzin hisoboti yuklanganda har yozuv uchun sozlama qayta o'qilmasin */
+  private metaCache: { at: number; value: Record<string, VehiclePlaceMeta> } | null = null;
+
+  private async placeMeta(): Promise<Record<string, VehiclePlaceMeta>> {
+    if (this.metaCache && Date.now() - this.metaCache.at < 5_000) return { ...this.metaCache.value };
+    const value = await this.readPlaceMeta();
+    this.metaCache = { at: Date.now(), value };
+    return { ...value };
+  }
+
+  private async readPlaceMeta(): Promise<Record<string, VehiclePlaceMeta>> {
+    const row = await this.prisma.setting.findUnique({ where: { key: PLACES_KEY } });
+    const v = row?.value;
+    const out: Record<string, VehiclePlaceMeta> = {};
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
+        const m = (raw ?? {}) as Partial<VehiclePlaceMeta>;
+        out[k] = {
+          segment: isSegment(m.segment) ? m.segment : null,
+          comment: typeof m.comment === 'string' && m.comment.trim() ? m.comment.trim().slice(0, 300) : null,
+          at: typeof m.at === 'string' ? m.at : '',
+          by: typeof m.by === 'string' ? m.by : '',
+        };
+      }
+    }
+    return out;
+  }
+
+  private async savePlaceMeta(map: Record<string, VehiclePlaceMeta>, tx: Pick<PrismaService, 'setting'> = this.prisma) {
+    const clean: Record<string, VehiclePlaceMeta> = {};
+    for (const [k, m] of Object.entries(map)) if (m.segment || m.comment) clean[k] = m;
+    const value = clean as unknown as Prisma.InputJsonValue;
+    await tx.setting.upsert({ where: { key: PLACES_KEY }, create: { key: PLACES_KEY, value }, update: { value } });
+    this.metaCache = null;
+  }
+
+  /** Mashinalar va ularning joyi, tanlangan davrdagi xarajati (oylar bilan) */
+  async places(fromInput?: string, toInput?: string): Promise<{ from: string; to: string; months: string[]; items: VehiclePlaceRow[] }> {
+    const to = toInput ? assertPeriod(toInput, 'Tugash oyi') : currentPeriod();
+    const from = fromInput ? assertPeriod(fromInput, 'Boshlanish oyi') : shiftPeriod(to, -8);
+    if (from > to) throw new BadRequestException('Boshlanish oyi tugash oyidan keyin');
+    const months = periodsBetween(from, to);
+    if (months.length > 36) throw new BadRequestException('Davr 36 oydan oshmasin');
+    const [vehicles, groups, names, metas] = await Promise.all([
+      this.prisma.vehicle.findMany({ where: { deletedAt: null }, orderBy: [{ isActive: 'desc' }, { plateNumber: 'asc' }] }),
+      this.prisma.vehicleRecord.groupBy({ by: ['vehicleId', 'period'], where: { deletedAt: null, period: { gte: from, lte: to } }, _sum: { amountTiyin: true }, _count: { _all: true } }),
+      this.names(),
+      this.placeMeta(),
+    ]);
+    const items = vehicles.map((v): VehiclePlaceRow => {
+      const meta = metas[v.id] ?? null;
+      const mine = groups.filter((g) => g.vehicleId === v.id);
+      const monthMap: Record<string, string> = {};
+      let total = 0n;
+      let count = 0;
+      for (const g of mine) {
+        const sum = g._sum.amountTiyin ?? 0n;
+        monthMap[g.period] = sum.toString();
+        total += sum;
+        count += g._count._all;
+      }
+      const segment = meta?.segment ?? null;
+      const regionName = names.regions.get(v.regionCode) ?? `Hudud ${v.regionCode}`;
+      const departmentName = v.departmentId ? (names.departments.get(v.departmentId) ?? null) : null;
+      const unit: VehicleUnit = segment ?? (v.regionCode === CENTRAL_REGION ? 'CENTER' : 'REGION');
+      const placeLabel = segment ? segmentLabel(segment) : v.regionCode === CENTRAL_REGION ? `Markaz${departmentName ? ` › ${departmentName}` : ''}` : `${regionName}${departmentName ? ` › ${departmentName}` : ''}`;
+      return {
+        id: v.id,
+        plateNumber: v.plateNumber,
+        model: v.model,
+        driverName: v.driverName,
+        fleetGroup: v.fleetGroup,
+        fleetGroupLabel: VEHICLE_GROUPS.find((g) => g.value === v.fleetGroup)?.label ?? null,
+        isActive: v.isActive,
+        unit,
+        regionCode: v.regionCode,
+        regionName,
+        departmentId: v.departmentId,
+        departmentName,
+        segment,
+        placeLabel,
+        comment: meta?.comment ?? null,
+        commentAt: meta?.at || null,
+        totalTiyin: total.toString(),
+        count,
+        months: monthMap,
+      };
+    });
+    return { from, to, months, items };
+  }
+
+  /**
+   * Biriktirish: mashina(lar) → Markaz bo'limi / hudud / yo'nalish, izoh bilan.
+   * Bog'langan xarajatlar (hammasi yoki fromPeriod dan boshlab) ko'chiriladi; keyingi yuklashlar — shu joyga.
+   */
+  async setPlaces(body: { items?: unknown; fromPeriod?: unknown }, userId: string): Promise<{ vehicles: number; expenses: number }> {
+    const list = Array.isArray(body?.items) ? (body.items as VehiclePlaceInput[]) : [];
+    if (!list.length) throw new BadRequestException('Mashina tanlanmagan');
+    if (list.length > 500) throw new BadRequestException("Bir martada 500 tagacha mashina");
+    const fromPeriod = body.fromPeriod ? assertPeriod(String(body.fromPeriod), 'Qaysi oydan') : null;
+    const [metas, names] = await Promise.all([this.placeMeta(), this.names()]);
+    const at = new Date().toISOString();
+    let moved = 0;
+    const plan: { vehicle: Vehicle; regionCode: number; departmentId: string | null; meta: VehiclePlaceMeta }[] = [];
+    for (const it of list) {
+      const id = typeof it.id === 'string' ? it.id : '';
+      const vehicle = await this.findVehicle(id);
+      const unit = String(it.unit ?? '');
+      const comment = typeof it.comment === 'string' && it.comment.trim() ? it.comment.trim().slice(0, 300) : null;
+      let regionCode = CENTRAL_REGION;
+      let departmentId: string | null = null;
+      let segment: SegmentCode | null = null;
+      if (unit === 'CENTER') {
+        departmentId = typeof it.departmentId === 'string' && it.departmentId ? it.departmentId : null;
+        if (departmentId && !names.departments.has(departmentId)) throw new BadRequestException(`${vehicle.plateNumber}: bo'lim topilmadi`);
+      } else if (unit === 'REGION') {
+        const code = Number(it.regionCode);
+        if (!Number.isInteger(code) || code <= 0 || !names.regions.has(code)) throw new BadRequestException(`${vehicle.plateNumber}: hudud tanlanmagan`);
+        regionCode = code;
+      } else if (isSegment(unit)) {
+        segment = unit;
+      } else {
+        throw new BadRequestException(`${vehicle.plateNumber}: qayerga biriktirilishi noto'g'ri`);
+      }
+      plan.push({ vehicle, regionCode, departmentId, meta: { segment, comment, at, by: userId } });
+    }
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        for (const p of plan) {
+          await tx.vehicle.update({ where: { id: p.vehicle.id }, data: { regionCode: p.regionCode, departmentId: p.departmentId } });
+          metas[p.vehicle.id] = p.meta;
+          const records = await tx.vehicleRecord.findMany({
+            where: { vehicleId: p.vehicle.id, deletedAt: null, expenseId: { not: null }, ...(fromPeriod ? { period: { gte: fromPeriod } } : {}) },
+          });
+          for (const r of records) {
+            const res = await tx.expense.updateMany({
+              where: { id: r.expenseId!, deletedAt: null },
+              data: {
+                regionCode: p.meta.segment ? null : p.regionCode,
+                departmentId: p.meta.segment ? null : p.departmentId,
+                segment: p.meta.segment,
+                description: this.expenseText(p.vehicle, r.kind as VehicleRecordKindValue, r.liters, r.description, p.meta.comment),
+              },
+            });
+            moved += res.count;
+          }
+        }
+        await this.savePlaceMeta(metas, tx);
+      },
+      { timeout: 120_000 },
+    );
+    return { vehicles: plan.length, expenses: moved };
+  }
+
   async summary(fromInput: string, toInput: string): Promise<VehicleSummary> {
     const to = toInput ? assertPeriod(toInput, 'Tugash oyi') : currentPeriod();
     const from = fromInput ? assertPeriod(fromInput, 'Boshlanish oyi') : shiftPeriod(to, -11);

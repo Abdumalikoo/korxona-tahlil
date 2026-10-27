@@ -357,6 +357,23 @@ export class SalaryCompositionController {
     return { data: await this.places.fixStored(period, pinfls.map(String).slice(0, 2000), userId) };
   }
 
+  /** Tarkib bo'yicha hamma xodim: shu oy joyi tarkibdan farq qiladiganlar (ko'rish — hech narsa saqlanmaydi) */
+  @Personal()
+  @Get('places/sync')
+  async placesSyncPreview(@Query('period') period: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    return { data: await this.places.syncPreview(period) };
+  }
+
+  /** Tarkib bo'yicha hamma xodimni joylashtirish: shu oy joyi tarkibdagidek, ish haqi xarajati qayta guruhlanadi */
+  @Roles(UserRole.ADMIN)
+  @Post('places/sync')
+  @HttpCode(HttpStatus.OK)
+  async placesSync(@Query('period') period: string, @CurrentUser('id') userId: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period ?? '')) throw new BadRequestException("Davr noto'g'ri formatda (YYYY-MM)");
+    return { data: await this.places.syncApply(period, userId) };
+  }
+
   /** Bo'lim sahifasidan qo'lda: { pinfls, target, place, onlyThisMonth } — umumiy hisobotdan kelganlar shu oy tanlangan joyda */
   @Roles(UserRole.ADMIN)
   @Post('places/set')

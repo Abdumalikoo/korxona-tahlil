@@ -445,6 +445,26 @@ export class CashbookService {
     return (await this.accounts()).find((a) => a.id === id)!;
   }
 
+  /**
+   * Hisobraqamni o'chirish — faqat hech bir kunda summasi kiritilmagan, ichida qatori yo'q va boshqa qator
+   * jamisi unga bog'lanmagan bo'lsa. Aks holda — «Yashirish» (isActive=false) taklif qilinadi (tarix buzilmasin).
+   */
+  async removeAccount(id: string, userId: string): Promise<{ success: true }> {
+    const row = await this.prisma.cashAccount.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('Hisobraqam topilmadi');
+    if (row.isHeader) throw new BadRequestException("Bo'lim sarlavhasini o'chirib bo'lmaydi");
+    const [kids, rolled, lines] = await Promise.all([
+      this.prisma.cashAccount.count({ where: { parentId: id } }),
+      this.prisma.cashAccount.count({ where: { rollupId: id } }),
+      this.prisma.cashReportLine.count({ where: { accountId: id } }),
+    ]);
+    if (kids || rolled) throw new BadRequestException("Ichida qatorlari bor — avval ularni o'chiring yoki ko'chiring");
+    if (lines) throw new BadRequestException(`Bu hisobraqam bo'yicha ${lines} ta kunda summa kiritilgan — o'chirib bo'lmaydi, «Yashirish»dan foydalaning`);
+    await this.prisma.cashAccount.delete({ where: { id } });
+    await this.audit.log({ userId, action: 'DELETE', entity: 'cash_account', entityId: id, summary: `Hisobraqam o'chirildi: ${row.name}` });
+    return { success: true };
+  }
+
   /** Bir qatorni yuqoriga/pastga (bir xil ota ichida) */
   async move(id: string, dir: 'up' | 'down'): Promise<CashAccountView[]> {
     const row = await this.prisma.cashAccount.findUnique({ where: { id } });

@@ -556,6 +556,11 @@ export const compositionApi = {
   unitPlaces: (period: string, unit: string) => api.get<ApiResponse<UnitPlaces>>('/salary-composition/places/unit', { params: { period, unit } }),
   fixPlaces: (period: string, pinfls: string[]) =>
     api.post<ApiResponse<{ fixed: number; moved: number; redistributed: boolean; warnings: string[] }>>(`/salary-composition/places/fix?period=${period}`, { pinfls }),
+  /** Tarkib bo'yicha hamma xodim: shu oy joyi farq qiladiganlar (ko'rish) */
+  syncPlacesPreview: (period: string) => api.get<ApiResponse<PlacesSync>>('/salary-composition/places/sync', { params: { period } }),
+  /** Tarkib bo'yicha hamma xodimni joylashtirish (ish haqi qayta guruhlanadi) */
+  syncPlaces: (period: string) =>
+    api.post<ApiResponse<{ fixed: number; moved: number; redistributed: boolean; warnings: string[]; unmapped: { name: string; count: number }[] }>>(`/salary-composition/places/sync?period=${period}`, {}),
   revertPlaces: (period: string, pinfls: string[]) => api.post<ApiResponse<{ reverted: number; redistributed: boolean }>>(`/salary-composition/places/revert?period=${period}`, { pinfls }),
 
   /** Yo'nalishda (unit) — oy ham kerak */
@@ -684,3 +689,19 @@ export const reconcileApi = {
     api.post<ApiResponse<{ success: true; count: number; totalTiyin: string; ids: string[] }>>(`/salary-composition/reconcile/allocate?period=${period}${unitQs(unit)}`, { items }),
   undo: (id: string) => api.post<ApiResponse<{ success: true }>>(`/salary-composition/reconcile/adjust/${encodeURIComponent(id)}/undo`),
 };
+
+/** Tarkib bo'yicha joylashtirish — oldindan ko'rish */
+export interface PlacesSync {
+  period: string;
+  hasTarkib: boolean;
+  /** Tarkibdagi xodimlar (bo'limi yozilgan) */
+  total: number;
+  /** Bo'lim sahifasida qo'lda tanlangan joyi bor — tegilmaydi */
+  manual: number;
+  items: { pinfl: string; fullName: string; deptName: string; from: string; to: string; departmentId: string; unitChange: boolean }[];
+  byTarget: { label: string; count: number }[];
+  /** Bizdagi bo'limga bog'lanmagan nomlar */
+  unmapped: { name: string; count: number }[];
+  /** Taxminiy moslik (eslab qolinmagan) */
+  guessed: { name: string; departmentName: string }[];
+}

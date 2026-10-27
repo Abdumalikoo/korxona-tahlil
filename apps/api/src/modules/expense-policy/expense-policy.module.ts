@@ -6,11 +6,12 @@ import { UnitPayrollModule } from '../unit-payroll/unit-payroll.module';
 import { ExpensePolicyController } from './expense-policy.controller';
 import { ExpensePolicyService } from './expense-policy.service';
 import { UnitPolicyService } from './unit-policy.service';
+import { DepPolicyService } from './dep-policy.service';
 
 @Module({
   imports: [PayrollModule, FixedAssetsModule, TaxesModule, UnitPayrollModule],
   controllers: [ExpensePolicyController],
-  providers: [ExpensePolicyService, UnitPolicyService],
+  providers: [ExpensePolicyService, UnitPolicyService, DepPolicyService],
   exports: [ExpensePolicyService, UnitPolicyService],
 })
 export class ExpensePolicyModule {}

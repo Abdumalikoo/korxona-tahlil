@@ -79,6 +79,14 @@ export interface PolicyValue {
    * (modda «IHQ_<KOD>») bo'lib yoziladi va tanlangan bo'lim hisobiga o'tadi. Maqsad manbaning o'zi — «ish haqi ichida qoladi».
    */
   unitPayroll: UnitRules;
+  /**
+   * Markaz bo'limlari siyosati (foyda keltirmaydigan bo'limlar): bo'limda yozilgan modda kim hisobidan.
+   * { <departmentId>: { MODDA: 'SELF' | 'CENTER' | 'dep:<id>' | 'TAX_FREE' … } }.
+   *  SELF — shu bo'limda qoladi (umumiy siyosat ham qo'llanmaydi); CENTER — Markaz umumiy (bo'limga biriktirilmagan);
+   *  dep:<id> — boshqa Markaz bo'limi hisobiga; yo'nalish kodi — o'sha yo'nalish hisobiga (Markazdan chiqadi).
+   * Ota moddaga berilgan qoida ichkilariga ham. Bo'lim qoidasi Markaz bo'limi qoidasi va umumiy siyosatdan ustun.
+   */
+  depRules: UnitRules;
 }
 
 /** Ish haqi qismi moddasi: «IHQ_<komponent kodi>» (ota modda — «Ish haqi qismlari») */
@@ -122,6 +130,22 @@ export function cleanUnitRules(raw: unknown): UnitRules {
   return out;
 }
 
+/** Markaz bo'limlari qoidalari: maqsad — SELF, CENTER, dep:<id> yoki yo'nalish */
+export function cleanDepRules(raw: unknown): UnitRules {
+  const out: UnitRules = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [dep, map] of Object.entries(raw as Record<string, unknown>)) {
+    if (!dep || dep.length > 64 || !map || typeof map !== 'object' || Array.isArray(map)) continue;
+    const rules: Record<string, string> = {};
+    for (const [code, target] of Object.entries(map as Record<string, unknown>)) {
+      if (!code || code.length > 64 || typeof target !== 'string') continue;
+      if (target === 'SELF' || target === 'CENTER' || (target.startsWith('dep:') && target.length > 4 && target.length < 70) || isSegment(target)) rules[code] = target;
+    }
+    if (Object.keys(rules).length) out[dep] = rules;
+  }
+  return out;
+}
+
 /** Bo'lim kodi → Solishtirma birligi kaliti (Markaz — "center", yo'nalish — "s:KOD") */
 export function unitTargetKey(target: string): string {
   return target === 'CENTER' ? 'center' : segmentKey(target);
@@ -138,7 +162,7 @@ export function unitOfKey(key: string): string | null {
 /** Bazadan siyosat (yo'q bo'lsa — standart) */
 export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
   const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
-  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown; payers: unknown; unitRules: unknown; unitPayroll: unknown }>;
+  const v = (row?.value ?? {}) as Partial<{ centerCategories: unknown; excludeCategories: unknown; payrollComponents: unknown; payers: unknown; unitRules: unknown; unitPayroll: unknown; depRules: unknown }>;
   const chosen = Array.isArray(v.centerCategories) ? v.centerCategories.filter((c): c is string => typeof c === 'string') : [];
   const excluded = Array.isArray(v.excludeCategories) ? v.excludeCategories.filter((c): c is string => typeof c === 'string' && !ALWAYS_CENTER.includes(c)) : [];
   const payrollComponents = Array.isArray(v.payrollComponents)
@@ -158,6 +182,7 @@ export async function readPolicy(prisma: PrismaService): Promise<PolicyValue> {
     payers: cleanPayers(v.payers, chosen),
     unitRules: cleanUnitRules(v.unitRules),
     unitPayroll: cleanUnitRules(v.unitPayroll),
+    depRules: cleanDepRules(v.depRules),
   };
 }
 
@@ -172,7 +197,7 @@ function cleanPayers(raw: unknown, chosen: string[]): Record<string, string> {
 }
 
 /** Siyosatni yozadi (boshqa maydonlar saqlanadi) */
-export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[]; payers?: Record<string, string>; unitRules?: UnitRules; unitPayroll?: UnitRules }): Promise<void> {
+export async function writePolicy(prisma: PrismaService, patch: { centerCategories?: string[]; excludeCategories?: string[]; payrollComponents?: string[]; payers?: Record<string, string>; unitRules?: UnitRules; unitPayroll?: UnitRules; depRules?: UnitRules }): Promise<void> {
   // Siyosat bir nechta bo'limdan yoziladi — bitta yozuvga navbat bilan (o'qish va yozish orasida boshqasi aralashmasin)
   return runExclusive(`setting:${POLICY_KEY}`, async () => {
     const row = await prisma.setting.findUnique({ where: { key: POLICY_KEY } });
@@ -185,6 +210,7 @@ export async function writePolicy(prisma: PrismaService, patch: { centerCategori
       ...(patch.payers ? { payers: patch.payers } : {}),
       ...(patch.unitRules ? { unitRules: patch.unitRules } : {}),
       ...(patch.unitPayroll ? { unitPayroll: patch.unitPayroll } : {}),
+      ...(patch.depRules ? { depRules: patch.depRules } : {}),
     };
     await prisma.setting.upsert({ where: { key: POLICY_KEY }, create: { key: POLICY_KEY, value }, update: { value } });
   });
@@ -304,9 +330,16 @@ export interface PolicyRouting {
    * Bo'lim qoidasi «shu bo'limda qoladi» bo'lsa — umumiy siyosat ham qo'llanmaydi.
    */
   route: (row: { categoryCode: string | null; regionCode: number | null; departmentId: string | null; segment?: string | null }) => { key: string; origin: 'unit' | 'global' } | null;
+  /**
+   * Markazda yozilgan yozuv qaysi Markaz bo'limi xarajatiga (bo'limlar siyosati bilan): bo'lim id yoki null
+   * (bo'limga biriktirilmagan). Qoida bo'lmasa — yozuvdagi bo'lim.
+   */
+  depOf: (row: { categoryCode: string | null; departmentId: string | null }) => string | null;
+  /** Bo'lim qoidasi (ota moddalar bilan): maqsad yoki undefined */
+  depRule: (departmentId: string | null, code: string | null) => string | undefined;
 }
 
-export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'payers'> & { unitRules?: UnitRules; unitPayroll?: UnitRules }, categories: { code: string; parentCode: string | null }[]): PolicyRouting {
+export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'payers'> & { unitRules?: UnitRules; unitPayroll?: UnitRules; depRules?: UnitRules }, categories: { code: string; parentCode: string | null }[]): PolicyRouting {
   const moved = expandCategories(policy.centerCategories, categories);
   const parent = new Map(categories.map((c) => [c.code, c.parentCode]));
   const include = new Set(policy.centerCategories.filter((c) => !c.startsWith('!')));
@@ -329,10 +362,30 @@ export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'pa
   };
   const lookups = new Map<string, (code: string) => string | undefined>();
   for (const [source, rules] of Object.entries(policy.unitRules ?? {})) lookups.set(source, ruleLookup(rules, categories));
+  const depLookups = new Map<string, (code: string) => string | undefined>();
+  const depRule: PolicyRouting['depRule'] = (departmentId, code) => {
+    if (!departmentId || !code) return undefined;
+    const rules = policy.depRules?.[departmentId];
+    if (!rules) return undefined;
+    let f = depLookups.get(departmentId);
+    if (!f) depLookups.set(departmentId, (f = ruleLookup(rules, categories)));
+    return f(code);
+  };
+  const depOf: PolicyRouting['depOf'] = (row) => {
+    const t = depRule(row.departmentId, row.categoryCode);
+    if (t === 'CENTER') return null;
+    if (t?.startsWith('dep:')) return t.slice(4);
+    return row.departmentId;
+  };
   const route: PolicyRouting['route'] = (row) => {
     const code = row.categoryCode;
     if (!code) return null;
     const source = entryUnitOf({ regionCode: row.regionCode, departmentId: row.departmentId, segment: row.segment ?? null });
+    // Markaz bo'limi qoidasi — eng ustun: yo'nalishga o'tadi yoki Markazda qoladi (bo'limi depOf bilan)
+    if (source === 'CENTER' && row.departmentId) {
+      const t = depRule(row.departmentId, code);
+      if (t !== undefined) return isSegment(t) ? { key: segmentKey(t), origin: 'unit' } : null;
+    }
     // Ish haqi qismi (IHQ_<komponent>) — shu bo'limning ish haqi qismlari qoidasi bo'yicha
     const part = payrollPartOf(code);
     if (part !== null && source) {
@@ -343,7 +396,7 @@ export function policyRouting(policy: Pick<PolicyValue, 'centerCategories' | 'pa
     if (target !== undefined) return target === source ? null : { key: unitTargetKey(target), origin: 'unit' };
     return moved.has(code) ? { key: payerKey(code), origin: 'global' } : null;
   };
-  return { moved, payerKey, route };
+  return { moved, payerKey, route, depOf, depRule };
 }
 
 /** Siyosat yo'nalishi (bazadan) */

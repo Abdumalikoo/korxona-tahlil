@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
 import { compact, pct } from '@/features/structure/api';
+import { sum } from '@/components/report/report';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatPeriod, formatPeriodShort, formatSum, parseSum } from '@/lib/format';
@@ -458,6 +459,7 @@ export function TaxesPage() {
                 </div>
               )}
             </Card>
+            {m.payrollTaxes && m.payrollTaxes.rows.length > 0 && <PayrollTaxesCard pt={m.payrollTaxes} period={period} />}
             {!m.hasPayroll && m.types.some((x) => x.method === 'PAYROLL_PERCENT' && x.active) && (
               <p className="rounded-lg bg-amber-50 px-4 py-2 text-xs text-amber-900">
                 {formatPeriod(period)} uchun ish haqi vedomosti yuklanmagan — foizli soliqlar (ijtimoiy soliq) hisoblanmadi.{' '}
@@ -488,5 +490,79 @@ export function TaxesPage() {
       />
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} duration={toast.tone === 'error' ? 7000 : 4000} />}
     </>
+  );
+}
+/**
+ * Ish haqi bilan bog'liq ikki soliq yonma-yon (har hudud / Markaz):
+ *  • ijtimoiy soliq — korxona o'z hisobidan to'laydi, XARAJAT (yuqoridagi jadvalda ham);
+ *  • daromad solig'i (JShDS) — xodimning hisoblangan ish haqidan ushlanadi (ish haqi fondi × foiz), ish haqi
+ *    xarajati ICHIDA — jami soliqlarga qo'shilmaydi (ikki marta sanalmasin).
+ */
+function PayrollTaxesCard({ pt, period }: { pt: NonNullable<import('./api').TaxMonth['payrollTaxes']>; period: string }) {
+  const [open, setOpen] = useState(false);
+  const rows = open ? pt.rows : pt.rows.slice(0, 8);
+  const fund = Number(pt.totals.fundTiyin);
+  const social = Number(pt.totals.socialTiyin);
+  const it = Number(pt.totals.incomeTaxTiyin);
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-(--color-line) px-5 py-3">
+        <p className="mr-auto text-sm font-semibold text-heading">Ish haqi soliqlari · {formatPeriod(period)}</p>
+        <span className="text-sm">
+          <span className="text-(--color-text-muted)">Ish haqi fondi </span>
+          <b className="tabular-nums">{sum(fund)}</b>
+        </span>
+        <span className="text-sm">
+          <span className="text-(--color-text-muted)">
+            {pt.socialName}
+            {pt.socialPct !== null ? ` (${String(pt.socialPct).replace('.', ',')}%)` : ''}{' '}
+          </span>
+          <b className="tabular-nums text-(--color-expense)">{sum(social)}</b>
+        </span>
+        <span className="text-sm">
+          <span className="text-(--color-text-muted)">Daromad solig&apos;i ({String(pt.incomeTaxPct).replace('.', ',')}%) </span>
+          <b className="tabular-nums text-heading">{sum(it)}</b>
+        </span>
+        <span className="text-sm">
+          <span className="text-(--color-text-muted)">Ikkalasi </span>
+          <b className="tabular-nums">{sum(social + it)}</b>
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead>
+            <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-(--color-text-muted)">
+              <th className="px-5 py-2 text-left">Hudud / Markaz</th>
+              <th className="px-3 py-2 text-right">Ish haqi fondi</th>
+              <th className="px-3 py-2 text-right">{pt.socialName} · xarajat</th>
+              <th className="px-3 py-2 text-right">Daromad solig&apos;i · ushlanadi</th>
+              <th className="px-5 py-2 text-right">Ikkalasi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-(--color-line)">
+            {rows.map((r) => (
+              <tr key={r.key} className="hover:bg-slate-50">
+                <td className="px-5 py-2 text-heading">{r.name}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{sum(Number(r.fundTiyin))}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-(--color-expense)">{sum(Number(r.socialTiyin))}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{sum(Number(r.incomeTaxTiyin))}</td>
+                <td className="px-5 py-2 text-right font-semibold tabular-nums">{sum(Number(r.socialTiyin) + Number(r.incomeTaxTiyin))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 border-t border-(--color-line) px-5 py-2.5 text-[11px] text-(--color-text-muted)">
+        <span className="mr-auto">
+          Ijtimoiy soliq — korxona to&apos;laydi, xarajat (jami soliqlarda bor). Daromad solig&apos;i (JShDS) — xodimning hisoblangan ish haqidan ushlanadi: ish haqi fondi ×{' '}
+          {String(pt.incomeTaxPct).replace('.', ',')}% (soliq hisobotidagi bilan teng); u ish haqi xarajati ichida, jami soliqlarga qo&apos;shilmaydi. Foiz — «Ish haqi solishtirma» sozlamasida.
+        </span>
+        {pt.rows.length > 8 && (
+          <button type="button" onClick={() => setOpen((x) => !x)} className="font-semibold text-brand-700 hover:underline">
+            {open ? 'Qisqartirish' : `Hammasi (${pt.rows.length})`}
+          </button>
+        )}
+      </div>
+    </Card>
   );
 }
