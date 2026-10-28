@@ -488,9 +488,9 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
     <div className="space-y-4">
       {tabs}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Box label="Chiqim" value={formatTiyin(v.totals.outTiyin)} sub={`${rangeText} · ${v.groups.filter((g) => g.dir === 'OUT').length} guruh`} tone="expense" />
-        <Box label="Kirim" value={formatTiyin(v.totals.inTiyin)} sub={`${v.groups.filter((g) => g.dir === 'IN').length} guruh`} tone="income" />
-        <Box label="Kirim − chiqim" value={formatTiyin(v.totals.netTiyin)} sub="tanlangan davr bo‘yicha" tone={BigInt(v.totals.netTiyin) < 0n ? 'expense' : 'income'} />
+        <Box label="Chiqim" tiyin={v.totals.outTiyin} sub={`${rangeText} · ${v.groups.filter((g) => g.dir === 'OUT').length} guruh`} tone="expense" />
+        <Box label="Kirim" tiyin={v.totals.inTiyin} sub={`${v.groups.filter((g) => g.dir === 'IN').length} guruh`} tone="income" />
+        <Box label="Kirim − chiqim" tiyin={v.totals.netTiyin} sub="tanlangan davr bo‘yicha" tone={BigInt(v.totals.netTiyin) < 0n ? 'expense' : 'income'} />
         <PatternBox v={v} dir={dir} active={pattern} onPick={(p) => setPattern(pattern === p ? null : p)} />
       </div>
       {v.totals.posted.count > 0 && (
@@ -898,12 +898,17 @@ function PatternBox({ v, dir, active, onPick }: { v: BankView; dir: BankDir; act
   );
 }
 
-function Box({ label, value, sub, tone = 'neutral' }: { label: string; value: string; sub: string; tone?: 'neutral' | 'income' | 'expense' | 'warn' }) {
+/** Karta summasi: 1 mlrd so'mdan katta — qisqa («139,43 mlrd»), to'liq — ustiga borganda */
+function Box({ label, tiyin, sub, tone = 'neutral' }: { label: string; tiyin: string; sub: string; tone?: 'neutral' | 'income' | 'expense' | 'warn' }) {
+  const big = Math.abs(Number(tiyin)) >= 1_000_000_000 * 100;
   const c = { neutral: 'text-(--color-text)', income: 'text-(--color-income)', expense: 'text-(--color-expense)', warn: 'text-(--color-warn)' }[tone];
   return (
     <div className="rounded-(--radius-card) border border-(--color-line) bg-white p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-(--color-text-muted)">{label}</p>
-      <p className={cn('money mt-1.5 text-xl font-semibold', c)}>{value}</p>
+      <p className={cn('money mt-1.5 text-xl font-semibold', c)} title={big ? `${formatTiyin(tiyin)} so'm` : undefined}>
+        {big ? formatCompact(tiyin) : formatTiyin(tiyin)}
+        {big && <span className="ml-1 text-sm font-medium">so&apos;m</span>}
+      </p>
       <p className="mt-0.5 text-xs text-(--color-text-muted)">{sub}</p>
     </div>
   );

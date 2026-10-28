@@ -28,12 +28,19 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
   }, []);
 
   const content = (
-    <div data-page-header className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-6 gap-y-2">
-      <div className="min-w-0">
-        <h1 className="truncate text-2xl font-bold tracking-tight text-heading">{title}</h1>
-        {description && <p className="truncate text-xs text-(--color-text-muted)">{description}</p>}
+    // Keng ekranda bir qatorda: sarlavha joyni egallaydi (uzun izoh qisqartiriladi), tugmalar sarlavha ostiga tushmaydi
+    <div data-page-header className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-6 gap-y-2 lg:flex-nowrap">
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate text-2xl font-bold tracking-tight text-heading" title={title}>
+          {title}
+        </h1>
+        {description && (
+          <p className="truncate text-xs text-(--color-text-muted)" title={description}>
+            {description}
+          </p>
+        )}
       </div>
-      {actions && <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 

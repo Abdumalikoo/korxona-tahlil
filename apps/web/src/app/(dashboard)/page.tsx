@@ -11,6 +11,7 @@ import {
   ReportCard,
   RTable,
   StatTiles,
+  sum,
   STICKY_NAME,
   STICKY_NO,
   TableNote,
@@ -59,6 +60,26 @@ function totalsOf(rows: UnitStats[]): Totals {
 /** base — solishtirish yo'q bo'lsa: ulush hisoblanadigan jami (korxona bo'yicha) */
 function Cells({ t, base }: { t: Totals; base: Totals | null }) {
   const profit = t.income - t.expense;
+  // Joriy davrda daromad yoki xarajat yuklanmagan (o'tgan davrda bor edi) — natija va rentabellik hisoblanmaydi
+  const partial = (t.income === 0 && t.previousIncome > 0) || (t.expense === 0 && t.previousExpense > 0);
+  if (!base && partial) {
+    return (
+      <>
+        <MoneyCell value={t.previousIncome} />
+        <MoneyCell value={t.income} />
+        <DiffCell value={t.income - t.previousIncome} pct={changeOf(t.income, t.previousIncome)} />
+        <MoneyCell value={t.previousExpense} />
+        <MoneyCell value={t.expense} />
+        <DiffCell value={t.expense - t.previousExpense} pct={changeOf(t.expense, t.previousExpense)} growthGood={false} />
+        <Td className="text-center text-(--color-text-faint)" title="Ma'lumot to'liq emas — hisoblanmadi">
+          —
+        </Td>
+        <Td className="text-center text-(--color-text-faint)" title="Ma'lumot to'liq emas — hisoblanmadi">
+          —
+        </Td>
+      </>
+    );
+  }
   if (base) {
     return (
       <>
@@ -134,6 +155,11 @@ export default function DashboardPage() {
           const cmpOn = t.previousIncome !== 0 || t.previousExpense !== 0;
           const margin = t.income > 0 ? (profit / t.income) * 100 : null;
           const previousMargin = t.previousIncome > 0 ? (previousProfit / t.previousIncome) * 100 : null;
+          // Ma'lumot yuklanmagan: o'tgan davrda bor, joriy davrda umuman yo'q — «0» va «100%» o'rniga «yuklanmagan»,
+          // natija va rentabellik hisoblanmaydi (noto'g'ri xulosa chiqmasin)
+          const incomeMissing = t.income === 0 && t.previousIncome > 0;
+          const expenseMissing = t.expense === 0 && t.previousExpense > 0;
+          const partial = incomeMissing || expenseMissing;
 
           // So'nggi 12 oy — barcha birliklar yig'indisi
           const months = data.months.slice(-12);
@@ -157,6 +183,12 @@ export default function DashboardPage() {
 
           return (
             <div className={cn('space-y-4 transition-opacity', result.loading && 'opacity-60')}>
+              {partial && (
+                <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+                  <b>{[incomeMissing && 'Daromadlar', expenseMissing && 'Xarajatlar'].filter(Boolean).join(' va ')}</b> tanlangan davr uchun hali yuklanmagan — foyda va rentabellik
+                  hisoblanmadi. O&apos;tgan teng davrda {expenseMissing ? `xarajat ${sum(t.previousExpense)} so'm` : `daromad ${sum(t.previousIncome)} so'm`} edi.
+                </p>
+              )}
               <StatTiles
                 compareLabel="Avval"
                 items={[
@@ -164,6 +196,8 @@ export default function DashboardPage() {
                     label: 'Daromad',
                     value: t.income,
                     previous: t.previousIncome,
+                    missing: incomeMissing,
+                    note: incomeMissing ? `Avval ${sum(t.previousIncome)} so'm` : undefined,
                     tone: 'green',
                     icon: <IconUp />,
                     calc: calcSum('Daromad', all.map((s) => Q.money(s.unit.name, s.income))),
@@ -173,6 +207,8 @@ export default function DashboardPage() {
                     label: 'Xarajat',
                     value: t.expense,
                     previous: t.previousExpense,
+                    missing: expenseMissing,
+                    note: expenseMissing ? `Avval ${sum(t.previousExpense)} so'm` : undefined,
                     growthGood: false,
                     tone: 'red',
                     icon: <IconDown />,
@@ -180,9 +216,11 @@ export default function DashboardPage() {
                     onClick: () => router.push(`/tahlil/xarajat${query}`),
                   },
                   {
-                    label: profit >= 0 ? 'Foyda' : 'Zarar',
+                    label: partial ? 'Natija' : profit >= 0 ? 'Foyda' : 'Zarar',
                     value: profit,
-                    previous: previousProfit,
+                    previous: partial ? null : previousProfit,
+                    text: partial ? '—' : undefined,
+                    note: partial ? 'hisoblanmadi — ma’lumot to‘liq emas' : undefined,
                     signed: true,
                     tone: 'blue',
                     calc: calcResult(t.income, t.expense, { title: 'Korxona natijasi' }),
@@ -191,8 +229,8 @@ export default function DashboardPage() {
                   {
                     label: 'Rentabellik',
                     value: 0,
-                    text: margin === null ? '' : `${margin.toFixed(1).replace('.', ',')}%`,
-                    note: previousMargin === null ? 'Foyda ÷ daromad' : `Avval ${previousMargin.toFixed(1).replace('.', ',')}%`,
+                    text: partial || margin === null ? '—' : `${margin.toFixed(1).replace('.', ',')}%`,
+                    note: partial ? 'hisoblanmadi — ma’lumot to‘liq emas' : previousMargin === null ? 'Foyda ÷ daromad' : `Avval ${previousMargin.toFixed(1).replace('.', ',')}%`,
                     tone: 'purple',
                   },
                 ]}

@@ -64,7 +64,17 @@ export interface StatTile {
   calc?: Calc | null;
   /** Qiymat manfiy bo'lsa qizil */
   signed?: boolean;
+  /** Ma'lumot yuklanmagan — «0» va o'zgarish o'rniga «yuklanmagan» (noto'g'ri xulosa chiqmasin) */
+  missing?: boolean;
   onClick?: () => void;
+}
+
+/** Kartadagi summa: 1 mlrd so'mdan katta — qisqa («139,43 mlrd»), to'liq summa — ustiga borganda */
+const COMPACT_FROM = 1_000_000_000 * 100;
+function tileAmount(tiyin: number): { text: string; full: string | null } {
+  if (Math.abs(tiyin) < COMPACT_FROM) return { text: sum(tiyin), full: null };
+  const v = tiyin / 100 / 1_000_000_000;
+  return { text: `${v < 0 ? '-' : ''}${Math.abs(v).toFixed(2).replace('.', ',')} mlrd`, full: `${sum(tiyin)} so'm` };
 }
 
 export function StatTiles({ items, compareLabel = "O'tgan davrga nisbatan" }: { items: StatTile[]; compareLabel?: string }) {
@@ -73,7 +83,8 @@ export function StatTiles({ items, compareLabel = "O'tgan davrga nisbatan" }: { 
       {items.map((item) => {
         /** O'tgan davr qiymati bor (0 — ma'lumot yo'q deb olinadi) */
         const hasPrev = item.previous !== undefined && item.previous !== null && item.previous !== 0;
-        const change = hasPrev ? changeOf(item.value, item.previous!) : null;
+        const change = hasPrev && !item.missing ? changeOf(item.value, item.previous!) : null;
+        const amount = tileAmount(item.value);
         const good = change === null ? null : change === 0 ? null : change > 0 === (item.growthGood ?? true);
         const Tag = item.onClick ? 'button' : 'div';
         return (
@@ -90,13 +101,17 @@ export function StatTiles({ items, compareLabel = "O'tgan davrga nisbatan" }: { 
               <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', TILE_BG[item.tone ?? 'blue'])}>{item.icon ?? <DefaultIcon />}</span>
               <p className="min-w-0 truncate text-[13px] font-medium text-(--color-text-muted)">{item.label}</p>
             </div>
-            <p className={cn('-mt-1 flex flex-wrap items-baseline gap-x-2 text-lg font-bold leading-tight tabular-nums text-heading', item.signed && item.value < 0 && 'text-(--color-expense)')}>
-              <CalcValue calc={item.calc} className="whitespace-nowrap no-underline">
-                <span>
-                  {item.text ?? sum(item.value)}
-                  {item.text === undefined && <span className="ml-1 text-sm font-semibold">so&apos;m</span>}
-                </span>
-              </CalcValue>
+            <p className={cn('-mt-1 flex flex-wrap items-baseline gap-x-2 text-lg font-bold leading-tight tabular-nums text-heading', item.signed && item.value < 0 && !item.missing && 'text-(--color-expense)')}>
+              {item.missing ? (
+                <span className="text-base font-semibold text-(--color-warn)">yuklanmagan</span>
+              ) : (
+                <CalcValue calc={item.calc} className="whitespace-nowrap no-underline">
+                  <span title={item.text === undefined ? (amount.full ?? undefined) : undefined}>
+                    {item.text ?? amount.text}
+                    {item.text === undefined && <span className="ml-1 text-sm font-semibold">so&apos;m</span>}
+                  </span>
+                </CalcValue>
+              )}
               {change !== null && Math.abs(change) < 1000 && (
                 <span className={cn('whitespace-nowrap text-xs font-semibold', good === null ? 'text-(--color-text-muted)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>
                   {change > 0 ? '▲' : change < 0 ? '▼' : ''} {pctText(Math.abs(change), false)}
@@ -105,7 +120,11 @@ export function StatTiles({ items, compareLabel = "O'tgan davrga nisbatan" }: { 
             </p>
             <div className="mt-auto flex items-center justify-between gap-2 border-t border-(--color-line) pt-2 text-xs text-(--color-text-faint)">
               <span className="truncate">{item.note ?? (hasPrev ? compareLabel : item.previous === 0 ? "O'tgan davrda ma'lumot yo'q" : '')}</span>
-              {hasPrev && !item.note && <span className="whitespace-nowrap tabular-nums text-(--color-text-muted)">{sum(item.previous!)} so&apos;m</span>}
+              {hasPrev && !item.note && (
+                <span className="whitespace-nowrap tabular-nums text-(--color-text-muted)" title={tileAmount(item.previous!).full ?? undefined}>
+                  {tileAmount(item.previous!).text} so&apos;m
+                </span>
+              )}
             </div>
           </Tag>
         );

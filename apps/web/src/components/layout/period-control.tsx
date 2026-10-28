@@ -20,6 +20,9 @@ import { useEffect, useRef, useState } from 'react';
 export function PeriodControl() {
   const pathname = usePathname() ?? '/';
   const mode = periodMode(pathname);
+  const { pageOwnsRange } = usePeriod();
+  // Sahifada o'z «Dan — Gacha» kartasi bor — bitta tanlagich qolsin
+  if (pageOwnsRange) return null;
   if (mode === 'month') return <MonthControl />;
   if (mode === 'range') return <RangeControl />;
   return null;
@@ -58,7 +61,12 @@ function RangeControl() {
   const { open, setOpen, ref } = usePopover();
   const [draft, setDraft] = useState(range);
 
-  useEffect(() => setDraft(range), [range]);
+  // Davr tashqaridan o'zgarsa — qoralama yangisidan (effektsiz: oldingi qiymat bilan solishtirib)
+  const [seenRange, setSeenRange] = useState(range);
+  if (seenRange !== range) {
+    setSeenRange(range);
+    setDraft(range);
+  }
 
   const datesText = `${formatDate(range.from)} — ${formatDate(range.to)}`;
   // Tugmada qisqaroq: yil bir xil bo'lsa faqat oxirida — "01.09 — 30.09.2026"
@@ -179,7 +187,11 @@ function MonthControl() {
   const { open, setOpen, ref } = usePopover();
   const now = currentMonth();
   const [year, setYear] = useState(() => Number(month.slice(0, 4)));
-  useEffect(() => setYear(Number(month.slice(0, 4))), [month]);
+  const [seenMonth, setSeenMonth] = useState(month);
+  if (seenMonth !== month) {
+    setSeenMonth(month);
+    setYear(Number(month.slice(0, 4)));
+  }
 
   const isLatest = month >= now;
   // Tanlangan davr bir oydan uzun bo'lsa — oxirgi oyi olinayotganini aytamiz

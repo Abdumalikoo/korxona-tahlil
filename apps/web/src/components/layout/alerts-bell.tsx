@@ -7,8 +7,9 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
-// Yuqori paneldagi qo'ng'iroqcha: «Muhokama talab qiladi» soni.
-// Bosilganda — eng jiddiylari; «Hammasi» — Munosabat › Muhokama talab qiladi.
+// Yuqori paneldagi qo'ng'iroqcha: «Muhokama talab qiladi».
+// Belgida — faqat JIDDIYLAR soni (jiddiysi yo'q bo'lsa — kichik nuqta): ko'p raqam e'tiborni o'ldiradi.
+// Bosilganda — qoidalar bo'yicha guruhlar (nechtadan), keyin eng jiddiylari; «Hammasi» — Munosabat › Muhokama talab qiladi.
 // ═══════════════════════════════════════════════════════════
 
 const REFRESH_MS = 10 * 60_000;
@@ -45,7 +46,12 @@ export function AlertsBell() {
     };
   }, [load]);
 
-  useEffect(() => setOpen(false), [pathname]);
+  // Sahifa almashsa — oyna yopiladi (effektsiz: oldingi manzil bilan solishtirib)
+  const [seenPath, setSeenPath] = useState(pathname);
+  if (seenPath !== pathname) {
+    setSeenPath(pathname);
+    setOpen(false);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -58,6 +64,14 @@ export function AlertsBell() {
 
   const count = data?.alerts.length ?? 0;
   const high = data?.alerts.filter((a) => a.severity === 'high').length ?? 0;
+  // Qoidalar bo'yicha guruh: nechta va nechtasi jiddiy (ko'pi oldin)
+  const groups = [...(data?.alerts ?? []).reduce((m, a) => {
+    const g = m.get(a.ruleLabel) ?? { label: a.ruleLabel, count: 0, high: 0 };
+    g.count += 1;
+    if (a.severity === 'high') g.high += 1;
+    return m.set(a.ruleLabel, g);
+  }, new Map<string, { label: string; count: number; high: number }>()).values()].sort((a, b) => b.high - a.high || b.count - a.count);
+  const top = [...(data?.alerts ?? [])].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'high' ? -1 : 1)).slice(0, 5);
 
   return (
     <div ref={ref} className="relative">
@@ -65,19 +79,16 @@ export function AlertsBell() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="relative flex size-10 items-center justify-center rounded-xl border border-(--color-line) bg-(--color-surface-muted) text-brand-700 transition-colors hover:border-brand-300 hover:bg-white"
-        title="Muhokama talab qiladi"
-        aria-label={`Muhokama talab qiladi: ${count}`}
+        title={count ? `Muhokama talab qiladi: ${count} ta${high ? `, ${high} tasi jiddiy` : ''}` : 'Muhokama talab qiladi'}
+        aria-label={`Muhokama talab qiladi: ${count}, jiddiy: ${high}`}
       >
         <BellIcon className="size-5" />
-        {count > 0 && (
-          <span
-            className={cn(
-              'absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold text-white ring-2 ring-white',
-              high > 0 ? 'bg-(--color-expense)' : 'bg-tile-orange',
-            )}
-          >
-            {count > 99 ? '99+' : count}
+        {high > 0 ? (
+          <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-(--color-expense) px-1 text-[11px] font-bold text-white ring-2 ring-white">
+            {high > 99 ? '99+' : high}
           </span>
+        ) : (
+          count > 0 && <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-tile-orange ring-2 ring-white" />
         )}
       </button>
 
@@ -87,8 +98,20 @@ export function AlertsBell() {
             <p className="text-sm font-bold text-heading">Muhokama talab qiladi</p>
             <p className="text-xs text-(--color-text-muted)">{count === 0 ? "Hozircha yo'q" : `${count} ta${high ? ` · ${high} tasi jiddiy` : ''}`}</p>
           </div>
+          {groups.length > 1 && (
+            <ul className="border-b border-(--color-line) px-4 py-2 text-xs">
+              {groups.slice(0, 6).map((g) => (
+                <li key={g.label} className="flex items-center justify-between gap-2 py-0.5">
+                  <span className="min-w-0 truncate text-heading">{g.label}</span>
+                  <span className="shrink-0 tabular-nums text-(--color-text-muted)">
+                    {g.count} ta{g.high ? <b className="ml-1 text-(--color-expense)">· {g.high} jiddiy</b> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           <ul className="max-h-80 divide-y divide-(--color-line) overflow-y-auto">
-            {(data?.alerts ?? []).slice(0, 6).map((a) => (
+            {top.map((a) => (
               <li key={a.key}>
                 <Link href={a.href ?? '/munosabat/ogohlantirish'} className="flex gap-2.5 px-4 py-2.5 hover:bg-brand-50">
                   <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', a.severity === 'high' ? 'bg-(--color-expense)' : 'bg-tile-orange')} />

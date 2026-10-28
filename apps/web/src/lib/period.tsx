@@ -273,6 +273,10 @@ interface PeriodApi {
   setMonth: (period: string) => void;
   /** Tez tanlov */
   setPreset: (key: Exclude<PresetKey, 'custom'>) => void;
+  /** Sahifada o'z «Dan — Gacha» oralig'i bor (MonthRangeCard) — yuqoridagi davr tugmasi yashiriladi (ikki tanlagich chiqmasin) */
+  pageOwnsRange: boolean;
+  /** Sahifa o'z oralig'ini e'lon qiladi; qaytgan funksiya — bekor qilish (komponent yo'qolganda) */
+  claimRange: () => () => void;
 }
 
 const Context = createContext<PeriodApi | null>(null);
@@ -281,6 +285,11 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? '/';
   const router = useRouter();
   const [state, setState] = useState<Stored>(initial);
+  const [owners, setOwners] = useState(0);
+  const claimRange = useCallback(() => {
+    setOwners((n) => n + 1);
+    return () => setOwners((n) => Math.max(0, n - 1));
+  }, []);
 
   // Boshqa sahifaga o'tilganda manzilda davr bo'lsa — o'sha olinadi (ulashilgan havola)
   useEffect(() => {
@@ -354,8 +363,8 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<PeriodApi>(
-    () => ({ range: state.range, preset: state.preset, month: state.range.to.slice(0, 7), setRange, setPreset, setMonth }),
-    [state, setRange, setPreset, setMonth],
+    () => ({ range: state.range, preset: state.preset, month: state.range.to.slice(0, 7), setRange, setPreset, setMonth, pageOwnsRange: owners > 0, claimRange }),
+    [state, setRange, setPreset, setMonth, owners, claimRange],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
@@ -366,7 +375,7 @@ export function usePeriod(): PeriodApi {
   const ctx = useContext(Context);
   if (ctx) return ctx;
   const range = presetRange(DEFAULT_PRESET);
-  return { range, preset: DEFAULT_PRESET, month: range.to.slice(0, 7), setRange: () => undefined, setPreset: () => undefined, setMonth: () => undefined };
+  return { range, preset: DEFAULT_PRESET, month: range.to.slice(0, 7), setRange: () => undefined, setPreset: () => undefined, setMonth: () => undefined, pageOwnsRange: false, claimRange: () => () => undefined };
 }
 
 /** Tugmadagi nom: "Bu oy" yoki "Tanlangan davr" */

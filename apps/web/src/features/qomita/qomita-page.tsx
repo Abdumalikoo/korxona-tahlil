@@ -80,7 +80,8 @@ export function QomitaPage() {
             <StatTiles
               items={[
                 { label: 'Qo‘mitadan kelgan (daromad)', value: n(t.allocatedTiyin), tone: 'green' },
-                { label: "Bo'limlar", value: 0, text: String(items.length), tone: 'purple', note: items.map((i) => i.departmentName).join(', ') || 'hali belgilanmagan' },
+                // Pul kelgan bo'limlar (qo'lda sozlangan qoplash ro'yxatidan qat'i nazar)
+                { label: "Pul kelgan bo'limlar", value: 0, text: String(rows.filter((r) => r.key !== '-' && n(r.allocatedTiyin) !== 0).length), tone: 'purple', note: rows.filter((r) => r.key !== '-' && n(r.allocatedTiyin) !== 0).map((r) => r.label).join(', ') || "bu davrda pul kelmagan" },
               ]}
             />
             <ReportTable mode="INCOME" rows={rows} from={rep.data.from} to={rep.data.to} isAdmin={isAdmin} onChanged={reloadAll} setToast={setToast} onAddIncome={setIncomeOpen} />

@@ -150,9 +150,9 @@ export function SarfSection({ from, to, isAdmin, onToast }: { from: string; to: 
 function UnitRows({ u, months, mode, open, onToggle, from, to, isAdmin, onToast, onChanged }: { u: SarfUnit; months: string[]; mode: 'POOL' | 'CONTRACT'; open: boolean; onToggle: () => void; from: string; to: string; isAdmin: boolean; onToast: ToastFn; onChanged: () => void }) {
   const head = (
     <td className="sticky left-0 border-t border-(--color-line) bg-white px-3 py-1.5 text-left">
-      <button type="button" onClick={onToggle} className="text-left font-medium text-heading hover:text-brand-700" aria-expanded={open}>
-        <span className="mr-1 text-(--color-text-faint)">{open ? '▾' : '▸'}</span>
-        {u.label}
+      <button type="button" onClick={onToggle} className="flex max-w-60 items-center text-left font-medium text-heading hover:text-brand-700" aria-expanded={open} title={u.label}>
+        <span className="mr-1 shrink-0 text-(--color-text-faint)">{open ? '▾' : '▸'}</span>
+        <span className="truncate">{u.label}</span>
       </button>
       {mode === 'POOL' && n(u.incomeTiyin) > 0 && <span className="ml-1 text-[10.5px] text-(--color-income)">kelgan: {formatTiyin(u.incomeTiyin)}</span>}
     </td>

@@ -108,7 +108,7 @@ export function TopBar({ onMenu, onHide, quiet = false }: { onMenu: () => void; 
 
   return (
     <header className="topbar border-b border-(--color-line) bg-white/95 backdrop-blur">
-      <div className="flex min-h-[72px] items-center gap-3 px-4 py-2 md:px-6">
+      <div className="flex min-h-[72px] flex-wrap items-center gap-3 px-4 py-2 sm:flex-nowrap md:px-6">
         {/* Kichik ekranda menyu */}
         <button
           type="button"
@@ -131,14 +131,16 @@ export function TopBar({ onMenu, onHide, quiet = false }: { onMenu: () => void; 
           </button>
         )}
 
-        {/* Sahifa sarlavhasi: PageHeader bo'lsa — u, bo'lmasa menyudan */}
-        <div className="flex min-w-0 flex-1 items-center">
+        {/* Sahifa sarlavhasi: PageHeader bo'lsa — u, bo'lmasa menyudan. Telefonda — alohida (pastki) qatorda, «B» bo'lib qisqarmasin */}
+        <div className="order-last flex w-full min-w-0 items-center sm:order-none sm:w-auto sm:flex-1">
           <div className="topbar-fallback min-w-0">
             {fallback.parent && <p className="truncate text-xs font-medium text-(--color-text-muted)">{fallback.parent}</p>}
             <h1 className="truncate text-2xl font-bold tracking-tight text-heading">{isHome ? 'Bosh sahifa' : fallback.title}</h1>
           </div>
           <div id={PAGE_HEADER_SLOT_ID} className="flex min-w-0 flex-1 items-center" />
         </div>
+        {/* Telefonda: tugmalar o'ngga (sarlavha pastki qatorda) */}
+        <span className="flex-1 sm:hidden" />
 
         {/* Yangi yozuv — istalgan sahifadan (N tugmasi); ko'rsatuv sahifalarida — yo'q */}
         {!quiet && <QuickAddButton />}
@@ -170,7 +172,8 @@ export function TopBar({ onMenu, onHide, quiet = false }: { onMenu: () => void; 
           type="button"
           onClick={openGlobalSearch}
           className={cn(
-            'flex h-10 shrink-0 items-center gap-2 rounded-xl border border-(--color-line) bg-(--color-surface-muted) px-3 text-sm text-(--color-text-muted) transition-colors',
+            // Telefonda yashiriladi (joy yetmaydi; kompyuterda — Ctrl+K)
+            'hidden h-10 shrink-0 items-center gap-2 rounded-xl border border-(--color-line) bg-(--color-surface-muted) px-3 text-sm text-(--color-text-muted) transition-colors sm:flex',
             'hover:border-brand-300 hover:bg-white hover:text-brand-700',
           )}
           title="Qidirish (Ctrl+K)"

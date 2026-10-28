@@ -3,7 +3,7 @@
 import { Card, CardBody } from '@/components/ui/card';
 import { useMonthChange, usePeriod } from '@/lib/period';
 import { cn } from '@/lib/utils';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Oylar oralig'i (Dan — Gacha): bo'lim sahifalarida (Ijara va kommunal, Bank xarajatlari …).
@@ -92,18 +92,48 @@ export function useMonthRange(initial: 'year' | 'month' = 'year'): MonthRange {
   };
 }
 
+/** Oy tanlash — o'zbekcha (brauzerning oy maydoni tizim tilida — ruscha — chiqardi): oy va yil ro'yxatlari */
+export function MonthSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  const cls = 'h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm text-heading focus:border-brand-600 focus:outline-none';
+  const y = PERIOD_RE.test(value) ? Number(value.slice(0, 4)) : new Date().getFullYear();
+  const m = PERIOD_RE.test(value) ? Number(value.slice(5, 7)) : new Date().getMonth() + 1;
+  const now = new Date().getFullYear();
+  const years = Array.from({ length: Math.max(now, y) - Math.min(2020, y) + 2 }, (_, i) => Math.min(2020, y) + i);
+  const set = (yy: number, mm: number) => onChange(`${yy}-${String(mm).padStart(2, '0')}`);
+  return (
+    <span className="mt-1 flex gap-1">
+      <select aria-label={`${label}: oy`} value={m} onChange={(e) => set(y, Number(e.target.value))} className={cls}>
+        {MONTHS_UZ.map((name, i) => (
+          <option key={name} value={i + 1}>
+            {name}
+          </option>
+        ))}
+      </select>
+      <select aria-label={`${label}: yil`} value={y} onChange={(e) => set(Number(e.target.value), m)} className={cls}>
+        {years.map((yy) => (
+          <option key={yy} value={yy}>
+            {yy}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
+
 export function MonthRangeCard({ range }: { range: MonthRange }) {
-  const input = 'mt-1 block h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm text-heading';
+  // Sahifa o'z oralig'ini boshqaradi — yuqoridagi davr tugmasi yashiriladi
+  const { claimRange } = usePeriod();
+  useEffect(() => claimRange(), [claimRange]);
   return (
     <Card>
       <CardBody className="flex flex-wrap items-end gap-3">
         <label className="text-xs font-medium text-(--color-text-muted)">
           Dan
-          <input type="month" value={range.from} onChange={(e) => range.setFrom(e.target.value)} className={input} />
+          <MonthSelect label="Dan" value={range.from} onChange={range.setFrom} />
         </label>
         <label className="text-xs font-medium text-(--color-text-muted)">
           Gacha
-          <input type="month" value={range.to} onChange={(e) => range.setTo(e.target.value)} className={input} />
+          <MonthSelect label="Gacha" value={range.to} onChange={range.setTo} />
         </label>
         <div className="flex flex-wrap gap-1.5 pb-0.5">
           {(

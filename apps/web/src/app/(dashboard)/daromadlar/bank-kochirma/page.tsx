@@ -8,7 +8,7 @@ import { SectionTabs } from '@/features/sections/section-tabs';
 export default function BankStatementIncomePage() {
   return (
     <>
-      <PageHeader title="Daromadlar" description="Bank ko'chirmasi · kirimlar oyma-oy va o'sib boruvchi" />
+      <PageHeader title="Bank ko'chirmasi" description="Daromadlar · kirimlar oyma-oy va o'sib boruvchi, ajralib turganlar" />
       <SectionTabs kind="income" section="DOIMIY" />
       <div className="space-y-4 p-6">
         <BankAnalysisView source="bank" defaultDir="IN" />
