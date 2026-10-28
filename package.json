@@ -21,9 +21,11 @@
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yaml}\"",
     "clean": "pnpm -r exec rimraf dist .next node_modules",
-    "stop": "powershell -Command \"Get-NetTCPConnection -LocalPort 3000,3001 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\""
+    "stop": "powershell -Command \"Get-NetTCPConnection -LocalPort 3000,3001 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\"",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "prettier": "^3.4.2",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "rimraf": "^6.0.1",

@@ -114,7 +114,9 @@ function zipOf(entries, { lie = false, method = 8, encrypted = false } = {}) {
   for (let i = 0; i < 2000; i++) ws.addRow([i, `Qator ${i}`, i * 1.5]);
   const good = Buffer.from(await wb.xlsx.writeBuffer());
   await assertSafeXlsx(good);
-  for (const f of fs.readdirSync(path.join(__dirname, 'fixtures')).filter((x) => x.endsWith('.xlsx'))) await assertSafeXlsx(fs.readFileSync(path.join(__dirname, 'fixtures', f)));
+  // Namunaviy fayllar (bo'lsa): test/fixtures/*.xlsx — haqiqiy shakldagi, SUN'IY ma'lumotli fayllar; papka bo'lmasa — o'tkaziladi
+  const fixtures = path.join(__dirname, 'fixtures');
+  if (fs.existsSync(fixtures)) for (const f of fs.readdirSync(fixtures).filter((x) => x.endsWith('.xlsx'))) await assertSafeXlsx(fs.readFileSync(path.join(fixtures, f)));
   // Ochilganda 200 MB (siqilgani ~200 KB) — rad
   const bomb = zipOf([{ name: 'xl/worksheets/sheet1.xml', data: Buffer.alloc(200 * 1024 * 1024) }]);
   assert.ok(bomb.length < 1024 * 1024, `bomba kichik: ${bomb.length}`);
