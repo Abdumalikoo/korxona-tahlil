@@ -182,6 +182,36 @@ async function file(rows, acct = '20208000900100012345') {
   // Bekor qilish — yozuv o'chadi
   await svc.unroute({ batch: ri.batch }, 'adm');
   assert.ok(incE.deletedAt, 'daromad o‘chirildi');
+  // Kirim → hisobga olinmaydigan tushum (depozit): daromad yozuvi YO'Q, alohida ro'yxatda; bekor qilinsa — o'chadi
+  const opts = await svc.options('IN');
+  assert.deepStrictEqual(opts.categories.filter((c) => c.code.startsWith('EXCL:')).map((c) => c.code), ['EXCL:DEPOZIT', 'EXCL:USTAV_FONDI']);
+  await assert.rejects(svc.route({ items: [{ account: ACC, rowId: inRow.id }], place, categoryCode: 'EXCL:YOQ' }, 'adm'), /Tur topilmadi/);
+  await assert.rejects(svc.route({ items: [{ account: ACC, rowId: e1.id }], place, categoryCode: 'EXCL:DEPOZIT' }, 'adm'), /allaqachon yo.naltirilgan|faqat kirim/);
+  const incBefore = T.income.length;
+  const rx = await svc.route({ items: [{ account: ACC, rowId: inRow.id }], place, categoryCode: 'EXCL:DEPOZIT', description: 'depozitga' }, 'adm');
+  assert.deepStrictEqual([rx.entryType, rx.count], ['EXCLUDED', 1]);
+  assert.strictEqual(T.income.length, incBefore, 'daromad jadvaliga yozilmaydi');
+  const exStore = () => T.setting.find((x) => x.key === 'excluded_income.items')?.value ?? [];
+  assert.deepStrictEqual(exStore().map((x) => [x.kind, x.amountTiyin, x.source, x.counterparty]), [['DEPOZIT', s(7_000_000), 'BANK', 'MIJOZ']]);
+  await assert.rejects(svc.route({ items: [{ account: ACC, rowId: inRow.id }], place, categoryCode: 'XIZ' }, 'adm'), /allaqachon yo.naltirilgan/);
+  await svc.unroute({ batch: rx.batch }, 'adm');
+  assert.deepStrictEqual(exStore(), [], 'bekor qilinsa — ro‘yxatdan o‘chadi');
+  // Ro'yxatdan chiqarish (yo'naltirmasdan): yozuv yaratilmaydi; yo'naltirilganini chiqarib bo'lmaydi; chiqarilganini yo'naltirib bo'lmaydi
+  const counts = () => [T.income.filter((x) => !x.deletedAt).length, T.expense.filter((x) => !x.deletedAt).length];
+  const before = counts();
+  await assert.rejects(svc.dismiss({ items: [{ account: ACC, rowId: e1.id }] }, 'adm'), /yo'naltirilgan — avval/);
+  const dm = await svc.dismiss({ items: [{ account: ACC, rowId: inRow.id }], reason: ' avval qo‘lda kiritilgan ' }, 'adm');
+  assert.deepStrictEqual([dm.count, dm.totalTiyin], [1, s(7_000_000)]);
+  assert.strictEqual((await svc.dismiss({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm')).count, 0, 'ikkinchi marta — o‘zgarmaydi');
+  assert.deepStrictEqual(counts(), before, 'hech qanday yozuv yaratilmaydi / o‘chirilmaydi');
+  const gIn = (await svc.view('2026-05', '2026-05', ACC)).groups.find((g) => g.key === inG.key);
+  assert.deepStrictEqual([gIn.dismissedCount, gIn.openCount], [1, gIn.count - gIn.postedCount - 1]);
+  assert.strictEqual((await svc.view('2026-05', '2026-05', ACC)).totals.dismissed, 1);
+  const dRow = (await svc.group(inG.key, '2026-05', '2026-05', ACC)).rows.find((r) => r.id === inRow.id);
+  assert.strictEqual(dRow.dismissed.reason, 'avval qo‘lda kiritilgan');
+  await assert.rejects(svc.route({ items: [{ account: ACC, rowId: inRow.id }], place: { unit: 'TAX_FREE' }, categoryCode: 'XIZ' }, 'adm'), /ro'yxatdan chiqarilgan/);
+  assert.strictEqual((await svc.undismiss({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm')).count, 1);
+  assert.strictEqual((await svc.group(inG.key, '2026-05', '2026-05', ACC)).rows.find((r) => r.id === inRow.id).dismissed, null);
   // Oy qayta yuklandi, 502 yo'q → uning xarajati o'chadi; 501 qoladi
   const b3 = await svc.analyze(await file([{ d: '10.05.2026', no: '501', name: 'ЭЛЕКТР', inn: '300000001', out: 2_000_000, p: 'Оплата за электроэнергию за май' }], '20208000900100077777'));
   const s3 = await svc.commit({ fileName: 'may2.xlsx', account: 'Hisob …77777', months: ['2026-05'], rows: b3.rows }, 'adm');

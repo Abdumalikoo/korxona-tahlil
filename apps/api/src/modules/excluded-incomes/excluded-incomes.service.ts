@@ -16,7 +16,10 @@ import { periodLabel, safeFile } from '../reports/reports.format';
 //   «excluded_income.items» — yozuvlar ro'yxati (summa tiyinda, matn ko'rinishida — BigInt JSON'ga sig'maydi).
 // ═══════════════════════════════════════════════════════════
 
-const KEY = 'excluded_income.items';
+export const EXCLUDED_KEY = 'excluded_income.items';
+const KEY = EXCLUDED_KEY;
+/** Bank ko'chirmasidan yo'naltirishda daromad turi o'rniga: «EXCL:DEPOZIT», «EXCL:USTAV_FONDI» */
+export const EXCLUDED_CODE_PREFIX = 'EXCL:';
 
 export const EXCLUDED_KINDS = [
   { code: 'DEPOZIT', label: "Depozitga yo'naltirilgan mablag'lar" },
@@ -35,6 +38,31 @@ export interface ExcludedItem {
   createdBy: string;
   updatedAt: string | null;
   updatedBy: string | null;
+  /** Bank ko'chirmasidan yo'naltirilgan bo'lsa — tahrir va o'chirish o'sha yerda (yo'naltirishni bekor qilish) */
+  source?: 'BANK';
+  /** Bankdagi to'lov: kontragent, hujjat raqami */
+  counterparty?: string | null;
+  documentNo?: string | null;
+}
+
+type SettingDb = { setting: { findUnique: (a: { where: { key: string } }) => Promise<{ value: unknown } | null>; upsert: (a: { where: { key: string }; create: { key: string; value: object }; update: { value: object } }) => Promise<unknown> } };
+
+/** Ro'yxatni o'qish (tx ichida ham) */
+export async function readExcluded(db: SettingDb): Promise<ExcludedItem[]> {
+  const v = (await db.setting.findUnique({ where: { key: KEY } }))?.value;
+  return Array.isArray(v) ? (v as ExcludedItem[]) : [];
+}
+
+/** Ro'yxatni yozish (tx ichida ham); chaqiruvchi runExclusive(`setting:${EXCLUDED_KEY}`) ichida bo'lsin */
+export async function writeExcluded(db: SettingDb, list: ExcludedItem[]): Promise<void> {
+  const value = list as unknown as object;
+  await db.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
+}
+
+/** «EXCL:DEPOZIT» → tur (bo'lmasa null) */
+export function excludedKindOfCode(code: string): ExcludedKind | null {
+  if (!code.startsWith(EXCLUDED_CODE_PREFIX)) return null;
+  return EXCLUDED_KINDS.find((k) => k.code === code.slice(EXCLUDED_CODE_PREFIX.length))?.code ?? null;
 }
 
 export interface ExcludedActor {
@@ -44,8 +72,9 @@ export interface ExcludedActor {
 
 const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-const labelOf = (k: ExcludedKind) => EXCLUDED_KINDS.find((x) => x.code === k)!.label;
-const som = (t: bigint) => (Number(t) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 }).replace(/ /g, ' ');
+export const excludedLabelOf = (k: ExcludedKind) => EXCLUDED_KINDS.find((x) => x.code === k)!.label;
+const labelOf = excludedLabelOf;
+const som = (t: bigint) => (Number(t) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 }).replace(/\u00a0/g, ' ');
 
 @Injectable()
 export class ExcludedIncomesService {
@@ -55,13 +84,15 @@ export class ExcludedIncomesService {
   ) {}
 
   private async items(): Promise<ExcludedItem[]> {
-    const v = (await this.prisma.setting.findUnique({ where: { key: KEY } }))?.value;
-    return Array.isArray(v) ? (v as unknown as ExcludedItem[]) : [];
+    return readExcluded(this.prisma as unknown as SettingDb);
   }
 
   private async save(list: ExcludedItem[]) {
-    const value = list as unknown as object;
-    await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
+    await writeExcluded(this.prisma as unknown as SettingDb, list);
+  }
+
+  private static bankOnly(item: ExcludedItem) {
+    if (item.source === 'BANK') throw new BadRequestException("Bu yozuv bank ko'chirmasidan yo'naltirilgan — Daromadlar › Bank ko'chirmasi › yo'naltirishlar tarixida bekor qiling");
   }
 
   /** Kiritilgan qiymatlarni tekshirish: tur, sana, summa (tiyin, > 0), izoh */
@@ -123,6 +154,7 @@ export class ExcludedIncomesService {
       const i = list.findIndex((x) => x.id === id);
       if (i < 0) throw new NotFoundException('Yozuv topilmadi');
       const prev = list[i]!;
+      ExcludedIncomesService.bankOnly(prev);
       const next: ExcludedItem = { ...prev, ...c, updatedAt: new Date().toISOString(), updatedBy: actor.fullName ?? '' };
       list[i] = next;
       await this.save(list);
@@ -143,6 +175,7 @@ export class ExcludedIncomesService {
       const list = await this.items();
       const item = list.find((x) => x.id === id);
       if (!item) throw new NotFoundException('Yozuv topilmadi');
+      ExcludedIncomesService.bankOnly(item);
       await this.save(list.filter((x) => x.id !== id));
       return item;
     });

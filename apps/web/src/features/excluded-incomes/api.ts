@@ -14,6 +14,10 @@ export interface ExcludedItem {
   createdBy: string;
   updatedAt: string | null;
   updatedBy: string | null;
+  /** Bank ko'chirmasidan yo'naltirilgan — tahrir/o'chirish Bank ko'chirmasida (yo'naltirishni bekor qilish) */
+  source?: 'BANK';
+  counterparty?: string | null;
+  documentNo?: string | null;
 }
 
 export interface ExcludedList {

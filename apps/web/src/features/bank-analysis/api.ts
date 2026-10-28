@@ -1,6 +1,9 @@
 import type { InvoiceChecks, StatementChecks } from '@/components/shared/file-check';
 import { api, getToken, type ApiResponse } from '@/lib/api';
 
+/** EXCLUDED — hisobga olinmaydigan tushum (depozit, ustav fondi): daromadga qo'shilmaydi */
+export type BankEntryType = 'EXPENSE' | 'INCOME' | 'EXCLUDED';
+
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Bank ko'chirmasi — tahlil: /api/bank-analysis/…
 // Xarajat va daromadga yozilmaydi: o'xshash to'lovlar oyma-oy va o'sib boruvchi guruhlanadi.
@@ -122,6 +125,10 @@ export interface BankGroup {
   /** Xarajat / daromadga yo'naltirilgani */
   postedCount: number;
   postedTiyin: string;
+  /** Yo'naltirmasdan ro'yxatdan chiqarilgani */
+  dismissedCount: number;
+  /** Hali ko'rib chiqilmagani (yo'naltirilmagan va chiqarilmagan) */
+  openCount: number;
   /** Faqat yuklashdan oldingi tahlilda: guruh qatorlari */
   rowIds?: string[];
 }
@@ -182,7 +189,7 @@ export interface BankView {
   accounts: BankAccount[];
   account: string | null;
   series: BankSeries[];
-  totals: { rows: number; outTiyin: string; inTiyin: string; netTiyin: string; groups: number; regularOut: number; monthsWithData: number; posted: { count: number; outTiyin: string; inTiyin: string }; patterns: { dir: BankDir; pattern: BankPattern; groups: number; count: number; totalTiyin: string }[] };
+  totals: { rows: number; outTiyin: string; inTiyin: string; netTiyin: string; groups: number; regularOut: number; monthsWithData: number; posted: { count: number; outTiyin: string; inTiyin: string }; dismissed: number; patterns: { dir: BankDir; pattern: BankPattern; groups: number; count: number; totalTiyin: string }[] };
   kinds: BankKindTotal[];
   groups: BankGroup[];
 }
@@ -194,7 +201,7 @@ export interface BankRowPost {
   categoryLabel: string;
   section: 'DOIMIY' | 'BOSHQA';
   description: string;
-  entryType: 'EXPENSE' | 'INCOME';
+  entryType: BankEntryType;
   createdAt: string;
   createdBy: string;
 }
@@ -206,6 +213,8 @@ export interface BankGroupRow extends BankRow {
   note: string | null;
   noteBy: string | null;
   post: BankRowPost | null;
+  /** Yo'naltirmasdan ro'yxatdan chiqarilgan (kim, qachon, nega) */
+  dismissed: { at: string; by: string; reason: string | null } | null;
 }
 
 /** Yo'naltirish taklifi: shu guruhning oxirgi yo'naltirishi (GROUP) yoki shu kontragentning eng ko'p takrorlangani */
@@ -268,7 +277,7 @@ export interface BankPostBatch {
   createdAt: string;
   createdBy: string;
   dir: BankDir;
-  entryType: 'EXPENSE' | 'INCOME';
+  entryType: BankEntryType;
   place: string;
   categoryLabel: string;
   section: 'DOIMIY' | 'BOSHQA';
@@ -390,7 +399,7 @@ export interface BankOutlier {
   kindLabel: string;
   pattern: BankPattern;
   reasons: { code: OutlierCode; text: string }[];
-  post: { place: string; categoryLabel: string; section: 'DOIMIY' | 'BOSHQA'; entryType: 'EXPENSE' | 'INCOME' } | null;
+  post: { place: string; categoryLabel: string; section: 'DOIMIY' | 'BOSHQA'; entryType: BankEntryType } | null;
   ok: { at: string; by: string } | null;
 }
 
@@ -440,7 +449,9 @@ export function makeAnalysisApi(base: '/bank-analysis' | '/invoice-analysis') {
     notes: (items: (BankItem & { comment: string })[]) => api.post<ApiResponse<{ success: true; saved: number; cleared: number; entries: number }>>(`${base}/notes`, { items }),
     check: (items: BankItem[]) => api.post<ApiResponse<BankCheck>>(`${base}/route/check`, { items }),
     route: (body: { items: BankItem[]; place: BankRoutePlace; categoryCode: string; section: 'DOIMIY' | 'BOSHQA'; description?: string; force?: boolean; skipDuplicates?: boolean }) =>
-      api.post<ApiResponse<{ success: true; batch: string | null; count: number; totalTiyin: string; skipped: number; entryType: 'EXPENSE' | 'INCOME'; place: string }>>(`${base}/route`, body),
+      api.post<ApiResponse<{ success: true; batch: string | null; count: number; totalTiyin: string; skipped: number; entryType: BankEntryType; place: string }>>(`${base}/route`, body),
+    dismiss: (items: BankItem[], reason?: string) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string }>>(`${base}/dismiss`, { items, reason }),
+    undismiss: (items: BankItem[]) => api.post<ApiResponse<{ success: true; count: number }>>(`${base}/dismiss/undo`, { items }),
     unroute: (body: { ids?: string[]; batch?: string }) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string }>>(`${base}/route/cancel`, body),
     /** Ajralib turgan to'lovlar (faqat bank ko'chirmasi) */
     outliers: (from: string, to: string, account?: string | null) => api.get<ApiResponse<BankOutliers>>(`${base}/outliers`, { params: { from, to, ...(account ? { account } : {}) } }),

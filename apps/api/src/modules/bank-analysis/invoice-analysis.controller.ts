@@ -120,6 +120,22 @@ export class InvoiceAnalysisController {
     return { data: await this.service.route(body, userId) };
   }
 
+  /** Ro'yxatdan chiqarish (yo'naltirmasdan; yozuv yaratilmaydi): { items, reason? } */
+  @Roles(UserRole.ADMIN)
+  @Post('dismiss')
+  @HttpCode(HttpStatus.OK)
+  async dismiss(@Body() body: { items?: unknown; reason?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.dismiss(body, userId) };
+  }
+
+  /** Ro'yxatga qaytarish: { items } */
+  @Roles(UserRole.ADMIN)
+  @Post('dismiss/undo')
+  @HttpCode(HttpStatus.OK)
+  async undismiss(@Body() body: { items?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.undismiss(body, userId) };
+  }
+
   @Roles(UserRole.ADMIN)
   @Post('route/cancel')
   @HttpCode(HttpStatus.OK)

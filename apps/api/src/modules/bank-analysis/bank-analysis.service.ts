@@ -8,6 +8,7 @@ import { resolveEntryPlace } from '../../common/segments/place';
 import { ENTRY_UNIT_CODES, entryUnitLabel, entryUnitOf, isSegment } from '../../common/segments/segments';
 import { assertUnitCategory, readUnitCategories, unitList } from '../../common/segments/unit-categories';
 import { AuditService } from '../audit/audit.service';
+import { EXCLUDED_CODE_PREFIX, EXCLUDED_KEY, EXCLUDED_KINDS, excludedKindOfCode, excludedLabelOf, readExcluded, writeExcluded, type ExcludedItem } from '../excluded-incomes/excluded-incomes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseBankStatement, parseDate, text, type StatementChecks } from '../unit-bank/unit-bank.service';
 import { buildPivot, parsePivotQuery, pivotWorkbook } from './bank-analysis.pivot';
@@ -117,7 +118,8 @@ export interface BankPost {
   categoryLabel: string;
   section: 'DOIMIY' | 'BOSHQA';
   description: string;
-  entryType: 'EXPENSE' | 'INCOME';
+  /** EXCLUDED — hisobga olinmaydigan tushum (depozit, ustav fondi): daromadga qo'shilmaydi, entryId — o'sha yozuv */
+  entryType: 'EXPENSE' | 'INCOME' | 'EXCLUDED';
   entryId: string;
   createdAt: string;
   createdBy: string;
@@ -147,6 +149,17 @@ export interface Store {
   posts: BankPost[];
   /** guruh kaliti → nom / tur */
   groups: Record<string, GroupMeta>;
+  /**
+   * `${hisob}:${qator}` → «ro'yxatdan chiqarilgan»: yo'naltirmasdan ko'rib chiqildi (masalan, avval qo'lda kiritilgan).
+   * Hech qanday yozuv yaratilmaydi va o'chirilmaydi — faqat ish ro'yxatidan yashiriladi; qaytarish mumkin. Tahlil va jamilarga ta'sir qilmaydi.
+   */
+  dismissed: Record<string, BankDismiss>;
+}
+
+export interface BankDismiss {
+  at: string;
+  by: string;
+  reason: string | null;
 }
 
 export function readStore(raw: unknown): Store {
@@ -157,6 +170,7 @@ export function readStore(raw: unknown): Store {
     notes: v.notes && typeof v.notes === 'object' && !Array.isArray(v.notes) ? (v.notes as Record<string, BankNote>) : {},
     posts: Array.isArray(v.posts) ? (v.posts as BankPost[]) : [],
     groups: v.groups && typeof v.groups === 'object' && !Array.isArray(v.groups) ? (v.groups as Record<string, GroupMeta>) : {},
+    dismissed: v.dismissed && typeof v.dismissed === 'object' && !Array.isArray(v.dismissed) ? (v.dismissed as Record<string, BankDismiss>) : {},
   };
 }
 
@@ -286,6 +300,8 @@ export class BankAnalysisService {
     const inc = posts.filter((p) => p.entryType === 'INCOME').map((p) => p.entryId);
     if (exp.length) await tx.expense.updateMany({ where: { id: { in: exp }, deletedAt: null }, data: { deletedAt: new Date() } });
     if (inc.length) await tx.income.updateMany({ where: { id: { in: inc }, deletedAt: null }, data: { deletedAt: new Date() } });
+    const exc = new Set(posts.filter((p) => p.entryType === 'EXCLUDED').map((p) => p.entryId));
+    if (exc.size) await runExclusive(`setting:${EXCLUDED_KEY}`, async () => writeExcluded(tx, (await readExcluded(tx)).filter((x) => !exc.has(x.id))));
   }
 
   // ═══════════ Yuklash ═══════════
@@ -438,7 +454,7 @@ export class BankAnalysisService {
   }
 
   /** O'xshashlar guruhi: oyma-oy, o'sib boruvchi, turi, muntazamligi, yo'naltirilgani */
-  protected groups(rows: (BankAnRow & { account: string })[], months: string[], posted: Map<string, BankPost>, withRows = false, meta: Record<string, GroupMeta> = {}, ctx: KindContext = { rules: [], memory: new Map() }) {
+  protected groups(rows: (BankAnRow & { account: string })[], months: string[], posted: Map<string, BankPost>, withRows = false, meta: Record<string, GroupMeta> = {}, ctx: KindContext = { rules: [], memory: new Map() }, dismissed: Record<string, BankDismiss> = {}) {
     const map = new Map<string, { key: string; dir: BankDir; rows: (BankAnRow & { account: string })[] }>();
     for (const r of rows) {
       const k = this.keyOf(r);
@@ -453,7 +469,9 @@ export class BankAnalysisService {
       const countBy: Record<string, number> = Object.fromEntries(months.map((p) => [p, 0]));
       let postedCount = 0;
       let postedTiyin = 0n;
+      let dismissedCount = 0;
       for (const r of g.rows) {
+        if (!posted.has(rk(r.account, r.id)) && dismissed[rk(r.account, r.id)]) dismissedCount += 1;
         const p = this.periodOf(r);
         if (p in byMonth) {
           byMonth[p]! += big(r.amountTiyin);
@@ -527,6 +545,10 @@ export class BankAnalysisService {
         /** Xarajat / daromadga yo'naltirilgani */
         postedCount,
         postedTiyin: postedTiyin.toString(),
+        /** Yo'naltirmasdan ro'yxatdan chiqarilgani */
+        dismissedCount,
+        /** Hali ko'rib chiqilmagani (yo'naltirilmagan va chiqarilmagan) */
+        openCount: g.rows.length - postedCount - dismissedCount,
         ...(withRows ? { rowIds: sorted.map((r) => r.id) } : {}),
       };
     });
@@ -540,7 +562,7 @@ export class BankAnalysisService {
     const acc = account && store.accounts[account] ? account : null;
     const rows = this.rowsIn(store, months, acc);
     const posted = this.postedMap(store);
-    const groups = this.groups(rows, months, posted, false, store.groups, await this.kindContext(store));
+    const groups = this.groups(rows, months, posted, false, store.groups, await this.kindContext(store), store.dismissed);
     const series = months.map((p) => {
       const list = rows.filter((r) => this.periodOf(r) === p);
       return {
@@ -600,6 +622,8 @@ export class BankAnalysisService {
           outTiyin: postedIn.filter((r) => r.dir === 'OUT').reduce((s, r) => s + big(r.amountTiyin), 0n).toString(),
           inTiyin: postedIn.filter((r) => r.dir === 'IN').reduce((s, r) => s + big(r.amountTiyin), 0n).toString(),
         },
+        /** Yo'naltirmasdan ro'yxatdan chiqarilganlar (davrda) */
+        dismissed: rows.filter((r) => !posted.has(rk(r.account, r.id)) && store.dismissed[rk(r.account, r.id)]).length,
       },
       kinds: [...byKind.values()]
         .sort((a, b) => (a.dir === b.dir ? (b.total > a.total ? 1 : -1) : a.dir === 'OUT' ? -1 : 1))
@@ -745,6 +769,7 @@ export class BankAnalysisService {
           note: note ? note.comment : null,
           noteBy: note ? `${note.by} · ${note.at}` : null,
           post: p ? { id: p.id, batch: p.batch, place: p.place.label, categoryLabel: p.categoryLabel, section: p.section, description: p.description, entryType: p.entryType, createdAt: p.createdAt, createdBy: p.createdBy } : null,
+          dismissed: !p ? (store.dismissed[rk(r.account, r.id)] ?? null) : null,
         };
       });
     return { key, rows, totalTiyin: rows.reduce((s, r) => s + big(r.amountTiyin), 0n).toString(), suggestion: this.routeSuggestion(store, key) };
@@ -846,7 +871,10 @@ export class BankAnalysisService {
       await this.prisma.$transaction(async (tx) => {
         for (const u of updates) {
           if (u.post.entryType === 'EXPENSE') await tx.expense.updateMany({ where: { id: u.post.entryId, deletedAt: null }, data: { description: u.text } });
-          else await tx.income.updateMany({ where: { id: u.post.entryId, deletedAt: null }, data: { description: u.text } });
+          else if (u.post.entryType === 'EXCLUDED') {
+            const post = u.post;
+            await runExclusive(`setting:${EXCLUDED_KEY}`, async () => writeExcluded(tx, (await readExcluded(tx)).map((x) => (x.id === post.entryId ? { ...x, note: u.text } : x))));
+          } else await tx.income.updateMany({ where: { id: u.post.entryId, deletedAt: null }, data: { description: u.text } });
           u.post.description = u.text;
         }
         await this.save(store, tx);
@@ -854,6 +882,59 @@ export class BankAnalysisService {
       return { saved, cleared, entries: updates.length };
     });
     return { success: true as const, ...out };
+  }
+
+  // ═══════════ Ro'yxatdan chiqarish (yo'naltirmasdan) ═══════════
+
+  /**
+   * items: [{ account, rowId }], reason (ixtiyoriy) — ko'rib chiqildi, yo'naltirilmaydi (masalan, avval qo'lda kiritilgan).
+   * Hech qanday xarajat / daromad yozuvi yaratilmaydi va o'chirilmaydi. Yo'naltirilganini chiqarib bo'lmaydi.
+   */
+  async dismiss(body: { items?: unknown; reason?: unknown }, userId: string) {
+    const list = this.items(body?.items);
+    const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason.replace(/\s+/g, ' ').trim().slice(0, 300) : null;
+    const by = await this.userName(userId);
+    const out = await runExclusive(`setting:${this.key}`, async () => {
+      const store = await this.store();
+      const posted = this.postedMap(store);
+      const now = new Date().toISOString();
+      let count = 0;
+      let total = 0n;
+      for (const it of list) {
+        const row = this.findRow(store, it.account, it.rowId);
+        if (!row) throw new NotFoundException("To'lov topilmadi — sahifani yangilang");
+        const k = rk(it.account, it.rowId);
+        if (posted.has(k)) throw new BadRequestException(`${row.docDate.split('-').reverse().join('.')} № ${row.docNo || '—'}: yo'naltirilgan — avval yo'naltirishni bekor qiling`);
+        if (store.dismissed[k]) continue;
+        store.dismissed[k] = { at: now, by, reason };
+        count += 1;
+        total += big(row.amountTiyin);
+      }
+      if (count) await this.save(store);
+      return { count, total };
+    });
+    if (out.count) await this.audit.log({ userId, action: 'UPDATE', entity: `${this.entity}_dismiss`, entityId: list.map((x) => x.rowId).join(',').slice(0, 190), summary: `${this.sourceLabel}: ${out.count} ta to'lov ro'yxatdan chiqarildi (yo'naltirilmadi), ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm${reason ? ` — ${reason}` : ''}` });
+    return { success: true as const, count: out.count, totalTiyin: out.total.toString() };
+  }
+
+  /** Ro'yxatga qaytarish: items: [{ account, rowId }] */
+  async undismiss(body: { items?: unknown }, userId: string) {
+    const list = this.items(body?.items);
+    const count = await runExclusive(`setting:${this.key}`, async () => {
+      const store = await this.store();
+      let n = 0;
+      for (const it of list) {
+        const k = rk(it.account, it.rowId);
+        if (store.dismissed[k]) {
+          delete store.dismissed[k];
+          n += 1;
+        }
+      }
+      if (n) await this.save(store);
+      return n;
+    });
+    if (count) await this.audit.log({ userId, action: 'UPDATE', entity: `${this.entity}_dismiss`, entityId: list.map((x) => x.rowId).join(',').slice(0, 190), summary: `${this.sourceLabel}: ${count} ta to'lov ro'yxatga qaytarildi` });
+    return { success: true as const, count };
   }
 
   // ═══════════ Guruh nomi va turi ═══════════
@@ -1008,7 +1089,16 @@ export class BankAnalysisService {
       return { dir, unit, limited: allowed.length > 0, categories: cats.filter((c) => c.isLeaf && (!allowed.length || allowed.includes(c.code))).map((c) => ({ code: c.code, label: c.label, group: c.parentCode ? (parent.get(c.parentCode) ?? null) : null })) };
     }
     const cats = await this.prisma.incomeCategory.findMany({ where: { isActive: true }, select: { code: true, label: true }, orderBy: [{ order: 'asc' }, { label: 'asc' }] });
-    return { dir, unit, limited: allowed.length > 0, categories: cats.filter((c) => !allowed.length || allowed.includes(c.code)).map((c) => ({ code: c.code, label: c.label, group: null })) };
+    return {
+      dir,
+      unit,
+      limited: allowed.length > 0,
+      categories: [
+        ...cats.filter((c) => !allowed.length || allowed.includes(c.code)).map((c) => ({ code: c.code, label: c.label, group: null as string | null })),
+        // Daromad emas — «Hisobga olinmaydigan tushumlar»ga yoziladi (bo'lim ro'yxatidan qat'i nazar)
+        ...EXCLUDED_KINDS.map((k) => ({ code: `${EXCLUDED_CODE_PREFIX}${k.code}`, label: k.label, group: "Hisobga olinmaydi (daromadga qo'shilmaydi)" })),
+      ],
+    };
   }
 
   /** Joy: { unit, departmentId?, regionCode?, districtId? } → yozuv joyi va nomi */
@@ -1111,11 +1201,55 @@ export class BankAnalysisService {
         const row = this.findRow(store, it.account, it.rowId);
         if (!row) throw new NotFoundException("To'lov topilmadi — ko'chirma o'zgargan bo'lishi mumkin, sahifani yangilang");
         if (posted.has(rk(it.account, it.rowId))) throw new BadRequestException(`${row.docDate.split('-').reverse().join('.')} № ${row.docNo || '—'}: allaqachon yo'naltirilgan`);
+        if (store.dismissed[rk(it.account, it.rowId)]) throw new BadRequestException(`${row.docDate.split('-').reverse().join('.')} № ${row.docNo || '—'}: ro'yxatdan chiqarilgan — avval ro'yxatga qaytaring`);
         picked.push({ account: it.account, row });
       }
       const dirs = new Set(picked.map((p) => p.row.dir));
       if (dirs.size > 1) throw new BadRequestException("Chiqim va kirimni alohida yo'naltiring (chiqim — xarajat, kirim — daromad)");
       const dir = picked[0]!.row.dir;
+      // Hisobga olinmaydigan tushum (depozit, ustav fondi): daromad yozuvi emas — alohida ro'yxatga
+      const excludedKind = excludedKindOfCode(code);
+      if (code.startsWith(EXCLUDED_CODE_PREFIX)) {
+        if (!excludedKind) throw new BadRequestException('Tur topilmadi');
+        if (dir !== 'IN') throw new BadRequestException("Hisobga olinmaydigan tushum — faqat kirim (bankka tushgan pul)");
+        const batch = randomUUID();
+        const now = new Date().toISOString();
+        const categoryLabel = excludedLabelOf(excludedKind);
+        const made = await this.prisma.$transaction(
+          async (tx) =>
+            runExclusive(`setting:${EXCLUDED_KEY}`, async () => {
+              const list = await readExcluded(tx);
+              const posts: BankPost[] = [];
+              for (const { account, row } of picked) {
+                const note = store.notes[rk(account, row.id)]?.comment;
+                const gName = store.groups[this.keyOf(row)]?.name;
+                const description = (note || common || gName || row.purpose || this.sourceLabel).slice(0, 500);
+                const item: ExcludedItem = {
+                  id: randomUUID(),
+                  kind: excludedKind,
+                  date: this.entryDate(row).toISOString().slice(0, 10),
+                  amountTiyin: big(row.amountTiyin).toString(),
+                  note: description,
+                  createdAt: now,
+                  createdBy: by,
+                  updatedAt: null,
+                  updatedBy: null,
+                  source: 'BANK',
+                  counterparty: row.accountName.slice(0, 200) || null,
+                  documentNo: row.docNo.slice(0, 100) || null,
+                };
+                list.push(item);
+                posts.push({ id: randomUUID(), batch, account, rowId: row.id, period: this.periodOf(row), docDate: row.docDate, dir, amountTiyin: row.amountTiyin, place, categoryCode: code, categoryLabel, section, description, entryType: 'EXCLUDED', entryId: item.id, createdAt: now, createdBy: by, status: 'POSTED', cancelledAt: null, cancelReason: null });
+              }
+              await writeExcluded(tx, list);
+              store.posts.push(...posts);
+              await this.save(store, tx);
+              return posts;
+            }),
+          { timeout: 120_000, maxWait: 10_000 },
+        );
+        return { batch, count: made.length, total: made.reduce((s, p) => s + big(p.amountTiyin), 0n), skipped: 0, dir, categoryLabel, excluded: true };
+      }
       // Modda: chiqim — xarajat moddasi (ichki), kirim — daromad turi; bo'lim ro'yxatida bo'lsin
       let categoryLabel: string;
       if (dir === 'OUT') {
@@ -1138,7 +1272,7 @@ export class BankAnalysisService {
         if (body?.skipDuplicates === true) todo = picked.filter((p) => !dups.has(rk(p.account, p.row.id)));
         else throw new BadRequestException(`${dups.size} ta to'lov uchun shu sana va summada ${dir === 'OUT' ? 'xarajat' : 'daromad'} yozuvi allaqachon bor — tekshiring («o'tkazib yuborish» yoki «baribir yozish»)`);
       }
-      if (!todo.length) return { batch: null, count: 0, total: 0n, skipped: picked.length, dir, categoryLabel };
+      if (!todo.length) return { batch: null, count: 0, total: 0n, skipped: picked.length, dir, categoryLabel, excluded: false };
       const batch = randomUUID();
       const now = new Date().toISOString();
       const made = await this.prisma.$transaction(
@@ -1181,7 +1315,7 @@ export class BankAnalysisService {
         },
         { timeout: 120_000, maxWait: 10_000 },
       );
-      return { batch, count: made.length, total: made.reduce((s, p) => s + big(p.amountTiyin), 0n), skipped: picked.length - todo.length, dir, categoryLabel };
+      return { batch, count: made.length, total: made.reduce((s, p) => s + big(p.amountTiyin), 0n), skipped: picked.length - todo.length, dir, categoryLabel, excluded: false };
     });
     if (out.count) {
       await this.audit.log({
@@ -1189,10 +1323,10 @@ export class BankAnalysisService {
         action: 'CREATE',
         entity: `${this.entity}_route`,
         entityId: out.batch!,
-        summary: `${this.sourceLabel}dan ${out.dir === 'OUT' ? 'xarajatga' : 'daromadga'}: ${out.count} ta to'lov, ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm → ${place.label}, «${out.categoryLabel}»${out.skipped ? ` (${out.skipped} tasi o'tkazib yuborildi — yozuvi bor)` : ''}`,
+        summary: `${this.sourceLabel}dan ${out.excluded ? "hisobga olinmaydigan tushumga (daromadga qo'shilmaydi)" : out.dir === 'OUT' ? 'xarajatga' : 'daromadga'}:${out.count} ta to'lov, ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm → ${place.label}, «${out.categoryLabel}»${out.skipped ? ` (${out.skipped} tasi o'tkazib yuborildi — yozuvi bor)` : ''}`,
       });
     }
-    return { success: true as const, batch: out.batch, count: out.count, totalTiyin: out.total.toString(), skipped: out.skipped, entryType: out.dir === 'OUT' ? 'EXPENSE' : 'INCOME', place: place.label };
+    return { success: true as const, batch: out.batch, count: out.count, totalTiyin: out.total.toString(), skipped: out.skipped, entryType: out.excluded ? 'EXCLUDED' : out.dir === 'OUT' ? 'EXPENSE' : 'INCOME', place: place.label };
   }
 
   /** Yo'naltirishni bekor qilish: ids (post) yoki batch — yozuvlar o'chiriladi, to'lov yana tahlilda «yo'naltirilmagan» */

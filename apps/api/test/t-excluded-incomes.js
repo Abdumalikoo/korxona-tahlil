@@ -48,6 +48,11 @@ const { ExcludedIncomesService } = require('../dist/modules/excluded-incomes/exc
   assert.deepStrictEqual(D.setting.map((s) => s.key), ['excluded_income.items']);
   assert.deepStrictEqual(logs.map((x) => x.action), ['CREATE', 'CREATE', 'CREATE', 'UPDATE', 'DELETE']);
 
+  // Bankdan kelgani — bu yerda tahrirlanmaydi va o'chirilmaydi (Bank ko'chirmasida bekor qilinadi)
+  D.setting[0].value.push({ id: 'bank1', kind: 'DEPOZIT', date: '2026-08-01', amountTiyin: '1000', note: null, createdAt: '2026-08-01T00:00:00Z', createdBy: 'x', updatedAt: null, updatedBy: null, source: 'BANK' });
+  await assert.rejects(() => svc.update(ADM, 'bank1', { kind: 'DEPOZIT', date: '2026-08-01', amountTiyin: 5 }), /bank ko'chirmasidan/);
+  await assert.rejects(() => svc.remove(ADM, 'bank1'), /bank ko'chirmasidan/);
+
   // Excel
   const f = await svc.export('2026-01', '2026-12');
   assert.ok(f.buffer.length > 1000 && f.filename.endsWith('.xlsx'));

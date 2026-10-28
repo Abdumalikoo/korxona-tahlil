@@ -15,7 +15,7 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
 import { useSource } from './source';
-import { KIND_OPTIONS, KIND_SOURCE_LABEL, PATTERN_LABEL, type BankKind, type BankAnalysis, type BankCheck, type BankDir, type BankGroup, type BankGroupRow, type BankItem, type BankPostBatch, type BankRow, type BankView, type RouteSuggestion } from './api';
+import { KIND_OPTIONS, KIND_SOURCE_LABEL, PATTERN_LABEL, type BankKind, type BankAnalysis, type BankCheck, type BankDir, type BankEntryType, type BankGroup, type BankGroupRow, type BankItem, type BankPostBatch, type BankRow, type BankView, type RouteSuggestion } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Bank ko'chirmasi — qismlar:
@@ -27,7 +27,7 @@ import { KIND_OPTIONS, KIND_SOURCE_LABEL, PATTERN_LABEL, type BankKind, type Ban
 // ═══════════════════════════════════════════════════════════
 
 type ToastFn = (t: { message: string; tone: 'success' | 'error' } | null) => void;
-const ENTRY_LABEL: Record<'EXPENSE' | 'INCOME', string> = { EXPENSE: 'Xarajatga', INCOME: 'Daromadga' };
+const ENTRY_LABEL: Record<BankEntryType, string> = { EXPENSE: 'Xarajatga', INCOME: 'Daromadga', EXCLUDED: 'Hisobga olinmaydiganga' };
 const rk = (account: string, id: string) => `${account}:${id}`;
 /** Qator oyi: faktura — xizmat oyi, bank — hujjat sanasi oyi */
 const periodOf = (r: BankRow) => r.period ?? r.docDate.slice(0, 7);
@@ -177,11 +177,17 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
   const [savingNotes, setSavingNotes] = useState(false);
   const [unrouteId, setUnrouteId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Ko'rib chiqilganlar (yo'naltirilgan yoki ro'yxatdan chiqarilgan) — sukut bo'yicha yashirin: ro'yxatda faqat qolgan ish
+  const [showDone, setShowDone] = useState(false);
+  const [dismissReason, setDismissReason] = useState('');
+  const [dismissAsk, setDismissAsk] = useState(false);
   const allRows = useMemo(() => data.data?.rows ?? [], [data.data]);
-  const rows = useMemo(() => (focus ? allRows.filter((r) => periodOf(r) === focus) : allRows), [allRows, focus]);
+  const scoped = useMemo(() => (focus ? allRows.filter((r) => periodOf(r) === focus) : allRows), [allRows, focus]);
+  const doneCount = scoped.filter((r) => r.post || r.dismissed).length;
+  const rows = useMemo(() => (showDone ? scoped : scoped.filter((r) => !r.post && !r.dismissed)), [scoped, showDone]);
   const tone = group?.dir === 'OUT' ? 'expense' : 'income';
 
-  const free = rows.filter((r) => !r.post);
+  const free = rows.filter((r) => !r.post && !r.dismissed);
   const selected = sel ?? new Set(free.map((r) => rk(r.account, r.id)));
   const setSelected = (fn: (s: Set<string>) => Set<string>) => setSel(fn(selected));
   const picked = free.filter((r) => selected.has(rk(r.account, r.id)));
@@ -201,7 +207,7 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
     });
   }
   function toggleMonth(list: BankGroupRow[]) {
-    const keys = list.filter((r) => !r.post).map((r) => rk(r.account, r.id));
+    const keys = list.filter((r) => !r.post && !r.dismissed).map((r) => rk(r.account, r.id));
     const all = keys.every((k) => selected.has(k));
     setSelected((s) => {
       const n = new Set(s);
@@ -240,6 +246,36 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
     });
   }
 
+  /** Yo'naltirmasdan ro'yxatdan chiqarish (masalan, avval qo'lda kiritilgan) — hech qanday yozuv yaratilmaydi / o'chirilmaydi */
+  async function dismiss() {
+    setBusy(true);
+    try {
+      const r = (await api.dismiss(picked.map((x) => ({ account: x.account, rowId: x.id })), dismissReason.trim() || undefined)).data;
+      onToast({ message: `Ro'yxatdan chiqarildi: ${r.count} ta · ${formatTiyin(r.totalTiyin)} so'm (yozuv yaratilmadi)`, tone: 'success' });
+      setDismissReason('');
+      setSel(null);
+      reload();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Chiqarib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+      setDismissAsk(false);
+    }
+  }
+
+  async function undismiss(r: BankGroupRow) {
+    setBusy(true);
+    try {
+      await api.undismiss([{ account: r.account, rowId: r.id }]);
+      onToast({ message: "Ro'yxatga qaytarildi", tone: 'success' });
+      reload();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Qaytarib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function unroute() {
     if (!unrouteId) return;
     setBusy(true);
@@ -273,7 +309,7 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
             <MiniStat label="O'rtacha (faol oyda)" value={formatTiyin(group.avgTiyin)} />
             <MiniStat label="Faol oylar" value={`${group.activeMonths} / ${v.months.length}`} />
             <MiniStat label="Ulushi" value={`${group.sharePct.toFixed(1)}%`} />
-            <MiniStat label="Yo'naltirilgan" value={`${group.postedCount} / ${group.count}`} />
+            <MiniStat label="Ko'rib chiqilgan" value={`${group.postedCount + group.dismissedCount} / ${group.count}`} />
           </div>
           {isAdmin && <GroupMetaEditor group={group} onToast={onToast} onSaved={onChanged} />}
 
@@ -304,7 +340,29 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
                   Izohlarni saqlash{dirty.length ? ` (${dirty.length})` : ''}
                 </Button>
               </div>
+              <p className="border-t border-(--color-line) pt-2 text-(--color-text-muted)">
+                Avval qo&apos;lda kiritgan bo&apos;lsangiz — yo&apos;naltirmasdan <b className="text-heading">ro&apos;yxatdan chiqaring</b>: hech qanday yozuv yaratilmaydi va o&apos;chirilmaydi, to&apos;lov faqat shu ro&apos;yxatdan yo&apos;qoladi (keyin qaytarish mumkin).
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input value={dismissReason} onChange={(e) => setDismissReason(e.target.value)} maxLength={300} placeholder="Sabab (ixtiyoriy): masalan, avval qo'lda kiritilgan" className={cn(INPUT, 'min-w-64 flex-1')} />
+                <Button size="sm" variant="secondary" disabled={!picked.length || busy} onClick={() => setDismissAsk(true)}>
+                  Ro&apos;yxatdan chiqarish ({picked.length})
+                </Button>
+              </div>
             </div>
+          )}
+
+          {/* Ko'rib chiqilganlar — yo'naltirilgan va ro'yxatdan chiqarilganlar (sukut bo'yicha yashirin) */}
+          {doneCount > 0 && (
+            <label className="flex items-center gap-2 text-xs text-(--color-text-muted)">
+              <input type="checkbox" className="size-4 accent-brand-600" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
+              Ko&apos;rib chiqilganlarni ham ko&apos;rsatish ({doneCount} ta: yo&apos;naltirilgan yoki ro&apos;yxatdan chiqarilgan)
+            </label>
+          )}
+          {data.data && !rows.length && (
+            <p className="rounded-(--radius-control) bg-(--color-income-soft) px-3 py-3 text-sm font-medium text-(--color-income)">
+              ✓ {focus ? `${formatPeriod(focus)}: ` : ''}hammasi ko&apos;rib chiqildi — ro&apos;yxatda qolgan to&apos;lov yo&apos;q.
+            </p>
           )}
 
           {data.loading && !data.data ? (
@@ -315,7 +373,7 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
             <div className="space-y-3">
               {months.map((p) => {
                 const list = rows.filter((r) => periodOf(r) === p);
-                const freeKeys = list.filter((r) => !r.post).map((r) => rk(r.account, r.id));
+                const freeKeys = list.filter((r) => !r.post && !r.dismissed).map((r) => rk(r.account, r.id));
                 const allOn = freeKeys.length > 0 && freeKeys.every((k) => selected.has(k));
                 return (
                   <div key={p} className="overflow-hidden rounded-(--radius-control) border border-(--color-line)">
@@ -331,9 +389,9 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
                         const k = rk(r.account, r.id);
                         const draft = drafts[k];
                         return (
-                          <li key={k} className={cn('px-3 py-2', selected.has(k) && !r.post && 'bg-brand-50/40')}>
+                          <li key={k} className={cn('px-3 py-2', selected.has(k) && !r.post && !r.dismissed && 'bg-brand-50/40', r.dismissed && 'opacity-70')}>
                             <span className="flex flex-wrap items-center gap-2 text-sm">
-                              {isAdmin && !r.post && <input type="checkbox" className="size-4 accent-brand-600" checked={selected.has(k)} onChange={() => toggle(k)} aria-label="Tanlash" />}
+                              {isAdmin && !r.post && !r.dismissed && <input type="checkbox" className="size-4 accent-brand-600" checked={selected.has(k)} onChange={() => toggle(k)} aria-label="Tanlash" />}
                               <span className="money font-medium">{formatDate(r.docDate)}</span>
                               <span className="money text-[11px] text-(--color-text-muted)">№ {r.docNo || '—'}</span>
                               {v.accounts.length > 1 && (
@@ -380,6 +438,22 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
                                 )}
                               </p>
                             )}
+                            {r.dismissed && (
+                              <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                                <Badge tone="neutral" className="px-1.5 py-0 text-[10px]">
+                                  Ro&apos;yxatdan chiqarilgan
+                                </Badge>
+                                {r.dismissed.reason && <span className="text-heading">{r.dismissed.reason}</span>}
+                                <span className="text-(--color-text-faint)">
+                                  {formatDateTime(r.dismissed.at)} · {r.dismissed.by}
+                                </span>
+                                {isAdmin && (
+                                  <button type="button" disabled={busy} className="font-medium text-brand-700 hover:underline disabled:opacity-50" onClick={() => void undismiss(r)}>
+                                    Ro&apos;yxatga qaytarish
+                                  </button>
+                                )}
+                              </p>
+                            )}
                           </li>
                         );
                       })}
@@ -391,6 +465,15 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={dismissAsk}
+        title="Ro'yxatdan chiqarish"
+        message={`${picked.length} ta to'lov (${formatTiyin(pickedTotal.toString())} so'm) yo'naltirilmaydi va ro'yxatdan chiqariladi. Xarajat / daromad yozuvi yaratilmaydi va hech narsa o'chirilmaydi. Keyin «Ko'rib chiqilganlarni ham ko'rsatish» orqali qaytarish mumkin.`}
+        confirmLabel="Chiqarish"
+        loading={busy}
+        onConfirm={() => void dismiss()}
+        onCancel={() => setDismissAsk(false)}
+      />
       <ConfirmDialog
         open={unrouteId !== null}
         title="Yo'naltirishni bekor qilish"
@@ -540,6 +623,8 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
   const cat = cats.some((c) => c.code === category) ? category : '';
 
   const what = group.dir === 'OUT' ? 'xarajat' : 'daromad';
+  // Depozit, ustav fondi — daromad emas, «Hisobga olinmaydigan tushumlar»ga yoziladi
+  const excluded = cat.startsWith('EXCL:');
   const can = items.length > 0 && ready && Boolean(cat);
 
   async function start() {
@@ -548,7 +633,8 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
     try {
       if (!(await beforeRoute())) return;
       const c = (await api.check(items)).data;
-      setCheck(c);
+      // Takror tekshiruvi daromad yozuvlariga qarab — hisobga olinmaydiganda kerak emas
+      setCheck(excluded ? { ...c, duplicates: [] } : c);
       setConfirm(true);
     } catch (err) {
       onToast({ message: errorMessage(err, 'Tekshirib bo‘lmadi'), tone: 'error' });
@@ -622,11 +708,14 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
             ),
           )}
         </select>
-        <select value={section} onChange={(e) => setSection(e.target.value === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY')} className={INPUT} aria-label="Bo'lim">
-          <option value="DOIMIY">Doimiy</option>
-          <option value="BOSHQA">Boshqa (bir martalik)</option>
-        </select>
+        {!excluded && (
+          <select value={section} onChange={(e) => setSection(e.target.value === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY')} className={INPUT} aria-label="Bo'lim">
+            <option value="DOIMIY">Doimiy</option>
+            <option value="BOSHQA">Boshqa (bir martalik)</option>
+          </select>
+        )}
       </div>
+      {excluded && <p className="text-amber-700">Daromad emas: «Daromadlar › Hisobga olinmaydi»ga yoziladi — jami daromad, natija va hisobotlarga qo&apos;shilmaydi.</p>}
       {ready && opts.data?.limited && <p className="text-(--color-text-faint)">Faqat «{placeLabel}» bo&apos;limi ro&apos;yxatidagi moddalar ko&apos;rsatilmoqda.</p>}
       <div className="flex flex-wrap items-center gap-2">
         <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} placeholder={group.name ? `Umumiy izoh (bo'sh bo'lsa — «${group.name}»)` : "Umumiy izoh (o'z izohi yozilmagan to'lovlar uchun, ixtiyoriy)"} className={cn(INPUT, 'min-w-64 flex-1')} />
@@ -671,8 +760,12 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
       )}
       <ConfirmDialog
         open={confirm && check !== null && !dups.length}
-        title={`${what[0]!.toUpperCase()}${what.slice(1)} sifatida yozish`}
-        message={`${check?.count ?? 0} ta to'lov (${formatTiyin(check?.totalTiyin ?? '0')} so'm) «${placeLabel}» ga «${cats.find((c) => c.code === cat)?.label ?? ''}» bo'yicha ${what} bo'lib yoziladi (${section === 'DOIMIY' ? 'Doimiy' : 'Boshqa'}). Sana va oy — to'lov sanasi. Keyin bekor qilish mumkin.`}
+        title={excluded ? 'Hisobga olinmaydigan tushum sifatida yozish' : `${what[0]!.toUpperCase()}${what.slice(1)} sifatida yozish`}
+        message={
+          excluded
+            ? `${check?.count ?? 0} ta to'lov (${formatTiyin(check?.totalTiyin ?? '0')} so'm) «${cats.find((c) => c.code === cat)?.label ?? ''}» bo'lib «Daromadlar › Hisobga olinmaydi»ga yoziladi — daromadga QO'SHILMAYDI. Sana — to'lov sanasi. Keyin bekor qilish mumkin.`
+            : `${check?.count ?? 0} ta to'lov (${formatTiyin(check?.totalTiyin ?? '0')} so'm) «${placeLabel}» ga «${cats.find((c) => c.code === cat)?.label ?? ''}» bo'yicha ${what} bo'lib yoziladi (${section === 'DOIMIY' ? 'Doimiy' : 'Boshqa'}). Sana va oy — to'lov sanasi. Keyin bekor qilish mumkin.`
+        }
         confirmLabel="Yozish"
         loading={busy}
         onConfirm={() => void run('normal')}
@@ -711,7 +804,7 @@ export function PostsHistory({ list, isAdmin, onToast, onChanged }: { list: Bank
       <ul className="divide-y divide-(--color-line) text-sm">
         {list.slice(0, 50).map((b) => (
           <li key={b.batch} className={cn('flex flex-wrap items-center gap-3 px-5 py-2.5', !b.live && 'opacity-50')}>
-            <Badge tone={b.entryType === 'EXPENSE' ? 'expense' : 'income'}>{ENTRY_LABEL[b.entryType]}</Badge>
+            <Badge tone={b.entryType === 'EXPENSE' ? 'expense' : b.entryType === 'EXCLUDED' ? 'neutral' : 'income'}>{ENTRY_LABEL[b.entryType]}</Badge>
             <span className="min-w-0 flex-1 truncate font-medium text-heading">
               {b.place} · «{b.categoryLabel}» <span className="font-normal text-(--color-text-muted)">· {b.section === 'DOIMIY' ? 'Doimiy' : 'Boshqa'}</span>
             </span>

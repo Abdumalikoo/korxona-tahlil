@@ -16,6 +16,7 @@ import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatDateTime, formatPeriod, parseSum, sumToTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
+import Link from 'next/link';
 import { useState } from 'react';
 import { downloadExcluded, excludedApi, type ExcludedItem, type ExcludedKind } from './api';
 
@@ -145,7 +146,9 @@ export function ExcludedIncomesPage() {
                     <li key={i.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5">
                       <span className="w-24 text-xs text-(--color-text-muted) tabular-nums">{formatDate(i.date)}</span>
                       <Badge tone={i.kind === 'DEPOZIT' ? 'neutral' : 'warn'}>{kindLabel(i.kind)}</Badge>
-                      <span className="min-w-0 flex-1 truncate text-(--color-text-muted)" title={i.note ?? ''}>
+                      {i.source === 'BANK' && <Badge tone="income">bankdan</Badge>}
+                      <span className="min-w-0 flex-1 truncate text-(--color-text-muted)" title={[i.counterparty, i.documentNo ? `№ ${i.documentNo}` : null, i.note].filter(Boolean).join(' · ')}>
+                        {i.counterparty ? <b className="font-medium text-heading">{i.counterparty} · </b> : null}
                         {i.note ?? ''}
                       </span>
                       <span className="text-xs text-(--color-text-faint)" title={i.updatedAt ? `O'zgartirgan: ${i.updatedBy} · ${formatDateTime(i.updatedAt)}` : undefined}>
@@ -153,7 +156,12 @@ export function ExcludedIncomesPage() {
                         {i.updatedAt ? ' · tahrirlangan' : ''}
                       </span>
                       <span className="money w-36 text-right font-semibold text-heading">{sum(i.amountTiyin)}</span>
-                      {isAdmin && (
+                      {isAdmin && i.source === 'BANK' && (
+                        <Link href="/daromadlar/bank-kochirma" className="px-2 text-xs font-medium text-brand-700 hover:underline" title="Tahrir va o'chirish — Bank ko'chirmasi › yo'naltirishlar tarixida «Bekor qilish»">
+                          Bank ko&apos;chirmasida →
+                        </Link>
+                      )}
+                      {isAdmin && i.source !== 'BANK' && (
                         <span className="flex gap-1">
                           <Button size="sm" variant="ghost" onClick={() => setEditing(i)}>
                             Tahrirlash

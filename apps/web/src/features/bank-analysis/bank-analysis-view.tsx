@@ -493,10 +493,16 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
         <Box label="Kirim − chiqim" tiyin={v.totals.netTiyin} sub="tanlangan davr bo‘yicha" tone={BigInt(v.totals.netTiyin) < 0n ? 'expense' : 'income'} />
         <PatternBox v={v} dir={dir} active={pattern} onPick={(p) => setPattern(pattern === p ? null : p)} />
       </div>
-      {v.totals.posted.count > 0 && (
+      {v.totals.posted.count + v.totals.dismissed > 0 && (
         <p className="text-xs text-(--color-text-muted)">
           Yo&apos;naltirilgan: <b className="text-heading">{v.totals.posted.count}</b> ta to&apos;lov · xarajatga <span className="money text-(--color-expense)">{formatTiyin(v.totals.posted.outTiyin)}</span> · daromadga{' '}
           <span className="money text-(--color-income)">{formatTiyin(v.totals.posted.inTiyin)}</span>
+          {v.totals.dismissed > 0 && (
+            <>
+              {' '}
+              · ro&apos;yxatdan chiqarilgan: <b className="text-heading">{v.totals.dismissed}</b> ta · qolgan: <b className="text-heading">{v.totals.rows - v.totals.posted.count - v.totals.dismissed}</b> ta
+            </>
+          )}
         </p>
       )}
       {missing.length > 0 && (
@@ -598,18 +604,22 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
   const [limit, setLimit] = useState(PAGE);
   // Faqat turi aniqlanmaganlar (ko'rib chiqish uchun)
   const [unsure, setUnsure] = useState(false);
+  // Sukut bo'yicha — faqat hali ko'rib chiqilmaganlar: yo'naltirilgan / ro'yxatdan chiqarilgan guruh o'zi yo'qoladi
+  const [openOnly, setOpenOnly] = useState(true);
   const unsureCount = v.groups.filter((g) => g.dir === dir && g.kindSource === 'NONE').length;
+  const doneGroups = v.groups.filter((g) => g.dir === dir && g.openCount === 0).length;
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
     return v.groups.filter((g) => {
       if (g.dir !== dir) return false;
+      if (openOnly && g.openCount === 0) return false;
       if (kind && g.kind !== kind) return false;
       if (pattern && g.pattern !== pattern) return false;
       if (unsure && g.kindSource !== 'NONE') return false;
       if (!t) return true;
       return g.counterparty.toLowerCase().includes(t) || (g.name ?? '').toLowerCase().includes(t) || (g.inn ?? '').includes(t) || g.samples.some((x) => x.toLowerCase().includes(t));
     });
-  }, [v.groups, dir, kind, pattern, q, unsure]);
+  }, [v.groups, dir, kind, pattern, q, unsure, openOnly]);
   const total = shown.reduce((s, g) => s + BigInt(g.totalTiyin), 0n);
   const colTotals = v.months.map((p, i) => shown.reduce((s, g) => s + BigInt(mode === 'MONTH' ? (g.byMonth[p] ?? '0') : (g.cumulative[i] ?? '0')), 0n));
   const tone = dir === 'OUT' ? 'expense' : 'income';
@@ -635,6 +645,11 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
             </Chip>
           );
         })}
+        {doneGroups > 0 && (
+          <Chip active={!openOnly} onClick={() => setOpenOnly(!openOnly)}>
+            {openOnly ? "Ko'rib chiqilganlarni ko'rsatish" : "Ko'rib chiqilganlar ko'rsatilmoqda"} <span className="money opacity-70">{doneGroups}</span>
+          </Chip>
+        )}
         {unsureCount > 0 && (
           <Chip active={unsure} onClick={() => setUnsure(!unsure)}>
             Aniqlanmagan <span className="money opacity-70">{unsureCount}</span>
@@ -686,10 +701,12 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-1">
                     <KindBadge g={g} small />
-                    {g.postedCount > 0 && (
-                      <Badge tone={g.postedCount === g.count ? 'income' : 'warn'} className="px-1.5 py-0 text-[10px]">
-                        yo‘naltirilgan {g.postedCount}/{g.count}
-                      </Badge>
+                    {g.postedCount + g.dismissedCount > 0 && (
+                      <span title={`Yo'naltirilgan: ${g.postedCount}, ro'yxatdan chiqarilgan: ${g.dismissedCount}, qolgan: ${g.openCount}`}>
+                        <Badge tone={g.openCount === 0 ? 'income' : 'warn'} className="px-1.5 py-0 text-[10px]">
+                          {g.openCount === 0 ? `ko‘rib chiqilgan ${g.count}/${g.count}` : `qolgan ${g.openCount}/${g.count}`}
+                        </Badge>
+                      </span>
                     )}
                     <Badge tone={g.pattern === 'ONCE' ? 'warn' : 'neutral'} className="px-1.5 py-0 text-[10px]">
                       {PATTERN_LABEL[g.pattern].toLowerCase()}
@@ -736,7 +753,7 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
             {!shown.length && (
               <tr>
                 <td colSpan={v.months.length + 4} className="py-6 text-center text-sm text-(--color-text-muted)">
-                  Bu tanlovda guruh yo&apos;q
+                  {openOnly && doneGroups > 0 ? "✓ Bu tanlovda hammasi ko'rib chiqilgan (yo'naltirilgan yoki ro'yxatdan chiqarilgan)" : "Bu tanlovda guruh yo'q"}
                 </td>
               </tr>
             )}
