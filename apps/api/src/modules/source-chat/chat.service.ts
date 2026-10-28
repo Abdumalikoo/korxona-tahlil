@@ -59,6 +59,8 @@ export interface ChatAnswer {
   sources: string[];
   suggestions: string[];
   context: ChatContext;
+  /** Javob Excel fayl qilib berilsin («Excel ber», «tashla») — qaysi javob (o'zi yoki oldingisi) */
+  file?: { itemId: string };
 }
 
 interface HrFact {
@@ -221,6 +223,37 @@ export class SourceChatService {
     return { buffer, filename: 'Chat-saqlanganlar.xlsx' };
   }
 
+  /** Bitta javobni Excel'ga */
+  async exportItem(userId: string, threadId: string, itemId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const a = (await this.store(userId).items(threadId)).find((x) => x.id === itemId);
+    if (!a) throw new NotFoundException('Javob topilmadi');
+    const buffer = await chatWorkbook(a.question, [{ answer: a }]);
+    return { buffer, filename: `Chat-${a.question.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'javob'}.xlsx` };
+  }
+
+  /** Faqat buyruq («Excel ber», «tashla») — suhbatdagi oxirgi ma'lumotli javob faylga */
+  private async exportCommand(userId: string, threadId: string, ctx: ChatContext): Promise<Ans> {
+    const items = userId && threadId ? await this.store(userId).items(threadId).catch(() => [] as ChatAnswer[]) : [];
+    // Buyruq javoblari (boshqa javobga ishora qiladi) va faqat matnli javoblar o'tkazib yuboriladi
+    const prev = [...items].reverse().find((x) => (!x.file || x.file.itemId === x.id) && x.blocks.some((b) => b.type !== 'text' && b.type !== 'choices'));
+    if (!prev)
+      return {
+        blocks: [{ type: 'text', text: "Faylga tushiradigan javob yo'q. Avval savol bering (masalan, «Tax free xodimlari ro'yxati»), keyin «Excel ber» deng — yoki bir yo'la: «Tax free xodimlari ro'yxatini Excel qilib ber».", tone: 'warn' }],
+        understood: [{ label: 'Buyruq', value: 'Excel fayl' }],
+        sources: [],
+        suggestions: this.helpSuggestions().slice(0, 3),
+        context: ctx,
+      };
+    return {
+      blocks: [{ type: 'text', text: `«${prev.question}» javobi Excel faylga tushirildi — yuklab olinmoqda. Yuklanmasa — javob ostidagi «Excel» tugmasi.` }],
+      understood: [{ label: 'Buyruq', value: 'Excel fayl' }, { label: 'Javob', value: `«${prev.question}»` }],
+      sources: prev.sources,
+      suggestions: [],
+      context: prev.context ?? ctx,
+      file: { itemId: prev.id },
+    };
+  }
+
   /** Javob matni (nusxalash uchun) */
   async itemText(userId: string, threadId: string, itemId: string): Promise<string> {
     const a = (await this.store(userId).items(threadId)).find((x) => x.id === itemId);
@@ -237,8 +270,10 @@ export class SourceChatService {
     const now = nowPeriod();
     const d = await this.dict();
     const q = parse(question, now, d.dict, ctx);
+    const bodyThread = typeof body?.threadId === 'string' ? body.threadId : '';
     let a: Omit<ChatAnswer, 'id' | 'question' | 'at'>;
-    try {
+    if (q.intent === 'export') a = await this.exportCommand(userId, bodyThread, ctx);
+    else try {
       // Kontragent (INN yoki «kontragent / faktura» + nomi) — schyot-faktura va bank ko'chirmasidan
       const cp = q.pinfl ? null : await this.counterparties?.chat(question).catch(() => null);
       a = cp ? this.counterpartyAnswer(cp) : await this.answer(q, now, d);
@@ -247,9 +282,14 @@ export class SourceChatService {
       else throw e;
     }
     const out: ChatAnswer = { id: randomUUID(), question, at: new Date().toISOString(), ...a };
+    // «… Excel qilib ber» — javobning o'zi faylga (ma'lumot bo'lsa)
+    if (q.exportFile && !out.file && out.blocks.some((b) => b.type !== 'text' && b.type !== 'choices')) {
+      out.file = { itemId: out.id };
+      out.understood = [...out.understood, { label: 'Natija', value: 'Excel fayl' }];
+    }
     if (!userId) return { ...out, threadId: null, thread: null };
     const st = this.store(userId);
-    let threadId = typeof body?.threadId === 'string' ? body.threadId : '';
+    let threadId = bodyThread;
     if (!threadId || !(await st.threads()).some((t) => t.id === threadId)) threadId = (await st.create()).id;
     const thread = await st.append(threadId, out);
     return { ...out, threadId, thread };
@@ -306,6 +346,7 @@ export class SourceChatService {
     const GB: Record<string, string> = { month: "oylar bo'yicha", unit: "bo'limlar / hududlar bo'yicha", category: "moddalar bo'yicha", party: "kontragent / mijoz bo'yicha", position: "lavozimlar bo'yicha", age: "yosh bo'yicha", gender: "jinsi bo'yicha", education: "ma'lumoti bo'yicha", region: "viloyatlar bo'yicha", district: "tumanlar bo'yicha" };
     if (q.groupBy) u.push({ label: 'Guruhlash', value: GB[q.groupBy] ?? q.groupBy });
     if (q.top) u.push({ label: 'Tartib', value: q.top === 'desc' ? "eng ko'pdan" : 'eng kamdan' });
+    if (q.limit) u.push({ label: 'Qatorlar', value: `${q.limit} ta` });
     if (q.inherited.length) u.push({ label: 'Oldingi savoldan', value: q.inherited.join(', ') });
     if (q.fixes.length) u.push({ label: 'Tuzatildi', value: q.fixes.map((f) => `${f.from} → ${f.to}`).join(', ') });
     return [...u, ...extra];
@@ -621,7 +662,7 @@ export class SourceChatService {
             { key: 'e', label: 'Xarajat', align: 'right' },
             { key: 'r', label: 'Natija', align: 'right' },
           ],
-          rows: (q.top === 'asc' ? rows.reverse() : rows).slice(0, 40).map(([k, v]) => ({ u: this.ownerLabel(k, d), i: som(v.i), e: som(v.e), r: som(v.i - v.e) })),
+          rows: (q.top === 'asc' ? rows.reverse() : rows).slice(0, q.limit ?? 40).map(([k, v]) => ({ u: this.ownerLabel(k, d), i: som(v.i), e: som(v.e), r: som(v.i - v.e) })),
         });
       }
       sources.push(`Daromadlar (${num(I.length)} yozuv)`, `Xarajatlar (${num(E.length)} yozuv, Xarajatlar siyosati qo'llangan)`);
@@ -667,14 +708,14 @@ export class SourceChatService {
           const k = ((base === 'income' ? x.clientName : x.counterparty) ?? '').trim() || "Ko'rsatilmagan";
           by.set(k, { v: (by.get(k)?.v ?? 0n) + x.amountTiyin, n: (by.get(k)?.n ?? 0) + 1 });
         }
-        const items = [...by.entries()].sort((a, b) => (q.top === 'asc' ? Number(a[1].v - b[1].v) : Number(b[1].v - a[1].v))).slice(0, 20);
+        const items = [...by.entries()].sort((a, b) => (q.top === 'asc' ? Number(a[1].v - b[1].v) : Number(b[1].v - a[1].v))).slice(0, q.limit ?? 20);
         blocks.push({ type: 'bars', title: base === 'income' ? "Mijozlar bo'yicha" : "Kontragentlar bo'yicha", items: items.map(([k, v]) => ({ label: k, value: Number(v.v), display: som(v.v), sub: `${v.n} yozuv` })) });
       };
       if (q.groupBy === 'party' || (filtered && !q.party)) byParty();
       const byUnit = () => {
         const by = new Map<string, bigint>();
         for (const x of R) by.set(x.owner, (by.get(x.owner) ?? 0n) + x.amountTiyin);
-        const items = [...by.entries()].sort((a, b) => (q.top === 'asc' ? Number(a[1] - b[1]) : Number(b[1] - a[1]))).slice(0, 30);
+        const items = [...by.entries()].sort((a, b) => (q.top === 'asc' ? Number(a[1] - b[1]) : Number(b[1] - a[1]))).slice(0, q.limit ?? 30);
         blocks.push({ type: 'bars', title: "Bo'limlar va hududlar bo'yicha", items: items.map(([k, v]) => ({ label: this.ownerLabel(k, d), value: Number(v), display: som(v), sub: total ? `${((Number(v) / Number(total)) * 100).toFixed(1).replace('.', ',')}%` : undefined })) });
       };
       const byCat = () => {
@@ -684,7 +725,7 @@ export class SourceChatService {
         blocks.push({
           type: 'bars',
           title: `Moddalar bo'yicha${items.length > 15 ? ' (eng kattalari)' : ''}`,
-          items: items.slice(0, 15).map(([k, v]) => ({ label: labelOf(k), value: Number(v.v), display: som(v.v), sub: `${v.n} yozuv · ${((Number(v.v) / Number(total || 1n)) * 100).toFixed(1).replace('.', ',')}%` })),
+          items: items.slice(0, q.limit ?? 15).map(([k, v]) => ({ label: labelOf(k), value: Number(v.v), display: som(v.v), sub: `${v.n} yozuv · ${((Number(v.v) / Number(total || 1n)) * 100).toFixed(1).replace('.', ',')}%` })),
         });
       };
       const byMonth = () => {
@@ -711,7 +752,7 @@ export class SourceChatService {
         f();
       }
       if (filtered) {
-        const top = [...R].sort((a, b) => Number(b.amountTiyin - a.amountTiyin)).slice(0, 25);
+        const top = [...R].sort((a, b) => Number(b.amountTiyin - a.amountTiyin)).slice(0, q.limit ?? 25);
         blocks.push({
           type: 'table',
           title: `Yozuvlar (eng kattalari${R.length > 25 ? `, ${top.length} / ${num(R.length)}` : ''})`,
@@ -901,7 +942,7 @@ export class SourceChatService {
             { key: 'p', label: 'JShShIR' },
             { key: 'l', label: 'Lavozim' },
           ],
-          rows: list.people.slice(0, 60).map((p, i) => ({ n: String(i + 1), f: p.fullName, p: p.pinfl, l: p.position })),
+          rows: list.people.slice(0, q.limit ?? 60).map((p, i) => ({ n: String(i + 1), f: p.fullName, p: p.pinfl, l: p.position })),
           note: list.people.length > 60 ? `Yana ${num(list.people.length - 60)} ta — to'liq ro'yxat Xodimlar yoki bo'lim › Ish haqi sahifasida.` : undefined,
         });
       return { blocks, understood: this.understood(q, d), sources, suggestions: list.people.slice(0, 2).map((p) => `${p.pinfl} barcha ma'lumotlari`), context: { ...this.ctxOf(q), intent: 'staff' as const } };
@@ -1113,7 +1154,7 @@ export class SourceChatService {
     const group = (title: string, key: (x: HrFact) => string) => {
       const by = new Map<string, number>();
       for (const x of list) by.set(key(x), (by.get(key(x)) ?? 0) + 1);
-      const items = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30);
+      const items = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, q.limit ?? 30);
       blocks.push({ type: 'bars', title, items: items.map(([k, v]) => ({ label: k, value: v, display: `${num(v)} ta`, sub: `${((v / Math.max(1, list.length)) * 100).toFixed(1).replace('.', ',')}%` })) });
     };
     const band = (a: number | null) => (a === null ? "noma'lum" : a < 25 ? '25 gacha' : a < 30 ? '25–29' : a < 40 ? '30–39' : a < 50 ? '40–49' : a < 60 ? '50–59' : '60 va katta');
@@ -1139,7 +1180,7 @@ export class SourceChatService {
         ],
         rows: [...list]
           .sort((a, b) => a.fullName.localeCompare(b.fullName))
-          .slice(0, 60)
+          .slice(0, q.limit ?? 60)
           .map((x, i) => ({ n: String(i + 1), f: x.fullName, l: x.position, u: x.unit ? entryUnitLabel(x.unit) : null, a: x.age !== null ? String(x.age) : null, h: x.hired })),
       });
     if (unknownG && q.hr.gender) blocks.push({ type: 'text', tone: 'muted', text: `Eslatma: ${num(unknownG)} kishining jinsi ma'lumotnomada (16-jadval) ko'rsatilmagan — ular hisobga kirmadi.` });
@@ -1220,7 +1261,7 @@ export class SourceChatService {
               { key: 'm', label: 'Oylar', align: 'right' },
               { key: 'a', label: "Oyiga o'rtacha", align: 'right' },
             ],
-            rows: sorted.slice(0, 25).map(([p, v], i) => ({
+            rows: sorted.slice(0, q.limit ?? 25).map(([p, v], i) => ({
               n: String(i + 1),
               f: d.names.get(p) ?? v.name ?? p,
               u: [...v.units].map(entryUnitLabel).join(', '),

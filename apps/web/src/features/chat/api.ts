@@ -40,6 +40,8 @@ export interface ChatAnswer {
   sources: string[];
   suggestions: string[];
   context: ChatContext;
+  /** «Excel ber», «tashla» — shu (yoki oldingi) javob faylga beriladi */
+  file?: { itemId: string };
 }
 
 export interface ChatThread {
@@ -155,5 +157,6 @@ async function download(path: string, fallback: string, code?: string): Promise<
   URL.revokeObjectURL(url);
 }
 
+export const exportItem = (id: string, itemId: string, code?: string) => download(`/source-chat/threads/${enc(id)}/items/${enc(itemId)}/export`, 'Chat-javob.xlsx', code);
 export const exportThread = (id: string, code?: string) => download(`/source-chat/threads/${enc(id)}/export`, 'Chat.xlsx', code);
 export const exportSaved = (ids?: string[], code?: string) => download(`/source-chat/saved/export${ids?.length ? `?ids=${enc(ids.join(','))}` : ''}`, 'Chat-saqlanganlar.xlsx', code);

@@ -10,7 +10,7 @@ import { formatDateTime } from '@/lib/format';
 import { unitByCode } from '@/lib/segments';
 import { cn } from '@/lib/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chatPinApi, cleanMsg, exportSaved, exportThread, isLocked, needsCode, needsSetup, setChatToken, sourceChatApi, type ChatAnswer, type ChatContext, type ChatPinRequire, type ChatThread, type SavedAnswer } from './api';
+import { chatPinApi, cleanMsg, exportItem, exportSaved, exportThread, isLocked, needsCode, needsSetup, setChatToken, sourceChatApi, type ChatAnswer, type ChatContext, type ChatPinRequire, type ChatThread, type SavedAnswer } from './api';
 import { ChatLock, ChatSetup, CodeDialog } from './pin-pad';
 import { ChatBlocks } from './blocks';
 
@@ -332,6 +332,8 @@ export function SourceChatView() {
       const a = (await sourceChatApi.ask(question, ctx, activeId, code)).data;
       setMessages((m) => m.map((x) => (x.kind === 'pending' && x.id === pid ? { kind: 'answer', a } : x)));
       setCtx(a.context ?? {});
+      // «Excel ber», «tashla» — fayl darhol yuklab olinadi
+      if (a.file && a.threadId) downloadItem(a.threadId, a.file.itemId);
       if (a.threadId !== activeId) {
         setActiveId(a.threadId);
         writeActive(a.threadId);
@@ -483,6 +485,11 @@ export function SourceChatView() {
       setSaved((l) => [r, ...l.filter((x) => x.id !== r.id)]);
       setToast({ message: 'Saqlandi — «Saqlanganlar»da izoh qo‘shishingiz mumkin' });
     });
+  }
+
+  /** Bitta javob — Excel fayl */
+  function downloadItem(threadId: string, itemId: string) {
+    withCode(Boolean(pinReq?.save), "Excel'ga yuklab olish", 'Javobni faylga saqlash uchun chat kodini kiriting', (code) => exportItem(threadId, itemId, code));
   }
 
   async function copyAnswer(a: ChatAnswer) {
@@ -667,6 +674,7 @@ export function SourceChatView() {
                     onAsk={(q) => void ask(q)}
                     onSave={() => void toggleSave(m.a)}
                     onCopy={() => void copyAnswer(m.a)}
+                    onExcel={activeId ? () => downloadItem(activeId, m.a.file?.itemId ?? m.a.id) : undefined}
                     onDelete={() => removeItem(m.a)}
                   />
                 ) : (
@@ -968,7 +976,9 @@ function Question({ text }: { text: string }) {
   );
 }
 
-function Exchange({ a, saved, onAsk, onSave, onCopy, onDelete }: { a: ChatAnswer; saved: boolean; onAsk: (q: string) => void; onSave: () => void; onCopy: () => void; onDelete: () => void }) {
+function Exchange({ a, saved, onAsk, onSave, onCopy, onExcel, onDelete }: { a: ChatAnswer; saved: boolean; onAsk: (q: string) => void; onSave: () => void; onCopy: () => void; onExcel?: () => void; onDelete: () => void }) {
+  // Excel tugmasi — jadval/ko'rsatkich bor javobda yoki fayl buyrug'i javobida
+  const hasData = Boolean(a.file) || a.blocks.some((b) => b.type !== 'text' && b.type !== 'choices');
   return (
     <div className="group/ex space-y-2">
       <Question text={a.question} />
@@ -996,6 +1006,12 @@ function Exchange({ a, saved, onAsk, onSave, onCopy, onDelete }: { a: ChatAnswer
               <IconCopy className="size-3.5" />
               Nusxalash
             </button>
+            {onExcel && hasData && (
+              <button type="button" onClick={onExcel} className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-(--color-income-soft) hover:text-(--color-income)" title="Shu javobni Excel faylga">
+                <IconDownload className="size-3.5" />
+                Excel
+              </button>
+            )}
             <button type="button" onClick={onDelete} className="flex items-center gap-1 rounded px-1.5 py-0.5 opacity-60 group-hover/ex:opacity-100 hover:bg-(--color-expense-soft) hover:text-(--color-expense)">
               <IconTrash className="size-3.5" />
               O&apos;chirish

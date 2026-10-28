@@ -8,6 +8,8 @@
 //     Tax free …), viloyat, Markaz bo'limi, modda (Ijara, Internet …), ko'rsatkich (xarajat, daromad, natija, ish haqi),
 //     guruhlash (oylar / moddalar / bo'limlar bo'yicha), «eng ko'p», yozuvlar ro'yxati, xodimlar soni.
 //  3) Savolda bo'lmagan narsa oldingi savoldan olinadi (kontekst): «fevraldagi-chi?» — oldingi ko'rsatkich va bo'lim.
+//  4) Yo'nalish nomlari xato bilan ham («tax fre», «taxfre»); «5 ta», «top 10» — nechta qator; «o'tgan oyga nisbatan» —
+//     solishtirish; «Excel ber», «tashla», «yubor» — javob fayl qilib beriladi (faqat buyruq — oldingi javob).
 // ═══════════════════════════════════════════════════════════
 
 const CYR: Record<string, string> = {
@@ -173,7 +175,7 @@ export function parsePeriod(text: string, now: string): { period: PeriodSpec | n
 // ─────────── Ko'rsatkich va niyat ───────────
 
 export type MoneyKind = 'expense' | 'income' | 'result' | 'payroll';
-export type Intent = 'person' | 'money' | 'staff' | 'records' | 'units' | 'sources' | 'help' | 'greeting' | 'compareUnits' | 'hr' | 'topPay';
+export type Intent = 'person' | 'money' | 'staff' | 'records' | 'units' | 'sources' | 'help' | 'greeting' | 'compareUnits' | 'hr' | 'topPay' | 'export';
 export type GroupBy = 'month' | 'category' | 'unit' | 'party' | 'position' | 'age' | 'gender' | 'education' | 'region' | 'district' | null;
 export type PersonAspect = 'all' | 'payroll' | 'moves' | 'where';
 
@@ -199,7 +201,7 @@ export const RE = {
   help: /^(yordam|help|\?|nima qila olasan|nima qila olasiz)$/,
   greeting: /^(salom|assalomu?\s*alaykum|assalom|hayrli\s+\w+|qalesan|qalaysiz|salom\s+\w+)\W*$/,
   compare: /\btaqqos|\bsolishtir|\bfarq/,
-  yoy: /\botgan\s+yil\w*\s+(shu|xuddi\s+shu|ayni)\s+(davr|oy)\w*|\botgan\s+yil\w*\s+bilan\s+(solishtir|taqqos)\w*|\byilma[\s-]*yil|\bbir\s+yil\s+oldingi(\s+bilan)?/,
+  yoy: /\botgan\s+yil\w*\s+(shu|xuddi\s+shu|ayni)\s+(davr|oy)\w*|\botgan\s+yil\w*\s+bilan\s+(solishtir|taqqos)\w*|\botgan\s+yil\w*\s+nisbatan|\byilma[\s-]*yil|\bbir\s+yil\s+oldingi(\s+bilan)?/,
   unpaid: /\btolanmagan|\bqarz|\bkreditor|\bdebitor|\btolanmay/,
   byParty: /\bkontragent\w*\s+boy|\bmijoz\w*\s+boy|\bkimga\s+(eng\s+)?(kop|tolangan)|\bkimlarga|\bkimlardan|\bqaysi\s+(mijoz|kontragent|firma|kompaniya)/,
   hired: /\bishga\s+(kirgan|olingan|qabul)|\byangi\s+(kelgan|olingan)\s+xodim|\bqabul\s+qilingan/,
@@ -228,7 +230,11 @@ export const VOCAB = (
   // To'g'ri so'zlar — tuzatilmasin (bir-biriga yaqin: olgan/otgan, buxgalter/buxgalteriya …)
   'olgan olganlar kirgan kirganlar ishga ishlagan ishlaydi tolangan tolov berilgan otkazilgan tushgan kelgan ketgan qilgan bolgan katta kichik ' +
   'yosh yoshli ayol erkak buxgalter mutaxassis haydovchi boshliq maslahatchi direktor qancha nechta bilan uchun shahar shahri sentyabr oktyabr ' +
-  'million milliard ming somdan kamida kopi yuqori past oshgan kamaygan ortgan necha kimlar kimga hisobida xizmat xizmati xizmatlari'
+  'million milliard ming somdan kamida kopi yuqori past oshgan kamaygan ortgan necha kimlar kimga hisobida xizmat xizmati xizmatlari ' +
+  // Buyruq so'zlari — tuzatilmasin
+  'excel fayl faylga tashla tashlab yubor yuborib jonat yuklab eksport format formatda formatida formatini shaklda shaklida nisbatan ' +
+  // Bo'lim nomlarining xato yozilishi — bo'lim sifatida taniladi (fuzzyUnits), boshqa so'zga «tuzatilmasin»
+  'komita komitet taksfri teksfri taxfri'
 ).split(/\s+/);
 
 export function lev(a: string, b: string, max = 3): number {
@@ -343,6 +349,45 @@ export const UNIT_PATTERNS: { code: string; re: RegExp }[] = [
   { code: 'REGION', re: /\bhududlar\b(?!\s+boy)|\bhududlarda|\bhududlarning|\bviloyatlar\b(?!\s+boy)|\bviloyatlarda/ },
 ];
 
+/**
+ * Yo'nalish nomlari — xato bilan ham («tax fre», «taxfre», «taks fri», «marksheydr», «buxgalterya xizmati»): savoldagi 1–2
+ * qo'shni so'z birlashtirilib nom bilan solishtiriladi (harf farqi: 7+ harfli nomda ≤ 2, qisqasida ≤ 1).
+ */
+const UNIT_FUZZY: { code: string; names: string[] }[] = [
+  { code: 'TAX_FREE', names: ['taxfree', 'taksfri', 'teksfri', 'taxfri'] },
+  { code: 'MARKSHEYDER', names: ['marksheyder', 'marksheyderlik'] },
+  { code: 'FERMER', names: ['fermer'] },
+  { code: 'QOMITA', names: ['qomita'] },
+];
+
+export function fuzzyUnits(toks: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const windows = [toks[i]!, toks[i]! + (toks[i + 1] ?? '')];
+    for (const u of UNIT_FUZZY) {
+      if (out.includes(u.code)) continue;
+      const hit = u.names.some((name) =>
+        windows.some((w) => {
+          if (w.length < 4) return false;
+          const lim = name.length >= 7 ? 2 : 1;
+          // So'z qo'shimcha bilan bo'lishi mumkin («taxfreening») — nom uzunligidagi bosh qismi solishtiriladi
+          for (let cut = Math.max(4, name.length - lim); cut <= Math.min(w.length, name.length + lim); cut++) if (lev(w.slice(0, cut), name, lim) <= lim) return true;
+          return false;
+        }),
+      );
+      if (hit) out.push(u.code);
+    }
+  }
+  return out;
+}
+
+/** «Excel ber», «faylga tashla», «yubor», «yuklab ber» — javobni fayl qilib berish */
+export const EXPORT_RE = /\b(excel\w*|eksel\w*|exel\w*|ekcel\w*|xlsx|fayl\w*|file|tashla\w*|yubor\w*|jonat\w*|yuklab|eksport\w*|export\w*)\b/;
+/** Eksport buyrug'i so'zlari (mazmunni tushunishda e'tiborga olinmaydi) */
+const EXPORT_WORDS = /\b(excel\w*|eksel\w*|exel\w*|ekcel\w*|xlsx|fayl\w*|file|tashla\w*|yubor\w*|jonat\w*|yuklab|eksport\w*|export\w*|format\w*|shakl\w*|qilib|ber|bering|berasan|beringchi|olib)\b/g;
+/** O'tgan oyga nisbatan («o'tgan oyga nisbatan», «oldingi oy bilan solishtir», «oyma-oy o'zgarish») */
+const MOM_RE = /\b(otgan|oldingi)\s+oy\w*\s+(nisbatan|bilan(\s+(solishtir|taqqos)\w*)?)|\boyma[\s-]*oy\s+(ozgarish|farq)\w*/;
+
 const GENERIC_CAT = new Set(['xarajat', 'xarajatlar', 'xarajatlari', 'tolov', 'tolovlar', 'tolovlari', 'boshqa', 'umumiy', 'va', 'uchun', 'xizmatlari', 'xizmati', 'xizmat', 'bilan', 'ombor', 'xarid']);
 
 export function catTokens(label: string): string[] {
@@ -393,6 +438,10 @@ export interface ParsedQuery {
   fixes: { from: string; to: string }[];
   /** Kontekstdan olingan maydonlar */
   inherited: string[];
+  /** Nechta qator («5 ta», «top 10») — bo'lmasa — standart */
+  limit: number | null;
+  /** Javobni Excel fayl qilib berish («Excel ber», «tashla», «yubor») */
+  exportFile: boolean;
 }
 
 export interface ChatContext {
@@ -469,16 +518,43 @@ export function parse(raw: string, now: string, dict: ChatDict, ctx: ChatContext
     hr: { gender: null, minAge: null, maxAge: null, education: null, positions: [], hired: false },
     fixes: corrected.fixes,
     inherited: [],
+    limit: null,
+    exportFile: false,
   };
   if (!text) return q;
   if (RE.greeting.test(text)) return { ...q, intent: 'greeting' };
   if (RE.help.test(text)) return q;
 
-  // Davr («o'tgan yilning shu davri bilan» — davr emas, solishtirish)
+  // Javobni fayl qilib berish — buyruq so'zlari mazmunni tushunishga xalaqit bermasin
+  if (EXPORT_RE.test(text)) {
+    const rest = text.replace(EXPORT_WORDS, ' ').replace(/\s+/g, ' ').trim();
+    const sub = rest ? parse(rest, now, dict, ctx) : null;
+    if (!sub || sub.intent === 'help' || sub.intent === 'greeting') return { ...q, intent: 'export', exportFile: true };
+    return { ...sub, text, fixes: [...corrected.fixes, ...sub.fixes], exportFile: true };
+  }
+
+  // Davr («o'tgan yilning shu davri bilan» — davr emas, solishtirish; «o'tgan oyga nisbatan» — oldingi oy bilan)
   q.yoy = RE.yoy.test(text);
-  const per = parsePeriod(q.yoy ? text.replace(RE.yoy, ' ') : text, now);
+  const mom = !q.yoy && MOM_RE.test(text);
+  const per = parsePeriod(q.yoy ? text.replace(RE.yoy, ' ') : mom ? text.replace(MOM_RE, ' ') : text, now);
   q.period = per.period;
   q.compare = per.compare;
+  if (mom && !q.compare) {
+    // A — oldingi davr (uzunligicha oldin), B — so'ralgan davr (bo'lmasa — joriy oy)
+    const cur = q.period ?? { from: now, to: now, label: periodLabel(now) };
+    const len = monthsOf(cur.from, cur.to).length;
+    const from = addMonths(cur.from, -len);
+    const to = addMonths(cur.to, -len);
+    q.period = { from, to, label: spanLabel(from, to) };
+    q.compare = cur;
+  }
+  // Nechta qator: «5 ta», «10 tasi», «top 10» («5 tadan ko'p» — chegara, son emas)
+  const lim = text.match(/\btop\s*(\d{1,3})\b/) ?? text.match(/\b(\d{1,3})\s*(ta|tasi|tasini)\b/);
+  if (lim) {
+    const n = Number(lim[1]);
+    if (n >= 1 && n <= 200) q.limit = n;
+    tokens(lim[0]).forEach((x) => per.used.add(x));
+  }
 
   // Summa chegarasi: «5 mln dan katta», «500 ming so'mdan kam»
   const amt = text.match(/(\d[\d ]*(?:\.\d+)?)\s*(mlrd|milliard|mln|million|millon|ming)?\s*(som)?\s*(dan|tadan|somdan)\s+(katta|kop|ortiq|yuqori|oshgan|ziyod|kichik|kam|past)/);
@@ -502,8 +578,9 @@ export function parse(raw: string, now: string, dict: ChatDict, ctx: ChatContext
   else if (partyM && !STOP.has(partyM[1]!)) q.party = partyM[1]!;
   if (q.party) tokens(q.party).forEach((x) => per.used.add(x));
 
-  // Bo'limlar
+  // Bo'limlar (qolip, keyin — xato bilan yozilgan nom: «tax fre», «taxfre»)
   for (const u of UNIT_PATTERNS) if (u.re.test(text)) q.units.push(u.code);
+  for (const code of fuzzyUnits(toks)) if (!q.units.includes(code)) q.units.push(code);
   if (q.units.includes('BUXGALTERIYA') && /\bbuxgalteriya\s+hisobi\s+bolim/.test(text)) q.units = q.units.filter((u) => u !== 'BUXGALTERIYA');
 
   // Tuman: «Qibray tumani», «Asaka tumanida» (viloyat nomi bilan bir xil bo'lsa — faqat «tuman» so'zi bilan)
@@ -632,6 +709,7 @@ export function parse(raw: string, now: string, dict: ChatDict, ctx: ChatContext
   else if (RE.byUnit.test(text)) q.groupBy = 'unit';
   else if (RE.byCategory.test(text)) q.groupBy = 'category';
   if (RE.top.test(text)) q.top = RE.bottom.test(text) ? 'asc' : 'desc';
+  if (q.limit && !q.top && /\btop\s*\d/.test(text)) q.top = 'desc';
   if (q.top && !q.groupBy) q.groupBy = /\bhudud|\bviloyat|\bbolim|\byonalish/.test(text) ? 'unit' : 'category';
 
   // Oldingi javobga ishora: «uning ish haqi», «shu bo'lim xarajati», «shu davr»

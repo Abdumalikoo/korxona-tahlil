@@ -117,6 +117,17 @@ export class SourceChatController {
     return { data: { text: await this.service.itemText(userId, id, itemId) } };
   }
 
+  /** Bitta javob — Excel («Excel ber», «tashla» buyrug'i yoki javob ostidagi tugma) */
+  @Get('threads/:id/items/:itemId/export')
+  async exportItem(@CurrentUser('id') userId: string, @Param('id') id: string, @Param('itemId') itemId: string, @Res() response: Response, @Headers('x-chat-token') chatToken: string | undefined, @Headers('x-chat-code') chatCode: string | undefined) {
+    await this.pin.assertUse(chatToken, userId);
+    await this.pin.assertAction('save', chatCode, userId);
+    const { buffer, filename } = await this.service.exportItem(userId, id, itemId);
+    response.setHeader('Content-Type', XLSX_TYPE);
+    response.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    response.send(buffer);
+  }
+
   @Get('threads/:id/export')
   async exportThread(@CurrentUser('id') userId: string, @Param('id') id: string, @Res() response: Response, @Headers('x-chat-token') chatToken: string | undefined, @Headers('x-chat-code') chatCode: string | undefined) {
     await this.pin.assertUse(chatToken, userId);
