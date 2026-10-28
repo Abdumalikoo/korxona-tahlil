@@ -17,5 +17,7 @@ import { Vedomost3802Service } from './vedomost-3802.service';
   imports: [PayrollModule, BankAnalysisModule],
   controllers: [QomitaController, QomitaStatementController, Shtat3802Controller, Vedomost3802Controller, Nazorat3802Controller],
   providers: [QomitaService, QomitaStatementService, Shtat3802Service, Vedomost3802Service, Nazorat3802Service],
+  // Hisobotlar (Bo'limlar bo'yicha) — Qo'mita qoplashi
+  exports: [Nazorat3802Service],
 })
 export class QomitaModule {}

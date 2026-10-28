@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AlertsModule } from '../alerts/alerts.module';
 import { BplanModule } from '../bplan/bplan.module';
+import { EmployeeTransfersModule } from '../employee-transfers/employee-transfers.module';
+import { QomitaModule } from '../qomita/qomita.module';
 import { EconModule } from '../econ/econ.module';
 import { ReactionsModule } from '../reactions/reactions.module';
 import { SectionsModule } from '../sections/sections.module';
@@ -19,15 +21,17 @@ import { PassportReport } from './report.passport';
 import { ReactionsSummaryReport } from './report.reactions';
 import { RegionsReport } from './report.regions';
 import { SolishtirmaReport } from './report.solishtirma';
+import { UnitsReport } from './report.units';
+import { UnitsReportController } from './units-report.controller';
 import { ReportsController } from './reports.controller';
 import { ReportData } from './reports.data';
 import { ReportsService } from './reports.service';
 
 /** Hisobotlar markazi */
 @Module({
-  imports: [EconModule, ReactionsModule, StructureModule, SectionsModule, AlertsModule, BplanModule],
-  controllers: [ReportsController],
-  providers: [ReportData, GeneralSources, FinancialReport, ExecutiveReport, RegionsReport, PassportReport, ExpensesReport, IncomesReport, PayrollReport, AssetsReport, ReactionsSummaryReport, ControlsReport, ModelsReport, SolishtirmaReport, ReconcileService, ReportsService],
+  imports: [EconModule, ReactionsModule, StructureModule, SectionsModule, AlertsModule, BplanModule, QomitaModule, EmployeeTransfersModule],
+  controllers: [ReportsController, UnitsReportController],
+  providers: [ReportData, GeneralSources, FinancialReport, ExecutiveReport, RegionsReport, PassportReport, ExpensesReport, IncomesReport, PayrollReport, AssetsReport, ReactionsSummaryReport, ControlsReport, ModelsReport, SolishtirmaReport, UnitsReport, ReconcileService, ReportsService],
   exports: [ReportData, ReportsService],
 })
 export class ReportsModule {}

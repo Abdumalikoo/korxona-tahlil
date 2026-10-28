@@ -115,6 +115,39 @@ export async function generateReport(payload: { type: string; from: string; to: 
   return saveResponse(response, `hisobot.${payload.format}`);
 }
 
+// ─────────── Bo'limlar bo'yicha hisobot — /api/reports/units/* ───────────
+
+export type UnitKind = 'DEPT' | 'REGION' | 'SEGMENT';
+
+export interface UnitOptions {
+  departments: { id: string; name: string }[];
+  regions: { code: number; name: string; districts: { id: string; name: string }[] }[];
+  segments: { code: string; name: string }[];
+}
+
+export interface UnitReportPayload {
+  kind: UnitKind;
+  id: string;
+  district?: string;
+  from: string;
+  to: string;
+}
+
+export const unitsReportApi = {
+  options: () => api.get<ApiResponse<UnitOptions>>('/reports/units/options'),
+  preview: (p: UnitReportPayload) => api.post<ApiResponse<ReportDoc>>('/reports/units/preview', p),
+};
+
+/** Bo'lim hisobotini yuklab olish (Excel yoki PDF) */
+export async function generateUnitReport(payload: UnitReportPayload & { format: 'xlsx' | 'pdf' }): Promise<string> {
+  const response = await fetch(`${BASE}/reports/units/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+  return saveResponse(response, `bolim-hisoboti.${payload.format}`);
+}
+
 // ═══════════════════════════════════════════════════════════
 // Ekranda ko'rish: hisobot hujjati (backend reports.types.ts bilan bir xil)
 // ═══════════════════════════════════════════════════════════
