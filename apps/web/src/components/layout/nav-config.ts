@@ -98,7 +98,7 @@ export const MENU: NavItem[] = [
       { label: 'Boshqa', href: '/daromadlar/boshqa', description: 'Bir martalik daromadlar' },
       { label: 'Markaz tushumi', href: '/daromadlar/markaz', description: "Kunlik tushum va qoldiq fayli — Markaz oylik daromadi" },
       { label: 'Hududlar tushumi', href: '/daromadlar/hududlar', description: 'Hududlardan Excel orqali kelgan tushum' },
-      { label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', description: "Qo'mita ajratgan pullar (daromad) va ular qoplaydigan bo'lim xarajatlari: Oklad, ustama, boshqa moddalar — qoldiq / kamomad" },
+      { label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', description: "Qo'mitadan kelgan pullar (daromad): bo'limlar bo'yicha, oyma-oy — bankdan yoki qo'lda" },
       { label: 'Natijalar', href: '/daromadlar/natijalar', description: 'Oylik natijalar' },
       { label: 'Bank ko‘chirmasi', href: '/daromadlar/bank-kochirma', description: "Bankka tushgan kirimlar: o'xshashlar oyma-oy va o'sib boruvchi (daromadga faqat tanlab yo'naltiriladi)" },
       { label: 'Schyot-fakturalar', href: '/daromadlar/fakturalar', description: "Biz yozgan (chiquvchi) schyot-fakturalar: mijoz va xizmat bo'yicha oyma-oy nazorat" },
@@ -145,6 +145,13 @@ export const MENU: NavItem[] = [
       ...ENTRY_UNITS.map((u) => ({ label: `Xarajatlar · ${u.label}`, href: `/xarajatlar/bolim/${u.slug}`, description: `${u.hint}: xarajatlar va moddalar`, hidden: true })),
       { label: "Foyda keltirmaydigan bo'limlar", href: '/xarajatlar/bolimlar', description: "Markaz bo'limlari: xarajat moddalari oyma-oy va bo'lim xarajatlar siyosati", hidden: true },
     ],
+  },
+  {
+    label: "3802 — Qo'mita qoplashi",
+    href: '/3802',
+    icon: NavClipboard,
+    description: "Qo'mita qoplaydigan xarajatlar: shtatlar (oladigan va olmaydigan), har oylik real bajarilgan ishlar, nazorat zanjiri — kelgan pul bilan solishtirish",
+    pages: [{ label: 'Umumiy', href: '/3802', description: "Qoplash va qoldiq, Shtatlar (oladigan va olmaydigan), Har oylik real bajarilgan ishlar, Nazorat zanjiri" }],
   },
   { label: 'Xodimlar', href: '/xodimlar', icon: NavUsers, description: "Xodimlar ro'yxati, ko'chishlar, ma'lumotnomalar (10/16/37/51-jadval) va miya — xodim kartasi" },
   {
@@ -524,7 +531,7 @@ const unitChildren = (base: '/daromadlar' | '/xarajatlar'): SideChild[] => [
   // Xarajatlarda — 6 bo'lim tagida: Markazning har bir bo'limi alohida (xarajat moddalari va bo'lim siyosati)
   ...(base === '/xarajatlar'
     ? [{ label: "Foyda keltirmaydigan bo'limlar", href: '/xarajatlar/bolimlar', match: ['/xarajatlar/bolimlar'], description: "Markaz bo'limlari: har biriga qilingan xarajatlar moddalar bo'yicha va bo'lim xarajatlar siyosati" }]
-    : [{ label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', match: ['/daromadlar/qomita'], description: "Qo'mita ajratgan pullar va ular qoplaydigan xarajatlar" }]),
+    : [{ label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', match: ['/daromadlar/qomita'], description: "Qo'mitadan kelgan pullar (daromad)" }]),
 ];
 
 export interface SideGroup {
@@ -554,9 +561,9 @@ const byHref = (href: string): NavItem => MENU.find((m) => m.href === href)!;
 
 /**
  * Chap menyu (umumiy hudud — administrator va kuzatuvchi):
- *   Bosh sahifa (▾ Daromad, Xarajat, Tahlil, Umumiy)
- *   Umumiy manba (▾ Tez kiritish, Daromadlar, Xarajatlar, Modellar, Rollar → har rol o'z nomi bilan, Xodimlar)
- *   Solishtirma · Hisobotlar
+ *   Bosh sahifa (▾ Daromad, Xarajat, Tahlil, Solishtirma)
+ *   Umumiy manba (▾ Tez kiritish, Daromadlar, Xarajatlar, 3802 — Qo'mita qoplashi, Modellar, Rollar → har rol o'z nomi bilan, Xodimlar)
+ *   Hisobotlar
  *   Boshqaruv (▾ Topshiriqlar, Munosabat, Nazorat, Sozlamalar)
  */
 export const SIDEBAR: SideEntry[] = [
@@ -566,11 +573,12 @@ export const SIDEBAR: SideEntry[] = [
     label: 'Bosh sahifa',
     href: '/',
     icon: NavHome,
-    description: 'Daromad, xarajat va tahlil',
+    description: 'Daromad, xarajat, tahlil va solishtirma',
     children: [
       { label: 'Daromad', href: '/tahlil/daromad' },
       { label: 'Xarajat', href: '/tahlil/xarajat' },
       { label: 'Tahlil', href: '/tahlil/umumiy' },
+      { label: 'Solishtirma', href: '/solishtirma', match: ['/solishtirma'], description: "Hududlar, Markaz va yo'nalishlar (Tax free …) yonma-yon" },
     ],
   },
   {
@@ -585,13 +593,13 @@ export const SIDEBAR: SideEntry[] = [
       { label: 'Tez kiritish', href: '/kiritish', match: ['/kiritish'] },
       { label: 'Daromadlar', href: '/daromadlar', match: ['/daromadlar'], children: unitChildren('/daromadlar') },
       { label: 'Xarajatlar', href: '/xarajatlar', match: ['/xarajatlar'], children: unitChildren('/xarajatlar') },
+      { label: "3802 — Qo'mita qoplashi", href: '/3802', match: ['/3802'] },
       { label: 'Modellar', href: '/modellar', match: ['/modellar', '/katta-modellar'] },
       { label: 'Rollar', href: '/rollar', rolesSlot: true },
       { label: 'Xodimlar', href: '/xodimlar', match: ['/xodimlar'] },
     ],
   },
   { kind: 'item', item: byHref('/chat') },
-  { kind: 'item', item: byHref('/solishtirma') },
   { kind: 'item', item: byHref('/hudud-reja') },
   { kind: 'item', item: byHref('/hisobotlar') },
   {
@@ -613,7 +621,7 @@ export const SIDEBAR: SideEntry[] = [
 /**
  * Ma'lumot kiritish sahifalari — qisqa (rahbar) rejimda ham har doim to'liq ko'rinadi.
  */
-export const SOURCE_PREFIXES = ['/kiritish', '/daromadlar', '/xarajatlar', '/xodimlar', '/sozlamalar'];
+export const SOURCE_PREFIXES = ['/kiritish', '/daromadlar', '/xarajatlar', '/3802', '/xodimlar', '/sozlamalar'];
 
 /**
  * Rol zonalari: bu sahifalarda faqat rol (Omborchi) ishlaydi. Umumiy hudud foydalanuvchisi
@@ -643,6 +651,14 @@ export function isGroupActive(group: SideGroup, pathname: string): boolean {
   if (group.href === '/' && pathname === '/') return true;
   if (group.href && group.href !== '/' && under(pathname, group.href)) return true;
   return group.children.some((c) => isChildActive(c, pathname));
+}
+
+/**
+ * Ko'rsatuv sahifalari — Bosh sahifa (va uning tahlillari) va Solishtirma: ularni boshqalar ham ko'radi, shuning uchun
+ * boshqaruv elementlari (Kiritish, Munosabat qatori, xavfsizlik ogohlantirishi, foydalanuvchi roli) chiqmaydi.
+ */
+export function isPresentationPath(pathname: string): boolean {
+  return pathname === '/' || under(pathname, '/tahlil') || under(pathname, '/solishtirma');
 }
 
 /** Kiritish zonasidami (ma'lumot kiritish sahifalari) */

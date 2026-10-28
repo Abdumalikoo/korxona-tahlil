@@ -15,7 +15,8 @@ import { ViewModeToggle } from './view-mode-toggle';
 // ═══════════════════════════════════════════════════════════
 // Yuqori oq panel:
 //  chapda  — «‹» orqaga va sahifa sarlavhasi (PageHeader shu yerga joylanadi);
-//  o'ngda  — «+ Kiritish» (N), davr, rejim, global qidiruv (Ctrl+K), foydalanuvchi ismi, roli va avatar.
+//  o'ngda  — «+ Kiritish» (N), davr, rejim, global qidiruv (Ctrl+K), foydalanuvchi ismi, roli va avatar, «▴» (panelni yashirish).
+// Ko'rsatuv sahifalarida (quiet — Bosh sahifa, Solishtirma) «Kiritish» va foydalanuvchi roli chiqmaydi.
 // ═══════════════════════════════════════════════════════════
 
 /** PageHeader o'z sarlavhasini shu elementga joylaydi */
@@ -26,7 +27,7 @@ export function openGlobalSearch() {
   window.dispatchEvent(new Event('global-search:open'));
 }
 
-function UserMenu() {
+function UserMenu({ quiet = false }: { quiet?: boolean }) {
   const { user, logout, isAdmin } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -66,7 +67,7 @@ function UserMenu() {
       >
         <span className="hidden min-w-0 2xl:block">
           <span className="block max-w-[13rem] truncate text-sm font-bold uppercase tracking-wide text-heading">{name}</span>
-          <span className="block text-xs italic text-(--color-text-muted)">{isAdmin ? 'Administrator' : 'Kuzatuvchi'}</span>
+          {!quiet && <span className="block text-xs italic text-(--color-text-muted)">{isAdmin ? 'Administrator' : 'Kuzatuvchi'}</span>}
         </span>
         <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white shadow-md ring-2 ring-white">
           {initials || '?'}
@@ -77,7 +78,7 @@ function UserMenu() {
         <div className="absolute right-0 top-14 z-50 w-64 overflow-hidden rounded-2xl border border-(--color-line) bg-white shadow-xl" role="menu">
           <div className="border-b border-(--color-line) px-4 py-3">
             <p className="truncate text-sm font-semibold text-heading">{name}</p>
-            <p className="text-xs text-(--color-text-muted)">{isAdmin ? 'Administrator' : 'Kuzatuvchi'}</p>
+            {!quiet && <p className="text-xs text-(--color-text-muted)">{isAdmin ? 'Administrator' : 'Kuzatuvchi'}</p>}
           </div>
           <button
             type="button"
@@ -94,7 +95,7 @@ function UserMenu() {
   );
 }
 
-export function TopBar({ onMenu }: { onMenu: () => void }) {
+export function TopBar({ onMenu, onHide, quiet = false }: { onMenu: () => void; onHide?: () => void; quiet?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const fallback = titleFor(pathname);
@@ -139,8 +140,8 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
           <div id={PAGE_HEADER_SLOT_ID} className="flex min-w-0 flex-1 items-center" />
         </div>
 
-        {/* Yangi yozuv — istalgan sahifadan (N tugmasi) */}
-        <QuickAddButton />
+        {/* Yangi yozuv — istalgan sahifadan (N tugmasi); ko'rsatuv sahifalarida — yo'q */}
+        {!quiet && <QuickAddButton />}
 
         {/* Davr — hamma bo'lim uchun bitta (davr bilan ishlaydigan sahifalarda) */}
         <PeriodControl />
@@ -180,7 +181,20 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         </button>
 
         <span className="hidden h-8 w-px bg-(--color-line) md:block" />
-        <UserMenu />
+        <UserMenu quiet={quiet} />
+
+        {/* Yuqori panelni yashirish (yon menyudek) — qaytarish: o'ng yuqoridagi «▾ Panel» */}
+        {onHide && (
+          <button
+            type="button"
+            onClick={onHide}
+            className="hidden size-8 shrink-0 items-center justify-center rounded-lg text-sm text-(--color-text-faint) transition-colors hover:bg-brand-50 hover:text-brand-700 md:flex"
+            title="Yuqori panelni yashirish"
+            aria-label="Yuqori panelni yashirish"
+          >
+            ▴
+          </button>
+        )}
       </div>
     </header>
   );

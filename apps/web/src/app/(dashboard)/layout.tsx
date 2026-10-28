@@ -7,7 +7,7 @@ import { SectionBar } from '@/components/layout/section-bar';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
 import { WorkerShell } from '@/components/layout/worker-shell';
-import { roleDashboardFor, workerAllowed } from '@/components/layout/nav-config';
+import { isPresentationPath, roleDashboardFor, workerAllowed } from '@/components/layout/nav-config';
 import { PinSetupScreen } from '@/features/auth/pin';
 import { LoadingState } from '@/components/ui/states';
 import { ReactionBar } from '@/features/reactions/reaction-bar';
@@ -15,6 +15,7 @@ import { ReactionSelectProvider } from '@/features/reactions/select-context';
 import { SecurityBanner } from '@/features/security/security-banner';
 import { useAuth } from '@/lib/auth-context';
 import { PeriodProvider } from '@/lib/period';
+import { cn } from '@/lib/utils';
 import { ViewModeProvider } from '@/lib/view-mode';
 import { usePathname, useRouter } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
@@ -81,8 +82,38 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 }
 
+const TOP_HIDDEN_KEY = 'topbar-hidden';
+
+function readTopHidden(): boolean {
+  try {
+    return window.localStorage.getItem(TOP_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeTopHidden(value: boolean) {
+  try {
+    window.localStorage.setItem(TOP_HIDDEN_KEY, value ? '1' : '0');
+  } catch {
+    // Saqlab bo'lmasa — faqat shu ochilishda
+  }
+}
+
 /** Qobiq: menyu, yuqori panel va sahifa (menyu ikkala rejimda bir xil) */
 function Shell({ menuOpen, onMenu, closeMenu, children }: { menuOpen: boolean; onMenu: () => void; closeMenu: () => void; children: React.ReactNode }) {
+  const pathname = usePathname() ?? '/';
+  // Ko'rsatuv sahifalari (Bosh sahifa, Solishtirma) — boshqaruv elementlarisiz: ularni boshqalar ko'radi
+  const quiet = isPresentationPath(pathname);
+  // Yuqori panel — yon menyudek yashiriladi va qaytariladi (tanlov eslab qolinadi). Panel DOM'da qoladi (CSS bilan
+  // yashiriladi) — sahifa sarlavhasi va tugmalari unga joylangan, yo'qolib qolmasin.
+  // Shell faqat kirish tekshiruvidan keyin (brauzerda) chiziladi — localStorage boshidanoq o'qiladi.
+  const [topHidden, setTopHidden] = useState(readTopHidden);
+  const toggleTop = () =>
+    setTopHidden((value) => {
+      writeTopHidden(!value);
+      return !value;
+    });
   return (
     <div className="flex h-screen overflow-hidden bg-(--color-surface-muted)">
       <Sidebar mobileOpen={menuOpen} onMobileClose={closeMenu} />
@@ -90,17 +121,28 @@ function Shell({ menuOpen, onMenu, closeMenu, children }: { menuOpen: boolean; o
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         <ReactionSelectProvider>
           {/* Yuqori panel va Munosabat qatori birga yopishib turadi */}
-          <div className="no-print sticky top-0 z-30">
-            <TopBar onMenu={onMenu} />
-            <ReactionBar />
+          <div className={cn('no-print sticky top-0 z-30', topHidden && 'hidden')}>
+            <TopBar onMenu={onMenu} onHide={toggleTop} quiet={quiet} />
+            {!quiet && <ReactionBar />}
           </div>
+          {topHidden && (
+            <button
+              type="button"
+              onClick={toggleTop}
+              className="no-print fixed right-4 top-2 z-40 flex items-center gap-1 rounded-b-xl rounded-t-md border border-(--color-line) bg-white/95 px-3 py-1 text-xs font-medium text-(--color-text-muted) shadow-md backdrop-blur hover:text-brand-700"
+              title="Yuqori panelni ko'rsatish"
+              aria-label="Yuqori panelni ko'rsatish"
+            >
+              ▾ Panel
+            </button>
+          )}
           <div className="flex-1 pb-8">
             {/* Bo'lim yorliqlari: Umumiy · Doimiy · Boshqa · … — har bir ichki sahifada */}
             <Suspense fallback={null}>
               <SectionBar />
             </Suspense>
-            {/* Administrator: standart parol/kod almashtirilmagan bo'lsa — ogohlantirish */}
-            <SecurityBanner />
+            {/* Administrator: standart parol/kod almashtirilmagan bo'lsa — ogohlantirish (ko'rsatuv sahifalarida — yo'q) */}
+            {!quiet && <SecurityBanner />}
             {/* Sahifa haqida qisqa tushuntirish: nima ko'rsatadi, ma'lumot qayerdan */}
             <PageIntro />
             <Suspense fallback={<LoadingState />}>{children}</Suspense>
