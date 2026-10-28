@@ -20,6 +20,8 @@ export const QOMITA_CONFIG_KEY = 'qomita.config';
 export const QOMITA_PART_PREFIX = 'QMT_';
 export const QOMITA_PART_PARENT = { code: 'QMT', label: "Qo'mita hisobidan qoplanadigan ish haqi" };
 export const QOMITA_INCOME_PREFIX = 'QOMITA_';
+/** Bank ko'chirmasidan (Qo'mita mablag'lari sahifasida) yuklangan yozuvlar: importBatchId = «qomita-bank:<yuklash id>» */
+export const QOMITA_BANK_TAG = 'qomita-bank:';
 export const qomitaPayrollKey = (period: string) => `qomita.payroll.${period}`;
 export const qomitaPartCategory = (componentCode: string) => `${QOMITA_PART_PREFIX}${componentCode}`;
 export const qomitaPartOf = (categoryCode: string) => (categoryCode.startsWith(QOMITA_PART_PREFIX) ? categoryCode.slice(QOMITA_PART_PREFIX.length) : null);

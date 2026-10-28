@@ -15,6 +15,12 @@ import { qomitaApi, type QomitaConfigView } from './api';
 
 type ToastState = { message: string; tone: 'success' | 'error' } | null;
 
+/** Bo'limlar: avval qoplanadiganlar (3802 sozlamasidagi), keyin qolganlari */
+function depOptions(config: QomitaConfigView) {
+  const set = new Set(config.items.map((i) => i.departmentId));
+  return [...config.departments.filter((d) => set.has(d.id)), ...config.departments.filter((d) => !set.has(d.id))].map((d) => ({ value: d.id, label: d.name }));
+}
+
 /** Qo'lda ajratma: qaysi bo'lim uchun, qaysi oy uchun, summa (so'm) */
 export function QomitaIncomeDrawer({
   config,
@@ -29,14 +35,14 @@ export function QomitaIncomeDrawer({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
-  const [dep, setDep] = useState(departmentId || config.items[0]?.departmentId || '');
+  const [dep, setDep] = useState(departmentId || config.items[0]?.departmentId || config.departments[0]?.id || '');
   const [period, setPeriod] = useState(defaultPeriod);
   const [date, setDate] = useState('');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const depName = config.items.find((i) => i.departmentId === dep)?.departmentName ?? '';
+  const depName = config.departments.find((d) => d.id === dep)?.name ?? '';
 
   async function save() {
     setError(null);
@@ -72,7 +78,7 @@ export function QomitaIncomeDrawer({
       }
     >
       <div className="space-y-4">
-        <Select label="Qaysi bo'lim uchun" required value={dep} onChange={(e) => setDep(e.target.value)} options={config.items.map((i) => ({ value: i.departmentId, label: i.departmentName }))} />
+        <Select label="Qaysi bo'lim uchun" required value={dep} onChange={(e) => setDep(e.target.value)} options={depOptions(config)} />
         <div className="grid grid-cols-2 gap-3">
           <Input label="Qaysi oy uchun" required type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
           <Input label="Sana" type="date" value={date} onChange={(e) => setDate(e.target.value)} hint="Bo'sh — oy oxiri" />
@@ -81,7 +87,7 @@ export function QomitaIncomeDrawer({
         <Input label="Izoh" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Masalan: sentabr oyi ish haqi uchun ajratma" maxLength={500} />
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-(--color-expense)">{error}</p>}
         <p className="text-xs text-(--color-text-muted)">
-          Bankka tushgan pul bo&apos;lsa — sahifadagi «Bankdan» kartasidan tanlab yozing (ikki marta kiritmang). Daromad turi: «Qo&apos;mita ajratmasi: {depName}».
+          Bankka tushgan pul bo&apos;lsa — sahifadagi «Bank ko&apos;chirmasidan yuklash» kartasi orqali yozing (ikki marta kiritmang). Daromad turi: «Qo&apos;mita ajratmasi: {depName}».
         </p>
       </div>
     </Drawer>
@@ -94,7 +100,7 @@ export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config
   const [query, setQuery] = useState('');
   const res = useAsync(() => qomitaApi.bank(query || undefined).then((r) => r.data), [query]);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
-  const [dep, setDep] = useState(config.items[0]?.departmentId ?? '');
+  const [dep, setDep] = useState(config.items[0]?.departmentId ?? config.departments[0]?.id ?? '');
   const [skipDup, setSkipDup] = useState(false);
   const [busy, setBusy] = useState(false);
   const items = res.data?.items ?? [];
@@ -114,7 +120,7 @@ export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config
     setBusy(true);
     try {
       const r = (await qomitaApi.bankRoute({ items: chosen.map((x) => ({ account: x.account, rowId: x.rowId })), departmentId: dep, skipDuplicates: skipDup || undefined })).data;
-      const name = config.items.find((i) => i.departmentId === dep)?.departmentName ?? '';
+      const name = config.departments.find((d) => d.id === dep)?.name ?? '';
       setToast({ message: `${r.count} ta kirim ${name} ajratmasi bo'lib yozildi: ${sum(Number(r.totalTiyin))} so'm${r.skipped ? ` (${r.skipped} tasi o'tkazib yuborildi)` : ''}`, tone: 'success' });
       setPicked(new Set());
       res.reload();
@@ -213,17 +219,13 @@ export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config
                 <span className="text-sm text-heading">
                   Tanlandi: <b>{chosen.length}</b> ta · <b>{sum(chosenSum)}</b> so&apos;m →
                 </span>
-                {config.items.length ? (
-                  <select value={dep} onChange={(e) => setDep(e.target.value)} className="h-8 rounded-md border border-(--color-line-strong) bg-white px-2 text-sm">
-                    {config.items.map((i) => (
-                      <option key={i.departmentId} value={i.departmentId}>
-                        {i.departmentName} ajratmasi
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="text-xs text-(--color-expense)">Avval pastda qoplanadigan bo&apos;lim qo&apos;shing</span>
-                )}
+                <select value={dep} onChange={(e) => setDep(e.target.value)} className="h-8 rounded-md border border-(--color-line-strong) bg-white px-2 text-sm">
+                  {depOptions(config).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label} ajratmasi
+                    </option>
+                  ))}
+                </select>
                 <label className="flex items-center gap-1.5 text-xs text-(--color-text-muted)">
                   <input type="checkbox" checked={skipDup} onChange={(e) => setSkipDup(e.target.checked)} className="size-3.5" />
                   shu sana va summada yozuvi borini o&apos;tkazib yuborish

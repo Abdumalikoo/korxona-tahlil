@@ -8,7 +8,7 @@ import { BANK_ANALYSIS_KEY, BankAnalysisService, readStore, rk } from '../bank-a
 import { policyRouting, readPolicy, writePolicy } from '../expense-policy/policy.util';
 import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { QOMITA_CONFIG_KEY, QOMITA_INCOME_PREFIX, QOMITA_SEGMENT, qomitaPayrollKey, readQomita, type QomitaConfig, type QomitaItem, type QomitaPayrollSummary } from './qomita.util';
+import { QOMITA_BANK_TAG, QOMITA_CONFIG_KEY, QOMITA_INCOME_PREFIX, QOMITA_SEGMENT, qomitaPayrollKey, readQomita, type QomitaConfig, type QomitaItem, type QomitaPayrollSummary } from './qomita.util';
 
 // ═══════════════════════════════════════════════════════════
 // Qo'mita mablag'lari (Daromadlar › Qo'mita mablag'lari).
@@ -26,6 +26,8 @@ const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 /** Bankdagi Qo'mitadan kelgan to'lov belgisi (to'lovchi nomi yoki izohida) */
 const QOMITA_RE = /комитет|комитета|qo['ʻ‘’`]?mita|qumita|komitet|kumita|қўмита|кумита/i;
 const MAX_ITEMS = 50;
+/** Tasdiqlangan Qo'mita daromadlari: yozuv id → kim, qachon */
+const APPROVED_KEY = 'qomita.income.approved';
 /** Qo'mitaga modda sifatida berilmaydi: ish haqi (qismlar bilan beriladi) va avtomatik qismlar */
 const NOT_CATS = (code: string) => code === 'PAYROLL_BASE' || code === 'QMT' || code.startsWith('QMT_') || code === 'IHQ' || code.startsWith('IHQ_');
 
@@ -123,7 +125,7 @@ export class QomitaService {
   }
 
   /** Bo'lim uchun Qo'mita daromad turi (yo'q bo'lsa — yaratiladi), Qo'mita daromad ro'yxatiga ham qo'shiladi */
-  private async ensureIncomeCode(dep: { id: string; name: string; index: number }): Promise<string> {
+  async ensureIncomeCode(dep: { id: string; name: string; index: number }): Promise<string> {
     const code = `${QOMITA_INCOME_PREFIX}${dep.index}`;
     const label = `Qo'mita ajratmasi: ${dep.name}`.slice(0, 200);
     const have = await this.prisma.incomeCategory.findUnique({ where: { code } });
@@ -252,11 +254,11 @@ export class QomitaService {
       readQomita(this.prisma),
       readPolicy(this.prisma),
       this.prisma.category.findMany({ select: { code: true, parentCode: true, label: true } }),
-      this.prisma.department.findMany({ select: { id: true, name: true } }),
+      this.prisma.department.findMany({ select: { id: true, name: true, index: true } }),
       this.prisma.salaryComponent.findMany({ select: { code: true, name: true } }),
       this.prisma.income.findMany({
         where: { segment: QOMITA_SEGMENT, deletedAt: null, period: { in: months } },
-        select: { id: true, date: true, period: true, amountTiyin: true, categoryCode: true, description: true, clientName: true, contractNo: true, source: true },
+        select: { id: true, date: true, period: true, amountTiyin: true, categoryCode: true, description: true, clientName: true, contractNo: true, source: true, importBatchId: true },
         orderBy: [{ date: 'desc' }],
       }),
       this.prisma.setting.findMany({ where: { key: { in: months.map(qomitaPayrollKey) } }, select: { key: true, value: true } }),
@@ -272,8 +274,15 @@ export class QomitaService {
       : [];
     const other = rows.filter((r) => (r.regionCode === 0 || r.regionCode === null) && r.source !== 'PAYROLL' && routing.route(r)?.key === `s:${QOMITA_SEGMENT}`);
     const summary = new Map(summaries.map((s) => [s.key.slice('qomita.payroll.'.length), (s.value ?? {}) as Partial<QomitaPayrollSummary>]));
+    // Daromad turi → bo'lim: sozlamadagilar va har bo'limning «QOMITA_<indeks>» turi (sozlanmagan bo'limga ham kiritilgan bo'lishi mumkin)
+    const codeDep = new Map<string, string>(deps.map((d) => [`${QOMITA_INCOME_PREFIX}${d.index}`, d.id]));
+    for (const i of config.items) codeDep.set(i.incomeCode, i.departmentId);
+    const depCode = new Map([...codeDep].map(([c, dep]) => [dep, c]));
+    for (const i of config.items) depCode.set(i.departmentId, i.incomeCode);
     return {
       config,
+      codeDep,
+      depCode,
       incomes,
       other,
       summary,
@@ -287,7 +296,6 @@ export class QomitaService {
   async report(from: string, to: string) {
     const months = this.range(from, to);
     const d = await this.load(months);
-    const byIncome = new Map(d.config.items.map((i) => [i.incomeCode, i.departmentId]));
     const rows: QomitaRow[] = [];
     const empty = () => ({ allocated: new Map() as Money, payroll: new Map() as Money, other: new Map() as Money });
     const acc = new Map<string, ReturnType<typeof empty>>();
@@ -297,7 +305,7 @@ export class QomitaService {
       return x;
     };
     for (const i of d.config.items) get(i.departmentId);
-    for (const inc of d.incomes) add(get(byIncome.get(inc.categoryCode) ?? '-').allocated, inc.period, inc.amountTiyin);
+    for (const inc of d.incomes) add(get(d.codeDep.get(inc.categoryCode) ?? '-').allocated, inc.period, inc.amountTiyin);
     for (const p of months)
       for (const [dep, v] of Object.entries(d.summary.get(p)?.deps ?? {})) {
         if (!d.config.items.some((i) => i.departmentId === dep)) continue;
@@ -308,7 +316,8 @@ export class QomitaService {
     const missing = months.filter((p) => d.config.items.some((i) => i.components.length) && d.summary.get(p)?.tarkib === false);
     for (const [key, x] of acc) {
       const item = d.config.items.find((i) => i.departmentId === key);
-      if (!item && key !== '-') continue;
+      // Sozlanmagan bo'lim — faqat Qo'mita daromadi bo'lsa (qoplash qoidasi yo'q)
+      if (!item && key !== '-' && !d.depName.has(key)) continue;
       const allocated = sumOf(x.allocated);
       const payroll = sumOf(x.payroll);
       const other = sumOf(x.other);
@@ -321,8 +330,8 @@ export class QomitaService {
       }
       rows.push({
         key,
-        label: item ? (d.depName.get(key) ?? "Bo'lim (o'chirilgan)") : "Bo'lim ko'rsatilmagan Qo'mita daromadi",
-        incomeCode: item?.incomeCode ?? null,
+        label: key === '-' ? "Bo'lim ko'rsatilmagan Qo'mita daromadi" : (d.depName.get(key) ?? "Bo'lim (o'chirilgan)"),
+        incomeCode: key === '-' ? null : (d.depCode.get(key) ?? null),
         components: (item?.components ?? []).map((c) => ({ code: c, name: d.compName.get(c) ?? c })),
         categories: item ? this.qomitaCats(d.depRules, key).map((c) => ({ code: c, label: d.catLabel.get(c) ?? c })) : [],
         allocatedTiyin: allocated.toString(),
@@ -351,11 +360,12 @@ export class QomitaService {
     const months = this.range(from, to);
     const d = await this.load(months);
     const item = d.config.items.find((i) => i.departmentId === key) ?? null;
-    if (!item && key !== '-') throw new NotFoundException("Bo'lim Qo'mita ro'yxatida yo'q");
-    const codes = new Set(d.config.items.map((i) => i.incomeCode));
+    const code = key === '-' ? null : (d.depCode.get(key) ?? null);
+    if (key !== '-' && !code) throw new NotFoundException("Bo'lim topilmadi");
     const bankIds = new Set((readStore((await this.prisma.setting.findUnique({ where: { key: BANK_ANALYSIS_KEY } }))?.value).posts ?? []).filter((p) => p.status === 'POSTED').map((p) => p.entryId));
+    const approved = await this.approvedMap();
     const incomes = d.incomes
-      .filter((i) => (item ? i.categoryCode === item.incomeCode : !codes.has(i.categoryCode)))
+      .filter((i) => (code ? i.categoryCode === code : !d.codeDep.has(i.categoryCode)))
       .map((i) => ({
         id: i.id,
         date: i.date.toISOString().slice(0, 10),
@@ -364,7 +374,8 @@ export class QomitaService {
         description: i.description,
         clientName: i.clientName,
         documentNo: i.contractNo,
-        origin: bankIds.has(i.id) ? ('BANK' as const) : i.source === 'MANUAL' ? ('MANUAL' as const) : ('OTHER' as const),
+        origin: bankIds.has(i.id) ? ('BANK' as const) : i.source === 'MANUAL' ? ('MANUAL' as const) : i.importBatchId?.startsWith(QOMITA_BANK_TAG) ? ('FILE' as const) : ('OTHER' as const),
+        approved: approved[i.id] ?? null,
       }));
     // Ish haqi qismlari: modda × oy, xodimlar (davr bo'yicha jami)
     const parts = new Map<string, Money>();
@@ -399,9 +410,9 @@ export class QomitaService {
       }
     return {
       key,
-      label: item ? (d.depName.get(key) ?? "Bo'lim (o'chirilgan)") : "Bo'lim ko'rsatilmagan Qo'mita daromadi",
+      label: key === '-' ? "Bo'lim ko'rsatilmagan Qo'mita daromadi" : (d.depName.get(key) ?? "Bo'lim (o'chirilgan)"),
       months,
-      incomeCode: item?.incomeCode ?? null,
+      incomeCode: code,
       incomes,
       payrollParts: [...parts].map(([code, m]) => ({ code, name: d.compName.get(code) ?? code, totalTiyin: sumOf(m).toString(), months: toRec(m) })).sort((a, b) => (big(b.totalTiyin) > big(a.totalTiyin) ? 1 : -1)),
       employees: [...people.values()].map((e) => ({ pinfl: e.pinfl, fullName: e.fullName, totalTiyin: sumOf(e.parts).toString(), parts: toRec(e.parts), months: toRec(e.months) })).sort((a, b) => (big(b.totalTiyin) > big(a.totalTiyin) ? 1 : -1)),
@@ -412,11 +423,18 @@ export class QomitaService {
 
   // ═══════════ Daromad: qo'lda ═══════════
 
+  /** Bo'limning Qo'mita daromad turi: sozlamada bo'lsa — o'sha, bo'lmasa — yaratiladi (qoplash qoidasi keyin belgilanadi) */
+  private async incomeCodeFor(departmentId: string): Promise<string> {
+    if (!departmentId) throw new BadRequestException("Bo'limni tanlang");
+    const item = (await readQomita(this.prisma)).items.find((i) => i.departmentId === departmentId);
+    if (item) return item.incomeCode;
+    const dep = await this.prisma.department.findUnique({ where: { id: departmentId }, select: { id: true, name: true, index: true, isActive: true } });
+    if (!dep || !dep.isActive) throw new BadRequestException("Bo'lim topilmadi");
+    return this.ensureIncomeCode(dep);
+  }
+
   async addIncome(body: { departmentId?: unknown; period?: unknown; date?: unknown; amount?: unknown; description?: unknown }, userId: string) {
     const departmentId = typeof body?.departmentId === 'string' ? body.departmentId : '';
-    const config = await readQomita(this.prisma);
-    const item = config.items.find((i) => i.departmentId === departmentId);
-    if (!item) throw new BadRequestException("Bo'limni tanlang (Qo'mita ro'yxatidagi)");
     const period = typeof body?.period === 'string' && PERIOD_RE.test(body.period) ? body.period : null;
     if (!period) throw new BadRequestException("Qaysi oy uchun — tanlang");
     const rawAmount = String(body?.amount ?? '').replace(/\s+/g, '').replace(',', '.');
@@ -430,6 +448,7 @@ export class QomitaService {
       if (!Number.isNaN(x.getTime())) date = x;
     }
     const description = typeof body?.description === 'string' && body.description.trim() ? body.description.trim().slice(0, 500) : "Qo'mita ajratmasi";
+    const incomeCode = await this.incomeCodeFor(departmentId);
     const dep = await this.prisma.department.findUnique({ where: { id: departmentId }, select: { name: true } });
     const income = await this.prisma.income.create({
       data: {
@@ -437,7 +456,7 @@ export class QomitaService {
         period,
         amountTiyin: amount,
         paidTiyin: amount,
-        categoryCode: item.incomeCode,
+        categoryCode: incomeCode,
         segment: QOMITA_SEGMENT,
         regionCode: null,
         departmentId: null,
@@ -456,11 +475,32 @@ export class QomitaService {
     return { id: income.id, amountTiyin: amount.toString() };
   }
 
-  /** Qo'lda kiritilgan Qo'mita daromadini o'chirish (bankdan yo'naltirilgani — bank ko'chirmasida bekor qilinadi) */
-  async removeIncome(id: string, userId: string) {
-    const income = await this.prisma.income.findUnique({ where: { id }, select: { id: true, segment: true, source: true, deletedAt: true, amountTiyin: true, period: true, categoryCode: true } });
+  /** Qo'mita daromadini tasdiqlash (tekshirildi) yoki tasdiqni olib tashlash — settings «qomita.income.approved» */
+  async approveIncome(id: string, ok: boolean, userId: string) {
+    const income = await this.prisma.income.findUnique({ where: { id }, select: { id: true, segment: true, deletedAt: true, period: true, amountTiyin: true } });
     if (!income || income.deletedAt || income.segment !== QOMITA_SEGMENT) throw new NotFoundException('Yozuv topilmadi');
-    if (income.source !== 'MANUAL') throw new BadRequestException("Bu yozuv bank ko'chirmasidan yo'naltirilgan — «Bank ko'chirmasi»da yo'naltirishni bekor qiling");
+    const by = (await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null))?.fullName ?? '';
+    await runExclusive(`setting:${APPROVED_KEY}`, async () => {
+      const cur = await this.approvedMap();
+      if (ok) cur[id] = { at: new Date().toISOString(), by };
+      else delete cur[id];
+      const value = cur as object;
+      await this.prisma.setting.upsert({ where: { key: APPROVED_KEY }, create: { key: APPROVED_KEY, value }, update: { value } });
+    });
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'qomita_income', entityId: id, summary: `Qo'mita ajratmasi ${ok ? 'tasdiqlandi' : 'tasdig‘i olib tashlandi'}: ${income.period}, ${(Number(income.amountTiyin) / 100).toLocaleString('uz-UZ')} so'm` });
+    return { approved: ok };
+  }
+
+  private async approvedMap(): Promise<Record<string, { at: string; by: string }>> {
+    const v = (await this.prisma.setting.findUnique({ where: { key: APPROVED_KEY } }))?.value;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, { at: string; by: string }>) : {};
+  }
+
+  /** Qo'lda yoki shu sahifada ko'chirma faylidan kiritilgan Qo'mita daromadini o'chirish (bank tahlilidan yo'naltirilgani — o'sha yerda bekor qilinadi) */
+  async removeIncome(id: string, userId: string) {
+    const income = await this.prisma.income.findUnique({ where: { id }, select: { id: true, segment: true, source: true, deletedAt: true, amountTiyin: true, period: true, categoryCode: true, importBatchId: true } });
+    if (!income || income.deletedAt || income.segment !== QOMITA_SEGMENT) throw new NotFoundException('Yozuv topilmadi');
+    if (income.source !== 'MANUAL' && !income.importBatchId?.startsWith(QOMITA_BANK_TAG)) throw new BadRequestException("Bu yozuv bank ko'chirmasidan yo'naltirilgan — «Bank ko'chirmasi»da yo'naltirishni bekor qiling");
     await this.prisma.income.update({ where: { id }, data: { deletedAt: new Date() } });
     await this.audit.log({ userId, action: 'DELETE', entity: 'qomita_income', entityId: id, summary: `Qo'mita ajratmasi o'chirildi: ${income.period}, ${(Number(income.amountTiyin) / 100).toLocaleString('uz-UZ')} so'm` });
     return { removed: true };
@@ -492,8 +532,7 @@ export class QomitaService {
   async bankRoute(body: { items?: unknown; departmentId?: unknown; description?: unknown; force?: unknown; skipDuplicates?: unknown }, userId: string) {
     if (!this.bank) throw new BadRequestException("Bank ko'chirmasi moduli ulanmagan");
     const departmentId = typeof body?.departmentId === 'string' ? body.departmentId : '';
-    const item = (await readQomita(this.prisma)).items.find((i) => i.departmentId === departmentId);
-    if (!item) throw new BadRequestException("Bo'limni tanlang (Qo'mita ro'yxatidagi)");
-    return this.bank.route({ items: body?.items, place: { unit: QOMITA_SEGMENT }, categoryCode: item.incomeCode, section: 'DOIMIY', description: body?.description, force: body?.force, skipDuplicates: body?.skipDuplicates }, userId);
+    const incomeCode = await this.incomeCodeFor(departmentId);
+    return this.bank.route({ items: body?.items, place: { unit: QOMITA_SEGMENT }, categoryCode: incomeCode, section: 'DOIMIY', description: body?.description, force: body?.force, skipDuplicates: body?.skipDuplicates }, userId);
   }
 }

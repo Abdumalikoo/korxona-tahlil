@@ -5,6 +5,7 @@ import { MoneyCell, NameCell, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorState, LoadingState } from '@/components/ui/states';
+import { SubTabs } from '@/components/ui/tabs';
 import { Toast } from '@/components/ui/toast';
 import { MonthRangeCard, useMonthRange } from '@/features/units/month-range';
 import { useAuth } from '@/lib/auth-context';
@@ -12,26 +13,34 @@ import { errorMessage } from '@/lib/error-message';
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 import { Fragment, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { qomitaApi, type QomitaDetail, type QomitaRowView } from './api';
+import { Section3802View, SECTIONS_3802, type Section3802 } from './qomita-3802';
 import { QomitaBankCard, QomitaIncomeDrawer } from './qomita-income';
+import { SarfSection } from './qomita-sarf';
 import { QomitaSettingsCard } from './qomita-settings';
+import { QomitaStatementCard } from './qomita-statement';
 
 // ═══════════════════════════════════════════════════════════
-// Daromadlar › Qo'mita mablag'lari.
-// Qo'mita ayrim bo'limlarimiz (masalan, Call-markaz) xarajatini qoplash uchun pul ajratadi:
-//  • Ajratildi — Qo'mita daromadi (qo'lda yoki bank ko'chirmasidan), har bo'lim o'z daromad turi bilan;
-//  • Qoplanishi kerak — bo'lim ish haqi qismlari (Oklad, 40% ustama …) + belgilangan boshqa moddalar;
-//  • Qoldiq / kamomad — faqat ko'rsatiladi.
-// Bo'lim qatorini bosing — joyida ochiladi: oyma-oy, ajratmalar, ish haqi qismlari → xodimlar, boshqa moddalar.
+// Qo'mita mablag'lari — ikki joyda:
+//  • Daromadlar › Qo'mita mablag'lari (QomitaPage) — faqat Qo'mitadan kelgan pullar: bo'limlar bo'yicha ajratildi
+//    (oyma-oy, har yozuv), qo'lda kiritish va bank ko'chirmasidan yo'naltirish;
+//  • 3802 — Qo'mita qoplashi (Qomita3802Page) — qoplanishi kerak (ish haqi qismlari, boshqa moddalar),
+//    qoldiq / kamomad, qoplanadigan bo'limlar sozlamasi va 3802 tizimi: Shtatlar (oladigan va olmaydigan),
+//    Har oylik real bajarilgan ishlar, Nazorat zanjiri (qomita-3802.tsx — birma-bir to'ldiriladi).
+//    Kelgan pul bu yerda faqat taqqoslash uchun ko'rsatiladi (kiritish va o'chirish — Daromadlarda).
+// Bo'lim qatorini bosing — joyida ochiladi.
 // ═══════════════════════════════════════════════════════════
 
 type ToastState = { message: string; tone: 'success' | 'error' } | null;
+type TableMode = 'INCOME' | 'COVER';
 
 const n = (s: string | null | undefined) => Number(s ?? 0);
 const pctText = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : '');
 
+/** Daromadlar › Qo'mita mablag'lari: faqat Qo'mitadan kelgan pullar */
 export function QomitaPage() {
   const { isAdmin } = useAuth();
   const range = useMonthRange('year');
@@ -46,14 +55,15 @@ export function QomitaPage() {
 
   const t = rep.data?.totals;
   const items = cfg.data?.items ?? [];
+  const rows = (rep.data?.rows ?? []).filter((r) => r.incomeCode || n(r.allocatedTiyin) !== 0);
   return (
     <>
       <PageHeader
         title="Qo'mita mablag'lari"
-        description="Qo'mita ajratgan pullar (daromad) va ular qoplaydigan xarajatlar: bo'limlar bo'yicha, oyma-oy"
+        description="Qo'mitadan kelgan pullar (daromad): bo'limlar bo'yicha, oyma-oy — bankdan yoki qo'lda"
         actions={
-          isAdmin && items.length > 0 ? (
-            <Button size="sm" onClick={() => setIncomeOpen(items[0]!.departmentId)}>
+          isAdmin && (cfg.data?.departments.length ?? 0) > 0 ? (
+            <Button size="sm" onClick={() => setIncomeOpen(items[0]?.departmentId ?? '')}>
               + Ajratma kiritish
             </Button>
           ) : undefined
@@ -69,29 +79,22 @@ export function QomitaPage() {
           <>
             <StatTiles
               items={[
-                { label: 'Ajratildi (daromad)', value: n(t.allocatedTiyin), tone: 'green' },
-                { label: 'Qoplanishi kerak', value: n(t.coveredTiyin), tone: 'red', note: `ish haqi ${sum(n(t.payrollTiyin))} · boshqa ${sum(n(t.otherTiyin))}` },
-                {
-                  label: n(t.balanceTiyin) < 0 ? 'Kamomad (yetmadi)' : 'Qoldiq (ortib qoldi)',
-                  value: n(t.balanceTiyin),
-                  tone: n(t.balanceTiyin) < 0 ? 'orange' : 'blue',
-                  signed: true,
-                  note: n(t.coveredTiyin) > 0 ? `qoplandi: ${pctText(n(t.allocatedTiyin), n(t.coveredTiyin))}` : undefined,
-                },
-                { label: "Qoplanadigan bo'limlar", value: 0, text: String(items.length), tone: 'purple', note: items.map((i) => i.departmentName).join(', ') || "hali belgilanmagan" },
+                { label: 'Qo‘mitadan kelgan (daromad)', value: n(t.allocatedTiyin), tone: 'green' },
+                { label: "Bo'limlar", value: 0, text: String(items.length), tone: 'purple', note: items.map((i) => i.departmentName).join(', ') || 'hali belgilanmagan' },
               ]}
             />
-            {rep.data.tarkibMissing.length > 0 && (
-              <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
-                {rep.data.tarkibMissing.map(formatPeriod).join(', ')} — ish haqi tarkibi yuklanmagan: Oklad va ustama qismlari ajratilmagan («Xarajatlar › Ish haqi tarkibi»ga
-                yuklang — o&apos;zi hisoblanadi).
-              </p>
-            )}
-            <ReportTable rows={rep.data.rows} from={rep.data.from} to={rep.data.to} isAdmin={isAdmin} onChanged={reloadAll} setToast={setToast} onAddIncome={setIncomeOpen} />
+            <ReportTable mode="INCOME" rows={rows} from={rep.data.from} to={rep.data.to} isAdmin={isAdmin} onChanged={reloadAll} setToast={setToast} onAddIncome={setIncomeOpen} />
           </>
         )}
+        <QomitaStatementCard isAdmin={isAdmin} onSaved={reloadAll} setToast={setToast} />
         {cfg.error ? <ErrorState message={cfg.error} onRetry={cfg.reload} /> : cfg.data ? <QomitaBankCard config={cfg.data} isAdmin={isAdmin} onRouted={reloadAll} setToast={setToast} /> : null}
-        {cfg.data && <QomitaSettingsCard config={cfg.data} isAdmin={isAdmin} onSaved={reloadAll} setToast={setToast} />}
+        <p className="text-xs text-(--color-text-muted)">
+          Qo&apos;mita qaysi bo&apos;limlar uchun pul ajratishi va u nimani qoplashi (ish haqi qismlari, boshqa moddalar, 3802 shtati) —{' '}
+          <Link href="/3802" className="font-medium text-brand-700 hover:underline">
+            3802 — Qo&apos;mita qoplashi
+          </Link>
+          .
+        </p>
       </div>
       {cfg.data && incomeOpen !== null && (
         <QomitaIncomeDrawer
@@ -111,9 +114,58 @@ export function QomitaPage() {
   );
 }
 
+/** 3802 — Qo'mita qoplashi: qoplash va qoldiq, sozlama, 3802 tizimi */
+export function Qomita3802Page() {
+  const { isAdmin } = useAuth();
+  const range = useMonthRange('year');
+  const [section, setSection] = useState<Section3802>('QOPLASH');
+  const cfg = useAsync(() => qomitaApi.config().then((r) => r.data), []);
+  const rep = useAsync(() => (section !== 'QOPLASH' || range.error ? Promise.resolve(null) : qomitaApi.report(range.from, range.to).then((r) => r.data)), [range.from, range.to, range.error, section]);
+  const [toast, setToast] = useState<ToastState>(null);
+  const reloadAll = () => {
+    rep.reload();
+    cfg.reload();
+  };
+
+  const t = rep.data?.totals;
+  const items = cfg.data?.items ?? [];
+  return (
+    <>
+      <div className="space-y-4 p-4 md:p-6">
+        <SubTabs value={section} options={SECTIONS_3802} onChange={setSection} />
+        {section !== 'QOPLASH' ? (
+          <Section3802View section={section} isAdmin={isAdmin} onToast={setToast} />
+        ) : (
+          <>
+            <MonthRangeCard range={range} />
+            {/* Qo'mita pullarining sarfi: 3802 hovuzi va xizmat shartnomalari (faqat ko'rsatish) */}
+            {range.error ? null : <SarfSection from={range.from} to={range.to} isAdmin={isAdmin} onToast={setToast} />}
+            {/* Qo'lda sozlangan qoplash qoidalari (ixtiyoriy) — sozlangan bo'lsa */}
+            {items.length > 0 && rep.data && t && (
+              <>
+                <p className="pt-2 text-sm font-semibold text-heading">Qo&apos;lda sozlangan qoplash qoidalari (ish haqi qismlari, moddalar)</p>
+                {rep.data.tarkibMissing.length > 0 && (
+                  <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+                    {rep.data.tarkibMissing.map(formatPeriod).join(', ')} — ish haqi tarkibi yuklanmagan: Oklad va ustama qismlari ajratilmagan («Xarajatlar › Ish haqi tarkibi»ga
+                    yuklang — o&apos;zi hisoblanadi).
+                  </p>
+                )}
+                <ReportTable mode="COVER" rows={rep.data.rows} from={rep.data.from} to={rep.data.to} isAdmin={isAdmin} onChanged={reloadAll} setToast={setToast} />
+              </>
+            )}
+            {cfg.error ? <ErrorState message={cfg.error} onRetry={cfg.reload} /> : cfg.data ? <QomitaSettingsCard config={cfg.data} isAdmin={isAdmin} onSaved={reloadAll} setToast={setToast} /> : null}
+          </>
+        )}
+      </div>
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
+    </>
+  );
+}
+
 // ─────────── Asosiy jadval ───────────
 
 function ReportTable({
+  mode,
   rows,
   from,
   to,
@@ -122,14 +174,16 @@ function ReportTable({
   setToast,
   onAddIncome,
 }: {
+  mode: TableMode;
   rows: QomitaRowView[];
   from: string;
   to: string;
   isAdmin: boolean;
   onChanged: () => void;
   setToast: (t: ToastState) => void;
-  onAddIncome: (departmentId: string) => void;
+  onAddIncome?: (departmentId: string) => void;
 }) {
+  const inc = mode === 'INCOME';
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const toggle = (k: string) =>
     setOpen((s) => {
@@ -143,25 +197,39 @@ function ReportTable({
     return (
       <ReportCard title="Bo'limlar bo'yicha">
         <p className="px-5 pb-6 pt-2 text-center text-sm text-(--color-text-muted)">
-          Hali qoplanadigan bo&apos;lim belgilanmagan. Pastdagi «Qoplanadigan bo&apos;limlar» kartasida bo&apos;lim qo&apos;shing (masalan, Call-markaz: Oklad va 40% ustama).
+          {inc ? (
+            <>
+              Hali Qo&apos;mita pul ajratadigan bo&apos;lim belgilanmagan — avval{' '}
+              <Link href="/3802" className="font-medium text-brand-700 hover:underline">
+                3802
+              </Link>{' '}
+              sahifasidagi «Qoplanadigan bo&apos;limlar» kartasida bo&apos;lim qo&apos;shing.
+            </>
+          ) : (
+            <>Hali qoplanadigan bo&apos;lim belgilanmagan. Pastdagi «Qoplanadigan bo&apos;limlar» kartasida bo&apos;lim qo&apos;shing (masalan, Call-markaz: Oklad va 40% ustama).</>
+          )}
         </p>
       </ReportCard>
     );
   const totalCovered = tot((r) => r.coveredTiyin);
   return (
-    <ReportCard title="Bo'limlar bo'yicha: ajratildi va qoplanishi kerak" badge={`${formatPeriodShort(from)} — ${formatPeriodShort(to)}`}>
+    <ReportCard title={inc ? "Bo'limlar bo'yicha: Qo'mitadan kelgan" : "Bo'limlar bo'yicha: kelgan va qoplanishi kerak"} badge={`${formatPeriodShort(from)} — ${formatPeriodShort(to)}`}>
       <div className="p-4">
-        <RTable minWidth={1080}>
+        <RTable minWidth={inc ? 640 : 1080}>
           <thead>
             <tr>
               <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
               <Th className={cn(STICKY_NAME, 'z-[2] min-w-60 text-left')}>Bo&apos;lim</Th>
-              <Th>Ajratildi</Th>
-              <Th>Ish haqi qismlari</Th>
-              <Th>Boshqa moddalar</Th>
-              <Th>Qoplanishi kerak</Th>
-              <Th>Qoldiq / kamomad</Th>
-              <Th>Qoplandi</Th>
+              <Th>{inc ? 'Kelgan (daromad)' : 'Kelgan'}</Th>
+              {!inc && (
+                <>
+                  <Th>Ish haqi qismlari</Th>
+                  <Th>Boshqa moddalar</Th>
+                  <Th>Qoplanishi kerak</Th>
+                  <Th>Qoldiq / kamomad</Th>
+                  <Th>Qoplandi</Th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -169,11 +237,15 @@ function ReportTable({
               <Td className={STICKY_NO} />
               <NameCell>Jami</NameCell>
               <MoneyCell value={tot((r) => r.allocatedTiyin)} strong />
-              <MoneyCell value={tot((r) => r.payrollTiyin)} />
-              <MoneyCell value={tot((r) => r.otherTiyin)} />
-              <MoneyCell value={totalCovered} strong />
-              <MoneyCell value={tot((r) => r.balanceTiyin)} strong signedColor />
-              <Td className="font-semibold">{pctText(tot((r) => r.allocatedTiyin), totalCovered)}</Td>
+              {!inc && (
+                <>
+                  <MoneyCell value={tot((r) => r.payrollTiyin)} />
+                  <MoneyCell value={tot((r) => r.otherTiyin)} />
+                  <MoneyCell value={totalCovered} strong />
+                  <MoneyCell value={tot((r) => r.balanceTiyin)} strong signedColor />
+                  <Td className="font-semibold">{pctText(tot((r) => r.allocatedTiyin), totalCovered)}</Td>
+                </>
+              )}
             </Tr>
             {rows.map((r, i) => {
               const isOpen = open.has(r.key);
@@ -185,26 +257,36 @@ function ReportTable({
                     <NameCell
                       drill
                       before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')}>▸</span>}
-                      sub={r.key === '-' ? 'daromad turi bo‘limga bog‘lanmagan' : what.length ? `qoplaydi: ${what.join(', ')}` : undefined}
+                      sub={r.key === '-' ? 'daromad turi bo‘limga bog‘lanmagan' : !inc && what.length ? `qoplaydi: ${what.join(', ')}` : undefined}
                     >
                       {r.label}
                     </NameCell>
                     <MoneyCell value={n(r.allocatedTiyin)} className={n(r.allocatedTiyin) ? 'text-(--color-income)' : 'text-(--color-text-faint)'} />
-                    <MoneyCell value={n(r.payrollTiyin)} className={n(r.payrollTiyin) ? '' : 'text-(--color-text-faint)'} />
-                    <MoneyCell value={n(r.otherTiyin)} className={n(r.otherTiyin) ? '' : 'text-(--color-text-faint)'} />
-                    <MoneyCell value={n(r.coveredTiyin)} strong />
-                    <MoneyCell value={n(r.balanceTiyin)} strong signedColor />
-                    <Td className={cn('text-xs font-semibold', n(r.balanceTiyin) < 0 ? 'text-(--color-expense)' : 'text-(--color-text-muted)')}>{pctText(n(r.allocatedTiyin), n(r.coveredTiyin))}</Td>
+                    {!inc && (
+                      <>
+                        <MoneyCell value={n(r.payrollTiyin)} className={n(r.payrollTiyin) ? '' : 'text-(--color-text-faint)'} />
+                        <MoneyCell value={n(r.otherTiyin)} className={n(r.otherTiyin) ? '' : 'text-(--color-text-faint)'} />
+                        <MoneyCell value={n(r.coveredTiyin)} strong />
+                        <MoneyCell value={n(r.balanceTiyin)} strong signedColor />
+                        <Td className={cn('text-xs font-semibold', n(r.balanceTiyin) < 0 ? 'text-(--color-expense)' : 'text-(--color-text-muted)')}>{pctText(n(r.allocatedTiyin), n(r.coveredTiyin))}</Td>
+                      </>
+                    )}
                   </Tr>
-                  {isOpen && <RowDetail row={r} from={from} to={to} isAdmin={isAdmin} onChanged={onChanged} setToast={setToast} onAddIncome={onAddIncome} />}
+                  {isOpen && <RowDetail mode={mode} row={r} from={from} to={to} isAdmin={isAdmin} onChanged={onChanged} setToast={setToast} onAddIncome={onAddIncome} />}
                 </Fragment>
               );
             })}
           </tbody>
         </RTable>
         <TableNote>
-          Bo&apos;limni bosing — ichi ochiladi: oyma-oy, ajratmalar (qaysi yozuvdan), ish haqi qismlari va xodimlar, boshqa moddalar. Ish haqi qismlari bo&apos;lim ish haqidan
-          ajratilib Qo&apos;mita hisobiga o&apos;tadi (Solishtirmada bo&apos;lim xarajati shuncha kamayadi, jami o&apos;zgarmaydi). Qoldiq / kamomad faqat ko&apos;rsatiladi.
+          {inc ? (
+            <>Bo&apos;limni bosing — ichi ochiladi: oyma-oy va har ajratma (bankdan yoki qo&apos;lda). Qo&apos;lda kiritilganini o&apos;chirish mumkin, bankdan kelganini — «Bank ko&apos;chirmasi»da bekor qilinadi.</>
+          ) : (
+            <>
+              Bo&apos;limni bosing — ichi ochiladi: oyma-oy, kelgan pullar, ish haqi qismlari va xodimlar, boshqa moddalar. Ish haqi qismlari bo&apos;lim ish haqidan ajratilib Qo&apos;mita
+              hisobiga o&apos;tadi (Solishtirmada bo&apos;lim xarajati shuncha kamayadi, jami o&apos;zgarmaydi). Qoldiq / kamomad faqat ko&apos;rsatiladi.
+            </>
+          )}
         </TableNote>
       </div>
     </ReportCard>
@@ -229,6 +311,7 @@ function SubRow({
   onClick,
   action,
   group,
+  income = false,
 }: {
   depth: number;
   label: ReactNode;
@@ -243,6 +326,8 @@ function SubRow({
   onClick?: () => void;
   action?: ReactNode;
   group?: boolean;
+  /** Daromad jadvali (faqat «Ajratildi» ustuni) */
+  income?: boolean;
 }) {
   const cell = (v: number | null, cls?: string) => (v === null ? <Td /> : <MoneyCell value={v} className={cn('text-[12.5px]', v ? cls : 'text-(--color-text-faint)')} />);
   return (
@@ -259,18 +344,23 @@ function SubRow({
         </span>
       </td>
       {cell(allocated, 'text-(--color-income)')}
-      {cell(payroll)}
-      {cell(other)}
-      {cell(covered, 'font-semibold')}
-      {balance === null ? <Td /> : <MoneyCell value={balance} signedColor className="text-[12.5px] font-semibold" />}
-      <Td className="text-[11px] text-(--color-text-muted)">{allocated !== null && covered ? pctText(allocated, covered) : ''}</Td>
+      {!income && (
+        <>
+          {cell(payroll)}
+          {cell(other)}
+          {cell(covered, 'font-semibold')}
+          {balance === null ? <Td /> : <MoneyCell value={balance} signedColor className="text-[12.5px] font-semibold" />}
+          <Td className="text-[11px] text-(--color-text-muted)">{allocated !== null && covered ? pctText(allocated, covered) : ''}</Td>
+        </>
+      )}
     </tr>
   );
 }
 
-const ORIGIN_LABEL: Record<QomitaDetail['incomes'][number]['origin'], string> = { BANK: 'bankdan', MANUAL: "qo'lda", OTHER: 'boshqa manba' };
+const ORIGIN_LABEL: Record<QomitaDetail['incomes'][number]['origin'], string> = { BANK: 'bank tahlilidan', MANUAL: "qo'lda", FILE: "ko'chirma faylidan", OTHER: 'boshqa manba' };
 
 function RowDetail({
+  mode,
   row,
   from,
   to,
@@ -279,14 +369,18 @@ function RowDetail({
   setToast,
   onAddIncome,
 }: {
+  /** INCOME — Daromadlar (kelgan pullar, kiritish va o'chirish); COVER — Xarajatlar (qoplash, kelgani — faqat ko'rish) */
+  mode: TableMode;
   row: QomitaRowView;
   from: string;
   to: string;
   isAdmin: boolean;
   onChanged: () => void;
   setToast: (t: ToastState) => void;
-  onAddIncome: (departmentId: string) => void;
+  onAddIncome?: (departmentId: string) => void;
 }) {
+  const inc = mode === 'INCOME';
+  const canEdit = inc && isAdmin;
   const res = useAsync(() => qomitaApi.detail(row.key, from, to).then((r) => r.data), [row.key, from, to, row.allocatedTiyin]);
   const [open, setOpen] = useState<Set<string>>(() => new Set(['months']));
   const [removing, setRemoving] = useState<{ id: string; text: string } | null>(null);
@@ -300,7 +394,7 @@ function RowDetail({
     });
   const note = (text: string, tone = 'text-(--color-text-muted)') => (
     <tr>
-      <td colSpan={8} className={cn('border-b border-(--color-line) bg-[#f7f9fc] px-4 py-2 text-xs', tone)}>
+      <td colSpan={inc ? 3 : 8} className={cn('border-b border-(--color-line) bg-[#f7f9fc] px-4 py-2 text-xs', tone)}>
         <span className="pl-6">{text}</span>
       </td>
     </tr>
@@ -333,36 +427,37 @@ function RowDetail({
   return (
     <>
       {/* Oyma-oy */}
-      <SubRow depth={1} group label="Oyma-oy" sub={`${months.length} oy`} open={open.has('months')} onClick={() => toggle('months')} />
+      <SubRow depth={1} group income={inc} label="Oyma-oy" sub={`${months.length} oy`} open={open.has('months')} onClick={() => toggle('months')} />
       {open.has('months') &&
         (months.length ? (
           months.map(([p, m]) => {
             const a = n(m.allocated);
             const pr = n(m.payroll);
             const o = n(m.other);
-            return <SubRow key={p} depth={2} label={formatPeriod(p)} allocated={a} payroll={pr} other={o} covered={pr + o} balance={a - pr - o} />;
+            return inc ? <SubRow key={p} depth={2} income label={formatPeriod(p)} allocated={a} /> : <SubRow key={p} depth={2} label={formatPeriod(p)} allocated={a} payroll={pr} other={o} covered={pr + o} balance={a - pr - o} />;
           })
         ) : (
-          <SubRow depth={2} label="Bu davrda harakat yo'q" />
+          <SubRow depth={2} income={inc} label="Bu davrda harakat yo'q" />
         ))}
 
       {/* Ajratmalar */}
       <SubRow
         depth={1}
         group
+        income={inc}
         label="Ajratmalar (Qo'mita daromadi)"
         sub={`${d.incomes.length} ta yozuv`}
         allocated={allocTotal}
         open={open.has('inc')}
         onClick={() => toggle('inc')}
         action={
-          isAdmin && row.key !== '-' ? (
+          canEdit && onAddIncome && row.key !== '-' ? (
             <button
               type="button"
               className="shrink-0 rounded-md border border-brand-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-brand-700 hover:bg-brand-50"
               onClick={(e) => {
                 e.stopPropagation();
-                onAddIncome(row.key);
+                onAddIncome?.(row.key);
               }}
             >
               + Kiritish
@@ -376,11 +471,12 @@ function RowDetail({
             <SubRow
               key={x.id}
               depth={2}
+              income={inc}
               label={`${x.date.split('-').reverse().join('.')} · ${formatPeriod(x.period)} uchun`}
               sub={[ORIGIN_LABEL[x.origin], x.clientName, x.documentNo ? `№ ${x.documentNo}` : '', x.description].filter(Boolean).join(' · ')}
               allocated={n(x.amountTiyin)}
               action={
-                isAdmin && x.origin === 'MANUAL' ? (
+                canEdit && (x.origin === 'MANUAL' || x.origin === 'FILE') ? (
                   <button
                     type="button"
                     title="O'chirish"
@@ -397,11 +493,11 @@ function RowDetail({
             />
           ))
         ) : (
-          <SubRow depth={2} label="Ajratma kiritilmagan" sub={isAdmin ? "«+ Kiritish» yoki pastdagi «Bankdan» kartasi orqali" : undefined} />
+          <SubRow depth={2} income={inc} label="Ajratma kiritilmagan" sub={canEdit ? "«+ Kiritish» yoki pastdagi «Bankdan» kartasi orqali" : inc ? undefined : "Kiritish — Daromadlar › Qo'mita mablag'lari"} />
         ))}
 
       {/* Ish haqi qismlari → xodimlar */}
-      {(row.components.length > 0 || payrollTotal !== 0) && (
+      {!inc && (row.components.length > 0 || payrollTotal !== 0) && (
         <>
           <SubRow
             depth={1}
@@ -450,7 +546,7 @@ function RowDetail({
       )}
 
       {/* Boshqa moddalar */}
-      {(row.categories.length > 0 || otherTotal !== 0) && (
+      {!inc && (row.categories.length > 0 || otherTotal !== 0) && (
         <>
           <SubRow
             depth={1}

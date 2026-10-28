@@ -86,7 +86,8 @@ const { splitWithQomita } = require('../dist/modules/qomita/qomita.util');
   ex('a3', 'd2', 'ALOQA', 90); // boshqa bo'lim
   const inc = await svc.addIncome({ departmentId: 'd1', period: '2026-09', amount: '20,5', description: 'Sentabr ajratmasi' }, 'u1');
   assert.strictEqual(inc.amountTiyin, '2050');
-  await assert.rejects(svc.addIncome({ departmentId: 'd2', period: '2026-09', amount: '5' }, 'u1'), /ro'yxatidagi/);
+  // Ro'yxatda yo'q bo'lim ham — o'z daromad turi bilan (qoplash qoidasi keyin belgilanadi); noma'lum bo'lim — xato
+  await assert.rejects(svc.addIncome({ departmentId: 'yoq', period: '2026-09', amount: '5' }, 'u1'), /Bo'lim topilmadi/);
   await assert.rejects(svc.addIncome({ departmentId: 'd1', period: '2026-09', amount: '-5' }, 'u1'), /Summa/);
   T.incomeCategory.push({ code: 'QOMITA_UMUMIY', label: "Qo'mita", isActive: true });
   T.income.push({ id: 'i9', date: new Date('2026-09-15T07:00:00Z'), period: '2026-09', amountTiyin: 99n, categoryCode: 'QOMITA_UMUMIY', segment: 'QOMITA', source: 'IMPORT', deletedAt: null });
@@ -106,6 +107,13 @@ const { splitWithQomita } = require('../dist/modules/qomita/qomita.util');
   assert.deepStrictEqual(d.employees.map((e) => [e.fullName, e.totalTiyin]), [['Namuna Ikki', '1680'], ['Namuna Bir', '840']]);
   assert.deepStrictEqual(d.categories.map((c) => [c.code, c.totalTiyin]), [['ALOQA', '150']]);
   assert.deepStrictEqual(d.incomes.map((i) => [i.amountTiyin, i.origin]), [['2050', 'MANUAL']]);
+
+  // Tasdiqlash: belgi tafsilotda ko'rinadi, olib tashlash mumkin
+  await svc.approveIncome(inc.id, true, 'u1');
+  assert.ok((await svc.detail('d1', '2026-09', '2026-09')).incomes[0].approved, 'tasdiqlangan');
+  await svc.approveIncome(inc.id, false, 'u1');
+  assert.strictEqual((await svc.detail('d1', '2026-09', '2026-09')).incomes[0].approved, null);
+  await assert.rejects(svc.approveIncome('yoq', true, 'u1'), /topilmadi/);
 
   // Qo'lda kiritilgani o'chiriladi, boshqasi — yo'q
   await assert.rejects(svc.removeIncome('i9', 'u1'), /bank/);

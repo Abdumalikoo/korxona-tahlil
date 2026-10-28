@@ -52,6 +52,13 @@ export class QomitaController {
     return { data: await this.qomita.removeIncome(id, userId) };
   }
 
+  /** Tasdiqlash: { ok } (false — tasdiqni olib tashlash) */
+  @Post('income/:id/approve')
+  @Roles(UserRole.ADMIN)
+  async approveIncome(@Param('id') id: string, @Body() body: { ok?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.qomita.approveIncome(id, body?.ok !== false, userId) };
+  }
+
   /** Bank ko'chirmasidagi Qo'mitadan kelgan (yo'naltirilmagan) kirimlar; q — qidiruv */
   @Get('bank')
   async bank(@Query('q') q?: string) {
