@@ -55,6 +55,7 @@ export const ROLE_ENTRY: Record<string, { home: string; pages: string[]; section
   XARIDCHI: { home: '/xarid/ish-stoli', pages: ['/xarid'], sections: ['Xarid'] },
   BUXGALTER: { home: '/buxgalteriya/ish-stoli', pages: ['/buxgalteriya'], sections: ['Buxgalteriya'] },
   HUDUDCHI: { home: '/hudud/ish-stoli', pages: ['/hudud'], sections: ['Hududlar'] },
+  BOLIM_RAHBARI: { home: '/kpi/ish-stoli', pages: ['/kpi'], sections: ['KPI'] },
 };
 
 const AuthContext = createContext<AuthState | null>(null);

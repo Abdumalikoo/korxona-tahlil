@@ -78,6 +78,22 @@ export const WORKER_ROLES: Partial<Record<UserRole, RoleAccess>> = {
     sections: ['Hududlar'],
     dashboards: [{ label: 'Hududlar', href: '/dashbord/hudud' }],
   },
+  BOLIM_RAHBARI: {
+    label: "Bo'lim rahbari (KPI)",
+    description: "KPI baholash: faqat o'z bo'limi xodimlarini oyma-oy baholaydi (rag'batlantiruvchi va kamaytiruvchi mezonlar, ball — shablondan); qaysi bo'lim — Yig'ma KPI › Rahbarlar",
+    codePrefix: 'KP',
+    api: [...COMMON_API, 'kpi'],
+    pages: ['/kpi'],
+    home: '/kpi/ish-stoli',
+    sections: ['KPI'],
+    // Umumiy hududda (Rollar › KPI): har bo'lim baholash stoli va yig'ma
+    dashboards: [
+      { label: 'KPI: Marksheyder', href: '/rollar/kpi/MARKSHEYDER' },
+      { label: 'KPI: Tax free', href: '/rollar/kpi/TAX_FREE' },
+      { label: 'KPI: Axborot xizmati', href: '/rollar/kpi/AXBOROT' },
+      { label: "Yig'ma KPI", href: '/yigma-kpi' },
+    ],
+  },
 };
 
 /**

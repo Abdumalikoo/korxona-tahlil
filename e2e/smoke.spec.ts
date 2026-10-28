@@ -26,12 +26,14 @@ test('Bosh sahifa', async ({ page }) => {
   const errors = watch(page);
   await open(page, '/');
   await expect(page.getByRole('heading', { name: 'Bosh sahifa' }).first()).toBeVisible();
+  // Ma'lumot yuklanmagan bo'lsa — «0» va «100%» emas, «yuklanmagan» / «—»
+  await expect(page.getByText('Rentabellik').first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 
 for (const [url, title] of [
-  ['/xarajatlar/bank-kochirma', 'Xarajatlar'],
-  ['/daromadlar/bank-kochirma', 'Daromadlar'],
+  ['/xarajatlar/bank-kochirma', "Bank ko'chirmasi"],
+  ['/daromadlar/bank-kochirma', "Bank ko'chirmasi"],
 ] as const) {
   test(`Bank ko'chirmasi: ikki yorliq — ${url}`, async ({ page }) => {
     const errors = watch(page);
@@ -65,6 +67,8 @@ test("Daromadlar › Qo'mita mablag'lari: ko'chirmadan yuklash va qo'lda kiritis
 test('3802: Qoplash va qoldiq — sarf (hovuz va shartnomalar)', async ({ page }) => {
   const errors = watch(page);
   await open(page, '/3802');
+  // O'zbekcha oy tanlagich (brauzerning ruscha maydoni emas)
+  await expect(page.getByRole('combobox', { name: 'Dan: oy' })).toBeVisible();
   await expect(page.getByText('3802 hovuzi').first()).toBeVisible();
   await expect(page.getByText('Yig‘ma qoldiq').or(page.getByText("Yig'ma qoldiq")).first()).toBeVisible();
   expect(errors).toEqual([]);
@@ -100,5 +104,61 @@ test('Manba chati ochiladi', async ({ page }) => {
   const errors = watch(page);
   await open(page, '/chat');
   await expect(page.getByText(/Manba chati|chat kodi/i).first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Hisobotlar › Bo'limlar bo'yicha: ko'rish, tuman, Excel", async ({ page }) => {
+  const errors = watch(page);
+  await open(page, '/hisobotlar');
+  await expect(page.getByRole('tab', { name: "Bo'limlar bo'yicha" })).toBeVisible();
+  // Markaz bo'limi — ekranda
+  await page.getByRole('button', { name: "Ekranda ko'rish" }).click();
+  await expect(page.getByText('Oyma-oy').first()).toBeVisible();
+  await expect(page.getByText('Xarajat nimaga ketdi').first()).toBeVisible();
+  // Hudud va tuman tanlash
+  await page.getByRole('tab', { name: 'Hudud' }).click();
+  await expect(page.getByLabel('Tuman')).toBeVisible();
+  // Excel yuklab olinadi
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel', exact: true }).click()]);
+  expect(download.suggestedFilename()).toMatch(/\.xlsx$/);
+  expect(errors).toEqual([]);
+});
+
+test("KPI: baholash stoli (administrator) va Yig'ma KPI", async ({ page }) => {
+  const errors = watch(page);
+  await open(page, '/kpi/ish-stoli?b=MARKSHEYDER');
+  await expect(page.getByText(/Marksheyderlik xizmati/).first()).toBeVisible();
+  // Xodim tanlanadi → mezonlar (faqat ko'rish, tanlov bosilmaydi — hech narsa saqlanmaydi)
+  const first = page.locator('ul li button').filter({ hasText: /baholanmagan|\d/ }).first();
+  if (await first.count()) {
+    await first.click();
+    await expect(page.getByRole('tab', { name: /Rag'batlantiruvchi/ })).toBeVisible();
+    await expect(page.getByText(/yangi mijoz/i).first()).toBeVisible();
+    await page.getByRole('tab', { name: /Kamaytiruvchi/ }).click();
+    await expect(page.getByText(/xatolikka yo'l qo'yilishi/).first()).toBeVisible();
+  }
+  await open(page, '/yigma-kpi');
+  for (const d of ['Marksheyder', 'Tax free', 'Axborot xizmati']) await expect(page.getByRole('heading', { name: d }).first()).toBeVisible();
+  await expect(page.getByText("Bo'lim rahbarlari").first()).toBeVisible();
+  await expect(page.getByText('Sinov rahbar — Marksheyder').or(page.getByText("Hali bo'lim rahbari yo'q")).first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Rollar › KPI: bo'lim dashbordi va rol sahifasi", async ({ page }) => {
+  const errors = watch(page);
+  for (const [key, name] of [
+    ['MARKSHEYDER', 'Marksheyder'],
+    ['TAX_FREE', 'Tax free'],
+    ['AXBOROT', 'Axborot xizmati'],
+  ]) {
+    await open(page, `/rollar/kpi/${key}`);
+    // Sarlavha yuqori panelda ham, sahifa sarlavhasida ham bor — ko'rinadiganini olamiz
+    await expect(page.getByText(`KPI: ${name}`, { exact: true }).locator('visible=true').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Diqqat', exact: true }).locator('visible=true').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Baholash mezonlari', exact: true }).locator('visible=true').first()).toBeVisible();
+  }
+  // «Ish stoliga kirish» — rahbar ko'rinishida shu bo'lim stoli
+  await page.getByRole('button', { name: /Ish stoliga kirish/ }).locator('visible=true').first().click();
+  await expect(page).toHaveURL(/\/kpi\/ish-stoli\?b=AXBOROT/);
   expect(errors).toEqual([]);
 });

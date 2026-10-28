@@ -13,6 +13,7 @@ import { purchasesApi } from '@/features/purchases/api';
 import { cashApi, dmy } from '@/features/cashbook/api';
 import { th } from '@/features/cashbook/desk';
 import { rdApi } from '@/features/regional-desk/api';
+import { kpiOverviewApi } from '@/features/kpi/api';
 import { qtyText, warehouseApi } from '@/features/warehouse/api';
 import { useWarehouseDialogs } from '@/features/warehouse/use-dialogs';
 import { ROLE_ENTRY, useAuth } from '@/lib/auth-context';
@@ -110,6 +111,12 @@ export default function RoleDashboardPage() {
   const hasRegions = sections.includes('Hududlar');
   const rd = useAsync(() => (hasRegions ? rdApi.overview(new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7)) : Promise.resolve(null)), [hasRegions]);
 
+  const hasKpi = sections.includes('KPI');
+  /** KPI bo'limlari — rol dashbordlaridagi /rollar/kpi/<KALIT> havolalaridan */
+  const kpiKeys = (data?.role.dashboards ?? []).map((d) => /^\/rollar\/kpi\/([A-Z_]+)$/.exec(d.href)?.[1]).filter((k): k is string => Boolean(k));
+  const kpiKey = kpiKeys.join(',');
+  const kpi = useAsync(() => (hasKpi && kpiKey ? Promise.all(kpiKey.split(',').map((k) => kpiOverviewApi.get(k).then((r) => r.data))) : Promise.resolve(null)), [hasKpi, kpiKey]);
+
   const wh = useAsync(() => (hasWarehouse ? warehouseApi.overview(range.from, range.to) : Promise.resolve(null)), [hasWarehouse, range.from, range.to]);
   const postal = useAsync(() => (hasWarehouse ? warehouseApi.postal(range.from, range.to) : Promise.resolve(null)), [hasWarehouse, range.from, range.to]);
   const counts = useAsync(() => (hasWarehouse ? warehouseApi.counts() : Promise.resolve(null)), [hasWarehouse]);
@@ -156,7 +163,8 @@ export default function RoleDashboardPage() {
   if (ro && ro.current.incomeRows === 0) alerts.push({ tone: 'amber', text: `${ro.periodLabel}: hududlar daromadi hali yuklanmagan`, href: '/dashbord/hudud' });
   if (ro && !ro.current.payrollUploaded) alerts.push({ tone: 'amber', text: `${ro.periodLabel}: hudud xodimlari ish haqi vedomosti yuklanmagan`, href: '/dashbord/hudud' });
   if (po && po.requests > 0) alerts.push({ tone: 'blue', text: `${po.requests} ta ochiq ariza bor`, href: '/dashbord/xarid' });
-  if (data.users.length > 0 && data.today.stockDocs + data.today.vehicleRecords + data.today.postal + data.today.purchases === 0)
+  for (const d of kpi.data ?? []) for (const a of d.alerts) alerts.push({ tone: a.tone, text: `${d.department}: ${a.text}`, href: `/rollar/kpi/${d.key}` });
+  if (!hasKpi && data.users.length > 0 && data.today.stockDocs + data.today.vehicleRecords + data.today.postal + data.today.purchases === 0)
     alerts.push({ tone: 'blue', text: 'Bugun hali hech narsa kiritilmagan' });
 
   const activeUsers = data.users.filter((u) => u.isActive).length;
@@ -193,7 +201,28 @@ export default function RoleDashboardPage() {
         <RoleTabs />
         {/* ── Bugun · Xodimlar · Diqqat ── */}
         <div className="grid gap-5 xl:grid-cols-3">
-          {hasRegions ? (
+          {hasKpi ? (
+            <Card className="overflow-hidden bg-gradient-to-br from-violet-600 to-brand-800 text-white">
+              <div className="p-5">
+                <p className="text-sm font-semibold text-white/80">KPI baholash{kpi.data?.[0] ? ` · ${formatPeriod(kpi.data[0].current.period)}` : ''}</p>
+                <p className="mt-1 text-[34px] leading-tight font-bold">
+                  {kpi.data ? `${kpi.data.reduce((t, d) => t + d.current.count, 0)} / ${kpi.data.reduce((t, d) => t + d.employees, 0)}` : '…'}
+                </p>
+                <p className="text-xs text-white/75">xodim shu oy baholangan (barcha bo&apos;limlar)</p>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                  {(kpi.data ?? []).map((d) => (
+                    <Link key={d.key} href={`/rollar/kpi/${d.key}`} className="rounded-xl bg-white/12 px-2 py-2 ring-1 ring-white/20 hover:bg-white/20">
+                      <p className="text-lg font-bold">{d.current.submittedAt ? '✓' : `${d.current.count}/${d.employees}`}</p>
+                      <p className="truncate text-[11px] text-white/80">{d.department}</p>
+                    </Link>
+                  ))}
+                </div>
+                <Link href="/yigma-kpi" className="mt-3 inline-block text-xs font-semibold text-white underline">
+                  Yig&apos;ma KPI →
+                </Link>
+              </div>
+            </Card>
+          ) : hasRegions ? (
             <Card className="overflow-hidden bg-gradient-to-br from-emerald-600 to-brand-800 text-white">
               <div className="p-5">
                 <p className="text-sm font-semibold text-white/80">Hududlar daromadi{ro ? ` · ${ro.periodLabel}` : ''}</p>
@@ -349,6 +378,33 @@ export default function RoleDashboardPage() {
           </Card>
         </div>
 
+        {/* ── KPI bo'limlari ── */}
+        {hasKpi && (
+          <section>
+            <SectionTitle title="KPI bo'limlari" hint="Har bo'lim — o'z rahbari, mezonlari va oyma-oy baholari" href="/yigma-kpi" link="Yig'ma KPI" />
+            {kpi.error ? (
+              <ErrorState message={kpi.error} onRetry={kpi.reload} />
+            ) : (
+              <div className="grid gap-4 md:grid-cols-3">
+                {(kpi.data ?? kpiKeys.map(() => null)).map((d, i) =>
+                  d ? (
+                    <Tile
+                      key={d.key}
+                      label={d.department}
+                      tone={d.current.submittedAt ? 'ok' : d.current.count ? 'warn' : undefined}
+                      value={d.current.average ?? '—'}
+                      hint={`O'rtacha ball · ${d.current.count}/${d.employees} baholangan · ${d.current.submittedAt ? 'yuborilgan' : 'yuborilmagan'} · rahbar: ${d.heads.length ? d.heads.map((h) => h.fullName).join(', ') : "yo'q"}`}
+                      href={`/rollar/kpi/${d.key}`}
+                    />
+                  ) : (
+                    <Tile key={i} label="…" value="…" />
+                  ),
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
         {/* ── Xarid ── */}
         {hasPurchases && (
           <section>
@@ -443,6 +499,7 @@ export default function RoleDashboardPage() {
         )}
 
         {/* ── Harakatlar lentasi ── */}
+        {!hasKpi && (
         <Card className="overflow-hidden">
           <CardHeader title="Oxirgi harakatlar" description="7 kun: kim, qachon, nima kiritdi. Bekor qilinganlari chizilgan." />
           {data.activity.length === 0 ? (
@@ -468,6 +525,7 @@ export default function RoleDashboardPage() {
             </ul>
           )}
         </Card>
+        )}
       </div>
 
       {w.element}

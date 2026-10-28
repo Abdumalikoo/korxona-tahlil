@@ -279,6 +279,7 @@ export const MENU: NavItem[] = [
   },
   { label: 'Nazorat', href: '/nazorat', icon: NavShield, description: 'Oylik chegaralar va buzilishlar' },
   { label: 'Hisobotlar', href: '/hisobotlar', icon: NavReport, description: 'Excel, PowerPoint, PDF va raqamlar tekshiruvi' },
+  { label: "Yig'ma KPI", href: '/yigma-kpi', icon: NavFlag, description: "Bo'lim rahbarlaridan kelgan KPI baholari: xodimlar, oylar, mezonlar; rahbarlarni biriktirish; Excel / PDF" },
   {
     label: 'Chat',
     href: '/chat',
@@ -346,6 +347,7 @@ export interface WorkerNavGroup {
 }
 
 export const WORKER_MENUS: Record<string, WorkerNavGroup[]> = {
+  '/kpi': [{ title: '', order: 0, items: [{ label: 'KPI baholash', href: '/kpi/ish-stoli', hint: "Bo'lim xodimlarini oyma-oy baholash", icon: NavFlag }] }],
   '/ombor': [
     { title: '', order: 0, items: [{ label: 'Ish stoli', href: '/ombor/ish-stoli', hint: 'Bugungi ishlar', icon: NavHome }] },
     {
@@ -616,6 +618,8 @@ export const SIDEBAR: SideEntry[] = [
       { label: 'Sozlamalar', href: '/sozlamalar', match: ['/sozlamalar'], adminOnly: true },
     ],
   },
+  // Eng tagida: bo'lim rahbarlaridan (rollar orqali) kelgan KPI baholari
+  { kind: 'item', item: byHref('/yigma-kpi') },
 ];
 
 /**

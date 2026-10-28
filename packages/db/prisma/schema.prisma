@@ -21,6 +21,9 @@ enum UserRole {
   BUXGALTER
   /// Hududchi — ID kod + PIN bilan kiradi: hududlar daromadi (xizmatlar hisoboti), xarajati va ish haqi
   HUDUDCHI
+  /// Bo'lim rahbari — ID kod + PIN bilan kiradi, faqat o'z bo'limining KPI baholash ish stoli
+  /// (qaysi bo'lim — settings «kpi.heads»)
+  BOLIM_RAHBARI
 }
 
 model User {

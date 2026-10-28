@@ -214,12 +214,19 @@ function withRoles(group: SideGroup, roles: RoleItem[]): SideGroup {
       c.rolesSlot
         ? [
             c,
-            ...roles.map((r) => ({
-              label: r.label,
-              href: `/rollar/${r.slug}`,
-              match: [`/rollar/${r.slug}`, ...r.dashboards.map((d) => d.href)],
-              indent: true,
-            })),
+            ...roles.flatMap((r) => {
+              // Rol ichidagi bo'limlar (KPI: Marksheyder …) — o'z rol sahifasi bilan, alohida band
+              const subs = r.dashboards.filter((d) => d.href.startsWith('/rollar/'));
+              return [
+                {
+                  label: r.label,
+                  href: `/rollar/${r.slug}`,
+                  match: [`/rollar/${r.slug}`, ...r.dashboards.filter((d) => !d.href.startsWith('/rollar/')).map((d) => d.href)],
+                  indent: true,
+                },
+                ...subs.map((d) => ({ label: d.label, href: d.href, match: [d.href], indent: true })),
+              ];
+            }),
           ]
         : [c],
     ),
