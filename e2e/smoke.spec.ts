@@ -141,6 +141,16 @@ test("KPI: baholash stoli (administrator) va Yig'ma KPI", async ({ page }) => {
   for (const d of ['Marksheyder', 'Tax free', 'Axborot xizmati']) await expect(page.getByRole('heading', { name: d }).first()).toBeVisible();
   await expect(page.getByText("Bo'lim rahbarlari").first()).toBeVisible();
   await expect(page.getByText('Sinov rahbar — Marksheyder').or(page.getByText("Hali bo'lim rahbari yo'q")).first()).toBeVisible();
+  // KPI demosini o'chirish: tasdiq so'zisiz tugma ishlamaydi (hech narsa o'chirilmaydi — «Bekor»)
+  const demo = page.getByRole('button', { name: "KPI demosini o'chirish" });
+  await expect(demo).toBeVisible();
+  if (await demo.isEnabled()) {
+    await demo.click();
+    await expect(page.getByRole('button', { name: "Hammasini o'chirish" })).toBeDisabled();
+    await page.getByRole('textbox', { name: "Tasdiqlash so'zi" }).fill('ha');
+    await expect(page.getByRole('button', { name: "Hammasini o'chirish" })).toBeDisabled();
+    await page.getByRole('button', { name: 'Bekor', exact: true }).click();
+  }
   expect(errors).toEqual([]);
 });
 
@@ -160,5 +170,17 @@ test("Rollar › KPI: bo'lim dashbordi va rol sahifasi", async ({ page }) => {
   // «Ish stoliga kirish» — rahbar ko'rinishida shu bo'lim stoli
   await page.getByRole('button', { name: /Ish stoliga kirish/ }).locator('visible=true').first().click();
   await expect(page).toHaveURL(/\/kpi\/ish-stoli\?b=AXBOROT/);
+  expect(errors).toEqual([]);
+});
+
+test("Daromadlar › Hisobga olinmaydigan tushumlar: kiritish oynasi (saqlanmaydi)", async ({ page }) => {
+  const errors = watch(page);
+  await open(page, '/daromadlar/hisobga-olinmaydi');
+  await expect(page.getByText(/daromad emas/).first()).toBeVisible();
+  await expect(page.getByText('Oyma-oy').locator('visible=true').first()).toBeVisible();
+  await page.getByRole('button', { name: '+ Tushum kiritish' }).click();
+  await expect(page.getByRole('combobox', { name: /Turi/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'Ustav fondini shakllantirish' })).toBeAttached();
+  await page.getByRole('button', { name: 'Bekor' }).click();
   expect(errors).toEqual([]);
 });

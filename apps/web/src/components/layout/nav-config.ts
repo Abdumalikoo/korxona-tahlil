@@ -99,6 +99,7 @@ export const MENU: NavItem[] = [
       { label: 'Markaz tushumi', href: '/daromadlar/markaz', description: "Kunlik tushum va qoldiq fayli — Markaz oylik daromadi" },
       { label: 'Hududlar tushumi', href: '/daromadlar/hududlar', description: 'Hududlardan Excel orqali kelgan tushum' },
       { label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', description: "Qo'mitadan kelgan pullar (daromad): bo'limlar bo'yicha, oyma-oy — bankdan yoki qo'lda" },
+      { label: 'Hisobga olinmaydi', href: '/daromadlar/hisobga-olinmaydi', description: "Depozitga yo'naltirilgan mablag'lar va ustav fondi: ko'rinadi, lekin daromadga qo'shilmaydi" },
       { label: 'Natijalar', href: '/daromadlar/natijalar', description: 'Oylik natijalar' },
       { label: 'Bank ko‘chirmasi', href: '/daromadlar/bank-kochirma', description: "Bankka tushgan kirimlar: o'xshashlar oyma-oy va o'sib boruvchi (daromadga faqat tanlab yo'naltiriladi)" },
       { label: 'Schyot-fakturalar', href: '/daromadlar/fakturalar', description: "Biz yozgan (chiquvchi) schyot-fakturalar: mijoz va xizmat bo'yicha oyma-oy nazorat" },
@@ -533,7 +534,10 @@ const unitChildren = (base: '/daromadlar' | '/xarajatlar'): SideChild[] => [
   // Xarajatlarda — 6 bo'lim tagida: Markazning har bir bo'limi alohida (xarajat moddalari va bo'lim siyosati)
   ...(base === '/xarajatlar'
     ? [{ label: "Foyda keltirmaydigan bo'limlar", href: '/xarajatlar/bolimlar', match: ['/xarajatlar/bolimlar'], description: "Markaz bo'limlari: har biriga qilingan xarajatlar moddalar bo'yicha va bo'lim xarajatlar siyosati" }]
-    : [{ label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', match: ['/daromadlar/qomita'], description: "Qo'mitadan kelgan pullar (daromad)" }]),
+    : [
+        { label: "Qo'mita mablag'lari", href: '/daromadlar/qomita', match: ['/daromadlar/qomita'], description: "Qo'mitadan kelgan pullar (daromad)" },
+        { label: 'Hisobga olinmaydi', href: '/daromadlar/hisobga-olinmaydi', match: ['/daromadlar/hisobga-olinmaydi'], description: "Depozit va ustav fondi — daromadga qo'shilmaydi" },
+      ]),
 ];
 
 export interface SideGroup {

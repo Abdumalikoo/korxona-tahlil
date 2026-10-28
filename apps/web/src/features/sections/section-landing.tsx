@@ -10,6 +10,8 @@ import { usePeriod } from '@/lib/period';
 import { currentPeriod, formatCompact, formatPercent, formatPeriod, formatPeriodShort, formatTiyin, shiftPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
+import { excludedApi } from '@/features/excluded-incomes/api';
+import Link from 'next/link';
 
 import { PageHeader } from '@/components/layout/page-header';
 import { CountIcon, SumIcon, SummaryCard, type SummaryAccent } from '@/components/shared/summary-card';
@@ -55,6 +57,8 @@ export function SectionLanding({ kind }: { kind: SectionKind }) {
   const { isAdmin } = useAuth();
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
   const trend = useAsync(() => sectionsApi.trend(kind, shiftPeriod(period, -11), period), [kind, period]);
+  /** Daromadlarda: hisobga olinmaydigan tushumlar (depozit, ustav fondi) — faqat ko'rsatish, jamiga qo'shilmaydi */
+  const excluded = useAsync(() => (kind === 'income' ? excludedApi.list(period, period).then((r) => r.data) : Promise.resolve(null)), [kind, period]);
 
   const data = overview.data?.data;
   const isExpense = kind === 'expense';
@@ -187,6 +191,24 @@ export function SectionLanding({ kind }: { kind: SectionKind }) {
                 />
               ))}
             </div>
+
+            {/* Hisobga olinmaydi: depozit, ustav fondi — jami daromadga QO'SHILMAGAN */}
+            {excluded.data && excluded.data.totalTiyin !== '0' && (
+              <Link
+                href={`/daromadlar/hisobga-olinmaydi${query}`}
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-(--radius-card) border border-dashed border-(--color-line-strong) bg-(--color-surface-muted) px-4 py-3 text-sm text-(--color-text-muted) hover:border-brand-300"
+              >
+                <span className="font-semibold text-heading">Hisobga olinmaydi</span>
+                {excluded.data.kinds
+                  .filter((k) => k.totalTiyin !== '0')
+                  .map((k) => (
+                    <span key={k.code}>
+                      {k.label}: <b className="money text-heading">{som(k.totalTiyin)}</b>
+                    </span>
+                  ))}
+                <span className="ml-auto text-xs">jami {word}ga qo&apos;shilmagan →</span>
+              </Link>
+            )}
 
             {/* Ulush va dinamika */}
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">

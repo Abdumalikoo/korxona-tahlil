@@ -66,6 +66,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ExpensePolicyModule } from './modules/expense-policy/expense-policy.module';
 import { QomitaModule } from './modules/qomita/qomita.module';
 import { KpiModule } from './modules/kpi/kpi.module';
+import { ExcludedIncomesModule } from './modules/excluded-incomes/excluded-incomes.module';
 import { BulkDeleteModule } from './modules/bulk-delete/bulk-delete.module';
 import { RateLimitGuard } from './common/security/rate-limit';
 
@@ -130,6 +131,7 @@ import { RateLimitGuard } from './common/security/rate-limit';
     ExpensePolicyModule,
     QomitaModule,
     KpiModule,
+    ExcludedIncomesModule,
     BulkDeleteModule,
     IntegrityModule,
     BackupModule,
