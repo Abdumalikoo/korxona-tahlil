@@ -5,7 +5,8 @@ import { runExclusive } from '../../common/locks';
 import { monthLabel } from '../../common/period';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { counterpartyKey, kindOf, purposeKey, type BankDir, type BankKind } from './bank-analysis.rules';
+import { counterpartyKey, kindMatch, kindOf, purposeKey, type BankDir, type BankKind } from './bank-analysis.rules';
+import { INVOICE_STORE_KEY, type KindVerdict } from './kind-engine';
 import { BankAnalysisService, big, cap, type BankAnRow } from './bank-analysis.service';
 import { detectOurInn, ikpuCode, ikpuName, INVOICE_STATUSES, invoiceDate, itemId, parseInvoiceRows, serviceMonth } from './invoice-analysis.parse';
 
@@ -24,7 +25,7 @@ import { detectOurInn, ikpuCode, ikpuName, INVOICE_STATUSES, invoiceDate, itemId
 // Saqlash: settings («invoice.analysis.store», «invoice.analysis.org») — migratsiya kerak emas.
 // ═══════════════════════════════════════════════════════════
 
-export const INVOICE_KEY = 'invoice.analysis.store';
+export const INVOICE_KEY = INVOICE_STORE_KEY;
 const ORG_KEY = 'invoice.analysis.org';
 const ACCOUNT = 'faktura';
 const ACCOUNT_LABEL = 'Schyot-fakturalar';
@@ -89,6 +90,22 @@ export function invoiceKind(dir: BankDir, r: Pick<InvoiceRow, 'ikpu' | 'purpose'
   return k;
 }
 
+/** Faktura turi — sababi bilan (IKPU kodi yoki izohdagi so'z); aniqlanmasa — NONE */
+export function invoiceVerdict(dir: BankDir, r: Pick<InvoiceRow, 'ikpu' | 'purpose'>, counterparty: string): KindVerdict {
+  const kind = invoiceKind(dir, r, counterparty);
+  if (kind === 'BOSHQA') return { kind, source: 'NONE', reason: 'IKPU va izohdan aniqlanmadi' };
+  const code = ikpuCode(r.ikpu);
+  if (code) return { kind, source: 'IKPU', reason: `IKPU ${code}${ikpuName(r.ikpu) ? ` — ${ikpuName(r.ikpu).slice(0, 80)}` : ''}` };
+  const m = kindMatch(dir, r.purpose, counterparty);
+  return m.kind === kind ? m : { kind, source: 'KEYWORD', reason: 'Izoh bo‘yicha' };
+}
+
+/** O'xshashlik kaliti: yo'nalish + kontragent + IKPU xizmat kodi (bo'lmasa — izoh mazmuni) */
+export function invoiceGroupKey(r: Pick<BankAnRow, 'dir' | 'inn' | 'accountName' | 'purpose'> & { ikpu?: string }): string {
+  const code = ikpuCode(r.ikpu ?? '');
+  return `${r.dir}|${counterpartyKey(r.inn, r.accountName)}|${code ? `ikpu:${code}` : purposeKey(r.purpose)}`;
+}
+
 @Injectable()
 export class InvoiceAnalysisService extends BankAnalysisService {
   protected override readonly key: string = INVOICE_KEY;
@@ -105,12 +122,11 @@ export class InvoiceAnalysisService extends BankAnalysisService {
 
   /** O'xshashlik: yo'nalish + kontragent + IKPU xizmat kodi (bo'lmasa — izoh mazmuni) */
   protected override keyOf(r: BankAnRow): string {
-    const code = ikpuCode((r as InvoiceRow).ikpu ?? '');
-    return `${r.dir}|${counterpartyKey(r.inn, r.accountName)}|${code ? `ikpu:${code}` : purposeKey(r.purpose)}`;
+    return invoiceGroupKey(r as InvoiceRow);
   }
 
-  protected override kindFor(dir: BankDir, r: BankAnRow, counterparty: string): BankKind {
-    return invoiceKind(dir, { ikpu: (r as InvoiceRow).ikpu ?? '', purpose: r.purpose }, counterparty);
+  protected override baseVerdict(r: BankAnRow, counterparty: string): KindVerdict {
+    return invoiceVerdict(r.dir, { ikpu: (r as InvoiceRow).ikpu ?? '', purpose: r.purpose }, counterparty);
   }
 
   private async org(): Promise<{ inn: string; name: string } | null> {
@@ -124,7 +140,7 @@ export class InvoiceAnalysisService extends BankAnalysisService {
   override async analyze(file: Express.Multer.File | undefined) {
     if (!file?.buffer) throw new BadRequestException('Fayl yuklanmadi');
     const { rows: sheet, truncated } = await readSheetRows(file.buffer, { maxRows: MAX_ROWS });
-    const { invoices, invalid } = parseInvoiceRows(sheet);
+    const { invoices, invalid, checks } = parseInvoiceRows(sheet);
     if (!invoices.length) throw new BadRequestException('Faylda schyot-faktura topilmadi');
     const saved = await this.org();
     const detected = detectOurInn(invoices);
@@ -204,6 +220,9 @@ export class InvoiceAnalysisService extends BankAnalysisService {
       rows,
       invalid: invalid.map((x) => ({ rowIndex: x.row, reason: x.reason })).slice(0, 50),
       invalidCount: invalid.length,
+      /** O'z-o'zini tekshirish: faktura jami va qator summalari (bank ko'chirmasidagi «checks» dan boshqa shakl) */
+      invoiceChecks: checks,
+      checks: null,
       groups: this.groups(rows.map((r) => ({ ...r, account: '' })), periods, new Map(), true, store.groups),
     };
   }

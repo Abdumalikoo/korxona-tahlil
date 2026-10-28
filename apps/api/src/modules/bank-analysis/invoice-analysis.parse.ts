@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import type { StreamRow } from '../../common/files/xlsx-stream';
+import { amountNumber } from '../../common/money';
 
 // ═══════════════════════════════════════════════════════════
 // Schyot-faktura reyestri (Didox / soliq.uz «Счет-фактура» eksporti) o'qish.
@@ -13,7 +14,7 @@ import type { StreamRow } from '../../common/files/xlsx-stream';
 /** Tahlilga olinadigan holatlar (qolganlari — «Отказ», «Отменен», «Не настоящий» … — olinmaydi) */
 export const INVOICE_STATUSES = ['Подписан', 'Ожидает'] as const;
 
-type Field =
+export type Field =
   | 'docNo0'
   | 'id'
   | 'docKind'
@@ -45,36 +46,57 @@ const k = (s: string) =>
   String(s ?? '')
     .toLowerCase()
     .replace(/ё/g, 'е')
-    .replace(/[^a-zа-я0-9]+/g, ' ')
+    .replace(/[^a-zа-яўқғҳ0-9]+/g, ' ')
     .trim();
 
-/** Sarlavha → maydon (tartib muhim: aniqrog'i yuqorida) */
+const has = (h: string, ...parts: string[]) => parts.some((p) => h.includes(p));
+// O'zbekcha sarlavha qismlari (lotin va kirill; apostrof — bo'shliq: «o'lchov» → «o lchov»)
+const SELLER = ['sotuvchi', 'сотувчи', 'yetkazib beruvchi', 'етказиб берувчи'];
+const BUYER = ['xaridor', 'харидор'];
+const INN = ['stir', 'стир', 'inn', 'инн'];
+const NAME = ['nomi', 'номи'];
+const BRANCH = ['filial', 'филиал'];
+
+/** Sarlavha → maydon (tartib muhim: aniqrog'i yuqorida). Rus va o'zbek (lotin / kirill) nomlari */
 const HEADERS: { field: Field; test: (h: string) => boolean }[] = [
   { field: 'id', test: (h) => h === 'id' || h === 'идентификатор' },
   { field: 'docKind', test: (h) => h.startsWith('вид документ') },
   { field: 'docType', test: (h) => h.startsWith('тип документ') },
-  { field: 'status', test: (h) => h.startsWith('статус') },
-  { field: 'number', test: (h) => h.startsWith('номер документ') },
-  { field: 'date', test: (h) => h.startsWith('дата документ') },
-  { field: 'contract', test: (h) => h.startsWith('договор номер') || h === 'номер договора' },
-  { field: 'contractDate', test: (h) => h.startsWith('договор дата') || h === 'дата договора' },
-  { field: 'sellerInn', test: (h) => h.startsWith('продавец инн') || h.startsWith('поставщик инн') },
-  { field: 'sellerName', test: (h) => h.startsWith('продавец наименование') || h.startsWith('поставщик наименование') },
-  { field: 'sellerBranch', test: (h) => h.startsWith('продавец название филиала') },
-  { field: 'buyerInn', test: (h) => h.startsWith('покупатель инн') },
-  { field: 'buyerName', test: (h) => h.startsWith('покупатель наименование') },
-  { field: 'buyerBranch', test: (h) => h.startsWith('покупатель название филиала') },
-  { field: 'note', test: (h) => h === 'примечание' },
-  { field: 'itemName', test: (h) => h.startsWith('примечание к товару') || h.startsWith('наименование товара') },
-  { field: 'ikpu', test: (h) => h.startsWith('идентификационный код') || h.startsWith('икпу') },
-  { field: 'unit', test: (h) => h.startsWith('единица измерения') },
-  { field: 'qty', test: (h) => h === 'количество' },
-  { field: 'price', test: (h) => h === 'цена' },
-  { field: 'total', test: (h) => h.startsWith('стоимость поставки с учетом ндс') || h.startsWith('стоимость с ндс') },
-  { field: 'cost', test: (h) => h === 'стоимость поставки' },
-  { field: 'vatRate', test: (h) => h === 'ндс ставка' },
-  { field: 'vat', test: (h) => h === 'ндс сумма' },
+  { field: 'status', test: (h) => h.startsWith('статус') || h.startsWith('holat') || h.startsWith('ҳолат') || h.startsWith('холат') },
+  { field: 'number', test: (h) => h.startsWith('номер документ') || h.startsWith('hujjat raqami') || h.startsWith('ҳужжат рақами') },
+  { field: 'date', test: (h) => h.startsWith('дата документ') || h.startsWith('hujjat sanasi') || h.startsWith('ҳужжат санаси') },
+  { field: 'contract', test: (h) => h.startsWith('договор номер') || h === 'номер договора' || h.startsWith('shartnoma raqami') || h.startsWith('шартнома рақами') },
+  { field: 'contractDate', test: (h) => h.startsWith('договор дата') || h === 'дата договора' || h.startsWith('shartnoma sanasi') || h.startsWith('шартнома санаси') },
+  { field: 'sellerInn', test: (h) => h.startsWith('продавец инн') || h.startsWith('поставщик инн') || (has(h, ...SELLER) && has(h, ...INN)) },
+  { field: 'sellerName', test: (h) => h.startsWith('продавец наименование') || h.startsWith('поставщик наименование') || (has(h, ...SELLER) && has(h, ...NAME) && !has(h, ...BRANCH)) },
+  { field: 'sellerBranch', test: (h) => h.startsWith('продавец название филиала') || (has(h, ...SELLER) && has(h, ...BRANCH)) },
+  { field: 'buyerInn', test: (h) => h.startsWith('покупатель инн') || (has(h, ...BUYER) && has(h, ...INN)) },
+  { field: 'buyerName', test: (h) => h.startsWith('покупатель наименование') || (has(h, ...BUYER) && has(h, ...NAME) && !has(h, ...BRANCH)) },
+  { field: 'buyerBranch', test: (h) => h.startsWith('покупатель название филиала') || (has(h, ...BUYER) && has(h, ...BRANCH)) },
+  { field: 'note', test: (h) => h === 'примечание' || h === 'izoh' || h === 'изоҳ' },
+  {
+    field: 'itemName',
+    test: (h) => h.startsWith('примечание к товару') || h.startsWith('наименование товара') || (has(h, 'tovar', 'товар', 'mahsulot', 'маҳсулот') && has(h, ...NAME, 'izoh', 'изоҳ')),
+  },
+  { field: 'ikpu', test: (h) => h.startsWith('идентификационный код') || h.startsWith('икпу') || h.startsWith('mxik') || h.startsWith('мхик') || has(h, 'identifikatsiya kodi', 'идентификация коди') },
+  { field: 'unit', test: (h) => h.startsWith('единица измерения') || h.startsWith('o lchov birligi') || h.startsWith('ўлчов бирлиги') },
+  { field: 'qty', test: (h) => h === 'количество' || ['miqdori', 'miqdor', 'миқдори', 'миқдор'].includes(h) },
+  { field: 'price', test: (h) => h === 'цена' || ['narxi', 'narx', 'нархи', 'нарх'].includes(h) },
+  { field: 'total', test: (h) => h.startsWith('стоимость поставки с учетом ндс') || h.startsWith('стоимость с ндс') || (has(h, 'qqs bilan', 'ққс билан') && has(h, 'qiymat', 'қиймат')) },
+  { field: 'cost', test: (h) => h === 'стоимость поставки' || h === 'yetkazib berish qiymati' || h === 'етказиб бериш қиймати' },
+  { field: 'vatRate', test: (h) => h === 'ндс ставка' || (has(h, 'qqs', 'ққс') && has(h, 'stavka', 'ставка')) },
+  { field: 'vat', test: (h) => h === 'ндс сумма' || (has(h, 'qqs', 'ққс') && has(h, 'summa', 'сумма')) },
 ];
+
+/** O'zbekcha holat → ruscha (saqlash va tanlash ruscha nom bilan) */
+export function invoiceStatus(raw: string): string {
+  const s = raw.toLowerCase();
+  if (/^(imzolan|имзолан)/.test(s)) return 'Подписан';
+  if (/^(kutil|кутил|kutayotgan)/.test(s)) return 'Ожидает';
+  if (/^(rad\s*etil|рад\s*этил)/.test(s)) return 'Отказ';
+  if (/^(bekor\s*qilin|бекор\s*қилин)/.test(s)) return 'Отменен';
+  return raw;
+}
 
 export interface InvoiceItem {
   no: string;
@@ -112,12 +134,33 @@ export interface Invoice {
 
 const str = (v: unknown) => (v === null || v === undefined ? '' : String(v).replace(/\s+/g, ' ').trim());
 
-/** Summa (so'm, kasr bilan) → tiyin */
-export function tiyin(v: unknown): string {
+/** Summa (so'm, kasr bilan; «1,234,567.89» kabi xonalarga ajratilgan ham) → tiyin; son emas — null */
+export function tiyinOrNull(v: unknown): string | null {
   if (v === null || v === undefined || v === '') return '0';
-  const n = typeof v === 'number' ? v : Number(String(v).replace(/[\s ]/g, '').replace(',', '.'));
-  if (!Number.isFinite(n)) return '0';
+  const n = typeof v === 'number' ? v : amountNumber(String(v));
+  if (n === null || !Number.isFinite(n)) return null;
   return String(Math.round(n * 100));
+}
+
+/** Summa → tiyin; son emas — 0 */
+export function tiyin(v: unknown): string {
+  return tiyinOrNull(v) ?? '0';
+}
+
+/** Fayldagi summalar bilan o'z-o'zini tekshirish (faktura jami va qator summalari) */
+export interface InvoiceChecks {
+  /** Hamma tekshiruv mos va xato qator yo'q */
+  ok: boolean;
+  invoices: number;
+  /** «Общ.» (jami) qatori bor fakturalar — tekshirilgani */
+  totalsChecked: number;
+  /** Tovar qatorlari yig'indisi ≠ jami (faktura raqami, sanasi, fayldagi qator) */
+  totalMismatch: { number: string; date: string; row: number; fileTiyin: string; readTiyin: string }[];
+  totalMismatchCount: number;
+  /** Qator: qiymat + QQS ≠ QQS bilan qiymat */
+  itemMismatch: { number: string; row: number; costTiyin: string; vatTiyin: string; totalTiyin: string }[];
+  itemMismatchCount: number;
+  columns: { found: Field[]; missing: Field[] };
 }
 
 /** «30-09-2026», «30.09.2026», «2026-09-30» yoki Excel sana raqami → YYYY-MM-DD */
@@ -161,11 +204,14 @@ export function parseInvoiceRows(rows: StreamRow[]) {
       if (itemNo !== undefined && numberCols.length > 1) cols.set('itemNo', itemNo);
     }
   }
-  if (hi < 0) throw new BadRequestException("Schyot-faktura reyestri topilmadi: «ID», «СТАТУС», «Стоимость поставки с учётом НДС» ustunlari bo'lgan varaq kerak (Didox / soliq.uz eksporti)");
+  if (hi < 0) throw new BadRequestException("Schyot-faktura reyestri topilmadi: «ID», «СТАТУС» (yoki «Holati»), «Стоимость поставки с учётом НДС» (yoki «QQS bilan yetkazib berish qiymati») ustunlari bo'lgan varaq kerak (Didox / soliq.uz eksporti)");
   const get = (r: StreamRow, f: Field) => (cols.has(f) ? r.cells.get(cols.get(f)!) : undefined);
 
   const invoices: Invoice[] = [];
   const invalid: { row: number; reason: string }[] = [];
+  // Tekshiruv uchun: faktura birinchi qatori va qator summalari mos kelmagani
+  const firstRow = new Map<Invoice, number>();
+  const itemMismatch: InvoiceChecks['itemMismatch'] = [];
   let cur: Invoice | null = null;
   for (let i = hi + 1; i < rows.length; i++) {
     const r = rows[i]!;
@@ -181,7 +227,7 @@ export function parseInvoiceRows(rows: StreamRow[]) {
       const prev: Invoice | null = cur && cur.id === id ? cur : null;
       const next: Invoice = prev ?? {
         id: id.slice(0, 64),
-        status: str(get(r, 'status')).slice(0, 40),
+        status: invoiceStatus(str(get(r, 'status'))).slice(0, 40),
         docKind: str(get(r, 'docKind')).slice(0, 60),
         docType: str(get(r, 'docType')).slice(0, 60),
         number: str(get(r, 'number')).slice(0, 60),
@@ -199,18 +245,30 @@ export function parseInvoiceRows(rows: StreamRow[]) {
         totalTiyin: null,
       };
       cur = next;
-      if (!prev) invoices.push(next);
+      if (!prev) {
+        invoices.push(next);
+        firstRow.set(next, r.row);
+      }
     }
     if (!cur) continue;
     const no = str(get(r, 'itemNo'));
-    const total = tiyin(get(r, 'total'));
-    if (/^общ/i.test(no) || (!no && !str(get(r, 'itemName')) && !str(get(r, 'ikpu')) && total !== '0')) {
+    const total = tiyinOrNull(get(r, 'total'));
+    if (total === null) {
+      invalid.push({ row: r.row, reason: `Summa noto'g'ri: «${str(get(r, 'total')).slice(0, 20)}»` });
+      continue;
+    }
+    if (/^(общ|jami|жами)/i.test(no) || (!no && !str(get(r, 'itemName')) && !str(get(r, 'ikpu')) && total !== '0')) {
       cur.totalTiyin = total;
       continue;
     }
     if (!str(get(r, 'itemName')) && !str(get(r, 'ikpu')) && total === '0') continue;
     const qty = Number(get(r, 'qty'));
     const rate = Number(get(r, 'vatRate'));
+    const cost = tiyin(get(r, 'cost'));
+    const vat = tiyin(get(r, 'vat'));
+    // Qiymat + QQS = QQS bilan qiymat (1 tiyin yaxlitlash farqi — mos)
+    const diff = BigInt(cost) + BigInt(vat) - BigInt(total);
+    if (cols.has('cost') && cost !== '0' && (diff > 1n || diff < -1n)) itemMismatch.push({ number: cur.number, row: r.row, costTiyin: cost, vatTiyin: vat, totalTiyin: total });
     cur.items.push({
       no: no.slice(0, 10) || String(cur.items.length + 1),
       name: str(get(r, 'itemName')).slice(0, 500),
@@ -218,17 +276,37 @@ export function parseInvoiceRows(rows: StreamRow[]) {
       unit: str(get(r, 'unit')).slice(0, 60),
       qty: Number.isFinite(qty) ? qty : null,
       priceTiyin: tiyin(get(r, 'price')),
-      costTiyin: tiyin(get(r, 'cost')),
+      costTiyin: cost,
       vatRate: Number.isFinite(rate) ? rate : null,
-      vatTiyin: tiyin(get(r, 'vat')),
+      vatTiyin: vat,
       totalTiyin: total,
     });
   }
+  // Faktura jami (fayldagi «Общ.») = tovar qatorlari yig'indisi
+  const totalMismatch: InvoiceChecks['totalMismatch'] = [];
+  let totalsChecked = 0;
+  for (const inv of invoices) {
+    if (inv.totalTiyin === null || !inv.items.length) continue;
+    totalsChecked += 1;
+    const read = inv.items.reduce((a, it) => a + BigInt(it.totalTiyin), 0n);
+    if (read !== BigInt(inv.totalTiyin)) totalMismatch.push({ number: inv.number, date: inv.date, row: firstRow.get(inv) ?? 0, fileTiyin: inv.totalTiyin, readTiyin: read.toString() });
+  }
+  const fields = HEADERS.map((h) => h.field);
+  const checks: InvoiceChecks = {
+    ok: invalid.length === 0 && totalMismatch.length === 0 && itemMismatch.length === 0,
+    invoices: invoices.length,
+    totalsChecked,
+    totalMismatch: totalMismatch.slice(0, 10),
+    totalMismatchCount: totalMismatch.length,
+    itemMismatch: itemMismatch.slice(0, 10),
+    itemMismatchCount: itemMismatch.length,
+    columns: { found: fields.filter((f) => cols.has(f)), missing: fields.filter((f) => !cols.has(f)) },
+  };
   // Qatorlari yo'q (faqat jami) fakturalar — bitta qator
   for (const inv of invoices) {
     if (!inv.items.length && inv.totalTiyin && inv.totalTiyin !== '0') inv.items.push({ no: '1', name: inv.note || 'Faktura jami (qatorlarsiz)', ikpu: '', unit: '', qty: null, priceTiyin: '0', costTiyin: '0', vatRate: null, vatTiyin: '0', totalTiyin: inv.totalTiyin });
   }
-  return { invoices, invalid };
+  return { invoices, invalid, checks };
 }
 
 /** Bizning INN: fakturalarda eng ko'p uchragan (xaridor yoki sotuvchi sifatida) */

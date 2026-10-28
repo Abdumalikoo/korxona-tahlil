@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { monthLabel, monthsBetween } from '../../common/period';
 import { PrismaService } from '../prisma/prisma.service';
-import { BANK_KIND_LABEL, counterpartyKey, kindOf, type BankDir, type BankKind } from './bank-analysis.rules';
+import { BANK_KIND_LABEL, counterpartyKey, groupKey, kindMatch, type BankDir, type BankKind } from './bank-analysis.rules';
 import { BANK_ANALYSIS_KEY, big, readStore, type BankAnRow, type Store } from './bank-analysis.service';
-import { INVOICE_KEY, invoiceKind, type InvoiceRow } from './invoice-analysis.service';
+import { INVOICE_KEY, invoiceGroupKey, invoiceVerdict, type InvoiceRow } from './invoice-analysis.service';
+import { counterpartyMemory, KIND_RULES_KEY, prepareRules, readKindRules, rowVerdict, type KindContext } from './kind-engine';
 import { ikpuName } from './invoice-analysis.parse';
 
 // ═══════════════════════════════════════════════════════════
@@ -31,9 +32,13 @@ const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 export class CounterpartyService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async stores(): Promise<{ bank: Store; inv: Store }> {
-    const rows = await this.prisma.setting.findMany({ where: { key: { in: [BANK_ANALYSIS_KEY, INVOICE_KEY] } }, select: { key: true, value: true } });
-    return { bank: readStore(rows.find((r) => r.key === BANK_ANALYSIS_KEY)?.value ?? null), inv: readStore(rows.find((r) => r.key === INVOICE_KEY)?.value ?? null) };
+  private async stores(): Promise<{ bank: Store; inv: Store; ctx: KindContext }> {
+    const rows = await this.prisma.setting.findMany({ where: { key: { in: [BANK_ANALYSIS_KEY, INVOICE_KEY, KIND_RULES_KEY] } }, select: { key: true, value: true } });
+    const bank = readStore(rows.find((r) => r.key === BANK_ANALYSIS_KEY)?.value ?? null);
+    const inv = readStore(rows.find((r) => r.key === INVOICE_KEY)?.value ?? null);
+    // Tur — bank va faktura tahlilidagi bilan bir xil yadro: siz bergan tur, qoidalar, kontragent xotirasi
+    const ctx = { rules: prepareRules(readKindRules(rows.find((r) => r.key === KIND_RULES_KEY)?.value)), memory: counterpartyMemory([bank.groups, inv.groups]) };
+    return { bank, inv, ctx };
   }
 
   private range(from?: string, to?: string): string[] | null {
@@ -46,7 +51,7 @@ export class CounterpartyService {
 
   /** Ikkala manbadan tashkilotlar (9 xonali INN) bo'yicha faktlar */
   private async facts(months: string[] | null): Promise<Map<string, Fact[]>> {
-    const { bank, inv } = await this.stores();
+    const { bank, inv, ctx } = await this.stores();
     const want = months ? new Set(months) : null;
     const out = new Map<string, Fact[]>();
     const add = (src: Src, store: Store) => {
@@ -57,7 +62,12 @@ export class CounterpartyService {
             if (inn.length !== 9) continue;
             const period = src === 'INVOICE' ? (r as InvoiceRow).period || r.docDate.slice(0, 7) : r.docDate.slice(0, 7);
             if (want && !want.has(period)) continue;
-            const kind = src === 'INVOICE' ? invoiceKind(r.dir, { ikpu: (r as InvoiceRow).ikpu ?? '', purpose: r.purpose }, r.accountName) : kindOf(r.dir, r.purpose, r.accountName);
+            const ir = r as InvoiceRow;
+            const manual = store.groups[src === 'INVOICE' ? invoiceGroupKey(ir) : groupKey(r.dir, r.inn, r.accountName, r.purpose)]?.kind;
+            const kind: BankKind =
+              manual && manual in BANK_KIND_LABEL
+                ? manual
+                : rowVerdict(r, ctx, () => (src === 'INVOICE' ? invoiceVerdict(r.dir, { ikpu: ir.ikpu ?? '', purpose: r.purpose }, r.accountName) : kindMatch(r.dir, r.purpose, r.accountName))).kind;
             const l = out.get(inn) ?? [];
             l.push({ src, row: r, account: a.key, period, kind, group: null });
             out.set(inn, l);

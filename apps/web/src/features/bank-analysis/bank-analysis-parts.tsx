@@ -15,14 +15,15 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
 import { useSource } from './source';
-import { KIND_OPTIONS, PATTERN_LABEL, type BankKind, type BankAnalysis, type BankCheck, type BankDir, type BankGroup, type BankGroupRow, type BankItem, type BankPostBatch, type BankRow, type BankView } from './api';
+import { KIND_OPTIONS, KIND_SOURCE_LABEL, PATTERN_LABEL, type BankKind, type BankAnalysis, type BankCheck, type BankDir, type BankGroup, type BankGroupRow, type BankItem, type BankPostBatch, type BankRow, type BankView, type RouteSuggestion } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Bank ko'chirmasi — qismlar:
 //  • PreviewGroups — saqlashdan oldin: har guruhni ochib ko'rish (oyma-oy va har to'lov izohi bilan);
 //  • GroupDrawer — saqlangan guruh: oyma-oy, har to'lov (bankdagi izoh va sizning izohingiz), tanlab yo'naltirish
 //    (chiqim — xarajat, kirim — daromad) va bekor qilish;
-//  • PostsHistory — yo'naltirishlar tarixi.
+//  • PostsHistory — yo'naltirishlar tarixi;
+//  • KindBadge — guruh turi (qayerdan va nega), KindRulesCard — «izohda X bo'lsa → Y» qoidalari.
 // ═══════════════════════════════════════════════════════════
 
 type ToastFn = (t: { message: string; tone: 'success' | 'error' } | null) => void;
@@ -67,7 +68,7 @@ export function PreviewGroups({ analysis }: { analysis: BankAnalysis }) {
               <button type="button" onClick={() => setOpenKey(isOpen ? null : g.key)} className={cn('flex w-full flex-wrap items-center gap-2 px-5 py-2 text-left hover:bg-(--color-surface-muted)', isOpen && 'bg-brand-50/60')} aria-expanded={isOpen}>
                 <span className="text-(--color-text-faint)">{isOpen ? '▾' : '▸'}</span>
                 <Badge tone={g.dir === 'OUT' ? 'expense' : 'income'}>{DIR_LABEL[g.dir]}</Badge>
-                <Badge tone="brand">{g.kindLabel}</Badge>
+                <KindBadge g={g} />
                 <span className="min-w-0 flex-1 truncate font-medium text-heading" title={`${g.counterparty}\n${g.samples.join('\n')}`}>
                   {g.name ?? g.counterparty} <span className="font-normal text-(--color-text-muted)">· {g.name ? `${g.counterparty} · ` : ''}{g.samples[0]}</span>
                 </span>
@@ -264,7 +265,7 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
       title={group ? `${group.name ?? group.counterparty}${focus ? ` · ${formatPeriod(focus)}` : ''}` : ''}
       description={group ? `${group.name ? `${group.counterparty} · ` : ''}${DIR_LABEL[group.dir]} · ${group.kindLabel} · ${PATTERN_LABEL[group.pattern].toLowerCase()} · ${group.count} ta · ${formatTiyin(group.totalTiyin)} so'm · ${formatDate(group.firstDate)} – ${formatDate(group.lastDate)}` : undefined}
       width="xl"
-      footer={group && isAdmin ? <RoutePanel group={group} items={picked.map((r) => ({ account: r.account, rowId: r.id }))} totalTiyin={pickedTotal.toString()} beforeRoute={() => saveNotes(true)} onToast={onToast} onDone={() => { setSel(null); reload(); }} /> : undefined}
+      footer={group && isAdmin ? <RoutePanel key={data.data ? 'ready' : 'wait'} suggestion={data.data?.suggestion ?? null} group={group} items={picked.map((r) => ({ account: r.account, rowId: r.id }))} totalTiyin={pickedTotal.toString()} beforeRoute={() => saveNotes(true)} onToast={onToast} onDone={() => { setSel(null); reload(); }} /> : undefined}
     >
       {group && (
         <div className="space-y-4">
@@ -414,6 +415,22 @@ function GroupMetaEditor({ group, onToast, onSaved }: { group: BankGroup; onToas
   const known = useAsync(() => api.categories().then((r) => r.data), [api]);
   const dirty = name.trim() !== (group.name ?? '') || (kind || null) !== (group.kindEdited ? group.kind : null) || category.trim() !== (group.category ?? '');
   const autoLabel = KIND_OPTIONS.find((k) => k.code === group.autoKind)?.label ?? group.autoKind;
+  const [allBusy, setAllBusy] = useState(false);
+
+  /** Shu kontragentning (INN) hamma guruhiga tanlangan tur */
+  async function applyToCounterparty() {
+    if (!group.inn || !kind) return;
+    setAllBusy(true);
+    try {
+      const r = (await api.counterpartyKind({ inn: group.inn, dir: group.dir, kind })).data;
+      onToast({ message: `${r.groups} ta guruhga qo‘llandi — keyingi yuklashlarda ham`, tone: 'success' });
+      onSaved();
+    } catch (err) {
+      onToast({ message: errorMessage(err, 'Qo‘llab bo‘lmadi'), tone: 'error' });
+    } finally {
+      setAllBusy(false);
+    }
+  }
 
   async function save(reset = false) {
     setBusy(true);
@@ -460,19 +477,49 @@ function GroupMetaEditor({ group, onToast, onSaved }: { group: BankGroup; onToas
             Avtomatikka qaytarish
           </Button>
         )}
+        {group.inn && kind && (
+          <Button size="sm" variant="secondary" loading={allBusy} disabled={busy} onClick={() => void applyToCounterparty()} title={`INN ${group.inn} — shu yo'nalishdagi hamma guruhiga «${KIND_OPTIONS.find((k) => k.code === kind)?.label ?? kind}»`}>
+            Kontragentning hammasiga
+          </Button>
+        )}
       </div>
+      {group.kindReason && (
+        <p className={cn(group.kindSource === 'NONE' ? 'text-(--color-warn)' : 'text-(--color-text-muted)')}>
+          Tur: <b className="text-heading">{group.kindLabel}</b> — {group.kindReason}
+          {group.kindSource && group.kindSource !== 'MANUAL' ? ` (${KIND_SOURCE_LABEL[group.kindSource]})` : ''}
+          {group.kindMixed ? '. Guruhda boshqa turdagi to‘lovlar ham bor.' : ''}
+        </p>
+      )}
       <p className="text-(--color-text-faint)">Nom va modda o&apos;xshash to&apos;lovlar guruhiga beriladi (keyingi yuklashlarda ham); modda — «Hisobot»dagi yuqori qator. Yo&apos;naltirishda yozuv izohi: to&apos;lovga yozilgan izoh → umumiy izoh → shu nom → bankdagi izoh.</p>
     </div>
   );
 }
 
 /** Tanlanganlarni yo'naltirish: joy, modda, bo'lim (Doimiy / Boshqa), umumiy izoh → tekshiruv (takror) → yozish */
-function RoutePanel({ group, items, totalTiyin, beforeRoute, onToast, onDone }: { group: BankGroup; items: BankItem[]; totalTiyin: string; beforeRoute: () => Promise<boolean>; onToast: ToastFn; onDone: () => void }) {
+/** Taklifdagi joy → joy tanlovi (Markaz — bo'limi, Hududlar — viloyati va tumani, yo'nalish — o'zi) */
+function choiceOf(s: RouteSuggestion | null): MoveChoice {
+  if (!s) return EMPTY_CHOICE;
+  const p = s.place;
+  if (p.unit === 'CENTER') return { target: p.unit, place: p.departmentId ? { departmentId: p.departmentId } : {} };
+  if (p.unit === 'REGION') return { target: p.unit, place: { ...(p.regionCode ? { regionCode: p.regionCode } : {}), ...(p.districtId ? { districtId: p.districtId } : {}) } };
+  return { target: p.unit, place: {} };
+}
+
+/** Yo'naltirish paneli: guruh tafsilotida va «Ajralib turganlar»da (group — faqat yo'nalish, takrorlanish va nom kerak) */
+export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, onToast, onDone }: { group: Pick<BankGroup, 'dir' | 'pattern' | 'name'>; suggestion: RouteSuggestion | null; items: BankItem[]; totalTiyin: string; beforeRoute: () => Promise<boolean>; onToast: ToastFn; onDone: () => void }) {
   const { api } = useSource();
-  const [choice, setChoice] = useState<MoveChoice>(EMPTY_CHOICE);
-  const [category, setCategory] = useState('');
+  // Boshlang'ich qiymat — oldingi yo'naltirishdan taklif (bo'lsa); o'zgartirish yoki tozalash mumkin
+  const [choice, setChoice] = useState<MoveChoice>(() => choiceOf(suggestion));
+  const [category, setCategory] = useState(suggestion?.categoryCode ?? '');
   // Muntazam — Doimiy; bir martalik va vaqti-vaqti bilan — Boshqa (o'zgartirish mumkin)
-  const [section, setSection] = useState<'DOIMIY' | 'BOSHQA'>(group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA');
+  const [section, setSection] = useState<'DOIMIY' | 'BOSHQA'>(suggestion?.section ?? (group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA'));
+  const [usedSuggestion, setUsedSuggestion] = useState(Boolean(suggestion));
+  const clearSuggestion = () => {
+    setChoice(EMPTY_CHOICE);
+    setCategory('');
+    setSection(group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA');
+    setUsedSuggestion(false);
+  };
   const [description, setDescription] = useState('');
   const [check, setCheck] = useState<BankCheck | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -542,6 +589,17 @@ function RoutePanel({ group, items, totalTiyin, beforeRoute, onToast, onDone }: 
       <p className="font-semibold text-heading">
         Tanlangan: {items.length} ta · <span className="money">{formatTiyin(totalTiyin)}</span> so&apos;m → {what} sifatida yo&apos;naltirish
       </p>
+      {suggestion && usedSuggestion && (
+        <p className="flex flex-wrap items-center gap-1.5 rounded-(--radius-control) border border-brand-200 bg-brand-50/50 px-2 py-1 text-(--color-text-muted)">
+          <span>
+            Taklif ({suggestion.basis === 'GROUP' ? 'shu guruhni' : 'shu kontragentni'} oxirgi marta {formatDate(suggestion.at)} da shunday yo&apos;naltirgansiz
+            {suggestion.count > 1 ? `, ${suggestion.count} marta` : ''}): <b className="text-heading">{suggestion.place.label}</b> · {suggestion.categoryLabel} · {suggestion.section === 'DOIMIY' ? 'Doimiy' : 'Boshqa'}
+          </span>
+          <button type="button" className="font-medium text-brand-700 hover:underline" onClick={clearSuggestion}>
+            Tozalash
+          </button>
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <PlacePicker value={choice} onChange={setChoice} />
         <select value={cat} onChange={(e) => setCategory(e.target.value)} disabled={!ready || opts.loading} className={cn(INPUT, 'max-w-72')} aria-label={group.dir === 'OUT' ? 'Xarajat moddasi' : 'Daromad turi'}>
@@ -728,6 +786,135 @@ function MiniStat({ label, value }: { label: string; value: string }) {
       <p className="text-[10px] uppercase tracking-wide text-(--color-text-muted)">{label}</p>
       <p className="money mt-0.5 font-semibold text-heading">{value}</p>
     </div>
+  );
+}
+
+/** Guruh turi: qayerdan va nega (sichqoncha bilan); aniqlanmagan — ogohlantirish rangida; aralash guruh — belgi */
+export function KindBadge({ g, small = false }: { g: BankGroup; small?: boolean }) {
+  const unsure = g.kindSource === 'NONE';
+  const size = small ? 'px-1.5 py-0 text-[10px]' : undefined;
+  const title = [g.kindReason, g.kindSource ? `Manba: ${KIND_SOURCE_LABEL[g.kindSource]}` : '', g.kindMixed ? 'Guruhda boshqa turdagi to‘lovlar ham bor' : ''].filter(Boolean).join('\n');
+  return (
+    <span className="inline-flex items-center gap-1" title={title || undefined}>
+      <Badge tone={unsure ? 'warn' : 'brand'} className={size}>
+        {g.kindLabel}
+        {unsure ? ' · aniqlanmadi' : g.kindSource === 'MANUAL' ? ' ✎' : ''}
+      </Badge>
+      {g.kindMixed && (
+        <Badge tone="neutral" className={size}>
+          aralash
+        </Badge>
+      )}
+    </span>
+  );
+}
+
+/** Tur qoidalari: «izohda X bo'lsa → Y» — bank va faktura uchun bitta ro'yxat; siz bergan guruh turi ulardan ustun */
+export function KindRulesCard({ isAdmin, onToast, onChanged }: { isAdmin: boolean; onToast: ToastFn; onChanged: () => void }) {
+  const { api, dirLabel } = useSource();
+  const list = useAsync(() => api.kindRules().then((r) => r.data), [api]);
+  const [ruleText, setRuleText] = useState('');
+  const [kind, setKind] = useState<BankKind | ''>('');
+  const [dir, setDir] = useState<BankDir | ''>('OUT');
+  const [busy, setBusy] = useState(false);
+  const [delId, setDelId] = useState<string | null>(null);
+
+  async function add() {
+    if (!kind) return;
+    setBusy(true);
+    try {
+      const r = (await api.addKindRule({ text: ruleText.trim(), kind, dir: dir || null })).data;
+      onToast({ message: r.updated ? 'Qoida turi almashtirildi' : 'Qoida qo‘shildi — hamma guruhlarga qo‘llanadi', tone: 'success' });
+      setRuleText('');
+      list.reload();
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, 'Qoidani saqlab bo‘lmadi'), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string) {
+    setBusy(true);
+    try {
+      await api.deleteKindRule(id);
+      onToast({ message: 'Qoida o‘chirildi', tone: 'success' });
+      list.reload();
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, 'O‘chirib bo‘lmadi'), tone: 'error' });
+    } finally {
+      setBusy(false);
+      setDelId(null);
+    }
+  }
+
+  const rules = list.data ?? [];
+  return (
+    <Card>
+      <CardHeader title="Tur qoidalari" description="Izohda shu matn bo'lsa — shu tur (bank ko'chirmasi va schyot-fakturalar uchun bitta ro'yxat). Guruhga o'zingiz bergan tur qoidadan ustun." />
+      <div className="space-y-3 px-5 pb-4 text-sm">
+        {isAdmin && (
+          <div className="flex flex-wrap items-center gap-2">
+            <input value={ruleText} onChange={(e) => setRuleText(e.target.value)} maxLength={200} placeholder="Izohdagi matn (masalan: аренда склада)" className={cn(INPUT, 'min-w-56 flex-1')} aria-label="Qoida matni" />
+            <select value={kind} onChange={(e) => setKind(e.target.value as BankKind | '')} className={INPUT} aria-label="Tur">
+              <option value="">Turni tanlang</option>
+              {KIND_OPTIONS.map((k) => (
+                <option key={k.code} value={k.code}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+            <select value={dir} onChange={(e) => setDir(e.target.value as BankDir | '')} className={INPUT} aria-label="Yo'nalish">
+              <option value="OUT">Faqat: {dirLabel.OUT.toLowerCase()}</option>
+              <option value="IN">Faqat: {dirLabel.IN.toLowerCase()}</option>
+              <option value="">Ikkalasi</option>
+            </select>
+            <Button size="sm" loading={busy} disabled={!kind || ruleText.trim().length < 3} onClick={() => void add()}>
+              Qo&apos;shish
+            </Button>
+          </div>
+        )}
+        {list.loading && !list.data ? (
+          <LoadingState />
+        ) : list.error ? (
+          <ErrorState message={list.error} onRetry={list.reload} />
+        ) : rules.length ? (
+          <ul className="divide-y divide-(--color-line) rounded-(--radius-control) border border-(--color-line)">
+            {rules.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5">
+                <span className="font-medium text-heading">«{r.text}»</span>
+                <span className="text-(--color-text-faint)">→</span>
+                <Badge tone="brand">{r.kindLabel}</Badge>
+                <span className="text-xs text-(--color-text-muted)">
+                  {r.dir ? dirLabel[r.dir].toLowerCase() : 'ikkalasi'} · {r.createdBy || '—'} · {formatDateTime(r.createdAt)}
+                </span>
+                {isAdmin && (
+                  <Button size="sm" variant="ghost" className="ml-auto" disabled={busy} onClick={() => setDelId(r.id)}>
+                    O&apos;chirish
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-(--color-text-muted)">Qoida yo&apos;q — tur izohdagi so&apos;zlar, IKPU va kontragent xotirasi bo&apos;yicha aniqlanadi.</p>
+        )}
+      </div>
+      <ConfirmDialog
+        open={Boolean(delId)}
+        title="Qoidani o'chirish"
+        message="Shu qoida bo'yicha aniqlangan guruhlar avtomatik turga qaytadi."
+        confirmLabel="O'chirish"
+        danger
+        loading={busy}
+        onConfirm={() => {
+          if (delId) void remove(delId);
+        }}
+        onCancel={() => setDelId(null)}
+      />
+    </Card>
   );
 }
 

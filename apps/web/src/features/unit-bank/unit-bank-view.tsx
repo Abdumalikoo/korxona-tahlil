@@ -1,5 +1,6 @@
 'use client';
 
+import { FileCheck } from '@/components/shared/file-check';
 import { SourceActions } from '@/components/shared/source-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -272,6 +273,7 @@ export function UnitBankView({ unit }: { unit: EntryUnit }) {
                 {analysis.invalid.length > 10 ? ` va yana ${analysis.invalid.length - 10} ta` : ''}
               </p>
             )}
+            <FileCheck checks={analysis.checks} invalidCount={analysis.invalid.length} />
 
             <BankTree
               months={analysis.months.map((m) => ({

@@ -359,6 +359,7 @@ export class InternetService {
     const picked = pickInternetPayments(statement.rows, contractNos);
     const warnings = [...picked.warnings];
     if (statement.invalid.length) warnings.push(`${statement.invalid.length} ta qator o'qilmadi (sana yoki summa noto'g'ri): ${statement.invalid.slice(0, 3).map((x) => `${x.rowIndex}-qator — ${x.reason}`).join('; ')}`);
+    if (statement.checks.items.some((i) => i.status === 'MISMATCH')) warnings.push("Ko'chirmadan o'qilgan summa fayldagi «Итого» yoki qoldiq bilan mos emas — fayl to'liq o'qilmagan bo'lishi mumkin");
     return { payments: picked.payments, providers: picked.providers, warnings, rows: statement.rows.length, skipped: picked.skipped, skippedTiyin: picked.skippedTiyin };
   }
 

@@ -1,3 +1,4 @@
+import type { StatementChecks } from '@/components/shared/file-check';
 import { api, getToken, type ApiResponse } from '@/lib/api';
 
 // ═══════════════════════════════════════════════════════════
@@ -135,6 +136,8 @@ export interface PayoutAnalysis {
   rows: PayoutRow[];
   invalid: { rowIndex: number; reason: string }[];
   inflow: { count: number; totalTiyin: string };
+  /** Fayl tekshiruvi: «Итого» va qoldiq bilan */
+  checks?: StatementChecks;
   summary: PayoutSummary;
   /** Saqlashda avval saqlangan boshqa oylar ham aqlli tahlil bilan yangilanadi — nima o'zgarishi */
   reanalyze?: ReanalyzePreview;

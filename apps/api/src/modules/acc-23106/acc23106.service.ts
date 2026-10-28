@@ -299,6 +299,7 @@ export class Acc23106Service {
       rows: controlled,
       invalid: p.invalid,
       inflow: { count: p.inflowCount, totalTiyin: p.inflowTiyin.toString() },
+      checks: p.checks,
       summary: this.summary(controlled),
       // Saqlashda avval saqlangan (boshqa) oylar ham aqlli tahlil bilan yangilanadi — nima o'zgarishi oldindan
       reanalyze: await this.reanalyzePreview(months.map((m) => m.period)),

@@ -1,5 +1,6 @@
 'use client';
 
+import { FileCheck } from '@/components/shared/file-check';
 import { SourceActions } from '@/components/shared/source-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -289,6 +290,9 @@ export function Acc23106View() {
                   Xato qatorlar: {analysis.invalid.slice(0, 5).map((x) => `${x.rowIndex}-qator — ${x.reason}`).join('; ')}
                 </span>
               )}
+              <div className="w-full">
+                <FileCheck checks={analysis.checks} invalidCount={analysis.invalid.length} />
+              </div>
             </CardBody>
           </Card>
           <KindAnalysis rows={analysis.rows} title={`Tahlil: ${analysis.fileName} — pul nima uchun chiqqan`} onShow={showIn(setFileKind, 'acc23106-file-table')} mover={mover} />

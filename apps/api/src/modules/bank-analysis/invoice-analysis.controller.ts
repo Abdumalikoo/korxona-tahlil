@@ -127,6 +127,34 @@ export class InvoiceAnalysisController {
     return { data: await this.service.unroute(body, userId) };
   }
 
+  /** Tur qoidalari («izohda X bo'lsa → Y»; bank va faktura uchun bitta ro'yxat) */
+  @Get('kind-rules')
+  async kindRules() {
+    return { data: await this.service.kindRules() };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('kind-rules')
+  @HttpCode(HttpStatus.OK)
+  async addKindRule(@Body() body: { text?: unknown; kind?: unknown; dir?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.addKindRule(body, userId) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('kind-rules/:id/delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteKindRule(@Param('id') id: string) {
+    return { data: await this.service.deleteKindRule(id) };
+  }
+
+  /** Kontragentning hamma guruhiga bitta tur */
+  @Roles(UserRole.ADMIN)
+  @Post('counterparty-kind')
+  @HttpCode(HttpStatus.OK)
+  async counterpartyKind(@Body() body: { inn?: unknown; dir?: unknown; kind?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.counterpartyKind(body, userId) };
+  }
+
   @Get('posts')
   async posts() {
     return { data: await this.service.posts() };

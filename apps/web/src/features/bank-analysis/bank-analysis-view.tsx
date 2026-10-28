@@ -1,5 +1,6 @@
 'use client';
 
+import { FileCheck, InvoiceFileCheck } from '@/components/shared/file-check';
 import { SourceActions } from '@/components/shared/source-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,7 +8,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { IconAlert, IconSearch, IconSpinner, IconUpload } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
-import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
+import { ErrorState, LoadingState } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
 import { downloadAcc23106Template } from '@/features/acc-23106/api';
 import { MonthRangeCard, useMonthRange } from '@/features/units/month-range';
@@ -17,7 +18,8 @@ import { formatCompact, formatDateTime, formatPeriod, formatPeriodShort, formatT
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
-import { GroupDrawer, PostsHistory, PreviewGroups } from './bank-analysis-parts';
+import { GroupDrawer, KindBadge, KindRulesCard, PostsHistory, PreviewGroups } from './bank-analysis-parts';
+import { OutliersPanel } from './bank-outliers';
 import { PivotReport } from './pivot-report';
 import { SourceProvider, useSource, type AnalysisSource } from './source';
 import { PATTERN_LABEL, type BankPattern, type BankAnalysis, type BankBatch, type BankDir, type BankGroup, type BankKind, type BankSeries, type BankView } from './api';
@@ -27,7 +29,9 @@ import { PATTERN_LABEL, type BankPattern, type BankAnalysis, type BankBatch, typ
 // Bankdan olingan ko'chirma (23106 shabloni shakli) yuklanadi → chiqim va kirim o'qiladi → o'xshash to'lovlar
 // (oluvchi + izoh mazmuni) bitta guruh, oyma-oy va o'sib boruvchi; tanlangan davr bo'yicha umumiy; turlar
 // (soliq, kommunal, aloqa …); guruhni bossangiz — har to'lov izohi bilan.
-// XARAJAT VA DAROMADGA YOZILMAYDI (faqat tahlil).
+// Ikki yorliq: «Yuklash» (fayl, tekshiruv, saqlash, yuklashlar tarixi) va «Tahlil va saqlash» (saqlangan hamma narsa:
+// tahlil, ajralib turganlar — bir martalik / summa / izohi boshqacha, hisobot, yo'naltirishlar tarixi).
+// O'ZI XARAJAT VA DAROMADGA YOZILMAYDI — faqat siz tanlab yuborganingiz (yo'naltirish, bekor qilish mumkin).
 // ═══════════════════════════════════════════════════════════
 
 type ToastState = { message: string; tone: 'success' | 'error' } | null;
@@ -59,6 +63,8 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
   const [cancelling, setCancelling] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Sahifa: «Yuklash» (fayl, tekshiruv, saqlash, yuklashlar tarixi) yoki «Tahlil va saqlash» (saqlangan hamma narsa)
+  const [page, setPage] = useState<'UPLOAD' | 'ANALYSIS'>('ANALYSIS');
 
   const view = useAsync(() => (range.error ? Promise.resolve(null) : api.view(range.from, range.to, account).then((r) => r.data)), [range.from, range.to, range.error, account]);
   const batches = useAsync(() => api.batches().then((r) => r.data), []);
@@ -110,6 +116,8 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
       reset();
       view.reload();
       batches.reload();
+      // Saqlangani — tahlilga o'tadi
+      setPage('ANALYSIS');
     } catch (err) {
       setToast({ message: errorMessage(err, 'Saqlashda xatolik'), tone: 'error' });
     } finally {
@@ -137,9 +145,28 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
   // Tanlangan hisob uchun shu oylar avval saqlanganmi (almashtiriladi)
   const known = analysis?.account?.known?.find((k) => k.label.trim().toLowerCase() === accountName.trim().toLowerCase()) ?? null;
   const v = view.data;
+  // Fayl o'qilgan (saqlanmagan) bo'lsa — «Yuklash»da qoladi
+  const shownPage = analysis || uploading ? 'UPLOAD' : page;
 
   return (
     <>
+      <div className="flex items-center gap-1 border-b border-(--color-line)">
+        {(
+          [
+            ['UPLOAD', 'Yuklash', isAdmin ? (inv ? 'Fakturalar reyestri: o‘qish, tekshirish, saqlash' : "Ko'chirma: o'qish, tekshirish, saqlash") : 'Yuklashlar tarixi'],
+            ['ANALYSIS', 'Tahlil va saqlash', "Saqlangan hamma ma'lumot: oyma-oy, guruhlar, ajralib turganlar, xarajatga yuborish"],
+          ] as const
+        ).map(([p, label, hint]) => (
+          <button key={p} type="button" title={hint} onClick={() => setPage(p)} disabled={Boolean(analysis) && p === 'ANALYSIS'} className={cn('-mb-px border-b-2 px-5 py-2.5 text-sm font-semibold disabled:opacity-50', shownPage === p ? 'border-brand-600 text-brand-800' : 'border-transparent text-(--color-text-muted) hover:text-heading')}>
+            {label}
+          </button>
+        ))}
+        {analysis && <span className="ml-3 text-xs text-(--color-warn)">Fayl o&apos;qildi — saqlang yoki bekor qiling</span>}
+      </div>
+      <input ref={inputRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => e.target.files?.[0] && void handleFile(e.target.files[0])} />
+
+      {shownPage === 'UPLOAD' && (
+      <>
       <SourceActions
         upload={isAdmin ? { label: inv ? 'Fakturalar reyestrini yuklash' : "Ko'chirmani yuklash", onClick: () => inputRef.current?.click(), loading: uploading, disabled: Boolean(analysis), hint: analysis ? 'Avval joriy tahlilni saqlang yoki bekor qiling' : inv ? 'Didox / soliq.uz «Счет-фактура» eksporti (katta fayl ham — 250 MB gacha)' : 'Bankdan olingan ko‘chirma (выписка), 23106 shabloni shaklida' } : undefined}
         template={inv ? undefined : {
@@ -174,7 +201,6 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
           )
         }
       />
-      <input ref={inputRef} type="file" accept=".xlsx,.xltx" className="hidden" onChange={(e) => e.target.files?.[0] && void handleFile(e.target.files[0])} />
 
       {isAdmin && !analysis && (
         <Card>
@@ -290,6 +316,7 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
                   O&apos;qilmagan qatorlar {analysis.invalidCount} ta: {analysis.invalid.slice(0, 5).map((x) => `${x.rowIndex}-qator — ${x.reason}`).join('; ')}
                 </p>
               )}
+              {analysis.invoiceChecks ? <InvoiceFileCheck checks={analysis.invoiceChecks} invalidCount={analysis.invalidCount} /> : <FileCheck checks={analysis.checks} invalidCount={analysis.invalidCount} />}
             </CardBody>
           </Card>
           <PreviewGroups analysis={analysis} />
@@ -304,6 +331,13 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
         </div>
       )}
 
+      {/* Yuklashlar tarixi */}
+      {!analysis && <BatchesCard list={batches.data ?? []} isAdmin={isAdmin} onCancel={setCancelTarget} />}
+      </>
+      )}
+
+      {shownPage === 'ANALYSIS' && (
+      <>
       {/* Saqlangan — tanlangan davr */}
       <MonthRangeCard range={range} />
       {v && v.accounts.length > 1 && (
@@ -326,18 +360,48 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
       ) : v && v.totals.rows > 0 ? (
         <Analysis v={v} defaultDir={defaultDir} rangeText={range.text} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
       ) : (
-        <EmptyState title={`${range.text || 'Tanlangan davr'} uchun ko'chirma saqlanmagan`} hint="upload" />
+        <Card>
+          <CardBody className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm text-(--color-text-muted)">{range.text || 'Tanlangan davr'} uchun {inv ? 'fakturalar' : "ko'chirma"} saqlanmagan.</span>
+            {isAdmin && (
+              <Button size="sm" onClick={() => setPage('UPLOAD')}>
+                «Yuklash»ga o&apos;tish
+              </Button>
+            )}
+          </CardBody>
+        </Card>
       )}
 
       {/* Yo'naltirishlar tarixi */}
       <PostsHistory list={posts.data ?? []} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
 
-      {/* Tarix */}
-      {(batches.data?.length ?? 0) > 0 && (
+      </>
+      )}
+
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        title="Ko'chirmani bekor qilish"
+        message={`${cancelTarget?.fileName ?? ''} (${cancelTarget?.accountLabel ?? ''}) bekor qilinadi — shu yuklashdan saqlangan oylar tahlildan o'chiriladi. Xarajat va daromadga ta'siri yo'q.`}
+        confirmLabel="Bekor qilish"
+        danger
+        loading={cancelling}
+        onConfirm={() => void handleCancel()}
+        onCancel={() => setCancelTarget(null)}
+      />
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
+    </>
+  );
+}
+
+
+/** Yuklashlar tarixi (bekor qilish bilan) */
+function BatchesCard({ list, isAdmin, onCancel }: { list: BankBatch[]; isAdmin: boolean; onCancel: (b: BankBatch) => void }) {
+  if (!list.length) return null;
+  return (
         <Card className="overflow-hidden">
           <CardHeader title="Yuklashlar tarixi" />
           <ul className="divide-y divide-(--color-line) text-sm">
-            {batches.data!.slice(0, 40).map((b) => (
+            {list.slice(0, 40).map((b) => (
               <li key={b.id} className={cn('flex flex-wrap items-center gap-3 px-5 py-2.5', b.state !== 'ACTIVE' && b.state !== 'PARTIAL' && 'opacity-50')}>
                 <span className="min-w-0 flex-1 truncate font-medium">{b.fileName}</span>
                 <Badge tone="neutral">{b.accountLabel}</Badge>
@@ -357,7 +421,7 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
                   <>
                     {b.state === 'PARTIAL' && <Badge tone="warn">qisman almashtirilgan</Badge>}
                     {isAdmin && (
-                      <Button size="sm" variant="ghost" className="text-(--color-text-muted) hover:text-(--color-expense)" onClick={() => setCancelTarget(b)}>
+                      <Button size="sm" variant="ghost" className="text-(--color-text-muted) hover:text-(--color-expense)" onClick={() => onCancel(b)}>
                         Bekor qilish
                       </Button>
                     )}
@@ -367,27 +431,13 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
             ))}
           </ul>
         </Card>
-      )}
-
-      <ConfirmDialog
-        open={cancelTarget !== null}
-        title="Ko'chirmani bekor qilish"
-        message={`${cancelTarget?.fileName ?? ''} (${cancelTarget?.accountLabel ?? ''}) bekor qilinadi — shu yuklashdan saqlangan oylar tahlildan o'chiriladi. Xarajat va daromadga ta'siri yo'q.`}
-        confirmLabel="Bekor qilish"
-        danger
-        loading={cancelling}
-        onConfirm={() => void handleCancel()}
-        onCancel={() => setCancelTarget(null)}
-      />
-      {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
-    </>
   );
 }
 
 // ═══════════ Tahlil ═══════════
 
 function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v: BankView; defaultDir: BankDir; rangeText: string; isAdmin: boolean; onToast: (t: ToastState) => void; onChanged: () => void }) {
-  const { dirLabel: DIR_LABEL } = useSource();
+  const { dirLabel: DIR_LABEL, source } = useSource();
   const [dir, setDir] = useState<BankDir>(defaultDir);
   const [kind, setKind] = useState<BankKind | null>(null);
   const [mode, setMode] = useState<Mode>('MONTH');
@@ -396,7 +446,7 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
   const [openMonth, setOpenMonth] = useState<string | null>(null);
   const [pattern, setPattern] = useState<BankPattern | null>(null);
   // «Tahlil» (grafik, turlar, guruhlar) yoki «Hisobot» (modda › kontragent › xizmat, oylar kesimida)
-  const [tab, setTab] = useState<'ANALYSIS' | 'REPORT'>('ANALYSIS');
+  const [tab, setTab] = useState<'ANALYSIS' | 'REPORT' | 'OUTLIERS'>('ANALYSIS');
   const [rev, setRev] = useState(0);
   const changed = () => {
     setRev((x) => x + 1);
@@ -409,13 +459,21 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
   const drawer = <GroupDrawer key={`${openKey ?? 'none'}|${openMonth ?? ''}`} month={openMonth} group={open} v={v} isAdmin={isAdmin} onToast={onToast} onChanged={changed} onClose={() => setOpenKey(null)} />;
   const tabs = (
     <div className="flex items-center gap-1 border-b border-(--color-line)">
-      {(['ANALYSIS', 'REPORT'] as const).map((t) => (
+      {(source === 'bank' ? (['ANALYSIS', 'OUTLIERS', 'REPORT'] as const) : (['ANALYSIS', 'REPORT'] as const)).map((t) => (
         <button key={t} type="button" onClick={() => setTab(t)} className={cn('-mb-px border-b-2 px-4 py-2 text-sm font-medium', tab === t ? 'border-brand-600 text-brand-800' : 'border-transparent text-(--color-text-muted) hover:text-heading')}>
-          {t === 'ANALYSIS' ? 'Tahlil' : 'Hisobot (modda › kontragent › xizmat)'}
+          {t === 'ANALYSIS' ? 'Tahlil' : t === 'OUTLIERS' ? 'Ajralib turganlar' : 'Hisobot (modda › kontragent › xizmat)'}
         </button>
       ))}
     </div>
   );
+
+  if (tab === 'OUTLIERS')
+    return (
+      <div className="space-y-4">
+        {tabs}
+        <OutliersPanel from={v.from} to={v.to} account={v.account} defaultDir={dir} isAdmin={isAdmin} onToast={onToast} onChanged={changed} />
+      </div>
+    );
 
   if (tab === 'REPORT')
     return (
@@ -489,6 +547,8 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
 
       <GroupsTable v={v} dir={dir} onDir={(d) => { setDir(d); setKind(null); }} kind={kind} onKind={setKind} mode={mode} onMode={setMode} pattern={pattern} onPattern={setPattern} onOpen={(g, m) => { setOpenKey(g.key); setOpenMonth(m ?? null); }} />
 
+      <KindRulesCard isAdmin={isAdmin} onToast={onToast} onChanged={changed} />
+
       {drawer}
     </div>
   );
@@ -536,16 +596,20 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
   const { dirLabel: DIR_LABEL, groupsTitle } = useSource();
   const [q, setQ] = useState('');
   const [limit, setLimit] = useState(PAGE);
+  // Faqat turi aniqlanmaganlar (ko'rib chiqish uchun)
+  const [unsure, setUnsure] = useState(false);
+  const unsureCount = v.groups.filter((g) => g.dir === dir && g.kindSource === 'NONE').length;
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
     return v.groups.filter((g) => {
       if (g.dir !== dir) return false;
       if (kind && g.kind !== kind) return false;
       if (pattern && g.pattern !== pattern) return false;
+      if (unsure && g.kindSource !== 'NONE') return false;
       if (!t) return true;
       return g.counterparty.toLowerCase().includes(t) || (g.name ?? '').toLowerCase().includes(t) || (g.inn ?? '').includes(t) || g.samples.some((x) => x.toLowerCase().includes(t));
     });
-  }, [v.groups, dir, kind, pattern, q]);
+  }, [v.groups, dir, kind, pattern, q, unsure]);
   const total = shown.reduce((s, g) => s + BigInt(g.totalTiyin), 0n);
   const colTotals = v.months.map((p, i) => shown.reduce((s, g) => s + BigInt(mode === 'MONTH' ? (g.byMonth[p] ?? '0') : (g.cumulative[i] ?? '0')), 0n));
   const tone = dir === 'OUT' ? 'expense' : 'income';
@@ -571,6 +635,11 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
             </Chip>
           );
         })}
+        {unsureCount > 0 && (
+          <Chip active={unsure} onClick={() => setUnsure(!unsure)}>
+            Aniqlanmagan <span className="money opacity-70">{unsureCount}</span>
+          </Chip>
+        )}
         {kind && (
           <Chip active onClick={() => onKind(null)}>
             {v.kinds.find((k) => k.kind === kind && k.dir === dir)?.label ?? kind} ✕
@@ -616,9 +685,7 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
                     {g.samples[0] ?? '—'}
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-1">
-                    <Badge tone="brand" className="px-1.5 py-0 text-[10px]">
-                      {g.kindLabel}
-                    </Badge>
+                    <KindBadge g={g} small />
                     {g.postedCount > 0 && (
                       <Badge tone={g.postedCount === g.count ? 'income' : 'warn'} className="px-1.5 py-0 text-[10px]">
                         yo‘naltirilgan {g.postedCount}/{g.count}

@@ -51,6 +51,21 @@ export class BankAnalysisController {
     return { data: await this.service.group(key, from, to, account || null) };
   }
 
+  /** Ajralib turgan to'lovlar: bir martalik, odatdan tashqari summa, izohi boshqacha */
+  @Personal()
+  @Get('outliers')
+  async outliers(@Query('from') from: string, @Query('to') to: string, @Query('account') account?: string) {
+    return { data: await this.service.outliers(from, to, account || null) };
+  }
+
+  /** «Oddiy» deb belgilash: { items: [{account,rowId}], ok } */
+  @Roles(UserRole.ADMIN)
+  @Post('outliers/ok')
+  @HttpCode(HttpStatus.OK)
+  async outliersOk(@Body() body: { items?: unknown; ok?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.markOutliers(body, userId) };
+  }
+
   /** Guruhga o'z nomingiz va turi */
   @Roles(UserRole.ADMIN)
   @Post('groups/meta')
@@ -127,6 +142,34 @@ export class BankAnalysisController {
   @HttpCode(HttpStatus.OK)
   async unroute(@Body() body: { ids?: unknown; batch?: unknown }, @CurrentUser('id') userId: string) {
     return { data: await this.service.unroute(body, userId) };
+  }
+
+  /** Tur qoidalari («izohda X bo'lsa → Y»; bank va faktura uchun bitta ro'yxat) */
+  @Get('kind-rules')
+  async kindRules() {
+    return { data: await this.service.kindRules() };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('kind-rules')
+  @HttpCode(HttpStatus.OK)
+  async addKindRule(@Body() body: { text?: unknown; kind?: unknown; dir?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.addKindRule(body, userId) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('kind-rules/:id/delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteKindRule(@Param('id') id: string) {
+    return { data: await this.service.deleteKindRule(id) };
+  }
+
+  /** Kontragentning hamma guruhiga bitta tur */
+  @Roles(UserRole.ADMIN)
+  @Post('counterparty-kind')
+  @HttpCode(HttpStatus.OK)
+  async counterpartyKind(@Body() body: { inn?: unknown; dir?: unknown; kind?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.counterpartyKind(body, userId) };
   }
 
   @Get('posts')

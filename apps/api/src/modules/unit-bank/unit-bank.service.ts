@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { monthLabel, monthsBetween } from '../../common/period';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { cellValue } from '../../common/excel/cells';
-import { somToTiyin } from '../../common/money';
+import { amountNumber, statementTiyin } from '../../common/money';
 
 // ═══════════════════════════════════════════════════════════
 // Yo'nalish bank xarajatlari (Xarajatlar › Tax free › Bank xarajatlari).
@@ -81,25 +81,39 @@ interface BankStore {
   batches: BankBatch[];
 }
 
-type Field = 'no' | 'docDate' | 'procDate' | 'docNo' | 'accountName' | 'inn' | 'account' | 'mfo' | 'debit' | 'credit' | 'purpose';
+export type Field = 'no' | 'docDate' | 'procDate' | 'docNo' | 'accountName' | 'inn' | 'account' | 'mfo' | 'debit' | 'credit' | 'purpose';
 
-/** Sarlavha → maydon (kichik harf, bo'shliqsiz matn bo'yicha) */
+/** Bir nechta qismdan biri bor */
+const has = (h: string, ...parts: string[]) => parts.some((p) => h.includes(p));
+
+/**
+ * Sarlavha → maydon (kichik harf, bo'shliqsiz matn bo'yicha). Rus, o'zbek (lotin va kirill) nomlari.
+ * Tartib muhim: har ustun — birinchi mos kelgan (hali topilmagan) maydon.
+ */
 const HEADERS: { field: Field; test: (h: string) => boolean; label: string }[] = [
-  { field: 'no', test: (h) => h.startsWith('№пп') || h === '№', label: '№\nпп' },
-  { field: 'docDate', test: (h) => h.includes('датадокумента'), label: 'Дата\nдокумента' },
-  { field: 'procDate', test: (h) => h.includes('датаобработки'), label: 'Дата\nобработки' },
-  { field: 'docNo', test: (h) => h.startsWith('№док'), label: '№ док' },
-  { field: 'accountName', test: (h) => h.includes('наименование'), label: 'Наименование счёта' },
-  { field: 'inn', test: (h) => h === 'инн' || h.startsWith('инн'), label: 'ИНН' },
-  { field: 'account', test: (h) => h.startsWith('№сч'), label: '№ счёта' },
-  { field: 'mfo', test: (h) => h === 'мфо' || h.startsWith('мфо'), label: 'МФО' },
-  { field: 'debit', test: (h) => h.includes('дебет'), label: 'Обороты по\nдебету' },
-  { field: 'credit', test: (h) => h.includes('кредит'), label: 'Обороты по\nкредиту' },
-  { field: 'purpose', test: (h) => h.includes('назначение'), label: 'Назначение платежа' },
+  { field: 'no', test: (h) => h.startsWith('№пп') || h === '№' || ['тр', 'tr', '№тр', '№tr'].includes(h), label: '№\nпп' },
+  { field: 'docDate', test: (h) => has(h, 'датадокумента', 'hujjatsana', 'ҳужжатсана', 'хужжатсана'), label: 'Дата\nдокумента' },
+  { field: 'procDate', test: (h) => has(h, 'датаобработки', 'датапроводки', 'ishlovberish', 'ишловбериш', 'otkazilgansana', 'ўтказилгансана'), label: 'Дата\nобработки' },
+  { field: 'docNo', test: (h) => h.startsWith('№док') || h.startsWith('№hujjat') || h.startsWith('№ҳужжат') || has(h, 'номердокумент', 'hujjatraqam', 'ҳужжатрақам', 'хужжатракам'), label: '№ док' },
+  {
+    field: 'accountName',
+    test: (h) => has(h, 'наименование', 'hisobnomi', 'ҳисобноми', 'хисобноми') || (has(h, 'контрагент', 'kontragent') && !has(h, 'инн', 'stir', 'стир', 'счет', 'hisob', 'ҳисоб', 'мфо', 'mfo')),
+    label: 'Наименование счёта',
+  },
+  { field: 'inn', test: (h) => h === 'inn' || has(h, 'инн', 'stir', 'стир'), label: 'ИНН' },
+  { field: 'account', test: (h) => h.startsWith('№сч') || has(h, 'номерсчет', 'hisobraqam', 'ҳисобрақам', 'хисобракам'), label: '№ счёта' },
+  { field: 'mfo', test: (h) => h === 'мфо' || h.startsWith('мфо') || h.startsWith('mfo'), label: 'МФО' },
+  { field: 'debit', test: (h) => has(h, 'дебет', 'debet'), label: 'Обороты по\nдебету' },
+  { field: 'credit', test: (h) => has(h, 'кредит', 'kredit'), label: 'Обороты по\nкредиту' },
+  { field: 'purpose', test: (h) => has(h, 'назначение', 'maqsad', 'мақсад', 'максад'), label: 'Назначение платежа' },
 ];
 
 export const text = (v: unknown) => (v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v)).trim();
-const key = (h: string) => h.toLowerCase().replace(/[\s\n\r.:]+/g, '').replace('ё', 'е');
+const key = (h: string) =>
+  h
+    .toLowerCase()
+    .replace(/[\s\n\r.:/'’ʻʼ‘`]+/g, '')
+    .replace(/ё/g, 'е');
 
 /** «05.01.2026», Date yoki Excel seriya raqami → YYYY-MM-DD */
 export function parseDate(v: unknown): string | null {
@@ -249,6 +263,7 @@ export class UnitBankService implements OnModuleInit {
       inflow: { count: p.inflowCount, totalTiyin: p.inflowTiyin.toString() },
       renamedRows: replaced,
       totalTiyin: p.rows.reduce((s, r) => s + BigInt(r.debitTiyin), 0n).toString(),
+      checks: p.checks,
     };
   }
 
@@ -421,55 +436,188 @@ export class UnitBankService implements OnModuleInit {
   }
 }
 
+/** Ko'chirmani o'qishdan keyingi o'z-o'zini tekshirish (fayldagi jami va qoldiqlar bilan) */
+export interface StatementCheck {
+  /** TOTAL_DEBIT / TOTAL_CREDIT — «Итого» qatori bilan; BALANCE — kirish qoldig'i + kirim − chiqim = chiqish qoldig'i */
+  code: 'TOTAL_DEBIT' | 'TOTAL_CREDIT' | 'BALANCE';
+  /** ABSENT — faylda solishtirish uchun qiymat yo'q */
+  status: 'OK' | 'MISMATCH' | 'ABSENT';
+  /** Fayldagi qiymat (jami yoki chiqish qoldig'i) */
+  fileTiyin: string | null;
+  /** O'qilgan qatorlardan hisoblangani */
+  readTiyin: string | null;
+}
+
+export interface StatementChecks {
+  /** Hamma tekshiruv mos (yoki faylda yo'q) va xato qator yo'q */
+  ok: boolean;
+  items: StatementCheck[];
+  /** Topilgan va topilmagan ustunlar */
+  columns: { found: Field[]; missing: Field[] };
+  /** Sarlavha qatorlari (ikki qatorli sarlavha — ikkalasi) */
+  headerRows: number[];
+}
+
+const TOTAL_RE = /^(итого|всего|jami|жами)(?![\p{L}])/iu;
+const SALDO_IN_RE = /входящ\p{L}*\s*(сальдо|остат)|(остат\p{L}*|сальдо)\s*на\s*начало|kiruvchi\s*qoldiq|кирувчи\s*қолдиқ|boshlang\S{0,2}ich\s*qoldiq|бошланғич\s*қолдиқ/iu;
+const SALDO_OUT_RE = /исходящ\p{L}*\s*(сальдо|остат)|(остат\p{L}*|сальдо)\s*на\s*конец|chiquvchi\s*qoldiq|чиқувчи\s*қолдиқ|yakuniy\s*qoldiq|якуний\s*қолдиқ/iu;
+
+/** Matndagi oxirgi son (qoldiq «Входящий остаток: 1 234 567,89» kabi bitta katakda bo'lsa); manfiy ham bo'lishi mumkin */
+function lastAmount(s: string): bigint | null {
+  const all = s.match(/-?\d[\d\s  .,'’]*\d|-?\d/g);
+  if (!all) return null;
+  const n = amountNumber(all[all.length - 1]!);
+  return n === null ? null : BigInt(Math.round(n * 100));
+}
+
+/** Qatordagi qoldiq: belgi topilgan katakdan keyingi birinchi son, bo'lmasa shu katakning o'zidagi son */
+function saldoOf(cells: { col: number; value: unknown }[], re: RegExp): bigint | null | undefined {
+  const at = cells.findIndex((c) => re.test(text(c.value)));
+  if (at < 0) return undefined;
+  for (const c of cells.slice(at + 1)) {
+    if (typeof c.value === 'number') return BigInt(Math.round(c.value * 100));
+    const t = text(c.value);
+    if (!t) continue;
+    const n = amountNumber(t);
+    if (n !== null) return BigInt(Math.round(n * 100));
+  }
+  return lastAmount(text(cells[at]!.value).replace(re, ' '));
+}
+
+function rowCells(row: ExcelJS.Row): { col: number; value: unknown }[] {
+  const out: { col: number; value: unknown }[] = [];
+  row.eachCell((cell, c) => out.push({ col: c, value: cellValue(cell.value) }));
+  return out;
+}
+
+/** Sarlavha kataklari → maydonlar */
+function mapHeader(cells: { col: number; text: string }[]): Map<Field, number> {
+  const found = new Map<Field, number>();
+  for (const { col, text: t } of cells) {
+    const h = key(t);
+    if (!h) continue;
+    const def = HEADERS.find((x) => !found.has(x.field) && x.test(h));
+    if (def) found.set(def.field, col);
+  }
+  return found;
+}
+
+const headerOk = (found: Map<Field, number>) => found.has('debit') && (found.has('docDate') || found.has('purpose'));
+
+/** Ikki qatorli sarlavha: har ustun — yuqori va pastki matn birga (birlashtirilgan yuqori katak — chapdagidan) */
+function twoRowCells(top: ExcelJS.Row, bottom: ExcelJS.Row): { col: number; text: string }[] {
+  const t = new Map(rowCells(top).map((c) => [c.col, text(c.value)]));
+  const b = new Map(rowCells(bottom).map((c) => [c.col, text(c.value)]));
+  const cols = [...new Set([...t.keys(), ...b.keys()])].sort((x, y) => x - y);
+  const out: { col: number; text: string }[] = [];
+  let carry = '';
+  for (const c of cols) {
+    const up = t.get(c) ?? '';
+    const down = b.get(c) ?? '';
+    if (up) carry = up;
+    const head = up || (down ? carry : '');
+    out.push({ col: c, text: head === down ? head : `${head} ${down}`.trim() });
+  }
+  return out;
+}
+
 /**
  * Bank ko'chirmasi (выписка): sarlavha ustunlari bo'yicha; debet qatorlari, kirim (kredit) soni, xato qatorlar.
  * (Bo'lim bank xarajatlari va 23106 hisob raqami ko'chirmasi — bir xil shakl.)
+ * Sarlavha: rus yoki o'zbek (lotin / kirill) nomlari, bitta yoki ikki qatorli. «Итого» va qoldiq qatorlari —
+ * ma'lumot emas, lekin o'qilgan summa ular bilan solishtiriladi (checks).
  */
 export function parseBankStatement(wb: ExcelJS.Workbook, opts: { credits?: boolean } = {}) {
   let ws: ExcelJS.Worksheet | undefined;
-  let headerRow = 0;
+  let headerRows: number[] = [];
   const cols = new Map<Field, number>();
+  const pick = (sheet: ExcelJS.Worksheet, rowsUsed: number[], found: Map<Field, number>) => {
+    ws = sheet;
+    headerRows = rowsUsed;
+    for (const [f, c] of found) cols.set(f, c);
+  };
+  // Avval bitta qatorli sarlavha (hamma varaqda), keyin — ikki qatorli
   for (const sheet of wb.worksheets) {
-    for (let r = 1; r <= Math.min(sheet.rowCount, 20); r++) {
-      const row = sheet.getRow(r);
-      const found = new Map<Field, number>();
-      row.eachCell((cell, c) => {
-        const h = key(text(cellValue(cell.value)));
-        if (!h) return;
-        const def = HEADERS.find((x) => !found.has(x.field) && x.test(h));
-        if (def) found.set(def.field, c);
-      });
-      if (found.has('debit') && (found.has('docDate') || found.has('purpose'))) {
-        ws = sheet;
-        headerRow = r;
-        for (const [f, c] of found) cols.set(f, c);
-        break;
-      }
+    for (let r = 1; r <= Math.min(sheet.rowCount, 40) && !ws; r++) {
+      const found = mapHeader(rowCells(sheet.getRow(r)).map((c) => ({ col: c.col, text: text(c.value) })));
+      if (headerOk(found)) pick(sheet, [r], found);
     }
     if (ws) break;
   }
-  if (!ws) throw new BadRequestException("Bank ko'chirmasi topilmadi: «Обороты по дебету» va «Дата документа» ustunlari bo'lgan varaq kerak");
+  if (!ws) {
+    for (const sheet of wb.worksheets) {
+      for (let r = 1; r < Math.min(sheet.rowCount, 40) && !ws; r++) {
+        const found = mapHeader(twoRowCells(sheet.getRow(r), sheet.getRow(r + 1)));
+        if (headerOk(found)) pick(sheet, [r, r + 1], found);
+      }
+      if (ws) break;
+    }
+  }
+  if (!ws) throw new BadRequestException("Bank ko'chirmasi topilmadi: «Обороты по дебету» (yoki «Debet aylanmasi») va «Дата документа» (yoki «Hujjat sanasi») ustunlari bo'lgan varaq kerak");
   if (!cols.has('docDate') && !cols.has('procDate')) throw new BadRequestException("«Дата документа» ustuni topilmadi");
+  const sheet: ExcelJS.Worksheet = ws;
+  const headerRow = headerRows[headerRows.length - 1]!;
 
   const rows: (BankRow & { rowIndex: number; period: string })[] = [];
   const invalid: { rowIndex: number; reason: string }[] = [];
   let inflowCount = 0;
   let inflowTiyin = 0n;
+  // Tekshiruv uchun: o'qilgan hamma summa (kirim qatorlari tahlilga olinmasa ham), fayldagi jami va qoldiqlar
+  let readDebit = 0n;
+  let readCredit = 0n;
+  const totals: { debit: bigint | null; credit: bigint | null }[] = [];
+  let opening: bigint | null = null;
+  let closing: bigint | null = null;
   const get = (row: ExcelJS.Row, f: Field) => (cols.has(f) ? cellValue(row.getCell(cols.get(f)!).value) : null);
+  /** Qatorda qoldiq bo'lsa — eslab qoladi (summasi belgidan o'ngda, katakning o'zida yoki debet / kredit ustunida) */
+  const saldo = (row: ExcelJS.Row) => {
+    const cells = rowCells(row);
+    const amountCol = () => {
+      const c = statementTiyin(get(row, 'credit'));
+      const d = statementTiyin(get(row, 'debit'));
+      return c ? c : d ? d : null;
+    };
+    const o = saldoOf(cells, SALDO_IN_RE);
+    if (o !== undefined && opening === null) opening = o ?? amountCol();
+    const c = saldoOf(cells, SALDO_OUT_RE);
+    if (c !== undefined) closing = c ?? amountCol();
+    return o !== undefined || c !== undefined;
+  };
 
-  for (let r = headerRow + 1; r <= ws.rowCount; r++) {
-    const row = ws.getRow(r);
+  // Sarlavhadan yuqorida ham qoldiq bo'lishi mumkin («Входящий остаток: …»)
+  for (let r = 1; r < headerRows[0]!; r++) saldo(sheet.getRow(r));
+
+  for (let r = headerRow + 1; r <= sheet.rowCount; r++) {
+    const row = sheet.getRow(r);
     const vals = [...cols.values()].map((c) => text(cellValue(row.getCell(c).value)));
-    if (vals.every((v) => !v)) continue;
+    if (vals.every((v) => !v)) {
+      // Jadvaldan tashqaridagi qoldiq («Исходящий остаток» boshqa ustunda)
+      saldo(row);
+      continue;
+    }
     const accountName = text(get(row, 'accountName'));
     const purpose = text(get(row, 'purpose'));
     const docDateRaw = get(row, 'docDate');
-    if (/^итого/i.test(accountName) || /^итого/i.test(text(get(row, 'no'))) || /входящее сальдо/i.test(purpose)) continue;
-    const debit = somToTiyin(get(row, 'debit'));
-    const credit = somToTiyin(get(row, 'credit'));
+    const dated = parseDate(docDateRaw) ?? parseDate(get(row, 'procDate'));
+    if (/^итого/i.test(accountName) || /^итого/i.test(text(get(row, 'no'))) || (!dated && vals.some((v) => TOTAL_RE.test(v)))) {
+      totals.push({ debit: statementTiyin(get(row, 'debit')), credit: statementTiyin(get(row, 'credit')) });
+      continue;
+    }
+    // Qoldiq qatori: sanasiz (sanali to'lov izohida «остаток» so'zi bo'lsa ham — u to'lov)
+    if (/входящее сальдо/i.test(purpose)) {
+      saldo(row);
+      continue;
+    }
+    if (!dated && saldo(row)) continue;
+    const debit = statementTiyin(get(row, 'debit'));
+    const credit = statementTiyin(get(row, 'credit'));
     if (debit === null || credit === null) {
       invalid.push({ rowIndex: r, reason: "Summa noto'g'ri" });
       continue;
+    }
+    if (dated) {
+      readDebit += debit;
+      readCredit += credit;
     }
     if (debit === 0n) {
       if (credit > 0n) {
@@ -479,7 +627,7 @@ export function parseBankStatement(wb: ExcelJS.Workbook, opts: { credits?: boole
       // Tahlil uchun kirim qatorlari ham kerak (bank ko'chirmasi tahlili) — boshqalar uchun o'tkaziladi
       if (!opts.credits || credit <= 0n) continue;
     }
-    const docDate = parseDate(docDateRaw) ?? parseDate(get(row, 'procDate'));
+    const docDate = dated;
     if (!docDate) {
       invalid.push({ rowIndex: r, reason: `Sana noto'g'ri: «${text(docDateRaw).slice(0, 20)}»` });
       continue;
@@ -504,13 +652,42 @@ export function parseBankStatement(wb: ExcelJS.Workbook, opts: { credits?: boole
   }
   // Varaq yuqorisi (sarlavhagacha) — o'z hisob raqamini topish uchun (tahlilda faqat oxirgi raqamlari olinadi)
   const top: string[] = [];
-  for (let r = 1; r < headerRow; r++) {
+  for (let r = 1; r < headerRows[0]!; r++) {
     const vals: string[] = [];
-    ws.getRow(r).eachCell((cell) => {
+    sheet.getRow(r).eachCell((cell) => {
       const t = text(cellValue(cell.value));
       if (t) vals.push(t);
     });
     if (vals.length) top.push(vals.join(' '));
   }
-  return { sheetName: ws.name, rows, invalid, inflowCount, inflowTiyin, top };
+
+  // ── O'z-o'zini tekshirish ──
+  const items: StatementCheck[] = [];
+  const s = (v: bigint | null) => (v === null ? null : v.toString());
+  const totalCheck = (code: 'TOTAL_DEBIT' | 'TOTAL_CREDIT', read: bigint, pickT: (t: (typeof totals)[number]) => bigint | null) => {
+    if (!totals.length) return items.push({ code, status: 'ABSENT', fileTiyin: null, readTiyin: s(read) });
+    const last = pickT(totals[totals.length - 1]!);
+    // Kunlik oraliq jamilar bo'lsa (umumiy jamisiz) — ularning yig'indisi
+    const sum = totals.every((t) => pickT(t) !== null) ? totals.reduce((a, t) => a + pickT(t)!, 0n) : null;
+    const ok = last === read || sum === read;
+    items.push({ code, status: ok ? 'OK' : 'MISMATCH', fileTiyin: s(ok && last !== read ? sum : last), readTiyin: s(read) });
+  };
+  totalCheck('TOTAL_DEBIT', readDebit, (t) => t.debit);
+  if (cols.has('credit')) totalCheck('TOTAL_CREDIT', readCredit, (t) => t.credit);
+  const o = opening as bigint | null;
+  const c = closing as bigint | null;
+  if (o === null || c === null) items.push({ code: 'BALANCE', status: 'ABSENT', fileTiyin: s(c), readTiyin: null });
+  else {
+    // Hisob turiga qarab kirim qoldiqni oshiradi yoki kamaytiradi — ikkalasidan biri mos bo'lsa yetarli
+    const a = o + readCredit - readDebit;
+    const b = o - readCredit + readDebit;
+    items.push({ code: 'BALANCE', status: a === c || b === c ? 'OK' : 'MISMATCH', fileTiyin: c.toString(), readTiyin: (b === c ? b : a).toString() });
+  }
+  const checks: StatementChecks = {
+    ok: invalid.length === 0 && items.every((i) => i.status !== 'MISMATCH'),
+    items,
+    columns: { found: HEADERS.map((h) => h.field).filter((f) => cols.has(f)), missing: HEADERS.map((h) => h.field).filter((f) => !cols.has(f)) },
+    headerRows,
+  };
+  return { sheetName: sheet.name, rows, invalid, inflowCount, inflowTiyin, top, checks };
 }

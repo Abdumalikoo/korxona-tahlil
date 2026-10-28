@@ -73,9 +73,25 @@ const NAME_RULES: { kind: BankKind; re: RegExp }[] = [
 
 /** Tur: avval izohdan, topilmasa oluvchi nomidan (faqat chiqimda); kirim — sukut bo'yicha «xizmat tushumi» */
 export function kindOf(dir: BankDir, purpose: string, counterparty: string): BankKind {
-  for (const r of KIND_RULES) if ((!r.dir || r.dir === dir) && r.re.test(purpose)) return r.kind;
-  if (dir === 'OUT') for (const r of NAME_RULES) if (r.re.test(counterparty)) return r.kind;
-  return dir === 'IN' ? 'TUSHUM' : 'BOSHQA';
+  return kindMatch(dir, purpose, counterparty).kind;
+}
+
+/**
+ * Tur va sababi: KEYWORD — izoh yoki oluvchi nomidagi so'z (qaysi so'z — reason); DEFAULT — kirim, sukut bo'yicha
+ * «xizmat tushumi»; NONE — chiqim, hech narsa topilmadi («Boshqa»).
+ */
+export function kindMatch(dir: BankDir, purpose: string, counterparty: string): { kind: BankKind; source: 'KEYWORD' | 'DEFAULT' | 'NONE'; reason: string } {
+  for (const r of KIND_RULES) {
+    if (r.dir && r.dir !== dir) continue;
+    const m = r.re.exec(purpose);
+    if (m) return { kind: r.kind, source: 'KEYWORD', reason: `Izohda «${m[0].trim()}»` };
+  }
+  if (dir === 'OUT')
+    for (const r of NAME_RULES) {
+      const m = r.re.exec(counterparty);
+      if (m) return { kind: r.kind, source: 'KEYWORD', reason: `Oluvchi nomida «${m[0].trim()}»` };
+    }
+  return dir === 'IN' ? { kind: 'TUSHUM', source: 'DEFAULT', reason: 'Kirim — sukut bo‘yicha xizmat tushumi' } : { kind: 'BOSHQA', source: 'NONE', reason: 'Izoh va oluvchi nomidan aniqlanmadi' };
 }
 
 const MONTH_WORDS = /(?<![\p{L}\p{N}])(январ\p{L}*|феврал\p{L}*|март\p{L}*|апрел\p{L}*|ма[йя]\p{L}*|июн\p{L}*|июл\p{L}*|август\p{L}*|сентябр\p{L}*|октябр\p{L}*|ноябр\p{L}*|декабр\p{L}*|yanvar\p{L}*|fevral\p{L}*|mart\p{L}*|aprel\p{L}*|may\p{L}*|iyun\p{L}*|iyul\p{L}*|avgust\p{L}*|sentabr\p{L}*|oktabr\p{L}*|noyabr\p{L}*|dekabr\p{L}*)(?![\p{L}\p{N}])/giu;

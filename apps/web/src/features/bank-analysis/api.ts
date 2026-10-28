@@ -1,3 +1,4 @@
+import type { InvoiceChecks, StatementChecks } from '@/components/shared/file-check';
 import { api, getToken, type ApiResponse } from '@/lib/api';
 
 // ═══════════════════════════════════════════════════════════
@@ -12,6 +13,30 @@ export type BankKind = 'SOLIQ' | 'ISH_HAQI' | 'BANK' | 'KOMMUNAL' | 'ALOQA' | 'I
 export type BankPattern = 'REGULAR' | 'IRREGULAR' | 'ONCE';
 
 export const PATTERN_LABEL: Record<BankPattern, string> = { REGULAR: 'Muntazam', IRREGULAR: 'Vaqti-vaqti bilan', ONCE: 'Bir martalik' };
+
+/** Tur qayerdan aniqlangan (API: kind-engine) */
+export type KindSource = 'MANUAL' | 'RULE' | 'COUNTERPARTY' | 'IKPU' | 'KEYWORD' | 'ACCOUNT' | 'DEFAULT' | 'NONE';
+export const KIND_SOURCE_LABEL: Record<KindSource, string> = {
+  MANUAL: 'siz belgilagansiz',
+  RULE: 'qoida',
+  COUNTERPARTY: 'kontragent xotirasi',
+  IKPU: 'IKPU kodi',
+  KEYWORD: 'izohdagi so‘z',
+  ACCOUNT: 'budjet hisobi',
+  DEFAULT: 'sukut bo‘yicha',
+  NONE: 'aniqlanmadi',
+};
+
+/** Tur qoidasi: «izohda X bo'lsa → Y» (bank va faktura uchun bitta) */
+export interface KindRule {
+  id: string;
+  text: string;
+  kind: BankKind;
+  kindLabel: string;
+  dir: BankDir | null;
+  createdAt: string;
+  createdBy: string;
+}
 
 export const KIND_OPTIONS: { code: BankKind; label: string }[] = [
   { code: 'SOLIQ', label: 'Soliq va majburiy to‘lovlar' },
@@ -73,6 +98,11 @@ export interface BankGroup {
   category: string | null;
   autoKind: BankKind;
   kindEdited: boolean;
+  /** Tur qayerdan va nega (eski javoblarda bo'lmasligi mumkin) */
+  kindSource?: KindSource;
+  kindReason?: string;
+  /** Guruhda boshqa turdagi to'lovlar ham bor */
+  kindMixed?: boolean;
   pattern: BankPattern;
   inn: string | null;
   label: string;
@@ -110,6 +140,9 @@ export interface BankAnalysis {
   rows: BankRow[];
   invalid: { rowIndex: number; reason: string }[];
   invalidCount: number;
+  /** Fayl tekshiruvi: bank ko'chirmasi — «Итого» va qoldiq bilan; schyot-faktura — invoiceChecks */
+  checks?: StatementChecks | null;
+  invoiceChecks?: InvoiceChecks;
   groups: BankGroup[];
   /** Schyot-faktura: bizning korxona, holatlar, fakturalar soni, fayldagi hamma ID */
   org?: { inn: string; name: string; source: 'SAVED' | 'DETECTED' };
@@ -175,10 +208,23 @@ export interface BankGroupRow extends BankRow {
   post: BankRowPost | null;
 }
 
+/** Yo'naltirish taklifi: shu guruhning oxirgi yo'naltirishi (GROUP) yoki shu kontragentning eng ko'p takrorlangani */
+export interface RouteSuggestion {
+  basis: 'GROUP' | 'COUNTERPARTY';
+  place: { unit: string; departmentId: string | null; regionCode: number | null; districtId: string | null; label: string };
+  categoryCode: string;
+  categoryLabel: string;
+  section: 'DOIMIY' | 'BOSHQA';
+  at: string;
+  /** Shu tanlov necha marta qilingan */
+  count: number;
+}
+
 export interface BankGroupRows {
   key: string;
   rows: BankGroupRow[];
   totalTiyin: string;
+  suggestion?: RouteSuggestion | null;
 }
 
 export interface BankItem {
@@ -324,6 +370,38 @@ const pivotQuery = (p: PivotParams) => ({
   ...(p.min ? { min: p.min } : {}),
 });
 
+export type OutlierCode = 'ONCE' | 'AMOUNT' | 'TEXT';
+
+export interface BankOutlier {
+  account: string;
+  rowId: string;
+  accountLabel: string;
+  period: string;
+  docDate: string;
+  docNo: string;
+  dir: BankDir;
+  counterparty: string;
+  inn: string;
+  purpose: string;
+  amountTiyin: string;
+  groupKey: string;
+  groupName: string | null;
+  kind: BankKind;
+  kindLabel: string;
+  pattern: BankPattern;
+  reasons: { code: OutlierCode; text: string }[];
+  post: { place: string; categoryLabel: string; section: 'DOIMIY' | 'BOSHQA'; entryType: 'EXPENSE' | 'INCOME' } | null;
+  ok: { at: string; by: string } | null;
+}
+
+export interface BankOutliers {
+  from: string;
+  to: string;
+  months: string[];
+  items: BankOutlier[];
+  byMonth: { period: string; out: number; in: number; outTiyin: string; inTiyin: string }[];
+}
+
 type CommitResult = { success: true; batchId: string; account: string; months: string[]; saved: number; replacedMonths: string[]; outTiyin: string; inTiyin: string; droppedPosts: number; invoices?: number; updatedInvoices?: number; removedRows?: number };
 
 /** Tahlil API — bank ko'chirmasi (/bank-analysis) va schyot-fakturalar (/invoice-analysis) bir xil yo'llar bilan */
@@ -337,6 +415,11 @@ export function makeAnalysisApi(base: '/bank-analysis' | '/invoice-analysis') {
     groupMeta: (body: { key: string; name: string; kind: BankKind | null; category?: string }) => api.post<ApiResponse<{ success: true; key: string; name: string | null; kind: BankKind | null; category: string | null }>>(`${base}/groups/meta`, body),
     groupCategory: (keys: string[], category: string) => api.post<ApiResponse<{ success: true; count: number; category: string | null }>>(`${base}/groups/category`, { keys, category }),
     categories: () => api.get<ApiResponse<string[]>>(`${base}/categories`),
+    kindRules: () => api.get<ApiResponse<KindRule[]>>(`${base}/kind-rules`),
+    addKindRule: (body: { text: string; kind: BankKind; dir: BankDir | null }) => api.post<ApiResponse<{ success: true; updated: boolean; count: number }>>(`${base}/kind-rules`, body),
+    deleteKindRule: (id: string) => api.post<ApiResponse<{ success: true; count: number }>>(`${base}/kind-rules/${encodeURIComponent(id)}/delete`),
+    /** Kontragentning hamma guruhiga bitta tur (kind null — olib tashlash) */
+    counterpartyKind: (body: { inn: string; dir: BankDir; kind: BankKind | null }) => api.post<ApiResponse<{ success: true; groups: number; kind: BankKind | null }>>(`${base}/counterparty-kind`, body),
     pivot: (p: PivotParams) => api.get<ApiResponse<PivotData>>(`${base}/pivot`, { params: pivotQuery(p) }),
     /** Hisobot — Excel faylini yuklab olish */
     pivotExcel: async (p: PivotParams): Promise<void> => {
@@ -359,6 +442,9 @@ export function makeAnalysisApi(base: '/bank-analysis' | '/invoice-analysis') {
     route: (body: { items: BankItem[]; place: BankRoutePlace; categoryCode: string; section: 'DOIMIY' | 'BOSHQA'; description?: string; force?: boolean; skipDuplicates?: boolean }) =>
       api.post<ApiResponse<{ success: true; batch: string | null; count: number; totalTiyin: string; skipped: number; entryType: 'EXPENSE' | 'INCOME'; place: string }>>(`${base}/route`, body),
     unroute: (body: { ids?: string[]; batch?: string }) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string }>>(`${base}/route/cancel`, body),
+    /** Ajralib turgan to'lovlar (faqat bank ko'chirmasi) */
+    outliers: (from: string, to: string, account?: string | null) => api.get<ApiResponse<BankOutliers>>(`${base}/outliers`, { params: { from, to, ...(account ? { account } : {}) } }),
+    outliersOk: (items: BankItem[], ok: boolean) => api.post<ApiResponse<{ count: number }>>(`${base}/outliers/ok`, { items, ok }),
     posts: () => api.get<ApiResponse<BankPostBatch[]>>(`${base}/posts`),
     /** Fayl tahlili (hech narsa saqlanmaydi) */
     analyze: async (file: File): Promise<BankAnalysis> => {

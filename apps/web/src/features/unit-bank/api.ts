@@ -1,3 +1,4 @@
+import type { StatementChecks } from '@/components/shared/file-check';
 import { api, getToken, type ApiResponse } from '@/lib/api';
 
 // ═══════════════════════════════════════════════════════════
@@ -31,6 +32,8 @@ export interface BankAnalyzeResult {
   inflow: { count: number; totalTiyin: string };
   renamedRows: number;
   totalTiyin: string;
+  /** Fayl tekshiruvi: «Итого» va qoldiq bilan */
+  checks?: StatementChecks;
 }
 
 export interface BankData {

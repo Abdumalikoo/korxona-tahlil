@@ -9,9 +9,11 @@ import { ENTRY_UNIT_CODES, entryUnitLabel, entryUnitOf, isSegment } from '../../
 import { assertUnitCategory, readUnitCategories, unitList } from '../../common/segments/unit-categories';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { parseBankStatement, parseDate, text } from '../unit-bank/unit-bank.service';
+import { parseBankStatement, parseDate, text, type StatementChecks } from '../unit-bank/unit-bank.service';
 import { buildPivot, parsePivotQuery, pivotWorkbook } from './bank-analysis.pivot';
-import { accountKey, accountLabel, accountTail, BANK_KIND_LABEL, counterpartyKey, groupKey, kindOf, purposeKey, rowId, type BankDir, type BankKind } from './bank-analysis.rules';
+import { findOutliers, type OutlierCode } from './bank-outliers';
+import { accountKey, accountLabel, accountTail, BANK_KIND_LABEL, counterpartyKey, groupKey, kindMatch, purposeKey, rowId, type BankDir, type BankKind } from './bank-analysis.rules';
+import { accountCode, counterpartyMemory, groupVerdict, INVOICE_STORE_KEY, KIND_RULES_KEY, MAX_KIND_RULES, prepareRules, readKindRules, rowVerdict, type KindContext, type KindVerdict } from './kind-engine';
 
 // ═══════════════════════════════════════════════════════════
 // Bank ko'chirmasi tahlili (Xarajatlar › Bank ko'chirmasi).
@@ -51,6 +53,8 @@ export interface BankAnRow {
   amountTiyin: string;
   /** Fayldagi «Назначение платежа» — aynan o'zidek */
   purpose: string;
+  /** Oluvchi hisobining balans kodi (birinchi 5 raqam; to'liq raqam saqlanmaydi) — tur aniqlash uchun */
+  accountCode?: string;
 }
 
 export interface AccountMonth {
@@ -156,6 +160,19 @@ export function readStore(raw: unknown): Store {
   };
 }
 
+/**
+ * Boshqa ombordagi guruh turlari — faqat «groups» qismi (faktura ombori katta bo'lishi mumkin, butunligicha o'qilmaydi).
+ * Sinovdagi xotira bazasida $queryRaw yo'q — oddiy o'qish.
+ */
+async function storeGroups(prisma: PrismaService, key: string): Promise<Record<string, GroupMeta>> {
+  const raw = (prisma as unknown as { $queryRaw?: unknown }).$queryRaw;
+  const v =
+    typeof raw === 'function'
+      ? (await prisma.$queryRaw<{ g: unknown }[]>`SELECT value->'groups' AS g FROM settings WHERE key = ${key}`)[0]?.g
+      : ((await prisma.setting.findUnique({ where: { key } }))?.value as { groups?: unknown } | null)?.groups;
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, GroupMeta>) : {};
+}
+
 export const big = (v: string) => {
   try {
     return BigInt(v);
@@ -193,9 +210,16 @@ export class BankAnalysisService {
     return groupKey(r.dir, r.inn, r.accountName, r.purpose);
   }
 
-  /** Avtomatik tur */
-  protected kindFor(dir: BankDir, r: BankAnRow, counterparty: string): BankKind {
-    return kindOf(dir, r.purpose, counterparty);
+  /** Manbaga xos avtomatik tur (kalit so'zlar) — sababi bilan; qoida, kontragent xotirasi va hisob — kind-engine */
+  protected baseVerdict(r: BankAnRow, counterparty: string): KindVerdict {
+    return kindMatch(r.dir, r.purpose, counterparty);
+  }
+
+  /** Tur aniqlash konteksti: matn qoidalari va kontragent xotirasi (bank va faktura guruhlariga bergan turlaringiz) */
+  protected async kindContext(store: Store): Promise<KindContext> {
+    const other = this.key === BANK_ANALYSIS_KEY ? INVOICE_STORE_KEY : BANK_ANALYSIS_KEY;
+    const [rules, otherGroups] = await Promise.all([this.prisma.setting.findUnique({ where: { key: KIND_RULES_KEY } }), storeGroups(this.prisma, other)]);
+    return { rules: prepareRules(readKindRules(rules?.value)), memory: counterpartyMemory([store.groups, otherGroups]) };
   }
 
   /** Yo'naltirilganda yozuv sanasi: hujjat sanasi (oyi boshqa bo'lsa — o'sha oyning oxirgi kuni) */
@@ -221,7 +245,7 @@ export class BankAnalysisService {
   }
 
   /** Fayldagi qatorlar → tahlil qatorlari (kaliti bilan) */
-  protected toRows(list: { docDate: string; procDate: string | null; docNo: string; accountName: string; inn: string; mfo: string; debitTiyin: string; creditTiyin: string; purpose: string }[]): BankAnRow[] {
+  protected toRows(list: { docDate: string; procDate: string | null; docNo: string; accountName: string; inn: string; mfo: string; debitTiyin: string; creditTiyin: string; purpose: string; account?: string; accountCode?: string }[]): BankAnRow[] {
     const seen = new Map<string, number>();
     const out: BankAnRow[] = [];
     for (const r of list) {
@@ -234,7 +258,9 @@ export class BankAnalysisService {
       const sig = `${base.docDate}|${base.docNo}|${base.inn}|${dir}|${amount}|${base.purpose}`;
       const n = seen.get(sig) ?? 0;
       seen.set(sig, n + 1);
-      out.push({ id: rowId(base, n), ...base });
+      // Hisob kodi kalitga kirmaydi (avval saqlangan qatorlar kaliti o'zgarmasin)
+      const code = r.accountCode && /^\d{5}$/.test(r.accountCode) ? r.accountCode : accountCode(r.account ?? '');
+      out.push({ id: rowId(base, n), ...base, ...(code ? { accountCode: code } : {}) });
     }
     return out;
   }
@@ -300,8 +326,10 @@ export class BankAnalysisService {
       rows,
       invalid: p.invalid.slice(0, 50),
       invalidCount: p.invalid.length,
+      /** O'z-o'zini tekshirish: fayldagi «Итого» va qoldiqlar bilan */
+      checks: p.checks as StatementChecks | null,
       /** Hamma guruh — har birining qatorlari (rowIds) bilan: saqlashdan oldin ochib ko'rish uchun */
-      groups: this.groups(rows.map((r) => ({ ...r, account: '' })), periods, new Map(), true, store.groups),
+      groups: this.groups(rows.map((r) => ({ ...r, account: '' })), periods, new Map(), true, store.groups, await this.kindContext(store)),
     };
   }
 
@@ -322,7 +350,7 @@ export class BankAnalysisService {
       if (!dir) throw new BadRequestException(`Yo'nalish noto'g'ri: ${cap(raw?.docNo, 30)}`);
       const amount = big(text(raw.amountTiyin));
       if (amount <= 0n) throw new BadRequestException(`Summa noto'g'ri: ${cap(raw?.docNo, 30)}`);
-      return { docDate, procDate: parseDate(raw.procDate), docNo: cap(raw.docNo, 60), accountName: cap(raw.accountName, 300), inn: cap(raw.inn, 20), mfo: cap(raw.mfo, 10), debitTiyin: dir === 'OUT' ? amount.toString() : '0', creditTiyin: dir === 'IN' ? amount.toString() : '0', purpose: cap(raw.purpose, 1000) };
+      return { docDate, procDate: parseDate(raw.procDate), docNo: cap(raw.docNo, 60), accountName: cap(raw.accountName, 300), inn: cap(raw.inn, 20), mfo: cap(raw.mfo, 10), debitTiyin: dir === 'OUT' ? amount.toString() : '0', creditTiyin: dir === 'IN' ? amount.toString() : '0', purpose: cap(raw.purpose, 1000), accountCode: cap(raw.accountCode, 5) };
     });
     const rows = this.toRows(clean).filter((r) => months.includes(r.docDate.slice(0, 7)));
     if (!rows.length) throw new BadRequestException("Tanlangan oylarda qator yo'q");
@@ -410,7 +438,7 @@ export class BankAnalysisService {
   }
 
   /** O'xshashlar guruhi: oyma-oy, o'sib boruvchi, turi, muntazamligi, yo'naltirilgani */
-  protected groups(rows: (BankAnRow & { account: string })[], months: string[], posted: Map<string, BankPost>, withRows = false, meta: Record<string, GroupMeta> = {}) {
+  protected groups(rows: (BankAnRow & { account: string })[], months: string[], posted: Map<string, BankPost>, withRows = false, meta: Record<string, GroupMeta> = {}, ctx: KindContext = { rules: [], memory: new Map() }) {
     const map = new Map<string, { key: string; dir: BankDir; rows: (BankAnRow & { account: string })[] }>();
     for (const r of rows) {
       const k = this.keyOf(r);
@@ -449,8 +477,11 @@ export class BankAnalysisService {
       const cp = counterpartyKey(last.inn, last.accountName);
       const people = cp === 'person' ? new Set(g.rows.map((r) => r.inn)).size : 0;
       const m = meta[g.key];
-      const autoKind: BankKind = this.kindFor(g.dir, last, name);
-      const kind: BankKind = m?.kind && m.kind in BANK_KIND_LABEL ? m.kind : autoKind;
+      // Tur — hamma qatorlardan (summa bo'yicha ko'pchilik); siz bergan tur — ustun
+      const auto = groupVerdict(g.rows, (r) => rowVerdict(r, ctx, () => this.baseVerdict(r, name), g.key));
+      const autoKind: BankKind = auto.kind;
+      const manual = Boolean(m?.kind && m.kind in BANK_KIND_LABEL);
+      const kind: BankKind = manual ? m!.kind! : autoKind;
       const regular = active.length >= Math.max(3, Math.ceil(months.length * 0.6));
       // Bir martalik: bitta to'lov yoki faqat bitta oyda (davr bir oydan ko'p bo'lsa)
       const pattern: BankPattern = regular ? 'REGULAR' : g.rows.length === 1 || (months.length > 1 && active.length === 1) ? 'ONCE' : 'IRREGULAR';
@@ -471,6 +502,11 @@ export class BankAnalysisService {
         category: m?.category ?? null,
         autoKind,
         kindEdited: Boolean(m?.kind && m.kind !== autoKind),
+        /** Tur qayerdan: MANUAL, RULE, COUNTERPARTY, IKPU, KEYWORD, ACCOUNT, DEFAULT, NONE (aniqlanmadi) */
+        kindSource: manual ? ('MANUAL' as const) : auto.source,
+        kindReason: manual ? `Siz belgilagansiz${m!.by ? ` (${m!.by})` : ''}` : auto.reason,
+        /** Guruhda boshqa turdagi to'lovlar ham bor (summaning 5 foizidan ko'p) */
+        kindMixed: auto.mixed,
         pattern,
         inn: cp.startsWith('inn:') ? cp.slice(4) : null,
         label: purposeKey(last.purpose) || '—',
@@ -504,7 +540,7 @@ export class BankAnalysisService {
     const acc = account && store.accounts[account] ? account : null;
     const rows = this.rowsIn(store, months, acc);
     const posted = this.postedMap(store);
-    const groups = this.groups(rows, months, posted, false, store.groups);
+    const groups = this.groups(rows, months, posted, false, store.groups, await this.kindContext(store));
     const series = months.map((p) => {
       const list = rows.filter((r) => this.periodOf(r) === p);
       return {
@@ -572,6 +608,97 @@ export class BankAnalysisService {
     };
   }
 
+  // ═══════════ Ajralib turgan to'lovlar ═══════════
+
+  /** «Oddiy» deb belgilanganlar: «hisob:qator» → kim, qachon (alohida settings kaliti — ombor o'zgarmaydi) */
+  protected okKey(): string {
+    return `${this.key}.outlier-ok`;
+  }
+
+  private async okMap(): Promise<Record<string, { at: string; by: string }>> {
+    const v = (await this.prisma.setting.findUnique({ where: { key: this.okKey() } }))?.value;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, { at: string; by: string }>) : {};
+  }
+
+  /**
+   * Ajralib turgan to'lovlar (bank-outliers.ts): bir martalik, odatdan tashqari summa, izohi boshqacha.
+   * Har biri — sababi, oyi, yo'naltirilgani va «oddiy» belgisi bilan; oyma-oy jami (ko'rib chiqilmaganlar).
+   */
+  async outliers(from: string, to: string, account?: string | null) {
+    const months = this.range(from, to);
+    const store = await this.store();
+    const acc = account && store.accounts[account] ? account : null;
+    const rows = this.rowsIn(store, months, acc);
+    const posted = this.postedMap(store);
+    const groups = this.groups(rows, months, posted, false, store.groups, await this.kindContext(store));
+    const gBy = new Map(groups.map((g) => [g.key, g]));
+    const hits = findOutliers(
+      rows.map((r) => {
+        const k = this.keyOf(r);
+        return { key: rk(r.account, r.id), dir: r.dir, amountTiyin: big(r.amountTiyin), purpose: r.purpose, counterparty: counterpartyKey(r.inn, r.accountName), group: k, kind: gBy.get(k)?.kind ?? 'OTHER' };
+      }),
+      { months: months.length, kindLabel: (k) => BANK_KIND_LABEL[k as BankKind] ?? k },
+    );
+    const ok = await this.okMap();
+    const rowBy = new Map(rows.map((r) => [rk(r.account, r.id), r]));
+    const items = hits.map((h) => {
+      const r = rowBy.get(h.key)!;
+      const g = gBy.get(this.keyOf(r));
+      const p = posted.get(h.key);
+      const o = ok[h.key];
+      return {
+        account: r.account,
+        rowId: r.id,
+        accountLabel: store.accounts[r.account]?.label ?? r.account,
+        period: this.periodOf(r),
+        docDate: r.docDate,
+        docNo: r.docNo,
+        dir: r.dir,
+        counterparty: r.accountName,
+        inn: r.inn,
+        purpose: r.purpose,
+        amountTiyin: r.amountTiyin,
+        groupKey: g?.key ?? this.keyOf(r),
+        groupName: g?.name ?? null,
+        kind: g?.kind ?? 'OTHER',
+        kindLabel: g?.kindLabel ?? '',
+        pattern: g?.pattern ?? 'ONCE',
+        reasons: h.reasons as { code: OutlierCode; text: string }[],
+        post: p ? { place: p.place.label, categoryLabel: p.categoryLabel, section: p.section, entryType: p.entryType } : null,
+        ok: o ? { at: o.at, by: o.by } : null,
+      };
+    });
+    const open = items.filter((x) => !x.post && !x.ok);
+    const sum = (l: typeof items) => l.reduce((s, x) => s + big(x.amountTiyin), 0n).toString();
+    const byMonth = months.map((p) => {
+      const l = open.filter((x) => x.period === p);
+      const o = l.filter((x) => x.dir === 'OUT');
+      const i = l.filter((x) => x.dir === 'IN');
+      return { period: p, out: o.length, in: i.length, outTiyin: sum(o), inTiyin: sum(i) };
+    });
+    return { from: months[0]!, to: months[months.length - 1]!, months, items, byMonth };
+  }
+
+  /** «Oddiy» deb belgilash (ok=true) yoki ko'rib chiqishga qaytarish (ok=false) */
+  async markOutliers(body: { items?: unknown; ok?: unknown }, userId: string) {
+    if (!Array.isArray(body?.items) || !body.items.length || body.items.length > 2000) throw new BadRequestException("To'lovlar tanlanmagan");
+    const keys = (body.items as Record<string, unknown>[]).map((x) => rk(String(x?.account ?? ''), String(x?.rowId ?? ''))).filter((k) => k.length > 2 && k.length < 200);
+    const on = body?.ok !== false;
+    const by = (await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null))?.fullName ?? '';
+    const n = await runExclusive(`setting:${this.okKey()}`, async () => {
+      const cur = await this.okMap();
+      for (const k of keys) {
+        if (on) cur[k] = { at: new Date().toISOString(), by };
+        else delete cur[k];
+      }
+      const value = cur as object;
+      await this.prisma.setting.upsert({ where: { key: this.okKey() }, create: { key: this.okKey(), value }, update: { value } });
+      return keys.length;
+    });
+    await this.audit.log({ userId, action: 'UPDATE', entity: this.entity, entityId: 'outliers', summary: `${this.sourceLabel}: ${n} ta ajralgan to'lov ${on ? '«oddiy» deb belgilandi' : 'qayta ko‘rib chiqishga qaytarildi'}` });
+    return { count: n };
+  }
+
   protected range(from: string, to: string): string[] {
     if (!PERIOD_RE.test(from ?? '') || !PERIOD_RE.test(to ?? '')) throw new BadRequestException("Oy noto'g'ri (YYYY-MM)");
     const months = monthsBetween(from, to);
@@ -585,7 +712,7 @@ export class BankAnalysisService {
     const months = this.range(from, to);
     const store = await this.store();
     const acc = account && store.accounts[account] ? account : null;
-    const groups = this.groups(this.rowsIn(store, months, acc), months, this.postedMap(store), false, store.groups);
+    const groups = this.groups(this.rowsIn(store, months, acc), months, this.postedMap(store), false, store.groups, await this.kindContext(store));
     return { from: months[0]!, to: months[months.length - 1]!, ...buildPivot(groups, months, parsePivotQuery(raw)) };
   }
 
@@ -620,7 +747,42 @@ export class BankAnalysisService {
           post: p ? { id: p.id, batch: p.batch, place: p.place.label, categoryLabel: p.categoryLabel, section: p.section, description: p.description, entryType: p.entryType, createdAt: p.createdAt, createdBy: p.createdBy } : null,
         };
       });
-    return { key, rows, totalTiyin: rows.reduce((s, r) => s + big(r.amountTiyin), 0n).toString() };
+    return { key, rows, totalTiyin: rows.reduce((s, r) => s + big(r.amountTiyin), 0n).toString(), suggestion: this.routeSuggestion(store, key) };
+  }
+
+  /**
+   * Yo'naltirish taklifi (joy, modda, bo'lim): shu guruhning oxirgi yo'naltirishi; bo'lmasa — shu kontragentning (INN,
+   * yo'nalish) eng ko'p takrorlangan yo'naltirishi. Faqat taklif — yozish foydalanuvchi tasdiqlaganda (route).
+   */
+  protected routeSuggestion(store: Store, key: string) {
+    const posts = store.posts.filter((p) => p.status === 'POSTED');
+    if (!posts.length) return null;
+    const rowsBy = new Map<string, BankAnRow>();
+    for (const a of Object.values(store.accounts)) for (const m of Object.values(a.months)) for (const r of m.rows) rowsBy.set(rk(a.key, r.id), r);
+    const combo = (p: BankPost) => [p.place.unit, p.place.departmentId ?? '', p.place.regionCode ?? '', p.place.districtId ?? '', p.categoryCode, p.section].join('|');
+    const out = (p: BankPost, basis: 'GROUP' | 'COUNTERPARTY', count: number) => ({ basis, place: p.place, categoryCode: p.categoryCode, categoryLabel: p.categoryLabel, section: p.section, at: p.createdAt, count });
+    const latest = (l: BankPost[]) => l.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+
+    const own = posts.filter((p) => {
+      const r = rowsBy.get(rk(p.account, p.rowId));
+      return r ? this.keyOf(r) === key : false;
+    });
+    if (own.length) {
+      const last = latest(own);
+      return out(last, 'GROUP', own.filter((p) => combo(p) === combo(last)).length);
+    }
+    const m = /^(OUT|IN)\|inn:(\d{9})\|/.exec(key);
+    if (!m) return null;
+    const same = posts.filter((p) => {
+      const r = rowsBy.get(rk(p.account, p.rowId));
+      return r ? r.dir === m[1] && String(r.inn ?? '').replace(/\D/g, '') === m[2] : false;
+    });
+    if (!same.length) return null;
+    const by = new Map<string, BankPost[]>();
+    for (const p of same) by.set(combo(p), [...(by.get(combo(p)) ?? []), p]);
+    // Eng ko'p takrorlangani; teng bo'lsa — eng so'nggisi
+    const best = [...by.values()].sort((a, b) => b.length - a.length || latest(b).createdAt.localeCompare(latest(a).createdAt))[0]!;
+    return out(latest(best), 'COUNTERPARTY', best.length);
   }
 
   // ═══════════ Izoh ═══════════
@@ -751,6 +913,85 @@ export class BankAnalysisService {
   /** Turlar ro'yxati (guruh turini o'zgartirish uchun) */
   kinds() {
     return Object.entries(BANK_KIND_LABEL).map(([code, label]) => ({ code, label }));
+  }
+
+  // ═══════════ Tur qoidalari («izohda X bo'lsa → Y»; bank va faktura uchun bitta) ═══════════
+
+  async kindRules() {
+    const rules = readKindRules((await this.prisma.setting.findUnique({ where: { key: KIND_RULES_KEY } }))?.value);
+    return [...rules].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((r) => ({ ...r, kindLabel: BANK_KIND_LABEL[r.kind] }));
+  }
+
+  /** Qoida qo'shish: { text, kind, dir } — shu matn va yo'nalishdagi qoida bo'lsa, turi almashtiriladi */
+  async addKindRule(body: { text?: unknown; kind?: unknown; dir?: unknown }, userId: string) {
+    const ruleText = typeof body?.text === 'string' ? body.text.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    const [prepared] = prepareRules([{ id: '', text: ruleText, kind: 'BOSHQA', dir: null, createdAt: '', createdBy: '' }]);
+    if (!prepared) throw new BadRequestException('Matn kamida 3 ta harf yoki raqam bo‘lsin');
+    const kind = typeof body?.kind === 'string' && body.kind in BANK_KIND_LABEL ? (body.kind as BankKind) : null;
+    if (!kind) throw new BadRequestException("Tur noto'g'ri");
+    const dir: BankDir | null = body?.dir === 'OUT' || body?.dir === 'IN' ? body.dir : null;
+    const by = await this.userName(userId);
+    return runExclusive(`setting:${KIND_RULES_KEY}`, async () => {
+      const rules = readKindRules((await this.prisma.setting.findUnique({ where: { key: KIND_RULES_KEY } }))?.value);
+      const same = prepareRules(rules).find((r) => r.norm === prepared.norm && r.dir === dir);
+      if (same) {
+        rules.find((r) => r.id === same.id)!.kind = kind;
+      } else {
+        if (rules.length >= MAX_KIND_RULES) throw new BadRequestException(`Qoidalar ko'pi bilan ${MAX_KIND_RULES} ta`);
+        rules.push({ id: randomUUID(), text: ruleText, kind, dir, createdAt: new Date().toISOString(), createdBy: by });
+      }
+      const value = { rules } as unknown as object;
+      await this.prisma.setting.upsert({ where: { key: KIND_RULES_KEY }, create: { key: KIND_RULES_KEY, value }, update: { value } });
+      return { success: true as const, updated: Boolean(same), count: rules.length };
+    });
+  }
+
+  async deleteKindRule(id: string) {
+    return runExclusive(`setting:${KIND_RULES_KEY}`, async () => {
+      const rules = readKindRules((await this.prisma.setting.findUnique({ where: { key: KIND_RULES_KEY } }))?.value);
+      const rest = rules.filter((r) => r.id !== id);
+      if (rest.length === rules.length) throw new NotFoundException('Qoida topilmadi');
+      const value = { rules: rest } as unknown as object;
+      await this.prisma.setting.upsert({ where: { key: KIND_RULES_KEY }, create: { key: KIND_RULES_KEY, value }, update: { value } });
+      return { success: true as const, count: rest.length };
+    });
+  }
+
+  /**
+   * Kontragentning hamma guruhiga bitta tur: { inn, dir, kind } (kind null — siz bergan tur olib tashlanadi).
+   * Shu ombordagi hamma guruh (yuklangan qatorlar bo'yicha) va avval tur berilganlar.
+   */
+  async counterpartyKind(body: { inn?: unknown; dir?: unknown; kind?: unknown }, userId: string) {
+    const inn = String(body?.inn ?? '').replace(/\D/g, '');
+    if (inn.length !== 9) throw new BadRequestException('INN 9 raqam bo‘lsin');
+    const dir: BankDir | null = body?.dir === 'OUT' || body?.dir === 'IN' ? body.dir : null;
+    if (!dir) throw new BadRequestException("Yo'nalish noto'g'ri");
+    const kind = typeof body?.kind === 'string' && body.kind in BANK_KIND_LABEL ? (body.kind as BankKind) : null;
+    if (body?.kind !== undefined && body.kind !== null && body.kind !== '' && !kind) throw new BadRequestException("Tur noto'g'ri");
+    const by = await this.userName(userId);
+    return runExclusive(`setting:${this.key}`, async () => {
+      const store = await this.store();
+      const prefix = `${dir}|inn:${inn}|`;
+      const keys = new Set(Object.keys(store.groups).filter((k) => k.startsWith(prefix)));
+      for (const a of Object.values(store.accounts))
+        for (const m of Object.values(a.months))
+          for (const r of m.rows) {
+            const k = this.keyOf(r);
+            if (k.startsWith(prefix)) keys.add(k);
+          }
+      if (!keys.size) throw new NotFoundException(`INN ${inn} — bu yo'nalishda to'lov topilmadi`);
+      const at = new Date().toISOString();
+      for (const k of keys) {
+        const g = store.groups[k] ?? { name: null, kind: null, at, by };
+        g.kind = kind;
+        g.at = at;
+        g.by = by;
+        if (!g.name && !g.kind && !g.category) delete store.groups[k];
+        else store.groups[k] = g;
+      }
+      await this.save(store);
+      return { success: true as const, groups: keys.size, kind };
+    });
   }
 
   // ═══════════ Yo'naltirish (xarajat / daromad) ═══════════
