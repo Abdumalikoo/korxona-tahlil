@@ -128,6 +128,22 @@ assert.strictEqual(score(A, { AP1: { count: 5 } }).total, 0, 'manfiy bo‘lmaydi
   const ax = await svc.departmentOverview('AXBOROT', '2026');
   assert.ok(ax.alerts.some((x) => /rahbar biriktirilmagan/.test(x.text)));
   await assert.rejects(() => svc.departmentOverview('YOQ'), /topilmadi/);
+
+  // ── KPI demosini o'chirish: baholar, rahbar biriktirishlari, rahbarlar; boshqa sozlama va foydalanuvchiga tegmaydi ──
+  D.setting.push({ key: 'roles.labels', value: { SKLADCHI: 'Omborchi' } });
+  D.auditLog.push({ id: 'al1', userId: 'h1', action: 'LOGIN' }, { id: 'al2', userId: 'adm', action: 'UPDATE' });
+  const info = await svc.demoInfo();
+  assert.ok(info.months >= 1 && info.scored >= 1);
+  assert.deepStrictEqual([info.heads, info.users, info.codes], [1, 2, ['KP-0001', 'KP-0002']]);
+  await assert.rejects(() => svc.clearDemo(ADM, {}), /O'CHIRISH/, 'tasdiqsiz o‘chmaydi');
+  await assert.rejects(() => svc.clearDemo(ADM, { confirm: 'ha' }), /O'CHIRISH/);
+  const cleared = await svc.clearDemo(ADM, { confirm: "O'CHIRISH" });
+  assert.deepStrictEqual([cleared.deleted, cleared.blocked], [2, 0]);
+  assert.deepStrictEqual(D.setting.map((s) => s.key), ['roles.labels'], 'faqat kpi.* o‘chadi');
+  assert.deepStrictEqual(D.user.map((u) => u.id), ['adm', 'v'], 'faqat bo‘lim rahbarlari o‘chadi');
+  assert.deepStrictEqual(D.auditLog.map((a) => a.id), ['al2'], 'adminning yozuvlari qoladi');
+  const after = await svc.demoInfo();
+  assert.deepStrictEqual([after.months, after.scored, after.heads, after.users], [0, 0, 0, 0]);
   console.log('OK t-kpi');
 })().catch((e) => {
   console.error(e);

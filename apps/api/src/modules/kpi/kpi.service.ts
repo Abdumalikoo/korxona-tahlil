@@ -223,6 +223,56 @@ export class KpiService {
     return { saved: true };
   }
 
+  // ─────────── KPI demosini o'chirish (administrator) ───────────
+
+  /** Nima o'chadi: barcha baholar (kpi.eval.*), rahbar biriktirishlari (kpi.heads), «Bo'lim rahbari (KPI)» foydalanuvchilari */
+  async demoInfo() {
+    const [settings, users] = await Promise.all([
+      this.prisma.setting.findMany({ where: { key: { startsWith: 'kpi.' } }, select: { key: true, value: true } }),
+      this.prisma.user.findMany({ where: { role: UserRole.BOLIM_RAHBARI }, select: { loginCode: true }, orderBy: { loginCode: 'asc' } }),
+    ]);
+    const evals = settings.filter((s) => s.key.startsWith('kpi.eval.'));
+    const scored = evals.reduce((n, s) => n + Object.keys((s.value as unknown as MonthStore | null)?.employees ?? {}).length, 0);
+    const heads = Object.keys((settings.find((s) => s.key === HEADS_KEY)?.value as Record<string, string> | undefined) ?? {}).length;
+    return { months: evals.length, scored, heads, users: users.length, codes: users.map((u) => u.loginCode).filter((c): c is string => Boolean(c)) };
+  }
+
+  /**
+   * Hammasini o'chiradi (qaytarib bo'lmaydi; tasdiq: confirm = «O'CHIRISH»). Rahbarning o'z kirish yozuvlari (audit) ham
+   * o'chadi — foydalanuvchini o'chirish uchun shart. Agar rahbar boshqa joyda yozuv qoldirgan bo'lsa (bo'lmasligi kerak) —
+   * o'chirilmaydi, bloklanadi.
+   */
+  async clearDemo(actor: KpiActor, body: { confirm?: unknown }) {
+    if (body?.confirm !== "O'CHIRISH") throw new BadRequestException("Tasdiqlash uchun «O'CHIRISH» deb yozing");
+    const before = await this.demoInfo();
+    const users = await this.prisma.user.findMany({ where: { role: UserRole.BOLIM_RAHBARI }, select: { id: true } });
+    let deleted = 0;
+    let blocked = 0;
+    await runExclusive(`setting:${HEADS_KEY}`, async () => {
+      await this.prisma.setting.deleteMany({ where: { key: { startsWith: 'kpi.' } } });
+      for (const u of users) {
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            await tx.auditLog.deleteMany({ where: { userId: u.id } });
+            await tx.user.delete({ where: { id: u.id } });
+          });
+          deleted++;
+        } catch {
+          await this.prisma.user.update({ where: { id: u.id }, data: { isActive: false, tokenVersion: { increment: 1 } } });
+          blocked++;
+        }
+      }
+    });
+    await this.audit.log({
+      userId: actor.id,
+      action: 'DELETE',
+      entity: 'kpi',
+      entityId: 'demo',
+      summary: `KPI demosi o'chirildi: ${before.months} oylik baho (${before.scored} ta xodim bahosi), ${deleted} ta rahbar o'chirildi${blocked ? `, ${blocked} tasi bloklandi` : ''}`,
+    });
+    return { months: before.months, scored: before.scored, deleted, blocked };
+  }
+
   // ─────────── Rol sahifasi (Rollar › KPI: bo'lim) ───────────
 
   /**

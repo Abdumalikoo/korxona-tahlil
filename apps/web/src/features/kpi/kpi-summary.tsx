@@ -54,6 +54,7 @@ export function KpiSummaryPage() {
       </div>
       {res.error ? <ErrorState message={res.error} onRetry={res.reload} /> : !res.data ? <LoadingState label="Baholar yig'ilmoqda" /> : res.data.departments.map((d) => <DepartmentCard key={d.key} d={d} months={res.data!.months} />)}
       {isAdmin && <HeadsCard onToast={setToast} />}
+      {isAdmin && <DemoClearCard onToast={setToast} onDone={res.reload} />}
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
     </div>
   );
@@ -155,6 +156,83 @@ function DepartmentCard({ d, months }: { d: KpiSummary['departments'][number]; m
           </tbody>
         </table>
       </div>
+    </Card>
+  );
+}
+
+/** KPI demosini o'chirish: barcha baholar, rahbar biriktirishlari va «Bo'lim rahbari (KPI)» foydalanuvchilari (qaytarib bo'lmaydi) */
+function DemoClearCard({ onToast, onDone }: { onToast: (t: ToastState) => void; onDone: () => void }) {
+  const info = useAsync(() => kpiApi.demoInfo().then((r) => r.data), []);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const d = info.data;
+  const empty = d ? d.months + d.users + d.heads === 0 : true;
+
+  async function clear() {
+    setBusy(true);
+    try {
+      const r = (await kpiApi.clearDemo(text)).data;
+      onToast({ message: `KPI demosi o'chirildi: ${r.months} oylik baho, ${r.deleted} ta rahbar${r.blocked ? ` (${r.blocked} tasi bloklandi)` : ''}`, tone: 'success' });
+      setOpen(false);
+      setText('');
+      info.reload();
+      onDone();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'chirib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="border-(--color-expense)/30">
+      <CardHeader
+        title="KPI demosini o'chirish"
+        description="Sinov uchun kiritilgan hamma narsa: barcha oylar baholari, rahbar biriktirishlari va «Bo'lim rahbari (KPI)» foydalanuvchilari. Shablonlar (mezonlar) va xodimlar ro'yxati qoladi."
+        actions={
+          !open ? (
+            <Button variant="danger" onClick={() => setOpen(true)} disabled={empty}>
+              KPI demosini o&apos;chirish
+            </Button>
+          ) : undefined
+        }
+      />
+      <CardBody className="space-y-3 text-sm">
+        {info.error ? (
+          <p className="text-(--color-expense)">{info.error}</p>
+        ) : !d ? (
+          <p className="text-(--color-text-muted)">Yuklanmoqda…</p>
+        ) : empty ? (
+          <p className="text-(--color-text-muted)">O&apos;chiradigan narsa yo&apos;q — KPI toza.</p>
+        ) : (
+          <p className="text-heading">
+            O&apos;chadi: <b>{d.months}</b> oylik baho ({d.scored} ta xodim bahosi), <b>{d.heads}</b> ta rahbar biriktirishi, <b>{d.users}</b> ta foydalanuvchi
+            {d.codes.length ? ` (${d.codes.join(', ')})` : ''}.
+          </p>
+        )}
+        {open && !empty && (
+          <div className="rounded-(--radius-control) border border-(--color-expense)/30 bg-(--color-expense-soft) p-3">
+            <p className="font-medium text-(--color-expense)">Bu qaytarib bo&apos;lmaydi. Tasdiqlash uchun pastga O&apos;CHIRISH deb yozing.</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input value={text} onChange={(e) => setText(e.target.value)} placeholder="O'CHIRISH" aria-label="Tasdiqlash so'zi" className="h-9 w-44 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm" />
+              <Button variant="danger" onClick={() => void clear()} loading={busy} disabled={text !== "O'CHIRISH" || busy}>
+                Hammasini o&apos;chirish
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setOpen(false);
+                  setText('');
+                }}
+                disabled={busy}
+              >
+                Bekor
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardBody>
     </Card>
   );
 }

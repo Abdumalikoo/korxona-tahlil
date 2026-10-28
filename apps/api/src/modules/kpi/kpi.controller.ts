@@ -56,6 +56,21 @@ export class KpiController {
     return { data: await this.kpi.setHead(user, body) };
   }
 
+  /** KPI demosi: nima o'chishi (soni) */
+  @Roles(UserRole.ADMIN)
+  @Get('demo')
+  async demoInfo() {
+    return { data: await this.kpi.demoInfo() };
+  }
+
+  /** KPI demosini o'chirish: barcha baholar, rahbar biriktirishlari, rahbar foydalanuvchilari ({ confirm: "O'CHIRISH" }) */
+  @Roles(UserRole.ADMIN)
+  @Post('demo/clear')
+  @HttpCode(HttpStatus.OK)
+  async clearDemo(@CurrentUser() user: AuthUser, @Body() body: { confirm?: unknown }) {
+    return { data: await this.kpi.clearDemo(user, body) };
+  }
+
   /** Rollar › KPI: bo'lim dashbordi (?b=KALIT&year=YYYY) */
   @Roles(UserRole.ADMIN, UserRole.VIEWER)
   @Personal()

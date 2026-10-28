@@ -90,7 +90,18 @@ export const kpiApi = {
   summary: (from: string, to: string) => api.get<ApiResponse<KpiSummary>>('/kpi/summary', { params: { from, to } }),
   heads: () => api.get<ApiResponse<KpiHeads>>('/kpi/heads'),
   setHead: (userId: string, b: string | null) => api.put<ApiResponse<{ saved: boolean }>>('/kpi/heads', { userId, b }),
+  demoInfo: () => api.get<ApiResponse<KpiDemoInfo>>('/kpi/demo'),
+  clearDemo: (confirm: string) => api.post<ApiResponse<{ months: number; scored: number; deleted: number; blocked: number }>>('/kpi/demo/clear', { confirm }),
 };
+
+/** KPI demosini o'chirishdan oldin: nima o'chadi */
+export interface KpiDemoInfo {
+  months: number;
+  scored: number;
+  heads: number;
+  users: number;
+  codes: string[];
+}
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
