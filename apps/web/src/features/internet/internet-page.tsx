@@ -12,7 +12,7 @@ import { useAuth } from '@/lib/auth-context';
 import { formatPeriod, formatPeriodShort, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   analyzeInternetFile,
   downloadInternetTemplate,
@@ -88,6 +88,12 @@ export function InternetPage({ initialAnalysis = null }: { initialAnalysis?: Ana
         <SourceActions
           upload={{ label: "To'lovlar faylini yuklash", onClick: () => input.current?.click(), loading: busy === 'Fayl o‘qilmoqda', disabled: !!busy && busy !== 'Fayl o‘qilmoqda' }}
           template={{ label: 'Shablon', onClick: () => template(false), disabled: !!busy }}
+          // Yuklangan internet to'lovlari (shu modda, fayldan) — oy / kun / oraliq bo'yicha o'chirish
+          deleteData={
+            isAdmin && overview.data?.category.exists
+              ? { target: 'EXPENSE', scope: { sources: ['IMPORT'], categoryCode: overview.data.category.code }, place: "Xarajatlar › Internet (fayldan yuklangan to'lovlar)", onDone: () => overview.reload() }
+              : undefined
+          }
         />
         {overview.error ? (
           <Card>
@@ -488,7 +494,12 @@ function RegistryView({ overview, canSave, onUpload, onSaved, onError }: { overv
   const [contracts, setContracts] = useState<Contract[]>(overview.registry.contracts);
   const [apply, setApply] = useState(true);
   const [saving, setSaving] = useState(false);
-  useEffect(() => setContracts(overview.registry.contracts), [overview]);
+  // Ro'yxat qayta yuklansa (saqlash, fayl) — tahrir holati yangisidan boshlanadi (effektsiz: oldingi qiymat bilan solishtirib)
+  const [seen, setSeen] = useState(overview);
+  if (seen !== overview) {
+    setSeen(overview);
+    setContracts(overview.registry.contracts);
+  }
   const dirty = JSON.stringify(contracts) !== JSON.stringify(overview.registry.contracts);
   const posted = overview.posted;
   const set = (c: Contract) => setContracts((list) => list.map((x) => (x.contractNo === c.contractNo ? c : x)));
