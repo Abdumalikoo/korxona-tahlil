@@ -120,6 +120,18 @@ const { splitWithQomita } = require('../dist/modules/qomita/qomita.util');
   await svc.removeIncome(inc.id, 'u1');
   assert.strictEqual((await svc.report('2026-09', '2026-09')).rows.find((r) => r.key === 'd1').allocatedTiyin, '0');
 
+  // Ro'yxat va birdan o'chirish: qo'lda kiritilganlar o'chadi, boshqa manbadagisi — sababi bilan qoladi
+  const a1 = await svc.addIncome({ departmentId: 'd1', period: '2026-09', amount: '10' }, 'u1');
+  const a2 = await svc.addIncome({ departmentId: 'd1', period: '2026-09', amount: '7' }, 'u1');
+  const list = await svc.incomes('2026-09', '2026-09');
+  assert.ok(list.find((x) => x.id === a1.id).canDelete, 'qo‘lda — o‘chiriladi');
+  assert.strictEqual(list.find((x) => x.id === 'i9').canDelete, false, 'boshqa manba — yo‘q');
+  const bulk = await svc.removeIncomes({ ids: [a1.id, a2.id, 'i9'] }, 'u1');
+  assert.strictEqual(bulk.removed, 2);
+  assert.deepStrictEqual(bulk.failed.map((f) => f.id), ['i9']);
+  assert.ok(!(await svc.incomes('2026-09', '2026-09')).some((x) => x.id === a1.id || x.id === a2.id), 'o‘chirildi');
+  await assert.rejects(svc.removeIncomes({ ids: [] }, 'u1'), /tanlang/);
+
   // ── 4. Bank: Qo'mitadan kelgan kirimlar topiladi, yo'naltirilgani chiqmaydi
   T.setting.push({ key: 'bank.analysis.store', value: { accounts: { A1: { key: 'A1', label: 'Hisob …12345', months: { '2026-09': { rows: [
     { id: 'r1', docDate: '2026-09-05', docNo: '11', accountName: 'Namuna qo‘mitasi', inn: '200000001', dir: 'IN', amountTiyin: '500000', purpose: 'Call-markaz xarajatlari uchun' },

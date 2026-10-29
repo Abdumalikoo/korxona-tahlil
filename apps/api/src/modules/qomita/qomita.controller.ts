@@ -46,6 +46,19 @@ export class QomitaController {
     return { data: await this.qomita.addIncome(body, userId) };
   }
 
+  /** Davrdagi hamma ajratmalar (?from=YYYY-MM&to=YYYY-MM) — o'chirish ro'yxati */
+  @Get('incomes')
+  async incomes(@Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.qomita.incomes(from, to) };
+  }
+
+  /** Bir nechta ajratmani o'chirish: { ids } (yumshoq — Savatdan tiklanadi; bankdan yo'naltirilgani — yo'naltirish bekor qilinadi) */
+  @Post('income/remove-many')
+  @Roles(UserRole.ADMIN)
+  async removeIncomes(@Body() body: { ids?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.qomita.removeIncomes(body, userId) };
+  }
+
   @Delete('income/:id')
   @Roles(UserRole.ADMIN)
   async removeIncome(@Param('id') id: string, @CurrentUser('id') userId: string) {

@@ -75,6 +75,19 @@ export interface QomitaBankRow {
   matched: boolean;
 }
 
+/** Qo'mita ajratmasi — o'chirish ro'yxati uchun */
+export interface QomitaIncomeRow {
+  id: string;
+  date: string;
+  period: string;
+  amountTiyin: string;
+  department: string;
+  description: string | null;
+  documentNo: string | null;
+  origin: 'BANK' | 'MANUAL' | 'FILE' | 'KASSA' | 'OTHER';
+  canDelete: boolean;
+}
+
 export const qomitaApi = {
   config: () => api.get<ApiResponse<QomitaConfigView>>('/qomita/config'),
   saveItem: (body: { departmentId: string; components: string[]; categories: string[]; note?: string }) =>
@@ -84,6 +97,10 @@ export const qomitaApi = {
   detail: (key: string, from: string, to: string) => api.get<ApiResponse<QomitaDetail>>(`/qomita/detail/${encodeURIComponent(key)}`, { params: { from, to } }),
   addIncome: (body: { departmentId: string; period: string; date?: string; amount: string; description?: string }) => api.post<ApiResponse<{ id: string; amountTiyin: string }>>('/qomita/income', body),
   removeIncome: (id: string) => api.delete<ApiResponse<{ removed: boolean }>>(`/qomita/income/${encodeURIComponent(id)}`),
+  /** Davrdagi hamma ajratmalar (o'chirish ro'yxati) */
+  incomes: (from: string, to: string) => api.get<ApiResponse<QomitaIncomeRow[]>>('/qomita/incomes', { params: { from, to } }),
+  /** Bir nechta ajratmani o'chirish (Savatdan tiklanadi; bankdan yo'naltirilgani — yo'naltirish bekor qilinadi) */
+  removeIncomes: (ids: string[]) => api.post<ApiResponse<{ removed: number; failed: { id: string; message: string }[] }>>('/qomita/income/remove-many', { ids }),
   bank: (q?: string) => api.get<ApiResponse<{ total: number; items: QomitaBankRow[] }>>('/qomita/bank', { params: q ? { q } : {} }),
   bankRoute: (body: { items: { account: string; rowId: string }[]; departmentId: string; description?: string; skipDuplicates?: boolean; force?: boolean }) =>
     api.post<ApiResponse<{ count: number; totalTiyin: string; skipped: number }>>('/qomita/bank', body),

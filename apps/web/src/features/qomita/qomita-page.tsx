@@ -19,6 +19,7 @@ import { createPortal } from 'react-dom';
 import { qomitaApi, type QomitaDetail, type QomitaRowView } from './api';
 import { Section3802View, SECTIONS_3802, type Section3802 } from './qomita-3802';
 import { QomitaBankCard, QomitaIncomeDrawer } from './qomita-income';
+import { QomitaRemoveDrawer } from './qomita-remove';
 import { SarfSection } from './qomita-sarf';
 import { QomitaSettingsCard } from './qomita-settings';
 import { QomitaStatementCard } from './qomita-statement';
@@ -47,6 +48,8 @@ export function QomitaPage() {
   const cfg = useAsync(() => qomitaApi.config().then((r) => r.data), []);
   const rep = useAsync(() => (range.error ? Promise.resolve(null) : qomitaApi.report(range.from, range.to).then((r) => r.data)), [range.from, range.to, range.error]);
   const [incomeOpen, setIncomeOpen] = useState<string | null>(null);
+  /** «O'chirish» oynasi: davrdagi ajratmalarni belgilab o'chirish */
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const reloadAll = () => {
     rep.reload();
@@ -63,9 +66,14 @@ export function QomitaPage() {
         description="Qo'mitadan kelgan pullar (daromad): bo'limlar bo'yicha, oyma-oy — bankdan yoki qo'lda"
         actions={
           isAdmin && (cfg.data?.departments.length ?? 0) > 0 ? (
-            <Button size="sm" onClick={() => setIncomeOpen(items[0]?.departmentId ?? '')}>
-              + Ajratma kiritish
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" className="text-red-700 hover:text-red-800" disabled={Boolean(range.error)} onClick={() => setRemoveOpen(true)} title="Davrdagi Qo'mita ajratmalarini belgilab o'chirish (Savatdan tiklash mumkin)">
+                O&apos;chirish
+              </Button>
+              <Button size="sm" onClick={() => setIncomeOpen(items[0]?.departmentId ?? '')}>
+                + Ajratma kiritish
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -108,6 +116,18 @@ export function QomitaPage() {
             setToast({ message: msg, tone: 'success' });
             reloadAll();
           }}
+        />
+      )}
+      {removeOpen && !range.error && (
+        <QomitaRemoveDrawer
+          from={range.from}
+          to={range.to}
+          onClose={() => setRemoveOpen(false)}
+          onDone={() => {
+            setRemoveOpen(false);
+            reloadAll();
+          }}
+          setToast={setToast}
         />
       )}
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}

@@ -519,6 +519,60 @@ export class QomitaService {
    * Kassadan yozilgan farq qatori bu yerda o'chirilmaydi — u kassa bo'yicha hisoblanadi.
    */
   async removeIncome(id: string, userId: string) {
+    const period = await this.removeOne(id, userId);
+    await this.resyncKassa(userId, [period]);
+    return { removed: true };
+  }
+
+  /** Bir nechta ajratmani birdan o'chirish (Qo'mita mablag'lari › «O'chirish»): kassa farqi oxirida bir marta qayta hisoblanadi */
+  async removeIncomes(body: { ids?: unknown }, userId: string) {
+    const ids = Array.isArray(body?.ids) ? [...new Set(body.ids.map(String))].slice(0, 500) : [];
+    if (!ids.length) throw new BadRequestException("O'chiriladigan ajratmalarni tanlang");
+    const periods: string[] = [];
+    const failed: { id: string; message: string }[] = [];
+    for (const id of ids) {
+      try {
+        periods.push(await this.removeOne(id, userId));
+      } catch (e) {
+        failed.push({ id, message: (e as Error).message });
+      }
+    }
+    if (periods.length) await this.resyncKassa(userId, periods);
+    return { removed: periods.length, failed };
+  }
+
+  /** Davrdagi hamma Qo'mita ajratmalari (o'chirish ro'yxati uchun): bo'lim, manba, o'chirsa bo'ladimi */
+  async incomes(from: string, to: string) {
+    const months = this.range(from, to);
+    const [rows, cats, store] = await Promise.all([
+      this.prisma.income.findMany({
+        where: { segment: QOMITA_SEGMENT, deletedAt: null, period: { in: months } },
+        select: { id: true, date: true, period: true, amountTiyin: true, categoryCode: true, description: true, contractNo: true, source: true, importBatchId: true },
+        orderBy: [{ period: 'asc' }, { date: 'asc' }],
+      }),
+      this.prisma.incomeCategory.findMany({ where: { code: { startsWith: QOMITA_INCOME_PREFIX } }, select: { code: true, label: true } }),
+      this.prisma.setting.findUnique({ where: { key: BANK_ANALYSIS_KEY } }),
+    ]);
+    const bankIds = new Set((readStore(store?.value).posts ?? []).filter((p) => p.status === 'POSTED').map((p) => p.entryId));
+    const label = new Map(cats.map((c) => [c.code, c.label.replace(/^Qo'mita ajratmasi:\s*/, '')]));
+    return rows.map((i) => {
+      const origin = i.importBatchId?.startsWith('kassa:') ? ('KASSA' as const) : bankIds.has(i.id) ? ('BANK' as const) : i.source === 'MANUAL' ? ('MANUAL' as const) : i.importBatchId?.startsWith(QOMITA_BANK_TAG) ? ('FILE' as const) : ('OTHER' as const);
+      return {
+        id: i.id,
+        date: i.date.toISOString().slice(0, 10),
+        period: i.period,
+        amountTiyin: i.amountTiyin.toString(),
+        department: label.get(i.categoryCode) ?? i.categoryCode,
+        description: i.description,
+        documentNo: i.contractNo,
+        origin,
+        canDelete: origin === 'MANUAL' || origin === 'FILE' || origin === 'BANK',
+      };
+    });
+  }
+
+  /** Bitta ajratmani o'chirish (kassa qayta hisoblanmaydi) — o'chirilgan oy qaytadi */
+  private async removeOne(id: string, userId: string): Promise<string> {
     const income = await this.prisma.income.findUnique({ where: { id }, select: { id: true, segment: true, source: true, deletedAt: true, amountTiyin: true, period: true, categoryCode: true, importBatchId: true } });
     if (!income || income.deletedAt || income.segment !== QOMITA_SEGMENT) throw new NotFoundException('Yozuv topilmadi');
     if (income.importBatchId?.startsWith('kassa:')) throw new BadRequestException("Bu qator kunlik ma'lumotnomadan (kassa farqi) — Buxgalteriya › Markaz daromadlari sahifasida hisoblanadi");
@@ -530,8 +584,7 @@ export class QomitaService {
       await this.prisma.income.update({ where: { id }, data: { deletedAt: new Date() } });
     }
     await this.audit.log({ userId, action: 'DELETE', entity: 'qomita_income', entityId: id, summary: `Qo'mita ajratmasi o'chirildi${post ? " (bank yo'naltirishi bekor qilindi)" : ''}: ${income.period}, ${(Number(income.amountTiyin) / 100).toLocaleString('uz-UZ')} so'm` });
-    await this.resyncKassa(userId, [income.period]);
-    return { removed: true };
+    return income.period;
   }
 
   // ═══════════ Daromad: bank ko'chirmasidan ═══════════
