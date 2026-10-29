@@ -590,6 +590,7 @@ export function ExpenseList({ section, unit = null }: { section: SectionValue; u
         departments={departments.data?.data ?? []}
         onClose={() => setSelected(null)}
         onSaved={handleSaved}
+        onCategoryCreated={categoryLeaves.reload}
       />
 
       <ConfirmDialog

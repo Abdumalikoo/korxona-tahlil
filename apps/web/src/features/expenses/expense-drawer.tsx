@@ -55,6 +55,8 @@ interface ExpenseDrawerProps {
   onClose: () => void;
   /** Saqlash yoki o'chirishdan keyin ro'yxatni yangilash uchun */
   onSaved: (message: string) => void;
+  /** «+» bilan yangi modda qo'shilgach — moddalar ro'yxatini qayta yuklash */
+  onCategoryCreated?: () => void;
 }
 
 interface FormState {
@@ -103,6 +105,7 @@ export function ExpenseDrawer({
   departments,
   onClose,
   onSaved,
+  onCategoryCreated,
 }: ExpenseDrawerProps) {
   const { isAdmin } = useAuth();
 
@@ -355,6 +358,7 @@ export function ExpenseDrawer({
             error={errors.categoryCode}
             required
             disabled={saving || readOnly}
+            onCreated={() => onCategoryCreated?.()}
           />
 
           <MoneyInput

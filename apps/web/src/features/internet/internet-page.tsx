@@ -1,5 +1,6 @@
 'use client';
 
+import { ModdaPicker } from '@/components/shared/modda-picker';
 import { SourceActions } from '@/components/shared/source-actions';
 
 import { PageHeader } from '@/components/layout/page-header';
@@ -448,14 +449,14 @@ function AnalysisView({
             Qayta yuklansa — avval yozilganlar ikki marta yozilmaydi.
           </p>
           <label className="mt-3 block text-xs font-medium text-(--color-text-muted)">Xarajat moddasi</label>
-          <select className={cn(INPUT, 'mt-1')} value={category} onChange={(e) => setCategory(e.target.value)} disabled={!canSave}>
-            {!overview.category.exists && <option value="">«Internet to&apos;lovlari» (yangi modda yaratiladi)</option>}
-            {lookups.categories.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+          <ModdaPicker
+            className="mt-1"
+            options={lookups.categories}
+            value={category}
+            onChange={setCategory}
+            disabled={!canSave}
+            emptyLabel={overview.category.exists ? undefined : "«Internet to'lovlari» (yangi modda yaratiladi)"}
+          />
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
             <span className="rounded-full bg-(--color-surface-muted) px-3 py-1">
               Yangi: <b className="tabular-nums">{fresh.length}</b> ta · <b className="tabular-nums">{short(freshTotal.toString())}</b>

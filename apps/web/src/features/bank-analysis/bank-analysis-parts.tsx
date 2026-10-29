@@ -8,9 +8,8 @@ import { Drawer } from '@/components/ui/drawer';
 import { IconAlert, IconSearch } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { ErrorState, LoadingState } from '@/components/ui/states';
-import { QuickCategoryDialog } from '@/components/shared/quick-category-dialog';
-import { referencesApi } from '@/features/shared/references';
-import { CENTER_GENERAL, choiceReady, useChoiceLabel, type MoveChoice } from '@/features/unit-payroll/place-picker';
+import { ModdaPicker } from '@/components/shared/modda-picker';
+import { CENTER_GENERAL, choiceReady, PlacePicker, useChoiceLabel, type MoveChoice } from '@/features/unit-payroll/place-picker';
 import { unitCategoriesApi, useUnitCategories } from '@/features/units/api';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
@@ -725,14 +724,19 @@ function choiceOf(s: RouteSuggestion | null): MoveChoice {
 /** Yo'naltirish paneli: guruh tafsilotida va «Ajralib turganlar»da (group — faqat yo'nalish, takrorlanish va nom kerak) */
 export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, onToast, onDone }: { group: Pick<BankGroup, 'dir' | 'pattern' | 'name'>; suggestion: RouteSuggestion | null; items: BankItem[]; totalTiyin: string; beforeRoute: () => Promise<boolean>; onToast: ToastFn; onDone: () => void }) {
   const { api } = useSource();
-  // Qo'lda faqat modda tanlanadi. Qolgani avtomatik: joy — oldingi yo'naltirishdan taklif yoki Markaz › Umumiy;
-  // bo'lim — taklif yoki takrorlanishi (muntazam — Doimiy, boshqasi — Boshqa); izoh — to'lovga yozilgan izoh → guruh nomi → bankdagi izoh.
-  const [choice] = useState<MoveChoice>(() => choiceOf(suggestion));
+  // Boshlang'ich qiymat — oldingi yo'naltirishdan taklif, bo'lmasa Markaz › Umumiy; o'zgartirish yoki tozalash mumkin
+  const [choice, setChoice] = useState<MoveChoice>(() => choiceOf(suggestion));
   const [category, setCategory] = useState(suggestion?.categoryCode ?? '');
-  const section: 'DOIMIY' | 'BOSHQA' = suggestion?.section ?? (group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA');
-  // «+» — yangi xarajat moddasi (doimiy ro'yxatga, manbada qoladi)
-  const [quickOpen, setQuickOpen] = useState(false);
-  const tree = useAsync(() => (group.dir === 'OUT' ? referencesApi.expenseTree().then((r) => r.data) : Promise.resolve(null)), [group.dir]);
+  // Muntazam — Doimiy; bir martalik va vaqti-vaqti bilan — Boshqa (o'zgartirish mumkin)
+  const [section, setSection] = useState<'DOIMIY' | 'BOSHQA'>(suggestion?.section ?? (group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA'));
+  const [usedSuggestion, setUsedSuggestion] = useState(Boolean(suggestion));
+  const clearSuggestion = () => {
+    setChoice(CENTER_GENERAL);
+    setCategory('');
+    setSection(group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA');
+    setUsedSuggestion(false);
+  };
+  const [description, setDescription] = useState('');
   const unitLists = useUnitCategories('expense');
   const [check, setCheck] = useState<BankCheck | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -782,6 +786,7 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
           place: { unit: choice.target, ...choice.place },
           categoryCode: cat,
           section,
+          description: description.trim() || undefined,
           skipDuplicates: mode === 'skip',
           force: mode === 'force',
         })
@@ -789,6 +794,7 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
       onToast({ message: r.count ? `${ENTRY_LABEL[r.entryType]} yozildi: ${r.count} ta · ${formatTiyin(r.totalTiyin)} so'm → ${r.place}${r.skipped ? ` · ${r.skipped} tasi o'tkazib yuborildi (yozuvi bor edi)` : ''}` : 'Hech narsa yozilmadi — hammasining yozuvi bor ekan', tone: 'success' });
       setConfirm(false);
       setCheck(null);
+      setDescription('');
       onDone();
     } catch (err) {
       onToast({ message: errorMessage(err, 'Yo‘naltirib bo‘lmadi'), tone: 'error' });
@@ -803,14 +809,45 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
       <p className="font-semibold text-heading">
         Tanlangan: {items.length} ta · <span className="money">{formatTiyin(totalTiyin)}</span> so&apos;m → {what} sifatida yo&apos;naltirish
       </p>
-      {/* Avtomatik: joy, bo'lim, izoh — qo'lda kiritilmaydi */}
-      <p className="text-(--color-text-muted)">
-        Avtomatik: <b className="text-heading">{placeLabel}</b> · {section === 'DOIMIY' ? 'Doimiy' : 'Boshqa'} · izoh — to&apos;lovga yozilgan izoh, bo&apos;lmasa {group.name ? `«${group.name}»` : 'bankdagi izoh'}
-        {suggestion ? ` (oxirgi marta ${formatDate(suggestion.at)} da shunday yo'naltirilgan)` : ''}
-      </p>
+      {suggestion && usedSuggestion && (
+        <p className="flex flex-wrap items-center gap-1.5 rounded-(--radius-control) border border-brand-200 bg-brand-50/50 px-2 py-1 text-(--color-text-muted)">
+          <span>
+            Taklif ({suggestion.basis === 'GROUP' ? 'shu guruhni' : 'shu kontragentni'} oxirgi marta {formatDate(suggestion.at)} da shunday yo&apos;naltirgansiz
+            {suggestion.count > 1 ? `, ${suggestion.count} marta` : ''}): <b className="text-heading">{suggestion.place.label}</b> · {suggestion.categoryLabel} · {suggestion.section === 'DOIMIY' ? 'Doimiy' : 'Boshqa'}
+          </span>
+          <button type="button" className="font-medium text-brand-700 hover:underline" onClick={clearSuggestion}>
+            Tozalash
+          </button>
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
-        <select value={cat} onChange={(e) => setCategory(e.target.value)} disabled={!ready || opts.loading} className={cn(INPUT, 'max-w-80 min-w-56 flex-1')} aria-label={group.dir === 'OUT' ? 'Xarajat moddasi' : 'Daromad turi'}>
-          <option value="">{opts.loading ? 'Yuklanmoqda…' : group.dir === 'OUT' ? 'Xarajat moddasi…' : 'Daromad turi…'}</option>
+        {/* Avval joy: Markaz (bo'limi yoki Umumiy), Hududlar, yo'nalishlar */}
+        <PlacePicker value={choice} onChange={setChoice} allowGeneral />
+        {group.dir === 'OUT' ? (
+          // Xarajat moddasi: yozilganda avtomatik qidiradi; «+» — yangi modda (doimiy ro'yxatga, manbada qoladi)
+          <ModdaPicker
+            size="sm"
+            className="max-w-80 min-w-56 flex-1"
+            options={cats}
+            value={cat}
+            onChange={setCategory}
+            disabled={!ready || opts.loading}
+            placeholder={!ready ? 'Avval joyni tanlang' : opts.loading ? 'Yuklanmoqda…' : 'Xarajat moddasi…'}
+            onCreated={async (created) => {
+              try {
+                // Joyning ro'yxati cheklangan bo'lsa — yangi modda unga ham qo'shiladi (aks holda yo'naltirib bo'lmaydi)
+                if (opts.data?.limited) await unitCategoriesApi.set('expense', choice.target, [...(unitLists.lists.get(choice.target) ?? []), created.code]);
+                unitLists.reload();
+                opts.reload();
+                onToast({ message: `Modda qo'shildi: «${created.label}» — tanlandi`, tone: 'success' });
+              } catch (err) {
+                onToast({ message: errorMessage(err, "Moddani bo'lim ro'yxatiga qo'shib bo'lmadi"), tone: 'error' });
+              }
+            }}
+          />
+        ) : (
+        <select value={cat} onChange={(e) => setCategory(e.target.value)} disabled={!ready || opts.loading} className={cn(INPUT, 'max-w-72')} aria-label="Daromad turi">
+          <option value="">{!ready ? 'Avval joyni tanlang' : opts.loading ? 'Yuklanmoqda…' : 'Daromad turi…'}</option>
           {groups.map(([g, list]) =>
             g ? (
               <optgroup key={g} label={g}>
@@ -829,16 +866,22 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
             ),
           )}
         </select>
-        {group.dir === 'OUT' && (
-          <Button size="sm" variant="secondary" onClick={() => setQuickOpen(true)} title="Ro'yxatda yo'q modda — yangi qo'shish (manbadagi moddalar ro'yxatida doim qoladi)" aria-label="Yangi xarajat moddasi">
-            +
-          </Button>
         )}
+        {!excluded && (
+          <select value={section} onChange={(e) => setSection(e.target.value === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY')} className={INPUT} aria-label="Tur">
+            <option value="DOIMIY">Doimiy</option>
+            <option value="BOSHQA">Boshqa (bir martalik)</option>
+          </select>
+        )}
+      </div>
+      {excluded && <p className="text-amber-700">Daromad emas: «Daromadlar › Hisobga olinmaydi»ga yoziladi — jami daromad, natija va hisobotlarga qo&apos;shilmaydi.</p>}
+      {ready && opts.data?.limited && <p className="text-(--color-text-faint)">Faqat «{placeLabel}» ro&apos;yxatidagi moddalar ko&apos;rsatilmoqda («+» bilan qo&apos;shilgan modda shu ro&apos;yxatga ham yoziladi).</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} placeholder={group.name ? `Umumiy izoh (bo'sh bo'lsa — «${group.name}»)` : "Umumiy izoh (o'z izohi yozilmagan to'lovlar uchun, ixtiyoriy)"} className={cn(INPUT, 'min-w-64 flex-1')} />
         <Button loading={busy} disabled={!can} onClick={() => void start()}>
           Yo&apos;naltirish ({items.length})
         </Button>
       </div>
-      {excluded && <p className="text-amber-700">Daromad emas: «Daromadlar › Hisobga olinmaydi»ga yoziladi — jami daromad, natija va hisobotlarga qo&apos;shilmaydi.</p>}
       {confirm && dups.length > 0 && (
         <div className="space-y-2 rounded-(--radius-control) border border-(--color-warn) bg-(--color-warn-soft) p-3">
           <p className="flex items-center gap-1.5 font-semibold text-(--color-warn)">
@@ -886,26 +929,6 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
         loading={busy}
         onConfirm={() => void run('normal')}
         onCancel={() => setConfirm(false)}
-      />
-      {/* Yangi xarajat moddasi — doimiy moddalar ro'yxatiga (manbada qoladi); joyning ro'yxati cheklangan bo'lsa — unga ham */}
-      <QuickCategoryDialog
-        open={quickOpen}
-        groups={(tree.data ?? []).map((g) => ({ code: g.code, label: g.label }))}
-        onClose={() => setQuickOpen(false)}
-        onCreated={(created) => {
-          void (async () => {
-            try {
-              if (opts.data?.limited) await unitCategoriesApi.set('expense', choice.target, [...(unitLists.lists.get(choice.target) ?? []), created.code]);
-              unitLists.reload();
-              opts.reload();
-              setCategory(created.code);
-              setQuickOpen(false);
-              onToast({ message: `Modda qo'shildi: «${created.label}» — tanlandi`, tone: 'success' });
-            } catch (err) {
-              onToast({ message: errorMessage(err, "Moddani bo'lim ro'yxatiga qo'shib bo'lmadi"), tone: 'error' });
-            }
-          })();
-        }}
       />
     </div>
   );

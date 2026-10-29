@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Drawer } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
+import { ModdaPicker, useExpenseGroups } from '@/components/shared/modda-picker';
 import { Select } from '@/components/ui/select';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
@@ -58,6 +59,7 @@ export function ItemForm({
 
   const categories = lookups?.categories ?? [];
   const warehouseCats = categories.filter((c) => c.parentCode === 'WAREHOUSE');
+  const groupLabels = useExpenseGroups();
 
   useEffect(() => {
     if (!open) return;
@@ -130,11 +132,8 @@ export function ItemForm({
     }
   };
 
-  const categoryOptions = [
-    { value: '', label: '— moddani tanlang —' },
-    ...warehouseCats.map((c) => ({ value: c.code, label: `Ombor › ${c.label}` })),
-    ...categories.filter((c) => c.parentCode !== 'WAREHOUSE').map((c) => ({ value: c.code, label: c.label })),
-  ];
+  // Avval ombor moddalari, keyin qolganlari — o'z guruhi bilan
+  const categoryOptions = [...warehouseCats.map((c) => ({ code: c.code, label: c.label, group: 'Ombor' })), ...categories.filter((c) => c.parentCode !== 'WAREHOUSE').map((c) => ({ code: c.code, label: c.label, group: (c.parentCode && groupLabels?.labels.get(c.parentCode)) || null }))];
 
   return (
     <>
@@ -229,11 +228,12 @@ export function ItemForm({
             />
           </div>
 
-          <Select
+          <ModdaPicker
             label="Xarajat moddasi"
             value={categoryCode}
-            onChange={(e) => setCategoryCode(e.target.value)}
+            onChange={setCategoryCode}
             options={categoryOptions}
+            placeholder="— moddani tanlang —"
             hint="Kirim summasi Xarajatlarga shu modda bilan yoziladi"
             disabled={!isAdmin}
           />

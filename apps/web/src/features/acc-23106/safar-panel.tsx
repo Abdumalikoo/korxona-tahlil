@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { IconAlert, IconSearch } from '@/components/ui/icons';
+import { ModdaPicker } from '@/components/shared/modda-picker';
 import { Money } from '@/components/ui/money';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { choiceReady, EMPTY_CHOICE, PlacePicker, useChoiceLabel, type MoveChoice } from '@/features/unit-payroll/place-picker';
@@ -341,16 +342,10 @@ export function SafarPanel({ from, to, rangeText, disabled, isAdmin, reloadKey, 
 
         {isAdmin && counts.PENDING > 0 && (
           <div className="flex flex-wrap items-center gap-3 border-t border-(--color-line) bg-(--color-surface-muted) px-5 py-3">
-            <label className="flex items-center gap-2 text-sm">
+            <div className="flex items-center gap-2 text-sm">
               <span className="text-(--color-text-muted)">Modda:</span>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm focus:border-brand-600 focus:outline-none">
-                {v.categories.options.map((o) => (
-                  <option key={o.code} value={o.code}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <ModdaPicker size="sm" className="w-72" options={v.categories.options} value={category} onChange={setCategory} />
+            </div>
             <span className="ml-auto text-sm text-(--color-text-muted)">
               Belgilangan: <b className="text-heading">{selected.length}</b> ta · <span className="money font-semibold text-heading">{formatTiyin(selectedTotal.toString())}</span> so&apos;m
             </span>

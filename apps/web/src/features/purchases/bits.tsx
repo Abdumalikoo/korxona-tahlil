@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Drawer } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
+import { ModdaPicker } from '@/components/shared/modda-picker';
 import { Select } from '@/components/ui/select';
 import { errorMessage } from '@/lib/error-message';
 import { formatSum, parseSum } from '@/lib/format';
@@ -144,7 +145,8 @@ export function NewItemDrawer({ open, initialName, lookups, onClose, onCreated }
           <Select label="Turi" value={kind} onChange={(e) => setKind(e.target.value as 'TMZ' | 'ASSET')} options={[{ value: 'TMZ', label: 'TMZ (sarflanadi)' }, { value: 'ASSET', label: 'Asosiy vosita' }]} />
           <Select label="O'lchov" value={unit} onChange={(e) => setUnit(e.target.value)} options={(lookups?.units ?? ['dona']).map((u) => ({ value: u, label: u }))} />
         </div>
-        <Select label="Xarajat moddasi" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Tanlang" options={cats.map((c) => ({ value: c.code, label: c.label }))} hint="Tovar omborga kirganda shu moddaga yoziladi" />
+        {/* Yangi modda — «Ombor» guruhiga (shu ro'yxat faqat ombor moddalari) */}
+        <ModdaPicker label="Xarajat moddasi" value={category} onChange={setCategory} placeholder="Tanlang" options={cats.map((c) => ({ code: c.code, label: c.label, group: 'Ombor' }))} createGroups={[{ code: 'WAREHOUSE', label: 'Ombor' }]} hint="Tovar omborga kirganda shu moddaga yoziladi" />
         <Input label="Guruh (ixtiyoriy)" value={group} onChange={(e) => setGroup(e.target.value)} list="xr-groups" placeholder="Kanselyariya, Mebel, ..." />
         <datalist id="xr-groups">{(lookups?.groups ?? []).map((g) => <option key={g} value={g} />)}</datalist>
         {error && <p className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2 text-sm text-(--color-expense)">{error}</p>}

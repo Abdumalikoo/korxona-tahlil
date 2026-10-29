@@ -1,5 +1,6 @@
 'use client';
 
+import { ModdaPicker } from '@/components/shared/modda-picker';
 import { PageHeader } from '@/components/layout/page-header';
 import { DeleteDataButton } from '@/components/shared/delete-data';
 import { Button } from '@/components/ui/button';
@@ -66,14 +67,6 @@ export function RegionalExpenses() {
     }
     return [...m.entries()].sort((a, b) => (b[1].total > a[1].total ? 1 : -1));
   }, [all]);
-  const groups = useMemo(() => {
-    const m = new Map<string, { code: string; label: string }[]>();
-    for (const c of lookups?.categories ?? []) {
-      const k = c.group ?? 'Boshqa';
-      m.set(k, [...(m.get(k) ?? []), c]);
-    }
-    return [...m.entries()];
-  }, [lookups]);
 
   const open = (e?: RdExpense) =>
     setForm(
@@ -291,18 +284,7 @@ export function RegionalExpenses() {
             )}
             <div>
               <Label>Xarajat moddasi</Label>
-              <select value={form.categoryCode} onChange={(e) => setForm({ ...form, categoryCode: e.target.value })} className={FIELD}>
-                <option value="">— tanlang —</option>
-                {groups.map(([g, items]) => (
-                  <optgroup key={g} label={g}>
-                    {items.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <ModdaPicker options={lookups?.categories ?? []} value={form.categoryCode} onChange={(code) => setForm({ ...form, categoryCode: code })} placeholder="— tanlang —" onCreated={lk.reload} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

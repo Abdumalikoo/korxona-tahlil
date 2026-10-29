@@ -65,8 +65,9 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
   const [cancelling, setCancelling] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Sahifa: «Yuklash» (fayl, tekshiruv, saqlash, yuklashlar tarixi) yoki «Tahlil va saqlash» (saqlangan hamma narsa)
-  const [page, setPage] = useState<'UPLOAD' | 'ANALYSIS'>('ANALYSIS');
+  // Sahifa: «Yuklash» (fayl, tekshiruv, saqlash, yuklashlar tarixi), «Tahlil va saqlash» (saqlangan hamma narsa)
+  // yoki «Aniqlashtirish» (aniq tahlil talab qiladigan to'lovlar — tuzatib kiritish uchun)
+  const [page, setPage] = useState<'UPLOAD' | 'ANALYSIS' | 'CLARIFY'>('ANALYSIS');
 
   const view = useAsync(() => (range.error ? Promise.resolve(null) : api.view(range.from, range.to, account).then((r) => r.data)), [range.from, range.to, range.error, account]);
   const batches = useAsync(() => api.batches().then((r) => r.data), []);
@@ -157,10 +158,12 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
           [
             ['UPLOAD', 'Yuklash', isAdmin ? (inv ? 'Fakturalar reyestri: o‘qish, tekshirish, saqlash' : "Ko'chirma: o'qish, tekshirish, saqlash") : 'Yuklashlar tarixi'],
             ['ANALYSIS', 'Tahlil va saqlash', "Saqlangan hamma ma'lumot: oyma-oy, guruhlar, ajralib turganlar, xarajatga yuborish"],
+            ['CLARIFY', 'Aniqlashtirish', "Aniq tahlil talab qiladigan to'lovlar: tekshirib, izoh yozib yo'naltirish"],
           ] as const
         ).map(([p, label, hint]) => (
-          <button key={p} type="button" title={hint} onClick={() => setPage(p)} disabled={Boolean(analysis) && p === 'ANALYSIS'} className={cn('-mb-px border-b-2 px-5 py-2.5 text-sm font-semibold disabled:opacity-50', shownPage === p ? 'border-brand-600 text-brand-800' : 'border-transparent text-(--color-text-muted) hover:text-heading')}>
+          <button key={p} type="button" title={hint} onClick={() => setPage(p)} disabled={Boolean(analysis) && p !== 'UPLOAD'} className={cn('-mb-px border-b-2 px-5 py-2.5 text-sm font-semibold disabled:opacity-50', shownPage === p ? 'border-brand-600 text-brand-800' : 'border-transparent text-(--color-text-muted) hover:text-heading')}>
             {label}
+            {p === 'CLARIFY' && v && v.totals.clarify > 0 && <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[11px] text-white">{v.totals.clarify}</span>}
           </button>
         ))}
         {analysis && <span className="ml-3 text-xs text-(--color-warn)">Fayl o&apos;qildi — saqlang yoki bekor qiling</span>}
@@ -338,9 +341,9 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
       </>
       )}
 
-      {shownPage === 'ANALYSIS' && (
+      {shownPage !== 'UPLOAD' && (
       <>
-      {/* Saqlangan — tanlangan davr */}
+      {/* Saqlangan — tanlangan davr (Tahlil va Aniqlashtirish uchun umumiy) */}
       <MonthRangeCard range={range} />
       {v && v.accounts.length > 1 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -359,6 +362,8 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
         <LoadingState />
       ) : view.error ? (
         <ErrorState message={view.error} onRetry={view.reload} />
+      ) : v && v.totals.rows > 0 && shownPage === 'CLARIFY' ? (
+        <ClarifyPage v={v} defaultDir={defaultDir} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
       ) : v && v.totals.rows > 0 ? (
         <Analysis v={v} defaultDir={defaultDir} rangeText={range.text} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
       ) : (
@@ -375,7 +380,7 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
       )}
 
       {/* Yo'naltirishlar tarixi */}
-      <PostsHistory list={posts.data ?? []} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />
+      {shownPage === 'ANALYSIS' && <PostsHistory list={posts.data ?? []} isAdmin={isAdmin} onToast={setToast} onChanged={() => { view.reload(); posts.reload(); }} />}
 
       </>
       )}
@@ -437,6 +442,36 @@ function BatchesCard({ list, isAdmin, onCancel }: { list: BankBatch[]; isAdmin: 
 }
 
 // ═══════════ Tahlil ═══════════
+
+/** «Aniqlashtirish» sahifasi: tanlangan davrdagi aniq tahlil talab qiladigan to'lovlar (nomma-nom, chiqim / kirim) */
+function ClarifyPage({ v, defaultDir, isAdmin, onToast, onChanged }: { v: BankView; defaultDir: BankDir; isAdmin: boolean; onToast: (t: ToastState) => void; onChanged: () => void }) {
+  const [dir, setDir] = useState<BankDir>(defaultDir);
+  const [mode, setMode] = useState<RowsMode>('CLARIFY');
+  const [rev, setRev] = useState(0);
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <DirSwitch dir={dir} onChange={setDir} />
+        <span className="text-xs text-(--color-text-muted)">
+          Jami aniqlashtirishda: <b className="text-heading">{v.totals.clarify}</b> ta (chiqim va kirim)
+        </span>
+      </div>
+      <RowsList
+        v={v}
+        dir={dir}
+        isAdmin={isAdmin}
+        reloadKey={rev}
+        mode={mode}
+        onMode={setMode}
+        onToast={onToast}
+        onChanged={() => {
+          setRev((x) => x + 1);
+          onChanged();
+        }}
+      />
+    </div>
+  );
+}
 
 function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v: BankView; defaultDir: BankDir; rangeText: string; isAdmin: boolean; onToast: (t: ToastState) => void; onChanged: () => void }) {
   const { dirLabel: DIR_LABEL, source } = useSource();
