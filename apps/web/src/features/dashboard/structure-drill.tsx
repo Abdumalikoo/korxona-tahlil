@@ -101,30 +101,39 @@ export function StructureDrill({ units, kind, cmpOn }: { units: RegionUnit[]; ki
     if (line('center', 'Markaz', amountOf(center, kind), 0, { sub: `${word}lar bo'yicha`, openKey: 'center', strong: true })) partLines('center', partsOf(center, kind), 1);
   }
   // 2) Hudud: viloyatlar yoki xizmat turlari (moddalar) bo'yicha
-  const modeSwitch = (
-    <span className="inline-flex rounded-md border border-(--color-line-strong) bg-white p-0.5 text-[11px]" onClick={(e) => e.stopPropagation()}>
-      {(
-        [
-          ['regions', 'Viloyatlar bo‘yicha'],
-          ['parts', kind === 'income' ? 'Xizmat turlari bo‘yicha' : 'Moddalar bo‘yicha'],
-        ] as const
-      ).map(([m, t]) => (
-        <button
-          key={m}
-          type="button"
-          onClick={() => {
-            setRegionMode(m);
-            setOpen((s) => new Set([...s, 'regions']));
-          }}
-          className={cn('rounded px-1.5 py-0.5 font-medium', regionMode === m ? 'bg-brand-600 text-white' : 'text-(--color-text-muted) hover:text-heading')}
-        >
-          {t}
-        </button>
-      ))}
-    </span>
+  // Hudud ochilganda — uning ostida alohida qator: ko'rinishni tanlash (viloyatlar yoki xizmat turlari / moddalar)
+  const columns = 3 + (cmpOn ? 3 : 1);
+  const modeRow = (
+    <tr key="regions-mode" className="bg-brand-50/50">
+      <td colSpan={columns} className="border-b border-(--color-line) px-3 py-2">
+        <span className="sticky left-3 inline-flex items-center gap-2 pl-8 text-xs">
+          <span className="text-(--color-text-muted)">Ko&apos;rinish:</span>
+          <span className="inline-flex rounded-lg border border-(--color-line-strong) bg-white p-0.5 shadow-sm" role="tablist">
+            {(
+              [
+                ['regions', 'Viloyatlar bo‘yicha'],
+                ['parts', kind === 'income' ? 'Xizmat turlari bo‘yicha' : 'Moddalar bo‘yicha'],
+              ] as const
+            ).map(([m, t]) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={regionMode === m}
+                onClick={() => setRegionMode(m)}
+                className={cn('rounded-md px-3 py-1 font-medium transition-colors', regionMode === m ? 'bg-brand-600 text-white' : 'text-(--color-text-muted) hover:bg-(--color-surface-muted) hover:text-heading')}
+              >
+                {t}
+              </button>
+            ))}
+          </span>
+        </span>
+      </td>
+    </tr>
   );
   if (regions.length) {
-    if (line('regions', `Hudud · ${regions.length} viloyat`, regionTotal, 0, { openKey: 'regions', extra: modeSwitch, strong: true })) {
+    if (line('regions', `Hudud · ${regions.length} viloyat`, regionTotal, 0, { openKey: 'regions', strong: true, sub: regionMode === 'regions' ? 'viloyatlar bo‘yicha' : `${word} turlari bo‘yicha` })) {
+      rows.push(modeRow);
       if (regionMode === 'regions') {
         for (const r of regions) if (line(`r:${r.key}`, r.name, amountOf(r, kind), 1, { openKey: `r:${r.key}`, sub: `${word}lar bo'yicha` })) partLines(`r:${r.key}`, partsOf(r, kind), 2);
       } else {
