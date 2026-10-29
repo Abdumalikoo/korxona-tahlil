@@ -5,6 +5,7 @@ import type { Response } from 'express';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { CashbookService, type CashAccountInput, type CashSaveInput } from './cashbook.service';
 import { CenterIncomeService } from './center-income.service';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
@@ -14,6 +15,7 @@ export class CashbookController {
   constructor(
     private readonly cashbook: CashbookService,
     private readonly center: CenterIncomeService,
+    private readonly archive: SourceArchiveService,
   ) {}
 
   @Get('overview')
@@ -61,8 +63,11 @@ export class CashbookController {
   @Roles(UserRole.ADMIN, UserRole.BUXGALTER)
   @Post('import')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
-  async importFile(@UploadedFile() file?: Express.Multer.File) {
-    return { data: await this.cashbook.parseImport(file?.buffer) };
+  async importFile(@UploadedFile() file: Express.Multer.File | undefined, @CurrentUser('id') userId: string) {
+    const data = await this.cashbook.parseImport(file?.buffer);
+    // Asl fayl — arxivga (kun saqlanganda bog'lanadi)
+    await this.archive.hold('cashbook', file, { userId, periods: data.date ? [data.date.slice(0, 7)] : [] });
+    return { data };
   }
 
   // ── Kun ──
@@ -85,6 +90,8 @@ export class CashbookController {
     const day = await this.cashbook.save(date, body, userId);
     // Markaz daromadi (oylik) — shu oy va keyingi oy qayta yoziladi
     await this.center.afterDayChange(day.date, userId);
+    // Shu kun fayldan to'ldirilgan bo'lsa — arxivdagi fayl shu kunga bog'lanadi (fayl bo'lmasa — hech narsa)
+    await this.archive.link('cashbook', { userId, refId: `kassa-day:${day.date}`, periods: [day.date.slice(0, 7)] });
     return { data: day };
   }
 

@@ -17,6 +17,7 @@ import type { Response } from 'express';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { RegionalIncomeService, type ParsedRow } from './regional-income.service';
 import { assertAmount } from '../../common/validation/amount';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -35,7 +36,10 @@ interface CommitBody {
 
 @Controller('incomes/regional')
 export class RegionalIncomeController {
-  constructor(private readonly regional: RegionalIncomeService) {}
+  constructor(
+    private readonly regional: RegionalIncomeService,
+    private readonly archive: SourceArchiveService,
+  ) {}
 
   /** Tuman kesimidagi shablon — har bir viloyat alohida varaqda, tumanlar ustunlarda */
   @Get('template')
@@ -60,8 +64,11 @@ export class RegionalIncomeController {
   async analyze(
     @Query('period') period: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser('id') userId: string,
   ) {
     const data = await this.regional.analyze(period, file);
+    // Asl fayl — arxivga (saqlanganda shu oyga bog'lanadi); arxiv xatosi tahlilni to'xtatmaydi
+    await this.archive.hold('regional-income', file, { userId, periods: [period] });
     return { data };
   }
 
@@ -97,6 +104,7 @@ export class RegionalIncomeController {
     });
 
     const data = await this.regional.commit(period, rows, userId, replace === 'true');
+    await this.archive.link('regional-income', { userId, refId: `regional-income:${period}`, periods: [period] });
     return { data };
   }
 

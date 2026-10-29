@@ -3,9 +3,11 @@ import { CashbookController } from './cashbook.controller';
 import { CashbookService } from './cashbook.service';
 import { CenterIncomeController } from './center-income.controller';
 import { CenterIncomeService } from './center-income.service';
+import { SourceArchiveModule } from '../source-archive/source-archive.module';
 
 /** Buxgalteriya: kunlik tushum va qoldiq (Buxgalter roli); Markaz daromadlari — shundan oylik daromad */
 @Module({
+  imports: [SourceArchiveModule],
   controllers: [CashbookController, CenterIncomeController],
   providers: [CashbookService, CenterIncomeService],
   exports: [CashbookService, CenterIncomeService],

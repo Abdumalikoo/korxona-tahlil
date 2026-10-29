@@ -5,6 +5,7 @@ import type { Response } from 'express';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { CashbookService } from './cashbook.service';
 import { CenterIncomeService } from './center-income.service';
+import { SourceArchiveService } from '../source-archive/source-archive.service';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
@@ -14,6 +15,7 @@ export class CenterIncomeController {
   constructor(
     private readonly center: CenterIncomeService,
     private readonly cashbook: CashbookService,
+    private readonly archive: SourceArchiveService,
   ) {}
 
   @Get()
@@ -48,7 +50,11 @@ export class CenterIncomeController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }))
   async upload(@UploadedFile() file: Express.Multer.File | undefined, @Query('date') date: string | undefined, @CurrentUser('id') userId: string) {
-    return { data: await this.center.upload(file?.buffer, date, userId) };
+    const data = await this.center.upload(file?.buffer, date, userId);
+    // Asl fayl — arxivga va darhol shu yuklashga bog'lanadi (bir qadamli saqlash)
+    await this.archive.hold('cashbook', file, { userId, unit: 'center-income' });
+    await this.archive.link('cashbook', { userId, unit: 'center-income', refId: `center-income:${date ?? ''}` });
+    return { data };
   }
 
   /** Daromadlarga qayta yozish (bir oy yoki hammasi) */

@@ -23,7 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 // Fayllarda shaxsiy ma'lumot bor: ochiq yo'l yo'q, yuklab olish — faqat administrator, hammasi audit bilan.
 // ═══════════════════════════════════════════════════════════
 
-export const SOURCE_KINDS = ['salary-composition', 'payroll', 'unit-payroll', 'acc-23106', 'bank-analysis', 'invoice-analysis'] as const;
+export const SOURCE_KINDS = ['salary-composition', 'payroll', 'unit-payroll', 'acc-23106', 'bank-analysis', 'invoice-analysis', 'regional-income', 'cashbook'] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
   'salary-composition': 'Ish haqi tarkibi',
@@ -32,6 +32,8 @@ export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
   'acc-23106': '23106 bank ko‘chirmasi',
   'bank-analysis': 'Bank ko‘chirmasi (tahlil)',
   'invoice-analysis': 'Schyot-fakturalar (tahlil)',
+  'regional-income': 'Hududlar tushumi (xizmatlar bo‘yicha)',
+  cashbook: 'Kassa: kunlik tushum ma’lumotnomasi',
 };
 
 export interface SourceLinkState {
