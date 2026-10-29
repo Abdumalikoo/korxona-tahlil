@@ -38,6 +38,7 @@ import { centerCover } from './center-cover';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { CoverTable, MonthsTable } from './overall-tables';
 import { UnitTree } from './overall-tree';
+import { BridgeTree } from './bridge-tree';
 import { DrillProvider } from '@/features/explore/drill';
 import Link from 'next/link';
 import { Fragment } from 'react';
@@ -45,8 +46,8 @@ import { Fragment } from 'react';
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Umumiy — butun korxona bitta ekranda (grafiklarsiz):
 //   • tepada kartalar: korxona daromadi, xarajati, natijasi, hududlar natijasi, Markazni qoplash;
-//   • yorliqlar: natija jadvali (o'tgan davr bilan, qator joyida kengayadi), xarajat tarkibi,
-//     oylar kesimida, Markazni qoplash, natija qanday shakllanadi.
+//   • yorliqlar: natija jadvali (o'tgan davr bilan, qator joyida kengayadi), oylar kesimida, Markazni qoplash,
+//     natija qanday shakllanadi (bo'lim-bo'lim, ichma-ich: Hudud → xizmat turlari → viloyatlar …).
 // ═══════════════════════════════════════════════════════════
 
 /** Markaz rangi — butun sahifada bir xil */
@@ -135,7 +136,7 @@ function subOf(s: UnitStats): string {
 // Asosiy komponent
 // ═══════════════════════════════════════════════════════════
 
-type View = 'result' | 'mix' | 'months' | 'cover' | 'bridge';
+type View = 'result' | 'months' | 'cover' | 'bridge';
 
 export function OverallView({ range }: { range: DateRange }) {
   const [section, setSection] = useState<SectionFilter>('ALL');
@@ -254,7 +255,6 @@ function Body({
 
   const views: { value: View; label: string }[] = [
     { value: 'result', label: 'Natija jadvali' },
-    { value: 'mix', label: 'Xarajat tarkibi' },
     { value: 'months', label: 'Oylar kesimida' },
     ...(center && activeRegions.length > 0 ? [{ value: 'cover' as const, label: 'Markazni qoplash' }] : []),
     { value: 'bridge', label: 'Natija qanday shakllanadi' },
@@ -373,8 +373,6 @@ function Body({
         </ReportCard>
       )}
 
-      {view === 'mix' && <MixTable units={units} regions={activeRegions} onOpen={open} period={period} />}
-
       {view === 'months' && <MonthsTable units={units} months={data.months} range={data.range} onOpen={open} />}
 
       {view === 'cover' && center && activeRegions.length > 0 && (
@@ -387,25 +385,7 @@ function Body({
         />
       )}
 
-      {view === 'bridge' && (
-        <BridgeTable
-          steps={[
-            { label: 'Hududlar daromadi', value: reg.income, hint: `${activeRegions.length} ta hudud` },
-            { label: 'Hududlar xarajati', value: -reg.expense },
-            { label: 'Hududlar natijasi', value: regProfit, total: true, hint: reg.income > 0 ? `rentabellik ${((regProfit / reg.income) * 100).toFixed(1).replace('.', ',')}%` : undefined },
-            ...(center
-              ? [
-                  { label: 'Markaz daromadi', value: center.income },
-                  { label: 'Markaz xarajati', value: -center.expense, hint: `ish haqi ${moneyText(center.payroll)}` },
-                ]
-              : []),
-            ...segments.map((sg) => ({ label: `${sg.unit.name} natijasi`, value: sg.profit, hint: "yo'nalish" })),
-            ...(unassigned ? [{ label: 'Biriktirilmagan yozuvlar', value: unassigned.profit, hint: "hududi ko'rsatilmagan" }] : []),
-            { label: 'Korxona natijasi', value: profit, total: true, hint: total.income > 0 ? `rentabellik ${((profit / total.income) * 100).toFixed(1).replace('.', ',')}%` : undefined },
-          ]}
-          notes={data.notes}
-        />
-      )}
+      {view === 'bridge' && <BridgeTree center={center} regions={activeRegions} segments={segments} unassigned={unassigned} compareLabel={data.compareLabel} period={`Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}`} notes={data.notes} />}
 
       <UnassignedDrawer open={unOpen} onClose={() => setUnOpen(false)} range={data.range} section={data.section} />
     </div>
@@ -437,132 +417,5 @@ function ResultTotal({ label, sub, t, compareLabel, light = false }: { label: st
       <NameCell sub={`${sub} · ${count(t.headcount)} xodim`}>{label}</NameCell>
       <ResultCells s={t} title={label} compareLabel={compareLabel} />
     </Tr>
-  );
-}
-
-// ─────────── Xarajat tarkibi: birliklar × guruhlar ───────────
-
-function MixTable({ units, regions, onOpen, period }: { units: UnitStats[]; regions: UnitStats[]; onOpen: (s: UnitStats) => void; period: string }) {
-  const [share, setShare] = useState(false);
-  const rows = units.map((s) => ({ s, mix: mixOf(s.unit) }));
-  const groups = GROUPS.filter((g) => rows.some((r) => Math.round(r.mix[g.key] / 100) !== 0));
-  const sumMix = (list: typeof rows) => {
-    const m = emptyMix();
-    for (const r of list) for (const g of GROUPS) m[g.key] += r.mix[g.key];
-    return m;
-  };
-  const totalMix = sumMix(rows);
-  const regMix = sumMix(rows.filter((r) => r.s.unit.kind === 'region'));
-  const totalExp = add(units, (s) => s.expense);
-  const regExp = add(regions, (s) => s.expense);
-
-  const cells = (m: Mix, expense: number) => (
-    <>
-      {groups.map((g) =>
-        share ? (
-          <Td key={g.key}>{expense > 0 && Math.round(m[g.key] / 100) !== 0 ? <PctBadge value={(m[g.key] / expense) * 100} plain /> : <span className="text-(--color-text-faint)"></span>}</Td>
-        ) : (
-          <MoneyCell key={g.key} value={m[g.key]} className={cn(Math.round(m[g.key] / 100) === 0 && 'text-(--color-text-faint)')} />
-        ),
-      )}
-      <MoneyCell value={expense} strong />
-    </>
-  );
-
-  return (
-    <ReportCard
-      title="Xarajat tarkibi: kim nimaga sarflaydi"
-      badge={period}
-      actions={
-        <PillTabs
-          value={share ? 'share' : 'sum'}
-          onChange={(v) => setShare(v === 'share')}
-          options={[
-            { value: 'sum', label: 'Summada' },
-            { value: 'share', label: 'Foizda' },
-          ]}
-        />
-      }
-    >
-      <RTable minWidth={Math.max(760, 360 + groups.length * 130)}>
-        <thead>
-          <tr>
-            <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>
-              №
-            </Th>
-            <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>
-              Birlik
-            </Th>
-            <GroupTh span={groups.length}>Shundan</GroupTh>
-            <Th rowSpan={2}>Jami xarajat</Th>
-          </tr>
-          <tr>
-            {groups.map((g, i) => (
-              <Th key={g.key} title={g.label} className={cn(i === 0 && 'first:border-l')}>
-                {g.short}
-              </Th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <Tr total>
-            <Td className={STICKY_NO} />
-            <NameCell>Korxona jami</NameCell>
-            {cells(totalMix, totalExp)}
-          </Tr>
-          <Tr total className="bg-[#f1f5fe] font-semibold">
-            <Td className={STICKY_NO} />
-            <NameCell>Hududlar jami · {regions.length} ta</NameCell>
-            {cells(regMix, regExp)}
-          </Tr>
-          {rows.map((r) => (
-            <Tr key={r.s.unit.key} onClick={() => onOpen(r.s)} muted={r.s.unit.kind !== 'region'}>
-              <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{r.s.unit.kind === 'region' ? regions.indexOf(r.s) + 1 : ''}</Td>
-              <NameCell drill sub={subOf(r.s)} className="max-w-64">
-                {r.s.unit.name}
-              </NameCell>
-              {cells(r.mix, r.s.expense)}
-            </Tr>
-          ))}
-        </tbody>
-      </RTable>
-      <TableNote>«Hududlar uchun» — Markaz Xarajatlar siyosati bo&apos;yicha hududlar nomidan to&apos;lagan xarajatlar. Qatorni bosing — natija jadvalida tarkibi ochiladi.</TableNote>
-    </ReportCard>
-  );
-}
-
-// ─────────── Natija qanday shakllanadi (jadval) ───────────
-
-function BridgeTable({ steps, notes }: { steps: { label: string; value: number; total?: boolean; hint?: string }[]; notes: string[] }) {
-  return (
-    <ReportCard title="Korxona natijasi qanday shakllanadi" badge="Hududlar foydasi Markazning sof xarajatini qoplaydi; yo'nalishlar natijasi qo'shiladi">
-      <RTable minWidth={640}>
-        <thead>
-          <tr>
-            <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
-            <Th className={cn(STICKY_NAME, 'z-[2] min-w-64 text-left')}>Qadam</Th>
-            <Th>Summa</Th>
-            <Th className="text-left">Izoh</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {steps.map((st, i) => (
-            <Tr key={st.label} total={st.total}>
-              <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{st.total ? '' : i + 1}</Td>
-              <NameCell>{st.total ? `= ${st.label}` : st.value >= 0 ? `+ ${st.label}` : `− ${st.label}`}</NameCell>
-              <MoneyCell value={st.value} strong={st.total} signedColor />
-              <Td className="text-left text-xs text-(--color-text-muted)">{st.hint ?? ''}</Td>
-            </Tr>
-          ))}
-        </tbody>
-      </RTable>
-      {notes.length > 0 && (
-        <ul className="list-disc space-y-1 px-9 pb-4 text-xs text-(--color-text-muted)">
-          {notes.map((n) => (
-            <li key={n}>{n}</li>
-          ))}
-        </ul>
-      )}
-    </ReportCard>
   );
 }
