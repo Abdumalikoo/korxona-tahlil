@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { assetsApi, MODE_INFO, type AssetMode, type AssetPolicyView, type AssetStatus, type FixedAssetView } from './api';
 import { AssetImportDialog } from './assets-import';
 import { AdoptDialog } from './adopt-dialog';
+import { realRegions } from '@/lib/segments';
 import { BalanceReportView } from './assets-report';
 
 // ═══════════════════════════════════════════════════════════
@@ -376,7 +377,7 @@ function CreateDrawer({ open, onClose, onSaved, categories }: { open: boolean; o
         <Select label="Modda" required options={categories} placeholder="Tanlang" value={cat} onChange={(e) => setCat(e.target.value)} />
         <Input label="Xizmat muddati, oy" type="number" min={1} max={600} value={life} onChange={(e) => setLife(e.target.value)} hint="Bo'sh — siyosatdagi muddat (moddaga qarab)" />
         <div className="grid gap-3 sm:grid-cols-2">
-          <Select label="Qayerda" options={(regions.data ?? []).map((r) => ({ value: String(r.code), label: r.code === 0 ? 'Markaz' : r.name }))} value={region} onChange={(e) => setRegion(e.target.value)} />
+          <Select label="Qayerda" options={realRegions(regions.data ?? []).map((r) => ({ value: String(r.code), label: r.code === 0 ? 'Markaz' : r.name }))} value={region} onChange={(e) => setRegion(e.target.value)} />
           {region === '0' && <Select label="Bo'lim" placeholder="—" options={(depts.data ?? []).map((d) => ({ value: d.id, label: d.name }))} value={dept} onChange={(e) => setDept(e.target.value)} />}
         </div>
         <Input label="Inventar raqami" value={inv} onChange={(e) => setInv(e.target.value)} />

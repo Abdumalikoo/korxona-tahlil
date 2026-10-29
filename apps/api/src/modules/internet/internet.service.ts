@@ -16,6 +16,7 @@ import {
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { assertAmount } from '../../common/validation/amount';
 import { parseBankStatement } from '../unit-bank/unit-bank.service';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Internet to'lovlari: shartnomalar ro'yxati va oylik to'lovlar → xarajat.
@@ -185,7 +186,7 @@ export class InternetService {
   async lookups(): Promise<Lookups> {
     const [departments, regions, categories] = await Promise.all([
       this.prisma.department.findMany({ where: { isActive: true }, select: { id: true, name: true, code: true }, orderBy: { order: 'asc' } }),
-      this.prisma.region.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
+      this.prisma.region.findMany({ where: { isActive: true, code: { not: REGION_GENERAL } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
       this.prisma.category.findMany({ where: { isActive: true, isLeaf: true }, select: { code: true, label: true }, orderBy: { order: 'asc' } }),
     ]);
     return { departments, regions: regions.filter((r) => r.code !== 0), categories };

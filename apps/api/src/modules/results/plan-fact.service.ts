@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Xodimlar reja / tushum fayli (bir nechta oy, bitta faylda).
@@ -1001,7 +1002,8 @@ export class PlanFactService {
     const list = Array.isArray(input) ? input.slice(0, 2000) : [];
     if (!list.length) throw new BadRequestException("Qo'shish uchun xodim tanlanmagan");
     const [regions, districts] = await Promise.all([
-      this.prisma.region.findMany({ select: { code: true } }),
+      // Hududlar › Umumiy — xodimning viloyati bo'la olmaydi
+      this.prisma.region.findMany({ where: { code: { not: REGION_GENERAL } }, select: { code: true } }),
       this.prisma.district.findMany({ select: { id: true, regionCode: true } }),
     ]);
     const regionSet = new Set(regions.map((r) => r.code));

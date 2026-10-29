@@ -6,6 +6,7 @@ import { CENTER_UNIT, PAYROLL_CATEGORY } from './econ.loader';
 import { ForecastService } from './forecast.service';
 import { KpiService } from './kpi.service';
 import { PotentialService } from './potential.service';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Hududlar modellari › Katta demo: 30 oylik to'liq namunaviy ma'lumot — barcha modellarni sinab ko'rish uchun.
@@ -115,7 +116,7 @@ export class RegionalDemo {
     if (st.exists) throw new ConflictException('Demo allaqachon bor — avval o\'chiring');
     if (st.realRegionalIncomes > 0 && !force)
       throw new ConflictException({ message: `Hududlar bo'yicha ${st.realRegionalIncomes} ta haqiqiy daromad yozuvi bor — demo ular ustiga qo'shiladi va tahlil aralash bo'ladi. Baribir qo'shish uchun tasdiqlang.`, error: 'REAL_DATA' });
-    const regions = await this.prisma.region.findMany({ where: { isActive: true, code: { not: CENTRAL_REGION } }, select: { code: true, name: true }, orderBy: { code: 'asc' } });
+    const regions = await this.prisma.region.findMany({ where: { isActive: true, code: { notIn: [CENTRAL_REGION, REGION_GENERAL] } }, select: { code: true, name: true }, orderBy: { code: 'asc' } });
     if (!regions.length) throw new BadRequestException("Bazada faol hudud yo'q (regions jadvali)");
     const payrollCat = await this.prisma.category.findUnique({ where: { code: PAYROLL_CATEGORY } });
     if (!payrollCat) throw new BadRequestException(`Ish haqi moddasi (${PAYROLL_CATEGORY}) topilmadi`);

@@ -319,6 +319,9 @@ export const REGIONS: RegionSeed[] = [
       { code: 23, name: 'Taxiatosh tumani' },
     ],
   },
+  /** Hududlar › Umumiy — hech qaysi viloyatga tegishli bo'lmagan hudud xarajati / daromadi (Markaz › Umumiy kabi).
+   *  Hudud jamisiga kiradi, alohida qator; xodim, reja, tarif kabi joylarda viloyat sifatida chiqmaydi (REGION_GENERAL) */
+  { code: 99, name: 'Hududlar umumiy', districts: [] },
 ];
 
 /** Bo'limlar - faqat markazda */

@@ -189,7 +189,7 @@ async function loadReferences() {
   if (!user) throw new Error('Foydalanuvchi topilmadi — avval tizimga admin qo‘shing');
 
   const regions = (await prisma.region.findMany({ where: { isActive: true }, orderBy: { code: 'asc' } }))
-    .filter((r) => r.code !== 0);
+    .filter((r) => r.code !== 0 && r.code !== 99); // 99 — «Hududlar umumiy», viloyat emas
   const departments = await prisma.department.findMany({ where: { isActive: true } });
 
   // Modul kategoriyalari (ish haqi, ijara, mashina) qo'lda yozuvlarga ishlatilmaydi

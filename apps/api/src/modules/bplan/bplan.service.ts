@@ -6,6 +6,7 @@ import { execute, type Execution } from './bplan.compute';
 import { FACT_KEYS, FACT_LINES, GROUPS, gv, readPlanGrid, regionIndex, REGIONS, REQUIRED_SHEETS, S, UO_REG, type Facts, type Grid, type Mode } from './bplan.model';
 import { buildWorkbook, CHECKS } from './bplan.workbook';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Hisobotlar › Choraklik ijro (biznes-reja).
@@ -174,7 +175,7 @@ export class BplanService {
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true, isActive: true }, orderBy: [{ order: 'asc' }, { label: 'asc' }] }),
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true, isActive: true }, orderBy: [{ order: 'asc' }, { label: 'asc' }] }),
       this.prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
-      this.prisma.region.findMany({ select: { code: true, name: true } }),
+      this.prisma.region.findMany({ where: { code: { not: REGION_GENERAL } }, select: { code: true, name: true } }),
     ]);
     return { incomeCats, expenseCats, departments, regions };
   }

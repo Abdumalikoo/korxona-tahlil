@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma, Vehicle, VehicleRecord } from '@prisma/client';
-import { isSegment, segmentLabel, type SegmentCode } from '../../common/segments/segments';
+import { REGION_GENERAL, isSegment, segmentLabel, type SegmentCode } from '../../common/segments/segments';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   VEHICLE_BODY_TYPES,
@@ -335,7 +335,7 @@ export class VehiclesService {
   async lookups(): Promise<VehicleLookups> {
     const [regions, departments] = await Promise.all([
       this.prisma.region.findMany({
-        where: { isActive: true },
+        where: { isActive: true, code: { not: REGION_GENERAL } },
         select: { code: true, name: true },
         orderBy: { code: 'asc' },
       }),

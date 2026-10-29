@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { currentPeriodTashkent, monthsBetween, periodAdd, type Source } from './hp.const';
 import type { Refs } from './hp.import';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Ma'lumotnomalar va prognoz uchun tarixiy ma'lumotni yig'ish.
@@ -46,7 +47,7 @@ export class HpDataService {
 
   async catalog() {
     const [regions, services, tariffs] = await Promise.all([
-      this.prisma.region.findMany({ select: { code: true, name: true, isActive: true }, orderBy: { code: 'asc' } }),
+      this.prisma.region.findMany({ where: { code: { not: REGION_GENERAL } }, select: { code: true, name: true, isActive: true }, orderBy: { code: 'asc' } }),
       this.prisma.incomeCategory.findMany({ where: { code: { startsWith: 'SRV_' } }, select: { code: true, label: true, isActive: true, order: true }, orderBy: [{ order: 'asc' }, { code: 'asc' }] }),
       this.prisma.serviceTariff.findMany({ where: { status: 'APPROVED' }, select: { categoryCode: true, regionCode: true, priceTiyin: true, validFrom: true }, orderBy: { validFrom: 'asc' } }),
     ]);

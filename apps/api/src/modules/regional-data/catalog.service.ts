@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CENTRAL_REGION, cleanText, parseDay, parseTiyin, periodDays, shiftPeriod, currentPeriod, ymd } from './rd.util';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Ma'lumotnomalar:
@@ -55,7 +56,7 @@ export class CatalogService {
   private async checkRefs(regionCode: number | null, categoryCode: string | null) {
     if (regionCode !== null) {
       const r = await this.prisma.region.findUnique({ where: { code: regionCode } });
-      if (!r || regionCode === CENTRAL_REGION) throw new BadRequestException('Hudud topilmadi');
+      if (!r || regionCode === CENTRAL_REGION || regionCode === REGION_GENERAL) throw new BadRequestException('Hudud topilmadi');
     }
     if (categoryCode !== null) {
       const c = await this.prisma.incomeCategory.findUnique({ where: { code: categoryCode } });

@@ -314,7 +314,8 @@ async function loadReferences(months) {
   const user = (await prisma.user.findFirst({ where: { role: 'ADMIN' } })) ?? (await prisma.user.findFirst());
   if (!user) throw new Error('Foydalanuvchi topilmadi');
 
-  const regions = await prisma.region.findMany({ where: { isActive: true }, orderBy: { code: 'asc' } });
+  // 99 — «Hududlar umumiy», viloyat emas (demo xodim / ma'lumot yozilmaydi)
+  const regions = await prisma.region.findMany({ where: { isActive: true, code: { not: 99 } }, orderBy: { code: 'asc' } });
   const departments = await prisma.department.findMany({ where: { isActive: true }, orderBy: { order: 'asc' } });
   const employees = await prisma.employee.findMany({
     where: { isActive: true },

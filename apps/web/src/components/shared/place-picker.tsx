@@ -3,7 +3,7 @@
 import { IconBuilding } from '@/components/ui/icons';
 import { Select } from '@/components/ui/select';
 import { regionsApi } from '@/features/employees/api';
-import { SEGMENTS, isSegment, segmentLabel, type SegmentCode } from '@/lib/segments';
+import { REGION_GENERAL, REGION_GENERAL_LABEL, SEGMENTS, isSegment, segmentLabel, type SegmentCode } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import type { Department } from '@/lib/types';
@@ -162,8 +162,10 @@ export function PlacePicker({ value, onChange, departments, error, disabled, hid
   const code = value.kind === 'REGION' && value.regionCode ? Number(value.regionCode) : null;
   const districts = useAsync(() => (code ? regionsApi.districts(code) : Promise.resolve(null)), [code]);
 
-  const regionList = (regions.data?.data ?? []).filter((r) => r.code !== 0 && r.isActive);
-  const regionName = regionList.find((r) => String(r.code) === value.regionCode)?.name;
+  // Hududlar › Umumiy (hech qaysi viloyatga tegishli emas) — ro'yxat oxirida
+  const regionList = (regions.data?.data ?? []).filter((r) => r.code !== 0 && r.isActive).sort((a, b) => Number(a.code === REGION_GENERAL) - Number(b.code === REGION_GENERAL));
+  const general = value.regionCode === String(REGION_GENERAL);
+  const regionName = general ? 'Umumiy' : regionList.find((r) => String(r.code) === value.regionCode)?.name;
   const districtList = districts.data?.data ?? [];
   const districtName = districtList.find((d) => d.id === value.districtId)?.name;
   const departmentName = departments.find((d) => d.id === value.departmentId)?.name;
@@ -198,7 +200,7 @@ export function PlacePicker({ value, onChange, departments, error, disabled, hid
 
   const summary =
     value.kind === 'CENTER'
-      ? `Markaz${departmentName ? ` › ${departmentName}` : ' (umumiy)'}`
+      ? `Markaz › ${departmentName ?? 'Umumiy'}`
       : value.kind === 'REGION' && regionName
         ? `${regionName}${districtName ? ` › ${districtName}` : ' (viloyat bo‘yicha)'}`
         : value.kind === 'SEGMENT' && isSegment(value.segment)
@@ -222,7 +224,7 @@ export function PlacePicker({ value, onChange, departments, error, disabled, hid
         <div className="mt-3">
           <Select
             label="Bo'lim"
-            options={[{ value: '', label: "Markaz — umumiy (bo'limsiz)" }, ...departments.filter((d) => d.isActive !== false || d.id === value.departmentId).map((d) => ({ value: d.id, label: d.name }))]}
+            options={[{ value: '', label: "Umumiy (hech qaysi bo'limga tegishli emas)" }, ...departments.filter((d) => d.isActive !== false || d.id === value.departmentId).map((d) => ({ value: d.id, label: d.name }))]}
             value={value.departmentId}
             onChange={(e) => onChange({ ...value, departmentId: e.target.value })}
             disabled={disabled}
@@ -236,12 +238,13 @@ export function PlacePicker({ value, onChange, departments, error, disabled, hid
             label="Hudud"
             required
             placeholder={regions.loading ? 'Yuklanmoqda…' : 'Hududni tanlang'}
-            options={regionList.map((r) => ({ value: String(r.code), label: r.name }))}
+            options={regionList.map((r) => ({ value: String(r.code), label: r.code === REGION_GENERAL ? REGION_GENERAL_LABEL : r.name }))}
             value={value.regionCode}
             onChange={(e) => onChange({ ...value, regionCode: e.target.value, districtId: '' })}
             error={error && !value.regionCode ? error : undefined}
             disabled={disabled}
           />
+          {!general && (
           <Select
             label="Tuman"
             options={[{ value: '', label: value.regionCode ? 'Viloyat bo‘yicha (tumansiz)' : 'Avval hududni tanlang' }, ...districtList.filter((d) => d.isActive || d.id === value.districtId).map((d) => ({ value: d.id, label: d.name }))]}
@@ -249,6 +252,7 @@ export function PlacePicker({ value, onChange, departments, error, disabled, hid
             onChange={(e) => onChange({ ...value, districtId: e.target.value })}
             disabled={disabled || !value.regionCode}
           />
+          )}
         </div>
       )}
 

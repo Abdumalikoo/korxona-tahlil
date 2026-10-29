@@ -8,6 +8,7 @@ import { PeriodCloseService } from '../regional-data/period-close.service';
 import { RegionalIncomeService, type ParsedRow } from '../incomes/regional-income.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { monthSpan } from '../../common/period';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Hududchi (hududlar bo'limi) ish joyi:
@@ -332,7 +333,7 @@ export class RegionalDeskService {
     const to = `${period}-${String(last).padStart(2, '0')}`;
     const ORDER = [3, 6, 8, 10, 12, 14, 18, 22, 24, 26, 27, 30, 33, 35];
     const [regionsRaw, services] = await Promise.all([
-      this.prisma.region.findMany({ where: { isActive: true, code: { not: CENTRAL_REGION } }, select: { code: true, name: true } }),
+      this.prisma.region.findMany({ where: { isActive: true, code: { notIn: [CENTRAL_REGION, REGION_GENERAL] } }, select: { code: true, name: true } }),
       this.prisma.incomeCategory.findMany({ where: { isActive: true, code: { startsWith: 'SRV_' } }, select: { code: true, label: true, order: true }, orderBy: { order: 'asc' } }),
     ]);
     const pos = (c: number) => (ORDER.indexOf(c) === -1 ? 1000 + c : ORDER.indexOf(c));

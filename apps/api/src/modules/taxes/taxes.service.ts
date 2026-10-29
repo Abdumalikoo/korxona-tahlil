@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Soliqlar — hamma soliqlar bir joyda (turlarini o'zingiz qo'shasiz).
@@ -278,7 +279,7 @@ export class TaxesService implements OnApplicationBootstrap {
   // ═══════════ Birliklar ═══════════
 
   private async units(): Promise<TaxUnit[]> {
-    const regions = await this.prisma.region.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: 'asc' } });
+    const regions = await this.prisma.region.findMany({ where: { isActive: true, code: { not: REGION_GENERAL } }, select: { code: true, name: true }, orderBy: { code: 'asc' } });
     return [
       { key: 'center', regionCode: CENTRAL, departmentId: null, name: 'Markaz' },
       ...regions.filter((r) => r.code !== CENTRAL).map((r) => ({ key: `r:${r.code}`, regionCode: r.code, departmentId: null, name: r.name })),

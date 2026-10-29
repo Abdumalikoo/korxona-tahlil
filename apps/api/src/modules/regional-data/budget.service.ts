@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertPeriod, CENTRAL_REGION, cellText, monthName, MAX_TIYIN, shiftPeriod, somToTiyin } from './rd.util';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajat rejasi (byudjet): oy × hudud × modda.
@@ -119,7 +120,7 @@ export class BudgetService {
   async summary(periodRaw: string) {
     const period = assertPeriod(periodRaw);
     const [regions, budgets, facts] = await Promise.all([
-      this.prisma.region.findMany({ where: { isActive: true, code: { not: CENTRAL_REGION } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
+      this.prisma.region.findMany({ where: { isActive: true, code: { notIn: [CENTRAL_REGION, REGION_GENERAL] } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
       this.prisma.expenseBudget.findMany({ where: { period }, select: { regionCode: true, amountTiyin: true } }),
       this.prisma.expense.findMany({ where: { deletedAt: null, period, regionCode: { not: null, notIn: [CENTRAL_REGION] } }, select: { regionCode: true, amountTiyin: true } }),
     ]);
@@ -133,7 +134,7 @@ export class BudgetService {
   async template(periodRaw: string): Promise<{ buffer: Buffer; filename: string }> {
     const period = assertPeriod(periodRaw);
     const [regions, cats, budgets] = await Promise.all([
-      this.prisma.region.findMany({ where: { isActive: true, code: { not: CENTRAL_REGION } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
+      this.prisma.region.findMany({ where: { isActive: true, code: { notIn: [CENTRAL_REGION, REGION_GENERAL] } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
       this.categories(),
       this.prisma.expenseBudget.findMany({ where: { period } }),
     ]);
@@ -175,7 +176,7 @@ export class BudgetService {
     const ws = wb.worksheets[0];
     if (!ws) throw new BadRequestException('Faylda varaq topilmadi');
     const [regions, cats] = await Promise.all([
-      this.prisma.region.findMany({ where: { isActive: true, code: { not: CENTRAL_REGION } }, select: { code: true } }),
+      this.prisma.region.findMany({ where: { isActive: true, code: { notIn: [CENTRAL_REGION, REGION_GENERAL] } }, select: { code: true } }),
       this.categories(),
     ]);
     const rset = new Set(regions.map((r) => r.code));

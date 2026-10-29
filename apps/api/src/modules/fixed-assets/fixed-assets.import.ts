@@ -10,6 +10,7 @@ import { ASSET_MODES, FixedAssetsService, MODE_LABEL, type AssetMode } from './f
 import { TASHKENT_MS } from './fixed-assets.util';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { assertAmount } from '../../common/validation/amount';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Asosiy vositalar — Excel'dan yuklash (xodimlarga berilgan inventar).
@@ -147,7 +148,7 @@ export class FixedAssetImportService {
 
   private async references() {
     const [regions, departments] = await Promise.all([
-      this.prisma.region.findMany({ select: { code: true, name: true }, orderBy: { code: 'asc' } }),
+      this.prisma.region.findMany({ where: { code: { not: REGION_GENERAL } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
       this.prisma.department.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: [{ order: 'asc' }, { name: 'asc' }] }),
     ]);
     return { regions, departments };

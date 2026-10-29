@@ -3,6 +3,15 @@
 // (backend: apps/api/src/common/segments/segments.ts bilan BIR XIL ro'yxat).
 // ═══════════════════════════════════════════════════════════
 
+/**
+ * Hududlar › Umumiy: hech qaysi viloyatga tegishli bo'lmagan hudud xarajati / daromadi (Markaz › Umumiy kabi).
+ * Pul yoziladigan joylarda «Umumiy» bo'lib chiqadi; xodim, reja, tarif kabi joylarda — yashirin (realRegions).
+ */
+export const REGION_GENERAL = 99;
+export const REGION_GENERAL_LABEL = 'Umumiy (hech qaysi viloyatga tegishli emas)';
+/** Haqiqiy viloyatlar (Hududlar › Umumiysiz) */
+export const realRegions = <T extends { code: number }>(list: T[]) => list.filter((r) => r.code !== REGION_GENERAL);
+
 export const SEGMENTS = [
   { code: 'TAX_FREE', label: 'Tax free', hint: 'Tax free xizmati' },
   { code: 'MARKSHEYDER', label: 'Marksheyder', hint: 'Marksheyderlik ishlari' },
@@ -24,7 +33,8 @@ export function isSegment(code: unknown): code is SegmentCode {
 /** Yozuv qayerga tegishli — matn: «Markaz › Bo'lim», «Andijon › Asaka», «Tax free» yoki null (biriktirilmagan) */
 export function placeText(r: { segment?: string | null; regionCode?: number | null; department?: { name: string } | null; region?: { name: string } | null; district?: { name: string } | null }): string | null {
   if (r.segment) return segmentLabel(r.segment);
-  if (r.regionCode === 0 || ((r.regionCode === null || r.regionCode === undefined) && r.department)) return `Markaz${r.department ? ` › ${r.department.name}` : ''}`;
+  // Bo'limsiz Markaz yozuvi — «Markaz › Umumiy» (hech qaysi bo'limga tegishli emas)
+  if (r.regionCode === 0 || ((r.regionCode === null || r.regionCode === undefined) && r.department)) return `Markaz › ${r.department ? r.department.name : 'Umumiy'}`;
   if (r.region) return `${r.region.name}${r.district ? ` › ${r.district.name}` : ''}`;
   return null;
 }

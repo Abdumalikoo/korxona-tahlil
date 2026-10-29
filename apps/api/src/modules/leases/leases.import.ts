@@ -20,6 +20,7 @@ import {
     type LeaseKindValue,
 } from './leases.types';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Ijara — Excel orqali ommaviy kiritish
@@ -242,7 +243,7 @@ export class LeaseImportService {
 
   private async references() {
     const [regions, districts, departments] = await Promise.all([
-      this.prisma.region.findMany({ select: { code: true, name: true }, orderBy: { code: 'asc' } }),
+      this.prisma.region.findMany({ where: { code: { not: REGION_GENERAL } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
       this.prisma.district.findMany({
         where: { isActive: true },
         select: { id: true, name: true, regionCode: true, code: true },

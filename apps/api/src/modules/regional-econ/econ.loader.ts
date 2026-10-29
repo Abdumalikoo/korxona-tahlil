@@ -2,6 +2,7 @@ import type { PrismaService } from '../prisma/prisma.service';
 import { loadCenterCategories, loadPolicyRouting } from '../expense-policy/policy.util';
 import { regionalEmployees } from '../regional-data/rd.employees';
 import { CENTRAL_REGION, periodDays } from '../regional-data/rd.util';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Hudud natijasi va Markaz xarajati uchun oylik ma'lumot (faqat bazadagi yozuvlardan, hech narsa to'qilmaydi).
@@ -69,7 +70,7 @@ export function unitOf(regionCode: number | null, departmentId: string | null): 
 
 export async function loadLookups(prisma: PrismaService): Promise<Lookups> {
   const [regions, departments] = await Promise.all([
-    prisma.region.findMany({ where: { isActive: true, code: { not: CENTRAL_REGION } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
+    prisma.region.findMany({ where: { isActive: true, code: { notIn: [CENTRAL_REGION, REGION_GENERAL] } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
     prisma.department.findMany({ select: { id: true, code: true, name: true, isActive: true }, orderBy: { index: 'asc' } }),
   ]);
   return { regions, departments };

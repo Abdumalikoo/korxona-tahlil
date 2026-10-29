@@ -93,8 +93,8 @@ async function seedRegions(): Promise<void> {
       create: { code: region.code, name: region.name },
     });
 
-    // Har viloyatda bolim boshligi - tuman kodi 0
-    if (region.code !== 0) {
+    // Har viloyatda bolim boshligi - tuman kodi 0 (Markaz va «Hududlar umumiy» (99) — viloyat emas, tumani yo'q)
+    if (region.code !== 0 && region.code !== 99) {
       await prisma.district.upsert({
         where: { id: `${region.code}-0` },
         update: { name: "Bolim boshligi" },

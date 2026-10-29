@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { regionalEmployees } from './rd.employees';
 import { assertPeriod, CENTRAL_REGION, median, monthName, periodDays, shiftPeriod } from './rd.util';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // A. Ma'lumot sifati — oy bo'yicha tekshiruv (Hududchi oyni yopishdan oldin ko'radi).
@@ -43,7 +44,7 @@ export class QualityService {
     const regionWhere = { not: null, notIn: [CENTRAL_REGION] };
 
     const [regions, incomes, oldIncomes, batches, expenses, employees, budgets, closes, events, services] = await Promise.all([
-      this.prisma.region.findMany({ where: { isActive: true, code: { not: CENTRAL_REGION } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
+      this.prisma.region.findMany({ where: { isActive: true, code: { notIn: [CENTRAL_REGION, REGION_GENERAL] } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
       this.prisma.income.findMany({ where: { deletedAt: null, source: 'IMPORT', regionCode: regionWhere, period }, select: { regionCode: true, categoryCode: true, amountTiyin: true, quantity: true } }),
       this.prisma.income.findMany({ where: { deletedAt: null, source: 'IMPORT', regionCode: regionWhere, period: { in: prevMonths } }, select: { period: true, regionCode: true, categoryCode: true, amountTiyin: true, quantity: true } }),
       this.prisma.payrollBatch.findMany({ where: { period, status: 'COMMITTED' }, select: { id: true, scope: true } }),

@@ -27,6 +27,7 @@ import {
   type WarehouseOverview,
 } from './warehouse.types';
 import { lockInTx } from '../../common/db/tx-lock';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Ombor xizmati.
@@ -224,7 +225,7 @@ export class WarehouseService {
     await this.ensureCategories();
     const [departments, regions, categories, groups] = await Promise.all([
       this.prisma.department.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { order: 'asc' } }),
-      this.prisma.region.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
+      this.prisma.region.findMany({ where: { isActive: true, code: { not: REGION_GENERAL } }, select: { code: true, name: true }, orderBy: { code: 'asc' } }),
       this.prisma.category.findMany({ where: { isLeaf: true, isActive: true, code: { not: 'WH_POSTAL' } }, select: { code: true, label: true, parentCode: true }, orderBy: [{ order: 'asc' }, { label: 'asc' }] }),
       this.prisma.stockItem.findMany({ where: { group: { not: null } }, select: { group: true }, distinct: ['group'] }),
     ]);

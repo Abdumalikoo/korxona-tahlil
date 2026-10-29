@@ -16,6 +16,7 @@ import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import { rdData, type EventRow, type TariffService } from './api';
+import { realRegions } from '@/lib/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Hududchi › Ma'lumotnomalar:
@@ -326,7 +327,7 @@ export function EventsPage() {
                 <Label>Hudud</Label>
                 <select value={form.regionCode} onChange={(e) => setForm({ ...form, regionCode: e.target.value })} className={FIELD}>
                   <option value="">Barcha hududlar</option>
-                  {(lk.data?.data.regions ?? []).map((r) => (
+                  {realRegions(lk.data?.data.regions ?? []).map((r) => (
                     <option key={r.code} value={r.code}>
                       {r.name}
                     </option>

@@ -44,6 +44,7 @@ import {
     type TerminateInput,
     type TermInput,
 } from './leases.types';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 const KINDS: LeaseKindValue[] = ['ODDIY', 'AEROPORT'];
 const FREQUENCIES: LeaseFrequencyValue[] = ['MONTHLY', 'QUARTERLY', 'YEARLY'];
@@ -108,7 +109,7 @@ export class LeasesService implements OnModuleInit {
   async lookups() {
     const [regions, districts, departments, airports] = await Promise.all([
       this.prisma.region.findMany({
-        where: { isActive: true },
+        where: { isActive: true, code: { not: REGION_GENERAL } },
         select: { code: true, name: true },
         orderBy: { code: 'asc' },
       }),
