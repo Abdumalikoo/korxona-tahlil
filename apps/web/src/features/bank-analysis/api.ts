@@ -233,6 +233,16 @@ export interface BankListRow extends BankGroupRow {
 }
 
 /** Yo'naltirish taklifi (oldingi tanlov): shu shartnoma (CONTRACT) yoki shu guruh (GROUP) — oxirgisi; shu kontragent — eng ko'p takrorlangani */
+/** Takliflar aniqligi: asos bo'yicha ko'rsatilgan va o'zgarishsiz qabul qilingan */
+export interface SuggestionStats {
+  total: number;
+  shown: number;
+  accepted: number;
+  rate: number | null;
+  since: string | null;
+  byBasis: { basis: RouteSuggestion['basis']; shown: number; accepted: number; rate: number | null; avgScoreAccepted: number | null; avgScoreChanged: number | null }[];
+}
+
 export interface RouteSuggestion {
   basis: 'CONTRACT' | 'GROUP' | 'SIMILAR' | 'COUNTERPARTY';
   /** SIMILAR: izohlar o'xshashligi (%) va o'xshagan oldingi izoh */
@@ -470,7 +480,9 @@ export function makeAnalysisApi(base: '/bank-analysis' | '/invoice-analysis') {
     options: (dir: BankDir, unit?: string) => api.get<ApiResponse<BankOptions>>(`${base}/options`, { params: { dir, ...(unit ? { unit } : {}) } }),
     notes: (items: (BankItem & { comment: string })[]) => api.post<ApiResponse<{ success: true; saved: number; cleared: number; entries: number }>>(`${base}/notes`, { items }),
     check: (items: BankItem[]) => api.post<ApiResponse<BankCheck>>(`${base}/route/check`, { items }),
-    route: (body: { items: BankItem[]; place: BankRoutePlace; categoryCode: string; section: 'DOIMIY' | 'BOSHQA'; description?: string; force?: boolean; skipDuplicates?: boolean }) =>
+    /** «Avvalgidek» takliflari aniqligi */
+    suggestionStats: () => api.get<ApiResponse<SuggestionStats>>(`${base}/suggestions/stats`),
+    route: (body: { items: BankItem[]; place: BankRoutePlace; categoryCode: string; section: 'DOIMIY' | 'BOSHQA'; description?: string; force?: boolean; skipDuplicates?: boolean; /** Ko'rsatilgan taklif — aniqlik statistikasi uchun */ suggested?: { combo: string; basis: RouteSuggestion['basis']; score?: number } }) =>
       api.post<ApiResponse<{ success: true; batch: string | null; count: number; totalTiyin: string; skipped: number; entryType: BankEntryType; place: string }>>(`${base}/route`, body),
     dismiss: (items: BankItem[], reason?: string) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string }>>(`${base}/dismiss`, { items, reason }),
     /** dir bo'lmasa — chiqim ham, kirim ham */

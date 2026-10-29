@@ -128,6 +128,8 @@ export interface BankPost {
   status: 'POSTED' | 'CANCELLED';
   cancelledAt: string | null;
   cancelReason: string | null;
+  /** Yo'naltirishda taklif bo'lgan bo'lsa — asosi va o'zgarishsiz qabul qilinganmi */
+  suggestion?: PostSuggestion;
 }
 
 /** Yo'naltirish taklifi — oldingi yo'naltirishdan: joy, modda, bo'lim (foydalanuvchi ko'rib tasdiqlaydi) */
@@ -158,6 +160,24 @@ export function commonSuggestion(list: (RouteSuggestion | null)[]): { suggestion
   for (const s of has) by.set(s.combo, [...(by.get(s.combo) ?? []), s]);
   const best = [...by.values()].sort((a, b) => b.length - a.length)[0]!;
   return { suggestion: best[0]!, mixed: by.size > 1 || has.length < list.length };
+}
+
+/** Yo'naltirishda ko'rsatilgan taklif natijasi: asosi, o'xshashligi va o'zgarishsiz qabul qilinganmi */
+export interface PostSuggestion {
+  basis: RouteSuggestion['basis'];
+  score: number | null;
+  accepted: boolean;
+}
+
+const BASES: RouteSuggestion['basis'][] = ['CONTRACT', 'GROUP', 'SIMILAR', 'COUNTERPARTY'];
+
+/** Web yuborgan taklif ({ combo, basis, score }) va yakuniy tanlov kaliti → natija (taklif bo'lmasa — null) */
+export function suggestionOutcome(raw: unknown, finalCombo: string): PostSuggestion | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const s = raw as Record<string, unknown>;
+  if (typeof s.combo !== 'string' || !BASES.includes(s.basis as RouteSuggestion['basis'])) return null;
+  const score = typeof s.score === 'number' && Number.isFinite(s.score) ? Math.max(0, Math.min(100, Math.round(s.score))) : null;
+  return { basis: s.basis as RouteSuggestion['basis'], score, accepted: s.combo === finalCombo };
 }
 
 /** Guruhga foydalanuvchi bergan nom va tur (o'xshashlik kaliti bo'yicha — keyingi oylarda ham qo'llanadi) */
@@ -996,6 +1016,28 @@ export class BankAnalysisService {
     };
   }
 
+  /** Takliflar aniqligi (faol yo'naltirishlar): asos bo'yicha — ko'rsatilgan va o'zgarishsiz qabul qilingan */
+  async suggestionStats() {
+    const posts = (await this.store()).posts.filter((p) => p.status === 'POSTED');
+    const shown = posts.filter((p) => p.suggestion);
+    const rate = (n: number, of: number) => (of ? Math.round((n * 100) / of) : null);
+    return {
+      total: posts.length,
+      shown: shown.length,
+      accepted: shown.filter((p) => p.suggestion!.accepted).length,
+      rate: rate(shown.filter((p) => p.suggestion!.accepted).length, shown.length),
+      /** O'lchash shu sanadan (taklif natijasi yozila boshlagan) */
+      since: shown.reduce<string | null>((a, p) => (!a || p.createdAt < a ? p.createdAt : a), null),
+      byBasis: BASES.map((basis) => {
+        const l = shown.filter((p) => p.suggestion!.basis === basis);
+        const ok = l.filter((p) => p.suggestion!.accepted).length;
+        // O'xshash izoh: qabul qilinganlarning va o'zgartirilganlarning o'rtacha o'xshashligi — chegara sozlash uchun
+        const avg = (xs: PostSuggestion[]) => (xs.some((x) => x.score !== null) ? Math.round(xs.filter((x) => x.score !== null).reduce((s, x) => s + x.score!, 0) / xs.filter((x) => x.score !== null).length) : null);
+        return { basis, shown: l.length, accepted: ok, rate: rate(ok, l.length), avgScoreAccepted: avg(l.filter((p) => p.suggestion!.accepted).map((p) => p.suggestion!)), avgScoreChanged: avg(l.filter((p) => !p.suggestion!.accepted).map((p) => p.suggestion!)) };
+      }),
+    };
+  }
+
   // ═══════════ Izoh ═══════════
 
   protected findRow(store: Store, account: string, id: string): BankAnRow | null {
@@ -1456,13 +1498,15 @@ export class BankAnalysisService {
    * section (DOIMIY | BOSHQA), description (umumiy izoh, ixtiyoriy). Izoh: to'lovga yozilgan izohingiz → umumiy izoh →
    * bankdagi izoh. skipDuplicates — shu sana va summada yozuvi borlar o'tkazib yuboriladi; force — baribir yoziladi.
    */
-  async route(body: { items?: unknown; place?: unknown; categoryCode?: unknown; section?: unknown; description?: unknown; force?: unknown; skipDuplicates?: unknown }, userId: string) {
+  async route(body: { items?: unknown; place?: unknown; categoryCode?: unknown; section?: unknown; description?: unknown; force?: unknown; skipDuplicates?: unknown; suggested?: unknown }, userId: string) {
     const list = this.items(body?.items);
     const place = await this.place(body?.place);
     const section: 'DOIMIY' | 'BOSHQA' = body?.section === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY';
     const common = typeof body?.description === 'string' ? body.description.replace(/\s+/g, ' ').trim().slice(0, 500) : '';
     const code = typeof body?.categoryCode === 'string' ? body.categoryCode.trim().slice(0, 64) : '';
     if (!code) throw new BadRequestException('Moddani tanlang');
+    // Taklif ko'rsatilgan bo'lsa — o'zgarishsiz qabul qilindimi (takliflar aniqligini o'lchash uchun)
+    const sug = suggestionOutcome(body?.suggested, suggestionCombo({ place, categoryCode: code, section }));
     const by = await this.userName(userId);
     const unitOfPlace = entryUnitOf({ regionCode: place.regionCode, departmentId: place.departmentId, segment: isSegment(place.unit) ? place.unit : null });
 
@@ -1513,7 +1557,7 @@ export class BankAnalysisService {
                   documentNo: row.docNo.slice(0, 100) || null,
                 };
                 list.push(item);
-                posts.push({ id: randomUUID(), batch, account, rowId: row.id, period: this.periodOf(row), docDate: row.docDate, dir, amountTiyin: row.amountTiyin, place, categoryCode: code, categoryLabel, section, description, entryType: 'EXCLUDED', entryId: item.id, createdAt: now, createdBy: by, status: 'POSTED', cancelledAt: null, cancelReason: null });
+                posts.push({ id: randomUUID(), batch, account, rowId: row.id, period: this.periodOf(row), docDate: row.docDate, dir, amountTiyin: row.amountTiyin, place, categoryCode: code, categoryLabel, section, description, entryType: 'EXCLUDED', entryId: item.id, createdAt: now, createdBy: by, status: 'POSTED', cancelledAt: null, cancelReason: null, ...(sug ? { suggestion: sug } : {}) });
               }
               await writeExcluded(tx, list);
               store.posts.push(...posts);
@@ -1582,7 +1626,7 @@ export class BankAnalysisService {
               dir === 'OUT'
                 ? await tx.expense.create({ data: { ...base, documentNo: row.docNo.slice(0, 100) || null, counterparty: row.accountName.slice(0, 200) || null }, select: { id: true } })
                 : await tx.income.create({ data: { ...base, paidTiyin: big(row.amountTiyin), clientName: row.accountName.slice(0, 200) || null, contractNo: row.docNo.slice(0, 100) || null }, select: { id: true } });
-            posts.push({ id: randomUUID(), batch, account, rowId: row.id, period: this.periodOf(row), docDate: row.docDate, dir, amountTiyin: row.amountTiyin, place, categoryCode: code, categoryLabel, section, description, entryType: dir === 'OUT' ? 'EXPENSE' : 'INCOME', entryId: e.id, createdAt: now, createdBy: by, status: 'POSTED', cancelledAt: null, cancelReason: null });
+            posts.push({ id: randomUUID(), batch, account, rowId: row.id, period: this.periodOf(row), docDate: row.docDate, dir, amountTiyin: row.amountTiyin, place, categoryCode: code, categoryLabel, section, description, entryType: dir === 'OUT' ? 'EXPENSE' : 'INCOME', entryId: e.id, createdAt: now, createdBy: by, status: 'POSTED', cancelledAt: null, cancelReason: null, ...(sug ? { suggestion: sug } : {}) });
           }
           store.posts.push(...posts);
           // Aniqlashtirilib yo'naltirildi — belgi olinadi

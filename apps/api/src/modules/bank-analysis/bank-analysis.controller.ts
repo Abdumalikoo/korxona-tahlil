@@ -58,6 +58,12 @@ export class BankAnalysisController {
     return { data: await this.service.group(key, from, to, account || null, only || null) };
   }
 
+  /** «Avvalgidek» takliflari aniqligi: asos bo'yicha — ko'rsatilgan va o'zgarishsiz qabul qilingan */
+  @Get('suggestions/stats')
+  async suggestionStats() {
+    return { data: await this.service.suggestionStats() };
+  }
+
   /** Ajralib turgan to'lovlar: bir martalik, odatdan tashqari summa, izohi boshqacha */
   @Personal()
   @Get('outliers')

@@ -207,8 +207,14 @@ async function file(rows, acct = '20208000900100012345') {
   await svc.notes({ items: [{ account: ACC, rowId: e1.id, comment: 'AUP elektr (tuzatildi)' }] }, 'adm');
   assert.strictEqual(ex.description, 'AUP elektr (tuzatildi)');
   // force — baribir yoziladi
-  const rt2 = await svc.route({ items: [{ account: ACC, rowId: e2.id }], place: { unit: 'REGION', regionCode: 7 }, categoryCode: 'KOMM', force: true }, 'adm');
+  // Taklif (Markaz › AUP) ko'rsatilgan, foydalanuvchi boshqa joy tanladi — «o'zgartirilgan» bo'lib yoziladi (aniqlik statistikasi)
+  const { suggestionCombo } = require('../dist/modules/bank-analysis/bank-analysis.service');
+  const shownCombo = suggestionCombo({ place: { unit: 'CENTER', departmentId: 'dAUP', regionCode: 0, districtId: null }, categoryCode: 'KOMM', section: 'DOIMIY' });
+  const rt2 = await svc.route({ items: [{ account: ACC, rowId: e2.id }], place: { unit: 'REGION', regionCode: 7 }, categoryCode: 'KOMM', force: true, suggested: { combo: shownCombo, basis: 'GROUP' } }, 'adm');
   assert.strictEqual(rt2.count, 1);
+  const st1 = await svc.suggestionStats();
+  assert.deepStrictEqual([st1.shown, st1.accepted, st1.byBasis.find((b) => b.basis === 'GROUP').shown], [1, 0, 1], 'taklif o‘zgartirildi');
+  assert.strictEqual(st1.total - st1.shown, 1, 'birinchisi taklifsiz yo‘naltirilgan');
   assert.strictEqual(T.expense.find((e) => e.documentNo === '502').regionCode, 7);
   // Chiqim va kirim birga — rad; kirim → daromad
   const inG = (await svc.view('2026-05', '2026-05', ACC)).groups.find((g) => g.dir === 'IN');

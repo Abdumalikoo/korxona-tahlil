@@ -542,6 +542,7 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, clarifyMode = false, onTo
           )}
         </p>
       )}
+      {!clarifyMode && <SuggestionStatsLine reloadKey={rev} />}
       {missing.length > 0 && (
         <p className="flex items-center gap-1.5 text-xs text-(--color-warn)">
           <IconAlert className="size-3.5" />
@@ -948,6 +949,24 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
         </button>
       ))}
     </span>
+  );
+}
+
+/** «Avvalgidek» takliflari aniqligi: o'zgarishsiz qabul qilinganlar ulushi (asos bo'yicha) — chegarani sozlash uchun */
+const BASIS_SHORT: Record<string, string> = { CONTRACT: 'shartnoma', GROUP: 'bir xil izoh', SIMILAR: "o'xshash izoh", COUNTERPARTY: 'kontragent' };
+function SuggestionStatsLine({ reloadKey }: { reloadKey: number }) {
+  const { api } = useSource();
+  const res = useAsync(() => api.suggestionStats().then((r) => r.data), [reloadKey]);
+  const s = res.data;
+  if (!s || !s.shown) return null;
+  return (
+    <p className="text-xs text-(--color-text-muted)" title="Taklif bilan yo'naltirilgan to'lovlar: tanlov o'zgartirilmagan bo'lsa — qabul qilingan. O'xshash izohda — qabul qilingan / o'zgartirilganlarning o'rtacha o'xshashligi">
+      «Avvalgidek» takliflari: <b className="text-heading">{s.shown}</b> ta, o&apos;zgarishsiz qabul qilingan <b className="text-heading">{s.rate}%</b>
+      {s.byBasis
+        .filter((b) => b.shown > 0)
+        .map((b) => ` · ${BASIS_SHORT[b.basis] ?? b.basis} ${b.rate}% (${b.shown})${b.basis === 'SIMILAR' && (b.avgScoreAccepted !== null || b.avgScoreChanged !== null) ? ` [o'rtacha o'xshashlik: qabul ${b.avgScoreAccepted ?? '—'}%, o'zgartirilgan ${b.avgScoreChanged ?? '—'}%]` : ''}`)
+        .join('')}
+    </p>
   );
 }
 

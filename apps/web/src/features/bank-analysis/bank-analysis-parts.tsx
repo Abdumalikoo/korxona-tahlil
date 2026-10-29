@@ -649,6 +649,8 @@ export function RoutePanel({ group, suggestion, mixed = false, items, totalTiyin
           section,
           description: description.trim() || undefined,
           skipDuplicates: mode === 'skip',
+          // Taklif ko'rsatilgan bo'lsa — server yakuniy tanlov bilan solishtiradi (o'zgarishsiz qabul qilindimi)
+          ...(suggestion ? { suggested: { combo: suggestion.combo, basis: suggestion.basis, ...(suggestion.score !== undefined ? { score: suggestion.score } : {}) } } : {}),
           force: mode === 'force',
         })
       ).data;

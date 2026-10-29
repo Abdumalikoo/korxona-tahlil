@@ -59,6 +59,12 @@ export class InvoiceAnalysisController {
     return { data: await this.service.rowsList(from, to, account || null, dir || null) };
   }
 
+  /** «Avvalgidek» takliflari aniqligi */
+  @Get('suggestions/stats')
+  async suggestionStats() {
+    return { data: await this.service.suggestionStats() };
+  }
+
   @Personal()
   @Get('group')
   async group(@Query('key') key: string, @Query('from') from: string, @Query('to') to: string, @Query('only') only?: string) {
