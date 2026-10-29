@@ -146,6 +146,7 @@ export function TopRecords({ rows, kind, title }: { rows: RecordRow[]; kind: Kin
               <Td className="text-left text-heading">{x.category}</Td>
               <Td className="text-left">
                 {x.unitLabel}
+                {x.placeLabel && <span className="block text-[11px] text-(--color-warn)" title="Xarajatlar siyosati bo‘yicha shu birlik hisobiga o‘tkazilgan">siyosat: yozilgan — {x.placeLabel}</span>}
                 {x.department && <span className="block text-[11px] text-(--color-text-muted)">{x.department}</span>}
               </Td>
               <Td className="max-w-[18rem] text-left">

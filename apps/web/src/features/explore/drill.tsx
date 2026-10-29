@@ -168,6 +168,7 @@ function RecordsDrawer({ target, range, onClose }: { target: DrillTarget | null;
                         <td className="px-2 py-1.5 text-heading">{x.category}</td>
                         <td className="px-2 py-1.5">
                           {x.unitLabel}
+                          {x.placeLabel && <span className="block text-xs text-(--color-warn)" title="Xarajatlar siyosati bo‘yicha shu birlik hisobiga o‘tkazilgan">siyosat: yozilgan — {x.placeLabel}</span>}
                           {x.department && <span className="block text-xs text-(--color-text-muted)">{x.department}</span>}
                         </td>
                         <td className="max-w-[16rem] px-2 py-1.5">

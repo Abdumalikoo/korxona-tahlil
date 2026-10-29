@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { SEGMENTS, segmentKey, segmentLabel } from '../../common/segments/segments';
+import { loadPolicyRouting, type PolicyRouting } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { ranges, type Ranges, type Span } from './explore.range';
 
@@ -13,6 +14,7 @@ import { ranges, type Ranges, type Span } from './explore.range';
 //  Birlik qoidasi Solishtirma bilan bir xil:
 //   yo'nalish (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya) bo'lsa — o'sha bo'limniki ("s:KOD");
 //   hudud kodi bo'lsa — hudud (0 — Markaz); hudud yo'q, bo'lim bor — Markaz; hech biri yo'q — biriktirilmagan.
+//  Xarajatda — Xarajatlar siyosati ham (Solishtirma kabi): modda boshqa birlik hisobidan bo'lsa, o'sha birlikka o'tadi.
 //  Barcha summalar tiyinda (son).
 // ═══════════════════════════════════════════════════════════
 
@@ -80,6 +82,8 @@ interface Row {
   /** To'lanmagan qismi (daromadda — debitorlik, xarajatda — kreditorlik) */
   open: number;
   count: number;
+  /** Xarajatlar siyosati bo'yicha yozilgan joyidan boshqa birlikka o'tkazilgan */
+  routed: boolean;
 }
 
 interface Sets {
@@ -93,6 +97,8 @@ interface Lookups {
   departments: Map<string, string>;
   incomeCats: Map<string, { label: string; order: number }>;
   expenseCats: Map<string, { label: string; parent: string | null; order: number }>;
+  /** Xarajatlar siyosati (o'qib bo'lmasa — null: yozilgan joyi bo'yicha) */
+  routing: PolicyRouting | null;
 }
 
 type GroupModel = {
@@ -103,6 +109,18 @@ type GroupModel = {
 };
 
 const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
+
+/** Xarajat yozuvining birligi: siyosat bo'yicha kim hisobidan, bo'lmasa — yozilgan joyi (Solishtirma bilan bir xil) */
+export function expenseUnit(routing: PolicyRouting | null, r: { categoryCode: string; regionCode: number | null; departmentId: string | null; segment: string | null }): { unit: string; routed: boolean } {
+  const own = unitKey(r.regionCode, r.departmentId, r.segment);
+  const key = routing?.route(r)?.key;
+  return key && key !== own ? { unit: key, routed: true } : { unit: own, routed: false };
+}
+
+/** Birlik filtri (center | regions | segments | none | r:<kod> | s:<kod>) shu birlik kalitiga mosmi */
+export function unitMatches(filter: string, key: string): boolean {
+  return filter === 'regions' ? key.startsWith('r:') : filter === 'segments' ? key.startsWith('s:') : key === filter;
+}
 
 export function unitKey(regionCode: number | null, departmentId: string | null, segment?: string | null): string {
   if (segment && SEGMENT_KEYS.includes(segmentKey(segment))) return segmentKey(segment);
@@ -139,15 +157,17 @@ export class ExploreService {
     // Ish haqidan ushlanadigan daromad solig'i — «Soliqlar» ichida (yozuvlardan ajratiladi, pastda)
     if (!exp.has(JSHDS_CAT.parent)) exp.set(JSHDS_CAT.parent, { label: JSHDS_CAT.parentLabel, parent: null, order: 900 });
     exp.set(JSHDS_CAT.code, { label: JSHDS_CAT.label, parent: JSHDS_CAT.parent, order: 5 });
+    const routing = await loadPolicyRouting(this.prisma, expenseCats.map((c) => ({ code: c.code, parentCode: c.parentCode }))).catch(() => null);
     return {
       regions: new Map(regions.map((r) => [r.code, r.code === 0 ? 'Markaz' : r.name])),
       departments: new Map(departments.map((d) => [d.id, d.name])),
       incomeCats: new Map(incomeCats.map((c) => [c.code, { label: c.label, order: c.order ?? 0 }])),
       expenseCats: exp,
+      routing,
     };
   }
 
-  private async load(kind: Kind, s: Span, opts: { period?: boolean; party?: boolean } = {}): Promise<Row[]> {
+  private async load(kind: Kind, s: Span, opts: { period?: boolean; party?: boolean; routing?: PolicyRouting | null } = {}): Promise<Row[]> {
     const partyField = kind === 'income' ? 'clientName' : 'counterparty';
     // Mijoz / kontragent kesimi alohida yuklanadi (aks holda guruhlar soni juda ko'payadi)
     const by = [...(opts.party ? [partyField, 'paymentStatus'] : ['categoryCode', 'regionCode', 'departmentId', 'segment', 'paymentStatus', ...(opts.period ? ['period'] : [])]), ...(kind === 'expense' ? ['source'] : [])];
@@ -163,9 +183,12 @@ export class ExploreService {
       const status = String(g.paymentStatus ?? 'PAID');
       // Daromadda to'langan qism alohida yoziladi; xarajatda — holat bo'yicha (qisman to'langani ham ochiq hisoblanadi)
       const open = status === 'PAID' ? 0 : kind === 'income' ? Math.max(0, sum - num(g._sum.paidTiyin)) : sum;
+      const place = { categoryCode: String(g.categoryCode ?? ''), regionCode: (g.regionCode as number | null) ?? null, departmentId: (g.departmentId as string | null) ?? null, segment: (g.segment as string | null) ?? null };
+      // Mijoz / kontragent kesimida modda va joy yo'q — siyosat qo'llanmaydi (birlik u yerda ishlatilmaydi)
+      const { unit, routed } = kind === 'expense' && !opts.party ? expenseUnit(opts.routing ?? null, place) : { unit: unitKey(place.regionCode, place.departmentId, place.segment), routed: false };
       const row: Row = {
-        cat: String(g.categoryCode ?? ''),
-        unit: unitKey((g.regionCode as number | null) ?? null, (g.departmentId as string | null) ?? null, (g.segment as string | null) ?? null),
+        cat: place.categoryCode,
+        unit,
         dep: (g.departmentId as string | null) ?? 'none',
         period: String(g.period ?? ''),
         party: String(g[partyField] ?? NO_PARTY),
@@ -173,6 +196,7 @@ export class ExploreService {
         sum,
         open,
         count: g._count._all,
+        routed,
       };
       // Ish haqi yozuvi: daromad solig'i (JShDS) ajratiladi — «Soliqlar › Daromad solig'i», ish haqi — sof qism
       if (kind !== 'expense' || g.source !== 'PAYROLL' || pct <= 0 || sum <= 0) return [row];
@@ -192,8 +216,8 @@ export class ExploreService {
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 12;
   }
 
-  private async sets(kind: Kind, r: Ranges, party = false): Promise<Sets> {
-    const [cur, prev, ly] = await Promise.all([this.load(kind, r.cur, { period: !party, party }), this.load(kind, r.prev, { party }), this.load(kind, r.ly, { party })]);
+  private async sets(kind: Kind, r: Ranges, routing: PolicyRouting | null, party = false): Promise<Sets> {
+    const [cur, prev, ly] = await Promise.all([this.load(kind, r.cur, { period: !party, party, routing }), this.load(kind, r.prev, { party, routing }), this.load(kind, r.ly, { party, routing })]);
     return { cur, prev, ly };
   }
 
@@ -231,7 +255,7 @@ export class ExploreService {
     }
     return (r) =>
       (!cats || cats.has(r.cat)) &&
-      (!f.unit || (f.unit === 'regions' ? r.unit.startsWith('r:') : f.unit === 'segments' ? r.unit.startsWith('s:') : r.unit === f.unit)) &&
+      (!f.unit || unitMatches(f.unit, r.unit)) &&
       (!f.dep || r.dep === f.dep) &&
       (!f.month || r.period === f.month) &&
       (f.party === undefined || r.party === f.party) &&
@@ -337,7 +361,8 @@ export class ExploreService {
   }
 
   private record(kind: Kind, r: Record<string, unknown>, lk: Lookups) {
-    const unit = unitKey((r.regionCode as number | null) ?? null, (r.departmentId as string | null) ?? null, (r.segment as string | null) ?? null);
+    const place = { categoryCode: String(r.categoryCode ?? ''), regionCode: (r.regionCode as number | null) ?? null, departmentId: (r.departmentId as string | null) ?? null, segment: (r.segment as string | null) ?? null };
+    const { unit, routed } = kind === 'expense' ? expenseUnit(lk.routing, place) : { unit: unitKey(place.regionCode, place.departmentId, place.segment), routed: false };
     const amount = num(r.amountTiyin);
     const status = String(r.paymentStatus ?? 'PAID');
     return {
@@ -351,6 +376,8 @@ export class ExploreService {
       categoryCode: String(r.categoryCode),
       unit,
       unitLabel: this.unitLabel(unit, lk),
+      /** Siyosat bo'yicha o'tkazilgan bo'lsa — yozilgan joyi */
+      placeLabel: routed ? this.unitLabel(unitKey(place.regionCode, place.departmentId, place.segment), lk) : null,
       department: r.departmentId ? this.depLabel(String(r.departmentId), lk) : null,
       party: ((kind === 'income' ? r.clientName : r.counterparty) as string | null) ?? null,
       description: (r.description as string | null) ?? null,
@@ -413,7 +440,8 @@ export class ExploreService {
 
   async income(from?: string, to?: string) {
     const r = ranges(from, to);
-    const [lk, s, ps] = await Promise.all([this.lookups(), this.sets('income', r), this.sets('income', r, true)]);
+    const lk = await this.lookups();
+    const [s, ps] = await Promise.all([this.sets('income', r, null), this.sets('income', r, null, true)]);
     const K: Kind = 'income';
     const cats = ExploreService.distinct(s, (x) => x.cat);
     const units = this.unitsOf(s);
@@ -513,7 +541,8 @@ export class ExploreService {
 
   async expense(from?: string, to?: string) {
     const r = ranges(from, to);
-    const [lk, s, ps] = await Promise.all([this.lookups(), this.sets('expense', r), this.sets('expense', r, true)]);
+    const lk = await this.lookups();
+    const [s, ps] = await Promise.all([this.sets('expense', r, lk.routing), this.sets('expense', r, lk.routing, true)]);
     const K: Kind = 'expense';
     const units = this.unitsOf(s);
     const deps = ExploreService.distinct(s, (x) => x.dep);
@@ -552,6 +581,8 @@ export class ExploreService {
         segments: this.vals(s, this.matcher(K, { unit: 'segments' }, lk)),
         none: this.vals(s, this.matcher(K, { unit: 'none' }, lk)),
         bySegment: this.bySegment(K, s, lk),
+        /** Xarajatlar siyosati bo'yicha yozilgan joyidan boshqa birlikka o'tkazilgani */
+        policy: this.vals(s, (x) => x.routed),
       },
       tree,
       unitTree,
@@ -568,7 +599,8 @@ export class ExploreService {
 
   async result(from?: string, to?: string) {
     const r = ranges(from, to);
-    const [lk, inc, exp] = await Promise.all([this.lookups(), this.sets('income', r), this.sets('expense', r)]);
+    const lk = await this.lookups();
+    const [inc, exp] = await Promise.all([this.sets('income', r, null), this.sets('expense', r, lk.routing)]);
     const units = [...new Set([...this.unitsOf(inc), ...this.unitsOf(exp)])].sort((a, b) => {
       const w = (u: string) => (u === 'center' ? -1 : u === 'none' ? 1e9 : u.startsWith('s:') ? 1e6 + SEGMENT_KEYS.indexOf(u) : Number(u.slice(2)));
       return w(a) - w(b);
@@ -652,10 +684,10 @@ export class ExploreService {
   /** Filtr → Prisma sharti (matcher bilan aynan bir xil mantiq) */
   private async where(kind: Kind, span: Span, f: Filter) {
     const and: Record<string, unknown>[] = [{ deletedAt: null }, { date: { gte: span.start, lt: span.end } }];
+    const lk = kind === 'expense' ? await this.lookups() : null;
     if (f.cats?.length) {
       let codes = f.cats;
-      if (kind === 'expense' && !f.exact) {
-        const lk = await this.lookups();
+      if (lk && !f.exact) {
         const desc = this.descendants(lk);
         codes = [...new Set(f.cats.flatMap((c) => [...desc(c)]))];
       }
@@ -663,12 +695,19 @@ export class ExploreService {
     }
     // Yo'nalish yozuvi (segment) — o'sha bo'limniki; Markaz / hudud / biriktirilmagan — yo'nalishsiz yozuvlar
     const noSegment = { OR: [{ segment: null }, { segment: { notIn: SEGMENTS.map((x) => x.code) } }] };
-    if (f.unit === 'center') and.push(noSegment, { OR: [{ regionCode: 0 }, { regionCode: null, departmentId: { not: null } }] });
-    else if (f.unit === 'regions') and.push(noSegment, { regionCode: { gt: 0 } });
-    else if (f.unit === 'none') and.push(noSegment, { regionCode: null, departmentId: null });
-    else if (f.unit === 'segments') and.push({ segment: { in: SEGMENTS.map((x) => x.code) } });
-    else if (f.unit?.startsWith('s:')) and.push({ segment: f.unit.slice(2) });
-    else if (f.unit?.startsWith('r:')) and.push(noSegment, { regionCode: Number(f.unit.slice(2)) });
+    const own: Record<string, unknown>[] = [];
+    if (f.unit === 'center') own.push(noSegment, { OR: [{ regionCode: 0 }, { regionCode: null, departmentId: { not: null } }] });
+    else if (f.unit === 'regions') own.push(noSegment, { regionCode: { gt: 0 } });
+    else if (f.unit === 'none') own.push(noSegment, { regionCode: null, departmentId: null });
+    else if (f.unit === 'segments') own.push({ segment: { in: SEGMENTS.map((x) => x.code) } });
+    else if (f.unit?.startsWith('s:')) own.push({ segment: f.unit.slice(2) });
+    else if (f.unit?.startsWith('r:')) own.push(noSegment, { regionCode: Number(f.unit.slice(2)) });
+    // Xarajatlar siyosati: shu birlikdan boshqa birlikka o'tganlar chiqariladi, boshqa birlikdan shu birlikka o'tganlar qo'shiladi
+    // (modda × joy guruhlari bo'yicha — jadvaldagi summa bilan aynan bir xil)
+    const moved = f.unit && lk?.routing ? await this.movedPlaces(and, f.unit, lk.routing) : { out: [], in: [] };
+    if (moved.out.length || moved.in.length) {
+      and.push({ OR: [{ AND: [...own, ...(moved.out.length ? [{ NOT: { OR: moved.out } }] : [])] }, ...(moved.in.length ? [{ OR: moved.in }] : [])] });
+    } else and.push(...own);
     if (f.dep) and.push({ departmentId: f.dep === 'none' ? null : f.dep });
     if (f.month) and.push({ period: f.month });
     if (f.party !== undefined) {
@@ -677,6 +716,22 @@ export class ExploreService {
     }
     if (f.unpaid) and.push({ paymentStatus: { not: 'PAID' } });
     return { AND: and };
+  }
+
+  /** Siyosat bo'yicha birlikdan chiqqan (out) va birlikka kirgan (in) modda × joy guruhlari */
+  private async movedPlaces(base: Record<string, unknown>[], unit: string, routing: PolicyRouting) {
+    const groups = await this.prisma.expense.groupBy({ by: ['categoryCode', 'regionCode', 'departmentId', 'segment'], where: { AND: base } });
+    const out: Record<string, unknown>[] = [];
+    const into: Record<string, unknown>[] = [];
+    for (const g of groups) {
+      const { unit: key, routed } = expenseUnit(routing, g);
+      if (!routed) continue;
+      const place = { categoryCode: g.categoryCode, regionCode: g.regionCode, departmentId: g.departmentId, segment: g.segment };
+      const own = unitKey(g.regionCode, g.departmentId, g.segment);
+      if (unitMatches(unit, own) && !unitMatches(unit, key)) out.push(place);
+      else if (!unitMatches(unit, own) && unitMatches(unit, key)) into.push(place);
+    }
+    return { out, in: into };
   }
 
   static parseFilter(q: Record<string, string | undefined>): Filter {

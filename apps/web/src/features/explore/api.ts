@@ -82,6 +82,8 @@ export interface RecordRow {
   categoryCode: string;
   unit: string;
   unitLabel: string;
+  /** Xarajatlar siyosati bo'yicha o'tkazilgan bo'lsa — yozilgan joyi */
+  placeLabel?: string | null;
   department: string | null;
   party: string | null;
   description: string | null;
@@ -107,7 +109,7 @@ export interface IncomeExplore extends Header {
 }
 
 export interface ExpenseExplore extends Header {
-  totals: UnitVals & { paid: number; unpaidCount: number; center: UnitVals; regions: UnitVals; none: UnitVals; segments?: UnitVals; bySegment?: SegmentVals[] };
+  totals: UnitVals & { paid: number; unpaidCount: number; center: UnitVals; regions: UnitVals; none: UnitVals; segments?: UnitVals; bySegment?: SegmentVals[]; /** Siyosat bo'yicha boshqa birlikka o'tkazilgani */ policy?: UnitVals };
   tree: XNode[];
   /** Birliklar bo'yicha: Markaz, Hududlar → viloyatlar → moddalar, yo'nalishlar (…ByPart — Hududlar → moddalar → viloyatlar) */
   unitTree?: XNode[];

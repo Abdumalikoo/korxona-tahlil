@@ -68,9 +68,16 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
             title="Xarajat tarkibi: qayerga ketdi"
             description={regionBy === 'parts' ? "Markaz → moddalar; Hududlar → moddalar → viloyatlar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar" : "Markaz → moddalar; Hududlar → viloyatlar → moddalar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar"}
             root={ROOT}
-           
+
             total={t}
             csv="Xarajat tarkibi"
+            note={
+              t.policy?.cur || t.policy?.prev ? (
+                <>
+                  Xarajatlar siyosati hisobga olingan (Solishtirma bilan bir xil): <b className="money">{som(t.policy.cur)}</b> so&apos;m ({t.policy.count} ta yozuv) yozilgan joyidan boshqa birlik hisobiga o&apos;tkazilgan. Yozuvlar ro&apos;yxatida ular «siyosat: yozilgan — …» belgisi bilan ko&apos;rinadi.
+                </>
+              ) : undefined
+            }
             actions={
               <Switch
                 value={regionBy}
