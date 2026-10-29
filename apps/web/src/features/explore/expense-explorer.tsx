@@ -67,7 +67,7 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
             title="Xarajat tarkibi: qayerga ketdi"
             description={regionBy === 'parts' ? "Markaz → moddalar; Hududlar → moddalar → viloyatlar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar" : "Markaz → moddalar; Hududlar → viloyatlar → moddalar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar"}
             root={ROOT}
-            openDepth={1}
+           
             total={t}
             csv="Xarajat tarkibi"
             actions={
@@ -83,7 +83,7 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
           />
         )}
 
-        <DrillTable nodes={d.tree} title="Xarajat moddalari: pul nimaga sarflandi" description="Guruh → ichki moddalar. › bosilsa ichi ochiladi; Markaz / Hududlar / yo'nalishlar ustunlari ham bosiladi" nameHeader="Modda" root={ROOT} openDepth={1} extra={unitCols} total={t} csv="Xarajat moddalari" note="To‘lanmagan summalar — «Kesimlar» jadvalida va yuqoridagi «To‘lanmagan» kartochkasida." />
+        <DrillTable nodes={d.tree} title="Xarajat moddalari: pul nimaga sarflandi" description="Guruh → ichki moddalar. › bosilsa ichi ochiladi; Markaz / Hududlar / yo'nalishlar ustunlari ham bosiladi" nameHeader="Modda" root={ROOT} extra={unitCols} total={t} csv="Xarajat moddalari" note="To‘lanmagan summalar — «Kesimlar» jadvalida va yuqoridagi «To‘lanmagan» kartochkasida." />
 
         <DrillTable
           key={cut}

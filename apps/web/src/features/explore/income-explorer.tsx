@@ -60,7 +60,7 @@ export function IncomeExplorer({ range }: { range: DateRange }) {
           title="Daromad tarkibi: qayerdan keldi"
           description={regionBy === 'parts' ? "Markaz → xizmatlar → bo'limlar; Hududlar → xizmat turlari → viloyatlar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar" : "Markaz → xizmatlar → bo'limlar; Hududlar → viloyatlar → xizmatlar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar"}
           root={ROOT}
-          openDepth={1}
+         
           extra={[OPEN_COL]}
           total={t}
           csv="Daromad tarkibi"
