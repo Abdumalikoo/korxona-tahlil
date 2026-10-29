@@ -8,6 +8,7 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatPeriod, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
+import { smartQuery } from '@/lib/smart-search';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
 import { commonOf, ENTRY_LABEL, RoutePanel, SuggestBadge, type ToastFn } from './bank-analysis-parts';
@@ -28,7 +29,8 @@ const rk = (r: BankListRow) => `${r.account}:${r.id}`;
 export type RowsMode = 'OPEN' | 'CLARIFY' | 'ALL';
 const isOpen = (r: BankListRow) => !r.post && !r.dismissed && !r.clarify;
 
-export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, onChanged }: { v: BankView; dir: BankDir; isAdmin: boolean; reloadKey: number; mode: RowsMode; onMode: (m: RowsMode) => void; onToast: ToastFn; onChanged: () => void }) {
+/** query — tashqi (yuqoridagi) aqlli qidiruv: berilsa, ro'yxatning o'z qidiruv maydoni yashiriladi */
+export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, onChanged, query }: { v: BankView; dir: BankDir; isAdmin: boolean; reloadKey: number; mode: RowsMode; onMode: (m: RowsMode) => void; onToast: ToastFn; onChanged: () => void; query?: string }) {
   const { api } = useSource();
   const [rev, setRev] = useState(0);
   const res = useAsync(() => api.rows(v.from, v.to, v.account, dir).then((r) => r.data), [v.from, v.to, v.account, dir, reloadKey, rev]);
@@ -42,15 +44,17 @@ export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, on
 
   const all = useMemo(() => res.data?.rows ?? [], [res.data]);
   const inMonth = useMemo(() => (month ? all.filter((r) => (r.period ?? r.docDate.slice(0, 7)) === month) : all), [all, month]);
+  // Aqlli qidiruv: kirill/lotin, qo'shimcha, 1–2 harf xato va ma'nodosh so'zlar («ijara» → аренда) — nom, ИНН, № hujjat, maqsad, guruh, izoh bo'yicha
+  const term = query ?? q;
   const shown = useMemo(() => {
-    const t = q.trim().toLowerCase();
+    const sq = smartQuery(term);
     return inMonth.filter((r) => {
       if (mode === 'OPEN' && !isOpen(r)) return false;
       if (mode === 'CLARIFY' && !r.clarify) return false;
-      if (!t) return true;
-      return r.accountName.toLowerCase().includes(t) || (r.inn ?? '').includes(t) || r.purpose.toLowerCase().includes(t) || r.docNo.includes(t) || (r.groupName ?? '').toLowerCase().includes(t);
+      if (!sq) return true;
+      return sq.score(`${r.accountName} ${r.inn ?? ''} ${r.docNo} ${r.purpose} ${r.groupName ?? ''} ${r.note ?? ''}`) > 0;
     });
-  }, [inMonth, mode, q]);
+  }, [inMonth, mode, term]);
   const months = useMemo(() => {
     const m = new Map<string, { n: number; open: number }>();
     for (const r of all) {
@@ -86,7 +90,8 @@ export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, on
       return n;
     });
   }
-  const allOn = free.length > 0 && free.slice(0, limit).every((r) => sel.has(rk(r)));
+  // «Hammasini belgilash» — topilgan barcha qolganlar (faqat ekrandagi birinchi sahifa emas)
+  const allOn = free.length > 0 && free.every((r) => sel.has(rk(r)));
 
   async function skip(list: BankListRow[]) {
     setBusy(true);
@@ -185,6 +190,7 @@ export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, on
       </div>
       <div className="flex flex-wrap items-center gap-3 border-b border-(--color-line) px-5 py-2 text-xs">
         {mode === 'CLARIFY' && <span className="text-amber-800">Aniq tahlil talab qiladiganlar: tekshirib, izoh yozing va yo&apos;naltiring (belgi o&apos;zi olinadi) yoki «Qaytarish» / «Bekor qilish».</span>}
+        {query === undefined && (
         <label className="relative ml-auto">
           <IconSearch className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-(--color-text-faint)" />
           <input
@@ -193,10 +199,11 @@ export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, on
               setQ(e.target.value);
               setLimit(PAGE);
             }}
-            placeholder="Nom, ИНН, № hujjat, maqsad"
+            placeholder="Nom, ИНН, № hujjat, maqsad (aqlli qidiruv)"
             className="h-8 w-64 rounded-(--radius-control) border border-(--color-line-strong) bg-white pr-3 pl-8 text-sm focus:border-brand-600 focus:outline-none"
           />
         </label>
+        )}
       </div>
       {res.error ? (
         <ErrorState message={res.error} onRetry={res.reload} />
@@ -213,8 +220,9 @@ export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, on
                       type="checkbox"
                       className="size-4 accent-brand-600"
                       checked={allOn}
-                      onChange={() => setSel(allOn ? new Set() : new Set(free.slice(0, limit).map(rk)))}
-                      aria-label="Ko'rinayotgan qolganlarni tanlash"
+                      onChange={() => setSel(allOn ? new Set() : new Set(free.map(rk)))}
+                      aria-label="Topilgan hamma qolganlarni tanlash"
+                      title={`Hammasini belgilash: ${free.length} ta`}
                     />
                   </th>
                 )}

@@ -16,6 +16,7 @@ import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatCompact, formatDateTime, formatPeriod, formatPeriodShort, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
+import { smartQuery } from '@/lib/smart-search';
 import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
 import { GroupDrawer, KindBadge, KindRulesCard, PostsHistory, PreviewGroups, SuggestBadge } from './bank-analysis-parts';
@@ -55,6 +56,10 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
   const { isAdmin } = useAuth();
   const range = useMonthRange('year');
   const [account, setAccount] = useState<string | null>(null);
+  // Aqlli qidiruv: so'z, yo'nalish (chiqim / kirim) va ro'yxat turi (sukut — hammasi, yo'naltirilganlar ham)
+  const [search, setSearch] = useState('');
+  const [searchDir, setSearchDir] = useState<BankDir>(defaultDir);
+  const [searchMode, setSearchMode] = useState<RowsMode>('ALL');
   const [analysis, setAnalysis] = useState<BankAnalysis | null>(null);
   const [accountName, setAccountName] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -370,7 +375,11 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
           ))}
         </div>
       )}
-      {view.loading && !v ? (
+      {/* Aqlli qidiruv (Tahlil va saqlash): yozilsa — tahlil o'rnida topilgan hamma to'lovlar */}
+      {shownPage === 'ANALYSIS' && v && v.totals.rows > 0 && <SmartSearchBar value={search} onChange={setSearch} dir={searchDir} onDir={setSearchDir} />}
+      {shownPage === 'ANALYSIS' && v && v.totals.rows > 0 && search.trim() ? (
+        <RowsList key={searchDir} v={v} dir={searchDir} isAdmin={isAdmin} reloadKey={0} mode={searchMode} onMode={setSearchMode} onToast={setToast} onChanged={reloadAll} query={search} />
+      ) : view.loading && !v ? (
         <LoadingState />
       ) : view.error ? (
         <ErrorState message={view.error} onRetry={view.reload} />
@@ -967,6 +976,48 @@ function SuggestionStatsLine({ reloadKey }: { reloadKey: number }) {
         .map((b) => ` · ${BASIS_SHORT[b.basis] ?? b.basis} ${b.rate}% (${b.shown})${b.basis === 'SIMILAR' && (b.avgScoreAccepted !== null || b.avgScoreChanged !== null) ? ` [o'rtacha o'xshashlik: qabul ${b.avgScoreAccepted ?? '—'}%, o'zgartirilgan ${b.avgScoreChanged ?? '—'}%]` : ''}`)
         .join('')}
     </p>
+  );
+}
+
+/**
+ * Aqlli qidiruv paneli: kirill / lotin, qo'shimcha, 1–2 harf xato va ma'nodosh so'zlar («ijara» → аренда).
+ * Nimalar izlanayotgani ko'rinadi; yo'nalish — chiqim yoki kirim.
+ */
+function SmartSearchBar({ value, onChange, dir, onDir }: { value: string; onChange: (v: string) => void; dir: BankDir; onDir: (d: BankDir) => void }) {
+  const sq = smartQuery(value);
+  return (
+    <div className="rounded-(--radius-card) border border-brand-200 bg-white p-3 shadow-card">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative min-w-64 flex-1">
+          <IconSearch className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-brand-600" />
+          <input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Aqlli qidiruv: masalan «ijara», «аренда», «elektr», ИНН yoki № hujjat — kirillcha, xato harf bilan ham topadi"
+            className="h-11 w-full rounded-(--radius-control) border border-(--color-line-strong) bg-white pr-10 pl-10 text-sm focus:border-brand-600 focus:outline-none"
+            aria-label="Bank to'lovlari bo'yicha qidiruv"
+          />
+          {value && (
+            <button type="button" onClick={() => onChange('')} className="absolute top-1/2 right-3 -translate-y-1/2 text-lg leading-none text-(--color-text-faint) hover:text-heading" aria-label="Qidiruvni tozalash" title="Tozalash — tahlilga qaytish">
+              ×
+            </button>
+          )}
+        </label>
+        <DirSwitch dir={dir} onChange={onDir} />
+      </div>
+      {sq && (
+        <p className="mt-2 text-xs text-(--color-text-muted)">
+          Izlanmoqda (hammasi bo&apos;lishi kerak):{' '}
+          {sq.terms.map((t, i) => (
+            <span key={i} className="mr-2 inline-block">
+              <b className="text-heading">{t.word}</b>
+              {t.variants.length > 1 ? ` — ${t.variants.filter((x) => x !== t.word).join(', ')}` : ''}
+            </span>
+          ))}
+          · kirill / lotin va 1–2 harf xato ham topiladi. Pastda — topilgan hamma to&apos;lovlar: belgilab yo&apos;naltiring, bekor qiling yoki aniqlashtiring.
+        </p>
+      )}
+    </div>
   );
 }
 
