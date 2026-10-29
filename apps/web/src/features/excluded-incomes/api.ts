@@ -17,6 +17,7 @@ export interface ExcludedItem {
   /** Bank ko'chirmasidan yo'naltirilgan — tahrir/o'chirish Bank ko'chirmasida (yo'naltirishni bekor qilish) */
   source?: 'BANK';
   counterparty?: string | null;
+  counterpartyInn?: string | null;
   documentNo?: string | null;
 }
 

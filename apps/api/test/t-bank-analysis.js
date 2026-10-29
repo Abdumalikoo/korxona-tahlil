@@ -18,7 +18,7 @@ async function file(rows, acct = '20208000900100012345') {
   ['№\nпп', 'Дата\nдокумента', 'Дата\nобработки', '№ док', 'Наименование счёта', 'ИНН', '№ счёта', 'МФО', 'Обороты по\nдебету', 'Обороты по\nкредиту', 'Назначение платежа'].forEach((h, i) => (ws.getCell(11, i + 1).value = h));
   rows.forEach((r, i) => {
     const row = ws.getRow(12 + i);
-    row.values = [String(i + 1), r.d, r.d, r.no ?? String(100 + i), r.name, r.inn, '20210000000000000001', '00014', r.out ?? 0, r.in ?? 0, r.p];
+    row.values = [String(i + 1), r.d, r.pd ?? r.d, r.no ?? String(100 + i), r.name, r.inn, '20210000000000000001', '00014', r.out ?? 0, r.in ?? 0, r.p];
   });
   ws.getRow(12 + rows.length).values = ['', '', '', '', 'Итого', '', '', '', 0, 0, ''];
   return { buffer: Buffer.from(await wb.xlsx.writeBuffer()), originalname: 'vypiska.xlsx' };
@@ -160,6 +160,8 @@ async function file(rows, acct = '20208000900100012345') {
   assert.deepStrictEqual([rt.count, rt.skipped, rt.place], [1, 1, 'Markaz › AUP']);
   const ex = T.expense.find((e) => e.id !== 'old1' && !e.deletedAt);
   assert.deepStrictEqual([String(ex.amountTiyin), ex.regionCode, ex.departmentId, ex.categoryCode, ex.description, ex.documentNo, ex.section], [s(2_000_000), 0, 'dAUP', 'KOMM', 'AUP binosi elektr — may', '501', 'DOIMIY'], 'izohingiz bilan, Markaz › AUP');
+  // Bankdagi kontragent ma'lumoti saqlanadi: INN, MFO va asl to'lov maqsadi (izoh boshqacha bo'lsa ham)
+  assert.deepStrictEqual([ex.counterpartyInn, ex.counterpartyMfo, ex.bankPurpose], ['300000001', '00014', 'Оплата за электроэнергию за май']);
   await assert.rejects(svc.route({ items: [{ account: ACC, rowId: e1.id }], place, categoryCode: 'KOMM' }, 'adm'), /allaqachon yo.naltirilgan/);
   // Izoh o'zgarsa — xarajat izohi ham
   await svc.notes({ items: [{ account: ACC, rowId: e1.id, comment: 'AUP elektr (tuzatildi)' }] }, 'adm');
@@ -212,6 +214,49 @@ async function file(rows, acct = '20208000900100012345') {
   await assert.rejects(svc.route({ items: [{ account: ACC, rowId: inRow.id }], place: { unit: 'TAX_FREE' }, categoryCode: 'XIZ' }, 'adm'), /ro'yxatdan chiqarilgan/);
   assert.strictEqual((await svc.undismiss({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm')).count, 1);
   assert.strictEqual((await svc.group(inG.key, '2026-05', '2026-05', ACC)).rows.find((r) => r.id === inRow.id).dismissed, null);
+  // Oy — ishlov sanasi bo'yicha (vipiskadagidek): hujjati aprel, bank mayda o'tkazgan → may
+  const bp = await svc.analyze(await file([{ d: '30.04.2026', pd: '02.05.2026', no: '777', name: 'ТЕСТ МЧЖ', inn: '300000077', out: 1_000, p: 'Тест тўлов' }], '20208000900100055555'));
+  await svc.commit({ fileName: 'apr.xlsx', account: 'Hisob …55555', months: ['2026-04'], rows: bp.rows }, 'adm');
+  const accP = Object.keys(T.setting.find((x) => x.key === 'bank.analysis.store').value.accounts).find((k) => k.includes('55555'));
+  const pr = (await svc.rowsList('2026-05', '2026-05', accP)).rows;
+  assert.deepStrictEqual(pr.map((r) => [r.docNo, r.period]), [['777', '2026-05']], 'ishlov sanasi oyi');
+  assert.strictEqual((await svc.rowsList('2026-04', '2026-04', accP)).rows.length, 0);
+  // Nomma-nom: davrdagi hamma to'lov (guruhlarga bo'linmasdan), yo'nalish bo'yicha
+  const nn = await svc.rowsList('2026-05', '2026-05', ACC);
+  const vNow = await svc.view('2026-05', '2026-05', ACC);
+  assert.strictEqual(nn.rows.length, vNow.totals.rows, 'hamma qator');
+  assert.strictEqual((await svc.rowsList('2026-05', '2026-05', ACC, 'OUT')).rows.every((r) => r.dir === 'OUT'), true);
+  assert.ok(nn.rows.every((r) => r.groupKey && 'post' in r && 'dismissed' in r));
+  // Aniqlashtirish: ish ro'yxatidan alohida; yo'naltirilsa belgi o'zi olinadi; bekor qilinsa ham olinadi
+  await assert.rejects(svc.clarify({ items: [{ account: ACC, rowId: e1.id }] }, 'adm'), /yo'naltirilgan/);
+  const cl = await svc.clarify({ items: [{ account: ACC, rowId: inRow.id }], note: ' kimdan kelgani noma’lum ' }, 'adm');
+  assert.strictEqual(cl.count, 1);
+  const gC = (await svc.view('2026-05', '2026-05', ACC)).groups.find((g) => g.key === inG.key);
+  assert.deepStrictEqual([gC.clarifyCount, gC.openCount], [1, gC.count - gC.postedCount - gC.dismissedCount - 1]);
+  assert.strictEqual((await svc.view('2026-05', '2026-05', ACC)).totals.clarify, 1);
+  const cRow = (await svc.rowsList('2026-05', '2026-05', ACC)).rows.find((r) => r.id === inRow.id);
+  assert.strictEqual(cRow.clarify.reason, 'kimdan kelgani noma’lum');
+  assert.strictEqual(counts().join(), before.join(), 'yozuv yaratilmaydi');
+  await svc.dismiss({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm');
+  assert.strictEqual((await svc.rowsList('2026-05', '2026-05', ACC)).rows.find((r) => r.id === inRow.id).clarify, null, 'bekor qilinsa — aniqlashtirish olinadi');
+  await svc.undismiss({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm');
+  await svc.clarify({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm');
+  assert.strictEqual((await svc.unclarify({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm')).count, 1);
+  await svc.clarify({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm');
+  const rc = await svc.route({ items: [{ account: ACC, rowId: inRow.id }], place: { unit: 'TAX_FREE' }, categoryCode: 'XIZ' }, 'adm');
+  const afterRoute = (await svc.rowsList('2026-05', '2026-05', ACC)).rows.find((r) => r.id === inRow.id);
+  assert.deepStrictEqual([Boolean(afterRoute.post), afterRoute.clarify], [true, null], 'yo‘naltirilgach — aniqlashtirish olinadi');
+  await svc.unroute({ batch: rc.batch }, 'adm');
+  // O'chirish: yo'naltirilganini emas; o'chirilgani tahlil va jamidan ketadi, hech qanday yozuvga tegmaydi
+  await assert.rejects(svc.deleteRows({ items: [{ account: ACC, rowId: e1.id }] }, 'adm'), /yo'naltirilgan — avval/);
+  const vBefore = await svc.view('2026-05', '2026-05', ACC);
+  const del = await svc.deleteRows({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm');
+  assert.deepStrictEqual([del.count, del.totalTiyin], [1, s(7_000_000)]);
+  const vAfter = await svc.view('2026-05', '2026-05', ACC);
+  assert.strictEqual(vAfter.totals.rows, vBefore.totals.rows - 1);
+  assert.strictEqual(BigInt(vAfter.totals.inTiyin), BigInt(vBefore.totals.inTiyin) - 700000000n);
+  assert.deepStrictEqual(counts(), before, 'xarajat / daromad yozuvlariga tegmaydi');
+  await assert.rejects(svc.deleteRows({ items: [{ account: ACC, rowId: inRow.id }] }, 'adm'), /topilmadi/);
   // Oy qayta yuklandi, 502 yo'q → uning xarajati o'chadi; 501 qoladi
   const b3 = await svc.analyze(await file([{ d: '10.05.2026', no: '501', name: 'ЭЛЕКТР', inn: '300000001', out: 2_000_000, p: 'Оплата за электроэнергию за май' }], '20208000900100077777'));
   const s3 = await svc.commit({ fileName: 'may2.xlsx', account: 'Hisob …77777', months: ['2026-05'], rows: b3.rows }, 'adm');

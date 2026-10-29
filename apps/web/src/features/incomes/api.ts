@@ -1,7 +1,6 @@
 import { api, getToken, type ApiResponse, type PaginatedResponse } from '@/lib/api';
 import type {
   Income,
-  CategorySummaryRow,
   DepartmentSummaryRow,
   TrendPoint,
   ComparisonResult,

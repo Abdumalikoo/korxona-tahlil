@@ -42,6 +42,7 @@ export interface ExcludedItem {
   source?: 'BANK';
   /** Bankdagi to'lov: kontragent, hujjat raqami */
   counterparty?: string | null;
+  counterpartyInn?: string | null;
   documentNo?: string | null;
 }
 

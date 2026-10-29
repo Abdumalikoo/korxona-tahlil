@@ -38,7 +38,7 @@ export default function AvtoparkPage() {
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const all = list.data?.items ?? [];
+  const all = useMemo(() => list.data?.items ?? [], [list.data]);
   const items = useMemo(() => all.filter((v) => showInactive || v.isActive), [all, showInactive]);
   const groups = lookups.data?.groups ?? [];
   useEffect(() => {

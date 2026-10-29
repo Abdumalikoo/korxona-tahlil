@@ -627,7 +627,15 @@ export function UnitEntriesView({ unit, kind }: { unit: EntryUnit; kind: EntryKi
                   <th className="w-8 border-b border-(--color-line)" />
                 </tr>
               </thead>
-              <tbody>
+              {/* Klaviatura (Enter, Ctrl+↑/↓) — butun jadval uchun bitta ishlovchi: katak manzili data-cell="qator:ustun" */}
+              <tbody
+                onKeyDown={(e) => {
+                  const cell = (e.target as HTMLElement).dataset?.cell;
+                  if (!cell) return;
+                  const [r, c] = cell.split(':').map(Number) as [number, number];
+                  onKey(e, r, c);
+                }}
+              >
                 {rows.map((row, r) => {
                   const isDraft = row.id === null;
                   const blank = isDraft && isBlank(row.values);
@@ -661,7 +669,6 @@ export function UnitEntriesView({ unit, kind }: { unit: EntryUnit; kind: EntryKi
                           'data-cell': `${r}:${ci}`,
                           disabled: !isAdmin,
                           title: err,
-                          onKeyDown: (e: KeyboardEvent<HTMLElement>) => onKey(e, r, ci),
                           onPaste: (e: ClipboardEvent<HTMLElement>) => onPaste(e, row, ci),
                           className: cn(cellBase, c.align === 'right' && 'text-right tabular-nums', err && 'bg-red-50 ring-1 ring-red-300 ring-inset'),
                         };

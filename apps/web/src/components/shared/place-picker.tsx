@@ -198,7 +198,7 @@ export function PlacePicker({ value, onChange, departments, error, disabled, hid
 
   const summary =
     value.kind === 'CENTER'
-      ? `Markaz${departmentName ? ` › ${departmentName}` : ' (umumiy)'}`
+      ? `Markaz › ${departmentName ?? 'Umumiy'}`
       : value.kind === 'REGION' && regionName
         ? `${regionName}${districtName ? ` › ${districtName}` : ' (viloyat bo‘yicha)'}`
         : value.kind === 'SEGMENT' && isSegment(value.segment)
@@ -222,7 +222,7 @@ export function PlacePicker({ value, onChange, departments, error, disabled, hid
         <div className="mt-3">
           <Select
             label="Bo'lim"
-            options={[{ value: '', label: "Markaz — umumiy (bo'limsiz)" }, ...departments.filter((d) => d.isActive !== false || d.id === value.departmentId).map((d) => ({ value: d.id, label: d.name }))]}
+            options={[{ value: '', label: "Umumiy (hech qaysi bo'limga tegishli emas)" }, ...departments.filter((d) => d.isActive !== false || d.id === value.departmentId).map((d) => ({ value: d.id, label: d.name }))]}
             value={value.departmentId}
             onChange={(e) => onChange({ ...value, departmentId: e.target.value })}
             disabled={disabled}

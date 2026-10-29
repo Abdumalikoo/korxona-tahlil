@@ -4,7 +4,7 @@ import { ActPaper } from '@/features/warehouse/act-paper';
 import type { ActModel } from '@/features/warehouse/api';
 import { cn } from '@/lib/utils';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Telefonda imzo: xodim QR kodni skaner qiladi → shu sahifa ochiladi.
@@ -346,24 +346,19 @@ function SignaturePadInner({ onInk, handle }: { onInk: () => void; handle: React
     setup();
   }, [setup]);
 
-  const assign = useCallback(
-    (v: SignaturePadHandle) => {
-      if (typeof handle === 'function') handle(v);
-      else if (handle && typeof handle === 'object') (handle as React.MutableRefObject<SignaturePadHandle | null>).current = v;
-    },
-    [handle],
-  );
-
-  useEffect(() => {
-    assign({
+  // Tashqariga: imzo rasmi (PNG) va tozalash
+  useImperativeHandle(
+    handle,
+    () => ({
       png: () => (canvas.current && ink.current > 0 ? canvas.current.toDataURL('image/png') : null),
       clear: () => {
         const c = canvas.current;
         c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
         setup();
       },
-    });
-  }, [assign, setup]);
+    }),
+    [setup],
+  );
 
   const point = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();

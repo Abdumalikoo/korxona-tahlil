@@ -20,6 +20,8 @@ export const MOVE_UNITS = ENTRY_UNITS.filter((u) => u.code !== 'QOMITA');
 
 export interface MovePlace {
   departmentId?: string;
+  /** Markaz › Umumiy — hech qaysi bo'limga tegishli emas (bo'limsiz Markaz yozuvi) */
+  general?: boolean;
   regionCode?: number;
   districtId?: string;
 }
@@ -30,11 +32,14 @@ export interface MoveChoice {
 }
 
 export const EMPTY_CHOICE: MoveChoice = { target: '', place: {} };
+/** Markaz › Umumiy (bo'limsiz) — xarajat yo'naltirishda sukut bo'yicha */
+export const CENTER_GENERAL: MoveChoice = { target: 'CENTER', place: { general: true } };
+const GENERAL = '__general';
 
-/** Tanlov to'liqmi: Markaz — bo'limi, Hududlar — viloyati tanlangan bo'lsin */
+/** Tanlov to'liqmi: Markaz — bo'limi (yoki Umumiy), Hududlar — viloyati tanlangan bo'lsin */
 export function choiceReady(c: MoveChoice): boolean {
   if (!c.target) return false;
-  if (c.target === 'CENTER') return Boolean(c.place.departmentId);
+  if (c.target === 'CENTER') return Boolean(c.place.departmentId || c.place.general);
   if (c.target === 'REGION') return Boolean(c.place.regionCode);
   return true;
 }
@@ -54,6 +59,7 @@ export function useChoiceLabel(c: MoveChoice): string {
     if (c.target === 'REGION') void loadTree().then(setTree).catch(() => null);
   }, [c.target]);
   const unit = MOVE_UNITS.find((u) => u.code === c.target)?.label ?? '';
+  if (c.target === 'CENTER' && c.place.general) return `${unit} › Umumiy`;
   if (c.target === 'CENTER' && c.place.departmentId) {
     const d = deps.find((x) => x.id === c.place.departmentId);
     return d ? `${unit} › ${d.name}` : unit;
@@ -68,7 +74,8 @@ export function useChoiceLabel(c: MoveChoice): string {
 
 const SEL = 'h-8 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-xs focus:border-brand-600 focus:outline-none';
 
-export function PlacePicker({ value, onChange, exclude }: { value: MoveChoice; onChange: (c: MoveChoice) => void; exclude?: string }) {
+/** allowGeneral — Markazda «Umumiy» (bo'limsiz) ham tanlansin (xarajat / daromad yo'naltirishda; ish haqi o'tkazishda — yo'q) */
+export function PlacePicker({ value, onChange, exclude, allowGeneral }: { value: MoveChoice; onChange: (c: MoveChoice) => void; exclude?: string; allowGeneral?: boolean }) {
   const [deps, setDeps] = useState<Department[] | null>(null);
   const [tree, setTree] = useState<RegionWithDistricts[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,12 +106,13 @@ export function PlacePicker({ value, onChange, exclude }: { value: MoveChoice; o
           <span className="text-(--color-text-faint)">›</span>
           <select
             aria-label="Markaz bo'limi"
-            value={value.place.departmentId ?? ''}
-            onChange={(e) => onChange({ target: 'CENTER', place: e.target.value ? { departmentId: e.target.value } : {} })}
+            value={value.place.general ? GENERAL : (value.place.departmentId ?? '')}
+            onChange={(e) => onChange({ target: 'CENTER', place: e.target.value === GENERAL ? { general: true } : e.target.value ? { departmentId: e.target.value } : {} })}
             disabled={!deps}
-            className={cn(SEL, 'min-w-[11rem]', !value.place.departmentId && 'border-brand-600')}
+            className={cn(SEL, 'min-w-[11rem]', !value.place.departmentId && !value.place.general && 'border-brand-600')}
           >
             <option value="">{deps ? "Markaz bo'limini tanlang…" : 'Yuklanmoqda…'}</option>
+            {allowGeneral && <option value={GENERAL}>Umumiy (hech qaysi bo&apos;limga tegishli emas)</option>}
             {(deps ?? []).map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}

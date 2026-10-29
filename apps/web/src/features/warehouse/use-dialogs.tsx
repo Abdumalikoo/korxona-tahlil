@@ -4,7 +4,7 @@ import { Toast } from '@/components/ui/toast';
 import { useAsync } from '@/lib/use-async';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { DOC_KIND_PATHS, warehouseApi, type DocKind, type WarehouseLookups } from './api';
 import { AssetDrawer } from './asset-drawer';
 import { DocDrawer } from './doc-drawer';
@@ -41,7 +41,10 @@ export function useWarehouseDialogs(onChanged: () => void): WarehouseDialogs {
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
 
   const changed = useRef(onChanged);
-  changed.current = onChanged;
+  // Eng so'nggi qiymat — render paytida emas, effektda
+  useLayoutEffect(() => {
+    changed.current = onChanged;
+  });
 
   const notify = useCallback((message: string, tone: 'success' | 'error' = 'success') => setToast({ message, tone }), []);
 

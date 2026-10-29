@@ -156,14 +156,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void Promise.race([done, new Promise((r) => setTimeout(r, 1500))]).finally(() => {
         clearToken();
         setUser(null);
-        window.location.href = '/kirish';
+        window.location.assign(new URL('/kirish', window.location.origin).href);
       });
       return;
     }
     clearToken();
     setUser(null);
     // To'liq qayta yuklash - barcha holat tozalanadi
-    window.location.href = '/kirish';
+    window.location.assign(new URL('/kirish', window.location.origin).href);
   }, []);
 
   const value = useMemo<AuthState>(() => {

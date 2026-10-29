@@ -75,7 +75,8 @@ function emptyForm(): FormState {
     date: todayInput(),
     categoryCode: '',
     amount: null,
-    place: EMPTY_PLACE,
+    // Sukut bo'yicha — Markaz › Umumiy (hech qaysi bo'limga tegishli emas)
+    place: { ...EMPTY_PLACE, kind: 'CENTER' },
     paymentMethod: 'BANK',
     counterparty: '',
     documentNo: '',

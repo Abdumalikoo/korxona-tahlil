@@ -8,12 +8,16 @@ import { Drawer } from '@/components/ui/drawer';
 import { IconAlert, IconSearch } from '@/components/ui/icons';
 import { Money } from '@/components/ui/money';
 import { ErrorState, LoadingState } from '@/components/ui/states';
-import { choiceReady, EMPTY_CHOICE, PlacePicker, useChoiceLabel, type MoveChoice } from '@/features/unit-payroll/place-picker';
+import { QuickCategoryDialog } from '@/components/shared/quick-category-dialog';
+import { referencesApi } from '@/features/shared/references';
+import { CENTER_GENERAL, choiceReady, useChoiceLabel, type MoveChoice } from '@/features/unit-payroll/place-picker';
+import { unitCategoriesApi, useUnitCategories } from '@/features/units/api';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatDateTime, formatPeriod, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
+import { ClarifyDialog } from './clarify-dialog';
 import { useSource } from './source';
 import { KIND_OPTIONS, KIND_SOURCE_LABEL, PATTERN_LABEL, type BankKind, type BankAnalysis, type BankCheck, type BankDir, type BankEntryType, type BankGroup, type BankGroupRow, type BankItem, type BankPostBatch, type BankRow, type BankView, type RouteSuggestion } from './api';
 
@@ -26,8 +30,8 @@ import { KIND_OPTIONS, KIND_SOURCE_LABEL, PATTERN_LABEL, type BankKind, type Ban
 //  • KindBadge — guruh turi (qayerdan va nega), KindRulesCard — «izohda X bo'lsa → Y» qoidalari.
 // ═══════════════════════════════════════════════════════════
 
-type ToastFn = (t: { message: string; tone: 'success' | 'error' } | null) => void;
-const ENTRY_LABEL: Record<BankEntryType, string> = { EXPENSE: 'Xarajatga', INCOME: 'Daromadga', EXCLUDED: 'Hisobga olinmaydiganga' };
+export type ToastFn = (t: { message: string; tone: 'success' | 'error' } | null) => void;
+export const ENTRY_LABEL: Record<BankEntryType, string> = { EXPENSE: 'Xarajatga', INCOME: 'Daromadga', EXCLUDED: 'Hisobga olinmaydiganga' };
 const rk = (account: string, id: string) => `${account}:${id}`;
 /** Qator oyi: faktura — xizmat oyi, bank — hujjat sanasi oyi */
 const periodOf = (r: BankRow) => r.period ?? r.docDate.slice(0, 7);
@@ -181,11 +185,14 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
   const [showDone, setShowDone] = useState(false);
   const [dismissReason, setDismissReason] = useState('');
   const [dismissAsk, setDismissAsk] = useState(false);
+  // O'chirish (ko'chirmadan butunlay) — bitta to'lov yoki tanlanganlar
+  const [deleteAsk, setDeleteAsk] = useState<BankGroupRow[] | null>(null);
   const allRows = useMemo(() => data.data?.rows ?? [], [data.data]);
   const scoped = useMemo(() => (focus ? allRows.filter((r) => periodOf(r) === focus) : allRows), [allRows, focus]);
-  const doneCount = scoped.filter((r) => r.post || r.dismissed).length;
-  const rows = useMemo(() => (showDone ? scoped : scoped.filter((r) => !r.post && !r.dismissed)), [scoped, showDone]);
+  const doneCount = scoped.filter((r) => r.post || r.dismissed || r.clarify).length;
+  const rows = useMemo(() => (showDone ? scoped : scoped.filter((r) => !r.post && !r.dismissed && !r.clarify)), [scoped, showDone]);
   const tone = group?.dir === 'OUT' ? 'expense' : 'income';
+  const [clarifyAsk, setClarifyAsk] = useState<BankGroupRow[] | null>(null);
 
   const free = rows.filter((r) => !r.post && !r.dismissed);
   const selected = sel ?? new Set(free.map((r) => rk(r.account, r.id)));
@@ -260,6 +267,64 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
     } finally {
       setBusy(false);
       setDismissAsk(false);
+    }
+  }
+
+  /** Bitta to'lovni bekor qilish (kiritmayman) — darhol, qaytarish mumkin */
+  async function skipOne(r: BankGroupRow) {
+    setBusy(true);
+    try {
+      await api.dismiss([{ account: r.account, rowId: r.id }], dismissReason.trim() || 'Kiritilmaydi (tahlilda bekor qilindi)');
+      onToast({ message: `Bekor qilindi: ${formatDate(r.docDate)} · ${formatTiyin(r.amountTiyin)} so'm — ro'yxatdan chiqdi (hech narsa yozilmadi)`, tone: 'success' });
+      setSel(null);
+      reload();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Bekor qilib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteRows() {
+    if (!deleteAsk?.length) return;
+    setBusy(true);
+    try {
+      const r = (await api.deleteRows(deleteAsk.map((x) => ({ account: x.account, rowId: x.id })))).data;
+      onToast({ message: `O'chirildi: ${r.count} ta to'lov · ${formatTiyin(r.totalTiyin)} so'm (ko'chirmadan)`, tone: 'success' });
+      setSel(null);
+      reload();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'chirib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+      setDeleteAsk(null);
+    }
+  }
+
+  async function toClarify(list: BankGroupRow[], note: string) {
+    setBusy(true);
+    try {
+      const r = (await api.clarify(list.map((x) => ({ account: x.account, rowId: x.id })), note.trim() || undefined)).data;
+      onToast({ message: `Aniqlashtirishga o'tkazildi: ${r.count} ta · ${formatTiyin(r.totalTiyin)} so'm`, tone: 'success' });
+      setClarifyAsk(null);
+      setSel(null);
+      reload();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'tkazib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function unclarify(r: BankGroupRow) {
+    setBusy(true);
+    try {
+      await api.unclarify([{ account: r.account, rowId: r.id }]);
+      onToast({ message: "Ish ro'yxatiga qaytarildi", tone: 'success' });
+      reload();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Qaytarib bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -341,12 +406,15 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
                 </Button>
               </div>
               <p className="border-t border-(--color-line) pt-2 text-(--color-text-muted)">
-                Avval qo&apos;lda kiritgan bo&apos;lsangiz — yo&apos;naltirmasdan <b className="text-heading">ro&apos;yxatdan chiqaring</b>: hech qanday yozuv yaratilmaydi va o&apos;chirilmaydi, to&apos;lov faqat shu ro&apos;yxatdan yo&apos;qoladi (keyin qaytarish mumkin).
+                Kiritmoqchi bo&apos;lmasangiz (masalan, avval qo&apos;lda kiritgansiz) — <b className="text-heading">«Bekor qilish»</b>: hech qanday yozuv yaratilmaydi va o&apos;chirilmaydi, to&apos;lov faqat shu ro&apos;yxatdan yo&apos;qoladi (keyin qaytarish mumkin). Har to&apos;lov yonida ham shu tugma bor.
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <input value={dismissReason} onChange={(e) => setDismissReason(e.target.value)} maxLength={300} placeholder="Sabab (ixtiyoriy): masalan, avval qo'lda kiritilgan" className={cn(INPUT, 'min-w-64 flex-1')} />
                 <Button size="sm" variant="secondary" disabled={!picked.length || busy} onClick={() => setDismissAsk(true)}>
-                  Ro&apos;yxatdan chiqarish ({picked.length})
+                  Tanlanganlarni bekor qilish ({picked.length})
+                </Button>
+                <Button size="sm" variant="danger" disabled={!picked.length || busy} onClick={() => setDeleteAsk(picked)}>
+                  Tanlanganlarni o&apos;chirish ({picked.length})
                 </Button>
               </div>
             </div>
@@ -402,7 +470,41 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
                               <span className="min-w-0 flex-1 truncate text-xs text-(--color-text-muted)" title={r.accountName}>
                                 {r.accountName}
                               </span>
+                              {r.inn && <span className="money text-[11px] whitespace-nowrap text-heading">ИНН {r.inn}</span>}
                               <Money tiyin={r.amountTiyin} tone={tone} />
+                              {isAdmin && !r.post && !r.dismissed && !r.clarify && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => setClarifyAsk([r])}
+                                  title="Aniq tahlil talab qiladi — «Aniqlashtirishda» ro'yxatiga o'tadi, tuzatilgach kiritiladi"
+                                  className="rounded-(--radius-control) border border-amber-400 bg-white px-2 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                                >
+                                  Aniqlashtirish
+                                </button>
+                              )}
+                              {isAdmin && !r.post && !r.dismissed && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void skipOne(r)}
+                                  title="Kiritmayman — ro'yxatdan chiqadi (hech narsa yozilmaydi, keyin qaytarish mumkin)"
+                                  className="rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 py-0.5 text-xs font-medium text-(--color-text-muted) hover:border-(--color-expense) hover:text-(--color-expense) disabled:opacity-50"
+                                >
+                                  Bekor qilish
+                                </button>
+                              )}
+                              {isAdmin && !r.post && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => setDeleteAsk([r])}
+                                  title="Ko'chirmadan butunlay o'chirish (tasdiq so'raladi)"
+                                  className="rounded-(--radius-control) border border-(--color-expense)/40 bg-white px-2 py-0.5 text-xs font-medium text-(--color-expense) hover:bg-(--color-expense-soft) disabled:opacity-50"
+                                >
+                                  O&apos;chirish
+                                </button>
+                              )}
                             </span>
                             <p className="mt-1 text-xs leading-snug whitespace-pre-wrap text-(--color-text)">
                               <span className="text-[10px] font-semibold uppercase tracking-wide text-(--color-text-faint)">{r.invoiceId ? 'Fakturada: ' : 'Bankda: '}</span>
@@ -433,7 +535,23 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
                                 </span>
                                 {isAdmin && (
                                   <button type="button" className="font-medium text-(--color-expense) hover:underline" onClick={() => setUnrouteId(r.post!.id)}>
-                                    Bekor qilish
+                                    Yo&apos;naltirishni bekor qilish
+                                  </button>
+                                )}
+                              </p>
+                            )}
+                            {r.clarify && (
+                              <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                                <Badge tone="warn" className="px-1.5 py-0 text-[10px]">
+                                  Aniqlashtirishda
+                                </Badge>
+                                {r.clarify.reason && <span className="text-amber-800">{r.clarify.reason}</span>}
+                                <span className="text-(--color-text-faint)">
+                                  {formatDateTime(r.clarify.at)} · {r.clarify.by}
+                                </span>
+                                {isAdmin && (
+                                  <button type="button" disabled={busy} className="font-medium text-brand-700 hover:underline disabled:opacity-50" onClick={() => void unclarify(r)}>
+                                    Ish ro&apos;yxatiga qaytarish
                                   </button>
                                 )}
                               </p>
@@ -465,9 +583,24 @@ export function GroupDrawer({ group, month, v, isAdmin, onToast, onChanged, onCl
           )}
         </div>
       )}
+      {clarifyAsk && <ClarifyDialog rows={clarifyAsk} busy={busy} onConfirm={(note) => void toClarify(clarifyAsk, note)} onCancel={() => setClarifyAsk(null)} />}
+      <ConfirmDialog
+        open={deleteAsk !== null}
+        title="To'lovni o'chirish"
+        message={
+          deleteAsk
+            ? `${deleteAsk.length === 1 ? `${formatDate(deleteAsk[0]!.docDate)} № ${deleteAsk[0]!.docNo || '—'}` : `${deleteAsk.length} ta to'lov`} (${formatTiyin(deleteAsk.reduce((s, x) => s + BigInt(x.amountTiyin), 0n).toString())} so'm) saqlangan ko'chirmadan butunlay o'chiriladi — tahlil va jamilardan ham ketadi. Xarajat va daromad yozuvlariga tegmaydi. Ko'chirma fayli qayta yuklansa, yana paydo bo'ladi.`
+            : ''
+        }
+        confirmLabel="O'chirish"
+        danger
+        loading={busy}
+        onConfirm={() => void deleteRows()}
+        onCancel={() => setDeleteAsk(null)}
+      />
       <ConfirmDialog
         open={dismissAsk}
-        title="Ro'yxatdan chiqarish"
+        title="Bekor qilish — kiritmayman"
         message={`${picked.length} ta to'lov (${formatTiyin(pickedTotal.toString())} so'm) yo'naltirilmaydi va ro'yxatdan chiqariladi. Xarajat / daromad yozuvi yaratilmaydi va hech narsa o'chirilmaydi. Keyin «Ko'rib chiqilganlarni ham ko'rsatish» orqali qaytarish mumkin.`}
         confirmLabel="Chiqarish"
         loading={busy}
@@ -581,9 +714,10 @@ function GroupMetaEditor({ group, onToast, onSaved }: { group: BankGroup; onToas
 /** Tanlanganlarni yo'naltirish: joy, modda, bo'lim (Doimiy / Boshqa), umumiy izoh → tekshiruv (takror) → yozish */
 /** Taklifdagi joy → joy tanlovi (Markaz — bo'limi, Hududlar — viloyati va tumani, yo'nalish — o'zi) */
 function choiceOf(s: RouteSuggestion | null): MoveChoice {
-  if (!s) return EMPTY_CHOICE;
+  // Taklif bo'lmasa — Markaz › Umumiy (hech qaysi bo'limga tegishli emas)
+  if (!s) return CENTER_GENERAL;
   const p = s.place;
-  if (p.unit === 'CENTER') return { target: p.unit, place: p.departmentId ? { departmentId: p.departmentId } : {} };
+  if (p.unit === 'CENTER') return { target: p.unit, place: p.departmentId ? { departmentId: p.departmentId } : { general: true } };
   if (p.unit === 'REGION') return { target: p.unit, place: { ...(p.regionCode ? { regionCode: p.regionCode } : {}), ...(p.districtId ? { districtId: p.districtId } : {}) } };
   return { target: p.unit, place: {} };
 }
@@ -591,19 +725,15 @@ function choiceOf(s: RouteSuggestion | null): MoveChoice {
 /** Yo'naltirish paneli: guruh tafsilotida va «Ajralib turganlar»da (group — faqat yo'nalish, takrorlanish va nom kerak) */
 export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, onToast, onDone }: { group: Pick<BankGroup, 'dir' | 'pattern' | 'name'>; suggestion: RouteSuggestion | null; items: BankItem[]; totalTiyin: string; beforeRoute: () => Promise<boolean>; onToast: ToastFn; onDone: () => void }) {
   const { api } = useSource();
-  // Boshlang'ich qiymat — oldingi yo'naltirishdan taklif (bo'lsa); o'zgartirish yoki tozalash mumkin
-  const [choice, setChoice] = useState<MoveChoice>(() => choiceOf(suggestion));
+  // Qo'lda faqat modda tanlanadi. Qolgani avtomatik: joy — oldingi yo'naltirishdan taklif yoki Markaz › Umumiy;
+  // bo'lim — taklif yoki takrorlanishi (muntazam — Doimiy, boshqasi — Boshqa); izoh — to'lovga yozilgan izoh → guruh nomi → bankdagi izoh.
+  const [choice] = useState<MoveChoice>(() => choiceOf(suggestion));
   const [category, setCategory] = useState(suggestion?.categoryCode ?? '');
-  // Muntazam — Doimiy; bir martalik va vaqti-vaqti bilan — Boshqa (o'zgartirish mumkin)
-  const [section, setSection] = useState<'DOIMIY' | 'BOSHQA'>(suggestion?.section ?? (group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA'));
-  const [usedSuggestion, setUsedSuggestion] = useState(Boolean(suggestion));
-  const clearSuggestion = () => {
-    setChoice(EMPTY_CHOICE);
-    setCategory('');
-    setSection(group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA');
-    setUsedSuggestion(false);
-  };
-  const [description, setDescription] = useState('');
+  const section: 'DOIMIY' | 'BOSHQA' = suggestion?.section ?? (group.pattern === 'REGULAR' ? 'DOIMIY' : 'BOSHQA');
+  // «+» — yangi xarajat moddasi (doimiy ro'yxatga, manbada qoladi)
+  const [quickOpen, setQuickOpen] = useState(false);
+  const tree = useAsync(() => (group.dir === 'OUT' ? referencesApi.expenseTree().then((r) => r.data) : Promise.resolve(null)), [group.dir]);
+  const unitLists = useUnitCategories('expense');
   const [check, setCheck] = useState<BankCheck | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -652,7 +782,6 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
           place: { unit: choice.target, ...choice.place },
           categoryCode: cat,
           section,
-          description: description.trim() || undefined,
           skipDuplicates: mode === 'skip',
           force: mode === 'force',
         })
@@ -660,7 +789,6 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
       onToast({ message: r.count ? `${ENTRY_LABEL[r.entryType]} yozildi: ${r.count} ta · ${formatTiyin(r.totalTiyin)} so'm → ${r.place}${r.skipped ? ` · ${r.skipped} tasi o'tkazib yuborildi (yozuvi bor edi)` : ''}` : 'Hech narsa yozilmadi — hammasining yozuvi bor ekan', tone: 'success' });
       setConfirm(false);
       setCheck(null);
-      setDescription('');
       onDone();
     } catch (err) {
       onToast({ message: errorMessage(err, 'Yo‘naltirib bo‘lmadi'), tone: 'error' });
@@ -675,21 +803,14 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
       <p className="font-semibold text-heading">
         Tanlangan: {items.length} ta · <span className="money">{formatTiyin(totalTiyin)}</span> so&apos;m → {what} sifatida yo&apos;naltirish
       </p>
-      {suggestion && usedSuggestion && (
-        <p className="flex flex-wrap items-center gap-1.5 rounded-(--radius-control) border border-brand-200 bg-brand-50/50 px-2 py-1 text-(--color-text-muted)">
-          <span>
-            Taklif ({suggestion.basis === 'GROUP' ? 'shu guruhni' : 'shu kontragentni'} oxirgi marta {formatDate(suggestion.at)} da shunday yo&apos;naltirgansiz
-            {suggestion.count > 1 ? `, ${suggestion.count} marta` : ''}): <b className="text-heading">{suggestion.place.label}</b> · {suggestion.categoryLabel} · {suggestion.section === 'DOIMIY' ? 'Doimiy' : 'Boshqa'}
-          </span>
-          <button type="button" className="font-medium text-brand-700 hover:underline" onClick={clearSuggestion}>
-            Tozalash
-          </button>
-        </p>
-      )}
+      {/* Avtomatik: joy, bo'lim, izoh — qo'lda kiritilmaydi */}
+      <p className="text-(--color-text-muted)">
+        Avtomatik: <b className="text-heading">{placeLabel}</b> · {section === 'DOIMIY' ? 'Doimiy' : 'Boshqa'} · izoh — to&apos;lovga yozilgan izoh, bo&apos;lmasa {group.name ? `«${group.name}»` : 'bankdagi izoh'}
+        {suggestion ? ` (oxirgi marta ${formatDate(suggestion.at)} da shunday yo'naltirilgan)` : ''}
+      </p>
       <div className="flex flex-wrap items-center gap-2">
-        <PlacePicker value={choice} onChange={setChoice} />
-        <select value={cat} onChange={(e) => setCategory(e.target.value)} disabled={!ready || opts.loading} className={cn(INPUT, 'max-w-72')} aria-label={group.dir === 'OUT' ? 'Xarajat moddasi' : 'Daromad turi'}>
-          <option value="">{!ready ? 'Avval joyni tanlang' : opts.loading ? 'Yuklanmoqda…' : group.dir === 'OUT' ? 'Xarajat moddasi…' : 'Daromad turi…'}</option>
+        <select value={cat} onChange={(e) => setCategory(e.target.value)} disabled={!ready || opts.loading} className={cn(INPUT, 'max-w-80 min-w-56 flex-1')} aria-label={group.dir === 'OUT' ? 'Xarajat moddasi' : 'Daromad turi'}>
+          <option value="">{opts.loading ? 'Yuklanmoqda…' : group.dir === 'OUT' ? 'Xarajat moddasi…' : 'Daromad turi…'}</option>
           {groups.map(([g, list]) =>
             g ? (
               <optgroup key={g} label={g}>
@@ -708,21 +829,16 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
             ),
           )}
         </select>
-        {!excluded && (
-          <select value={section} onChange={(e) => setSection(e.target.value === 'BOSHQA' ? 'BOSHQA' : 'DOIMIY')} className={INPUT} aria-label="Bo'lim">
-            <option value="DOIMIY">Doimiy</option>
-            <option value="BOSHQA">Boshqa (bir martalik)</option>
-          </select>
+        {group.dir === 'OUT' && (
+          <Button size="sm" variant="secondary" onClick={() => setQuickOpen(true)} title="Ro'yxatda yo'q modda — yangi qo'shish (manbadagi moddalar ro'yxatida doim qoladi)" aria-label="Yangi xarajat moddasi">
+            +
+          </Button>
         )}
-      </div>
-      {excluded && <p className="text-amber-700">Daromad emas: «Daromadlar › Hisobga olinmaydi»ga yoziladi — jami daromad, natija va hisobotlarga qo&apos;shilmaydi.</p>}
-      {ready && opts.data?.limited && <p className="text-(--color-text-faint)">Faqat «{placeLabel}» bo&apos;limi ro&apos;yxatidagi moddalar ko&apos;rsatilmoqda.</p>}
-      <div className="flex flex-wrap items-center gap-2">
-        <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} placeholder={group.name ? `Umumiy izoh (bo'sh bo'lsa — «${group.name}»)` : "Umumiy izoh (o'z izohi yozilmagan to'lovlar uchun, ixtiyoriy)"} className={cn(INPUT, 'min-w-64 flex-1')} />
         <Button loading={busy} disabled={!can} onClick={() => void start()}>
           Yo&apos;naltirish ({items.length})
         </Button>
       </div>
+      {excluded && <p className="text-amber-700">Daromad emas: «Daromadlar › Hisobga olinmaydi»ga yoziladi — jami daromad, natija va hisobotlarga qo&apos;shilmaydi.</p>}
       {confirm && dups.length > 0 && (
         <div className="space-y-2 rounded-(--radius-control) border border-(--color-warn) bg-(--color-warn-soft) p-3">
           <p className="flex items-center gap-1.5 font-semibold text-(--color-warn)">
@@ -770,6 +886,26 @@ export function RoutePanel({ group, suggestion, items, totalTiyin, beforeRoute, 
         loading={busy}
         onConfirm={() => void run('normal')}
         onCancel={() => setConfirm(false)}
+      />
+      {/* Yangi xarajat moddasi — doimiy moddalar ro'yxatiga (manbada qoladi); joyning ro'yxati cheklangan bo'lsa — unga ham */}
+      <QuickCategoryDialog
+        open={quickOpen}
+        groups={(tree.data ?? []).map((g) => ({ code: g.code, label: g.label }))}
+        onClose={() => setQuickOpen(false)}
+        onCreated={(created) => {
+          void (async () => {
+            try {
+              if (opts.data?.limited) await unitCategoriesApi.set('expense', choice.target, [...(unitLists.lists.get(choice.target) ?? []), created.code]);
+              unitLists.reload();
+              opts.reload();
+              setCategory(created.code);
+              setQuickOpen(false);
+              onToast({ message: `Modda qo'shildi: «${created.label}» — tanlandi`, tone: 'success' });
+            } catch (err) {
+              onToast({ message: errorMessage(err, "Moddani bo'lim ro'yxatiga qo'shib bo'lmadi"), tone: 'error' });
+            }
+          })();
+        }}
       />
     </div>
   );

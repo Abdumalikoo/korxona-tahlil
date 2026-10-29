@@ -554,6 +554,26 @@ export function IncomeDrawer({
                   />
                 </div>
 
+                {/* Bank ko'chirmasidan yo'naltirilgan bo'lsa — bankdagi to'lovchi ma'lumoti (faqat ko'rish) */}
+                {income && (income.counterpartyInn || income.bankPurpose) && (
+                  <div className="rounded-(--radius-control) border border-(--color-line) bg-(--color-surface-muted)/50 px-3 py-2 text-xs">
+                    <p className="font-semibold text-heading">Bank ko&apos;chirmasidan</p>
+                    <p className="mt-1 text-(--color-text-muted)">
+                      {income.counterpartyInn && (
+                        <>
+                          ИНН <b className="money text-heading">{income.counterpartyInn}</b>
+                        </>
+                      )}
+                      {income.counterpartyMfo && (
+                        <>
+                          {' '}· МФО <b className="money text-heading">{income.counterpartyMfo}</b>
+                        </>
+                      )}
+                    </p>
+                    {income.bankPurpose && <p className="mt-1 whitespace-pre-wrap text-(--color-text)">To&apos;lov maqsadi: {income.bankPurpose}</p>}
+                  </div>
+                )}
+
                 <Select
                   label="To&apos;lov usuli"
                   options={paymentMethods}

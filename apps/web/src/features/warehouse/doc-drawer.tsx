@@ -65,7 +65,7 @@ export function DocDrawer({
       .then((r) => setDoc(r.data))
       .catch((err) => setError(errorMessage(err, "Hujjatni ochib bo'lmadi")))
       .finally(() => setLoading(false));
-  }, [docId, tick]);
+  }, [docId, tick, initialTab]);
 
   useEffect(() => {
     if (!docId || tab !== 'act' || act) return;

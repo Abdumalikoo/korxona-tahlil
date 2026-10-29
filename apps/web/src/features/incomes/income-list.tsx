@@ -101,10 +101,13 @@ export function IncomeList({ section, unit = null }: { section: SectionValue; un
   const overview = useAsync(() => sectionsApi.overview('income', period), [period]);
   const summary = overview.data?.data.sections.find((s) => s.section === section);
 
+  // reload — barqaror funksiyalar (useAsync), shuning uchun reloadAll ham barqaror
+  const reloadList = list.reload;
+  const reloadOverview = overview.reload;
   const reloadAll = useCallback(() => {
-    list.reload();
-    overview.reload();
-  }, [list, overview]);
+    reloadList();
+    reloadOverview();
+  }, [reloadList, reloadOverview]);
 
   // Oy almashganda — birinchi sahifaga
   useMonthChange(period, () => setPage(1));
@@ -184,7 +187,7 @@ export function IncomeList({ section, unit = null }: { section: SectionValue; un
       setToast(message);
       reloadAll();
     },
-    [reloadAll],
+    [reloadAll, setToast],
   );
 
   const departmentOptions = [
@@ -478,6 +481,7 @@ export function IncomeList({ section, unit = null }: { section: SectionValue; un
                           {income.contractNo && (
                             <p className="text-xs text-(--color-text-muted)">{income.contractNo}</p>
                           )}
+                          {income.counterpartyInn && <p className="money text-[11px] text-(--color-text-muted)">ИНН {income.counterpartyInn}</p>}
                         </Td>
 
                         <Td className="text-(--color-text-muted)">

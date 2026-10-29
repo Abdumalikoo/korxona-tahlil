@@ -346,12 +346,17 @@ function PieChart({ chart }: { chart: PieChartData }) {
   const r = 66;
   const C = 130;
 
-  let angle = -Math.PI / 2;
+  // Har bo'lak boshlanish burchagi — oldingilar yig'indisidan (render ichida o'zgaruvchi qayta yozilmaydi)
+  const starts: number[] = [];
+  let acc = -Math.PI / 2;
+  for (const v of values) {
+    starts.push(acc);
+    acc += (v / total) * Math.PI * 2;
+  }
   const arcs = values.map((v, i) => {
     const sweep = (v / total) * Math.PI * 2;
-    const start = angle;
-    const end = angle + sweep;
-    angle = end;
+    const start = starts[i]!;
+    const end = start + sweep;
     const large = sweep > Math.PI ? 1 : 0;
     const p = (rad: number, radius: number) =>
       `${(C + radius * Math.cos(rad)).toFixed(2)},${(C + radius * Math.sin(rad)).toFixed(2)}`;
@@ -524,7 +529,7 @@ function ScatterChart({ chart }: { chart: ScatterChartData }) {
 
       {hasLine && (
         <p className="mt-1 text-xs text-(--color-text-muted)">
-          Uzuq chiziq — eng kichik kvadratlar usulidagi to'g'ri chiziq: Y = {formatAxis(line!.intercept!, chart.yUnit)} {line!.slope! < 0 ? '−' : '+'}{' '}
+          Uzuq chiziq — eng kichik kvadratlar usulidagi to&apos;g&apos;ri chiziq: Y = {formatAxis(line!.intercept!, chart.yUnit)} {line!.slope! < 0 ? '−' : '+'}{' '}
           {formatAxis(Math.abs(line!.slope!), 'number')} × X
         </p>
       )}

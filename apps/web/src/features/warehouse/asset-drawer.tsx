@@ -251,7 +251,8 @@ function durationText(days: number): string {
 /** Harakatlardan: har bir egasi — qachondan qachongacha (hozirgisi alohida), dalolatnoma bilan */
 function HolderPeriods({ moves, onOpenDoc }: { moves: AssetMove[]; onOpenDoc: (docId: string) => void }) {
   const asc = [...moves].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  // Bugungi sana (Toshkent) — bir marta, ochilganda
+  const [today] = useState(() => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10));
   const periods: { who: string; inStock: boolean; from: string; to: string | null; docId: string | null; docNumber: string | null; writtenOff: boolean }[] = [];
   for (let i = 0; i < asc.length; i++) {
     const m = asc[i]!;

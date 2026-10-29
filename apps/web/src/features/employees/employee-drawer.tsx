@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { DiscussMenu } from '@/features/reactions/discuss';
 import { districtMark, employeeMark } from '@/features/reactions/marks';
-import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
 import { employeesApi } from './api';
 import { IconTrash } from '@/components/ui/icons';

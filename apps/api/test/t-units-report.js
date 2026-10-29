@@ -35,6 +35,8 @@ ex('2026-01', 1000000, { reg: 3, dist: '3-1' });
 ex('2026-01', 700000, { reg: 3 });
 // Yo'nalish
 ex('2026-01', 900000, { seg: 'TAX_FREE' });
+// Markaz › Umumiy: Markazda, bo'limsiz
+ex('2026-01', 800000, { reg: 0 });
 // Xodimlar va ish haqi
 T.employee.push(
   { pinfl: '30000000000001', fullName: 'Aliyev Sardor', departmentId: 'dK', regionCode: 0, districtId: null, isActive: true, hiredAt: new Date('2025-05-01'), firedAt: null },
@@ -63,7 +65,11 @@ const table = (d, t, i = 0) => sec(d, t).blocks.filter((b) => b.type === 'table'
 
 (async () => {
   const o = await u.options();
-  assert.deepStrictEqual(o.departments.map((d) => d.name), ['Kadrlar', 'Savdo']);
+  assert.deepStrictEqual(o.departments.map((d) => d.name), ["Markaz › Umumiy (bo'limga tegishli emas)", 'Kadrlar', 'Savdo']);
+  // Markaz › Umumiy — faqat bo'limsiz Markaz yozuvlari (bo'limlilar, hudud va yo'nalish kirmaydi)
+  const g = await u.build({ kind: 'DEPT', id: '__general', from: '2026-01', to: '2026-02' }, true);
+  assert.strictEqual(g.title, 'Markaz › Umumiy');
+  assert.deepStrictEqual(table(g, 'Oyma-oy').rows.map((r) => r[1]), [800000, 0]);
   assert.deepStrictEqual(o.regions[0].districts.map((d) => d.name), ['Asaka tumani']);
   assert.ok(o.segments.some((s) => s.code === 'TAX_FREE') && !o.segments.some((s) => s.code === 'QOMITA'));
 

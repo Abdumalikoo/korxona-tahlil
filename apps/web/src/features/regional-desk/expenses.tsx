@@ -53,7 +53,7 @@ export function RegionalExpenses() {
   const [del, setDel] = useState<RdExpense | null>(null);
   const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'error' } | null>(null);
   const lookups: RdLookups | null = lk.data?.data ?? null;
-  const all = list.data?.data ?? [];
+  const all = useMemo(() => list.data?.data ?? [], [list.data]);
   const rows = region === null ? all : all.filter((e) => e.regionCode === region);
   const total = rows.reduce((s, e) => s + BigInt(e.amountTiyin), 0n);
   const byRegion = useMemo(() => {

@@ -166,7 +166,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     if (response.status === 401 && typeof window !== 'undefined') {
       clearToken();
       if (!window.location.pathname.startsWith('/kirish')) {
-        window.location.href = '/kirish';
+        window.location.assign(new URL('/kirish', window.location.origin).href);
       }
     }
 

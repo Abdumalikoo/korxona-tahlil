@@ -257,7 +257,7 @@ export class DepPolicyService {
       rulesCount: Object.keys(own).length,
       incoming: [...incoming.values()]
         .sort((a, b) => (b.total > a.total ? 1 : b.total < a.total ? -1 : 0))
-        .map((g) => ({ from: g.from, fromLabel: g.from === 'CENTER' ? "Markaz (bo'limsiz)" : (depName.get(g.from.slice(4)) ?? g.from), code: g.code, label: label.get(g.code) ?? g.code, count: g.count, totalTiyin: g.total.toString() })),
+        .map((g) => ({ from: g.from, fromLabel: g.from === 'CENTER' ? 'Markaz › Umumiy' : (depName.get(g.from.slice(4)) ?? g.from), code: g.code, label: label.get(g.code) ?? g.code, count: g.count, totalTiyin: g.total.toString() })),
       totals: {
         writtenTiyin: written.toString(),
         staysTiyin: stays.toString(),

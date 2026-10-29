@@ -20,6 +20,8 @@ import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
 import { GroupDrawer, KindBadge, KindRulesCard, PostsHistory, PreviewGroups } from './bank-analysis-parts';
 import { OutliersPanel } from './bank-outliers';
+import { RowsList, type RowsMode } from './bank-rows';
+import { ClarifyDialog } from './clarify-dialog';
 import { PivotReport } from './pivot-report';
 import { SourceProvider, useSource, type AnalysisSource } from './source';
 import { PATTERN_LABEL, type BankPattern, type BankAnalysis, type BankBatch, type BankDir, type BankGroup, type BankKind, type BankSeries, type BankView } from './api';
@@ -448,6 +450,8 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
   // «Tahlil» (grafik, turlar, guruhlar) yoki «Hisobot» (modda › kontragent › xizmat, oylar kesimida)
   const [tab, setTab] = useState<'ANALYSIS' | 'REPORT' | 'OUTLIERS'>('ANALYSIS');
   const [rev, setRev] = useState(0);
+  const [list, setList] = useState<'GROUPS' | 'ROWS'>('GROUPS');
+  const [rowsMode, setRowsMode] = useState<RowsMode>('OPEN');
   const changed = () => {
     setRev((x) => x + 1);
     onChanged();
@@ -551,7 +555,40 @@ function Analysis({ v, defaultDir, rangeText, isAdmin, onToast, onChanged }: { v
         <KindTrend kinds={kinds} months={v.months} active={kind} />
       </div>
 
-      <GroupsTable v={v} dir={dir} onDir={(d) => { setDir(d); setKind(null); }} kind={kind} onKind={setKind} mode={mode} onMode={setMode} pattern={pattern} onPattern={setPattern} onOpen={(g, m) => { setOpenKey(g.key); setOpenMonth(m ?? null); }} />
+      {/* Ko'rinish: guruhlab (bir xil izoh / kontragent birga) yoki nomma-nom (vipiskadagidek har to'lov alohida) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-(--radius-control) border border-(--color-line-strong) bg-white p-0.5 text-sm">
+          {(
+            [
+              ['GROUPS', 'Guruhlab'],
+              ['ROWS', 'Nomma-nom (vipiska kabi)'],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setList(k)} className={cn('rounded-[calc(var(--radius-control)-2px)] px-3 py-1.5 font-medium', list === k ? 'bg-brand-600 text-white' : 'text-(--color-text-muted) hover:text-heading')}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {list === 'ROWS' && <DirSwitch dir={dir} onChange={(d) => setDir(d)} />}
+        {v.totals.clarify > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setList('ROWS');
+              setRowsMode('CLARIFY');
+            }}
+            className="ml-auto rounded-(--radius-control) border border-amber-400 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100"
+            title="Aniq tahlil talab qiladigan to'lovlar — tuzatib kiritish uchun"
+          >
+            Aniqlashtirishda: {v.totals.clarify} ta →
+          </button>
+        )}
+      </div>
+      {list === 'ROWS' ? (
+        <RowsList v={v} dir={dir} isAdmin={isAdmin} reloadKey={rev} mode={rowsMode} onMode={setRowsMode} onToast={onToast} onChanged={changed} />
+      ) : (
+      <GroupsTable v={v} dir={dir} onDir={(d) => { setDir(d); setKind(null); }} kind={kind} onKind={setKind} mode={mode} onMode={setMode} pattern={pattern} onPattern={setPattern} onOpen={(g, m) => { setOpenKey(g.key); setOpenMonth(m ?? null); }} isAdmin={isAdmin} onToast={onToast} onChanged={changed} />
+      )}
 
       <KindRulesCard isAdmin={isAdmin} onToast={onToast} onChanged={changed} />
 
@@ -598,8 +635,43 @@ function KindTrend({ kinds, months, active }: { kinds: BankView['kinds']; months
 
 const PAGE = 60;
 
-function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, onMode, onOpen }: { v: BankView; dir: BankDir; onDir: (d: BankDir) => void; kind: BankKind | null; onKind: (k: BankKind | null) => void; pattern: BankPattern | null; onPattern: (p: BankPattern | null) => void; mode: Mode; onMode: (m: Mode) => void; onOpen: (g: BankGroup, month?: string) => void }) {
-  const { dirLabel: DIR_LABEL, groupsTitle } = useSource();
+function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, onMode, onOpen, isAdmin, onToast, onChanged }: { v: BankView; dir: BankDir; onDir: (d: BankDir) => void; kind: BankKind | null; onKind: (k: BankKind | null) => void; pattern: BankPattern | null; onPattern: (p: BankPattern | null) => void; mode: Mode; onMode: (m: Mode) => void; onOpen: (g: BankGroup, month?: string) => void; isAdmin: boolean; onToast: (t: ToastState) => void; onChanged: () => void }) {
+  const { api, dirLabel: DIR_LABEL, groupsTitle } = useSource();
+  // «Bekor qilish» — kiritmayman: guruhning qolgan to'lovlari yo'naltirilmasdan ro'yxatdan chiqariladi (yozuv yaratilmaydi, qaytarish mumkin)
+  const [skip, setSkip] = useState<BankGroup | null>(null);
+  const [skipping, setSkipping] = useState(false);
+  // «Aniqlashtirish» — guruhning qolgan to'lovlari aniq tahlilga
+  const [clarifyGroup, setClarifyGroup] = useState<BankGroup | null>(null);
+  async function clarifyGroupRun(note: string) {
+    if (!clarifyGroup) return;
+    setSkipping(true);
+    try {
+      const rows = (await api.group(clarifyGroup.key, v.from, v.to, v.account)).data.rows.filter((r) => !r.post && !r.dismissed && !r.clarify);
+      const r = (await api.clarify(rows.map((x) => ({ account: x.account, rowId: x.id })), note.trim() || undefined)).data;
+      onToast({ message: `Aniqlashtirishga o'tkazildi: ${clarifyGroup.name ?? clarifyGroup.counterparty} — ${r.count} ta to'lov`, tone: 'success' });
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "O'tkazib bo'lmadi"), tone: 'error' });
+    } finally {
+      setSkipping(false);
+      setClarifyGroup(null);
+    }
+  }
+  async function skipGroup() {
+    if (!skip) return;
+    setSkipping(true);
+    try {
+      const rows = (await api.group(skip.key, v.from, v.to, v.account)).data.rows.filter((r) => !r.post && !r.dismissed && !r.clarify);
+      const r = (await api.dismiss(rows.map((x) => ({ account: x.account, rowId: x.id })), 'Kiritilmaydi (tahlilda bekor qilindi)')).data;
+      onToast({ message: `Bekor qilindi: ${skip.name ?? skip.counterparty} — ${r.count} ta to'lov ro'yxatdan chiqdi (hech narsa yozilmadi)`, tone: 'success' });
+      onChanged();
+    } catch (err) {
+      onToast({ message: errorMessage(err, "Bekor qilib bo'lmadi"), tone: 'error' });
+    } finally {
+      setSkipping(false);
+      setSkip(null);
+    }
+  }
   const [q, setQ] = useState('');
   const [limit, setLimit] = useState(PAGE);
   // Faqat turi aniqlanmaganlar (ko'rib chiqish uchun)
@@ -686,6 +758,7 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
               <th className="px-3 py-2 text-right font-semibold">Jami</th>
               <th className="px-3 py-2 text-right font-semibold">Ulush</th>
               <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" title="Oxirgi faol oy oldingi faol oyga nisbatan">O‘zgarish</th>
+              {isAdmin && <th className="px-2 py-2" />}
             </tr>
           </thead>
           <tbody>
@@ -701,6 +774,11 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-1">
                     <KindBadge g={g} small />
+                    {g.clarifyCount > 0 && (
+                      <Badge tone="warn" className="px-1.5 py-0 text-[10px]">
+                        aniqlashtirishda {g.clarifyCount}
+                      </Badge>
+                    )}
                     {g.postedCount + g.dismissedCount > 0 && (
                       <span title={`Yo'naltirilgan: ${g.postedCount}, ro'yxatdan chiqarilgan: ${g.dismissedCount}, qolgan: ${g.openCount}`}>
                         <Badge tone={g.openCount === 0 ? 'income' : 'warn'} className="px-1.5 py-0 text-[10px]">
@@ -748,11 +826,41 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
                 <td className={cn('money px-3 py-2 text-right text-xs', g.changePct === null ? 'text-(--color-text-faint)' : g.changePct > 0 ? (dir === 'OUT' ? 'text-(--color-expense)' : 'text-(--color-income)') : g.changePct < 0 ? (dir === 'OUT' ? 'text-(--color-income)' : 'text-(--color-expense)') : 'text-(--color-text-muted)')}>
                   {g.changePct === null ? '—' : `${g.changePct > 0 ? '+' : ''}${g.changePct.toFixed(0)}%`}
                 </td>
+                {isAdmin && (
+                  <td className="px-2 py-1.5 text-right">
+                    {g.openCount > 0 && (
+                      <span className="flex flex-col items-end gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setClarifyGroup(g);
+                        }}
+                        title="Aniq tahlil talab qiladi — qolgan to'lovlari «Aniqlashtirishda» ro'yxatiga o'tadi"
+                        className="rounded-(--radius-control) border border-amber-400 bg-white px-2 py-1 text-xs font-medium whitespace-nowrap text-amber-800 hover:bg-amber-50"
+                      >
+                        Aniqlashtirish
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSkip(g);
+                        }}
+                        title="Kiritmayman — qolgan to'lovlari ro'yxatdan chiqadi (hech narsa yozilmaydi, keyin qaytarish mumkin)"
+                        className="rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 py-1 text-xs font-medium whitespace-nowrap text-(--color-text-muted) hover:border-(--color-expense) hover:text-(--color-expense)"
+                      >
+                        Bekor qilish
+                      </button>
+                      </span>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
             {!shown.length && (
               <tr>
-                <td colSpan={v.months.length + 4} className="py-6 text-center text-sm text-(--color-text-muted)">
+                <td colSpan={v.months.length + (isAdmin ? 5 : 4)} className="py-6 text-center text-sm text-(--color-text-muted)">
                   {openOnly && doneGroups > 0 ? "✓ Bu tanlovda hammasi ko'rib chiqilgan (yo'naltirilgan yoki ro'yxatdan chiqarilgan)" : "Bu tanlovda guruh yo'q"}
                 </td>
               </tr>
@@ -768,7 +876,7 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
                   </td>
                 ))}
                 <td className="money px-3 py-2 text-right whitespace-nowrap">{formatTiyin(total.toString())}</td>
-                <td colSpan={2} />
+                <td colSpan={isAdmin ? 3 : 2} />
               </tr>
             </tfoot>
           )}
@@ -781,6 +889,23 @@ function GroupsTable({ v, dir, onDir, kind, onKind, pattern, onPattern, mode, on
           </Button>
         </div>
       )}
+      {clarifyGroup && (
+        <ClarifyDialog
+          label={`${clarifyGroup.name ?? clarifyGroup.counterparty} — qolgan ${clarifyGroup.openCount} ta to'lov`}
+          busy={skipping}
+          onConfirm={(note) => void clarifyGroupRun(note)}
+          onCancel={() => setClarifyGroup(null)}
+        />
+      )}
+      <ConfirmDialog
+        open={skip !== null}
+        title="Bekor qilish — kiritmayman"
+        message={skip ? `«${skip.name ?? skip.counterparty}»: qolgan ${skip.openCount} ta to'lov ro'yxatdan chiqariladi. Xarajat / daromad yozuvi yaratilmaydi va hech narsa o'chirilmaydi. Keyin «Ko'rib chiqilganlarni ko'rsatish» orqali qaytarish mumkin.` : ''}
+        confirmLabel="Bekor qilish"
+        loading={skipping}
+        onConfirm={() => void skipGroup()}
+        onCancel={() => setSkip(null)}
+      />
     </Card>
   );
 }

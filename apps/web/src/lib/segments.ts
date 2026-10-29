@@ -24,7 +24,8 @@ export function isSegment(code: unknown): code is SegmentCode {
 /** Yozuv qayerga tegishli — matn: «Markaz › Bo'lim», «Andijon › Asaka», «Tax free» yoki null (biriktirilmagan) */
 export function placeText(r: { segment?: string | null; regionCode?: number | null; department?: { name: string } | null; region?: { name: string } | null; district?: { name: string } | null }): string | null {
   if (r.segment) return segmentLabel(r.segment);
-  if (r.regionCode === 0 || ((r.regionCode === null || r.regionCode === undefined) && r.department)) return `Markaz${r.department ? ` › ${r.department.name}` : ''}`;
+  // Bo'limsiz Markaz yozuvi — «Markaz › Umumiy» (hech qaysi bo'limga tegishli emas)
+  if (r.regionCode === 0 || ((r.regionCode === null || r.regionCode === undefined) && r.department)) return `Markaz › ${r.department ? r.department.name : 'Umumiy'}`;
   if (r.region) return `${r.region.name}${r.district ? ` › ${r.district.name}` : ''}`;
   return null;
 }

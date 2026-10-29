@@ -176,7 +176,7 @@ function VehicleCard({
           <div>
             <p className="text-xs text-(--color-text-muted)">Shu oy</p>
             <Money tiyin={month.totalTiyin} className="text-xl font-semibold" />
-            <span className="ml-1 text-xs text-(--color-text-muted)">so'm</span>
+            <span className="ml-1 text-xs text-(--color-text-muted)">so&apos;m</span>
           </div>
           <div className="text-right text-xs text-(--color-text-muted)">
             <p>{month.count} ta yozuv</p>
@@ -229,7 +229,7 @@ function VehicleCard({
 function MonthlyBars({ months }: { months: { period: string; totalTiyin: string; byKind: KindAmounts }[] }) {
   const max = months.reduce((m, row) => (BigInt(row.totalTiyin) > m ? BigInt(row.totalTiyin) : m), 0n);
   if (max === 0n) {
-    return <p className="py-6 text-center text-sm text-(--color-text-muted)">Bu davrda xarajat yo'q</p>;
+    return <p className="py-6 text-center text-sm text-(--color-text-muted)">Bu davrda xarajat yo&apos;q</p>;
   }
 
   return (
@@ -572,7 +572,7 @@ export function VehiclesBoard({ dashboard = false }: { dashboard?: boolean }) {
                     canAdd ? (
                       <Button onClick={() => setVehicleTarget('new')}>
                         <IconPlus className="size-4" />
-                        Mashina qo'shish
+                        Mashina qo&apos;shish
                       </Button>
                     ) : undefined
                   }
@@ -743,9 +743,9 @@ export function VehiclesBoard({ dashboard = false }: { dashboard?: boolean }) {
                         <tr>
                           <Th>Mashina</Th>
                           <Th align="right">Jami</Th>
-                          <Th align="right">Yoqilg'i</Th>
+                          <Th align="right">Yoqilg&apos;i</Th>
                           <Th align="right">Moyka</Th>
-                          <Th align="right">Ta'mir + xizmat</Th>
+                          <Th align="right">Ta&apos;mir + xizmat</Th>
                           <Th align="right">Boshqa</Th>
                           <Th align="right">Miqdor</Th>
                           <Th align="right">Yurgan</Th>

@@ -55,10 +55,13 @@ export function TaskForm({ open, task, botReady, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Forma ochilgan vaqt — «o'tib ketgan eslatma soatlari» shundan hisoblanadi (render paytida Date.now() chaqirilmaydi)
+  const [openedAt, setOpenedAt] = useState(() => Date.now());
 
   // Ochilganda — boshlang'ich holat
   useEffect(() => {
     if (!open) return;
+    setOpenedAt(Date.now());
     setError(null);
     setSaving(false);
     setCustom('');
@@ -127,7 +130,7 @@ export function TaskForm({ open, task, botReady, onClose, onSaved }: Props) {
   }
 
   const deadlineMs = deadline ? new Date(`${deadline}:00+05:00`).getTime() : NaN;
-  const pastHours = Number.isNaN(deadlineMs) ? [] : hours.filter((h) => deadlineMs - h * 3_600_000 <= Date.now());
+  const pastHours = Number.isNaN(deadlineMs) ? [] : hours.filter((h) => deadlineMs - h * 3_600_000 <= openedAt);
 
   return (
     <Drawer

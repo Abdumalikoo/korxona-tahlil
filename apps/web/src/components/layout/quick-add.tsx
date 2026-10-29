@@ -110,7 +110,13 @@ export function QuickAddDialog() {
     }
   };
 
-  let index = -1;
+  // Har guruh birinchi tugmasining umumiy tartib raqami (klaviatura bilan tanlash uchun)
+  const groupStart: number[] = [];
+  let count = 0;
+  for (const g of filtered) {
+    groupStart.push(count);
+    count += g.actions.length;
+  }
   return (
     <div className="fixed inset-0 z-[60] bg-slate-900/40 p-4 backdrop-blur-sm" onMouseDown={() => setOpen(false)} role="dialog" aria-modal="true" aria-label="Yangi yozuv kiritish">
       <div className="mx-auto mt-[6vh] max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
@@ -132,16 +138,15 @@ export function QuickAddDialog() {
 
         <div className="max-h-[65vh] space-y-4 overflow-y-auto p-4">
           {filtered.length === 0 && <p className="p-6 text-center text-sm text-(--color-text-muted)">Bunday kiritish turi yo&apos;q. Boshqacha yozib ko&apos;ring.</p>}
-          {filtered.map((g) => (
+          {filtered.map((g, gi) => (
             <section key={g.title}>
               <div className="mb-2 flex flex-wrap items-baseline gap-x-2 px-1">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-heading">{g.title}</p>
                 <p className="text-[11px] text-(--color-text-faint)">{g.note}</p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                {g.actions.map((a) => {
-                  index += 1;
-                  const i = index;
+                {g.actions.map((a, ai) => {
+                  const i = groupStart[gi]! + ai;
                   const tone = QUICK_TONES[a.tone];
                   return (
                     <button

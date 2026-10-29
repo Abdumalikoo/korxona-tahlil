@@ -131,7 +131,7 @@ export function FrontierChart({ data, selected, onSelect }: { data: EfficiencyRe
         {money ? "Ish haqi, 1 so'm daromadga (so'm)" : "Xodimlar, har 100 mln so'm oylik daromadga (kishi)"}
       </text>
       <text x={14} y={(pad.t + H - pad.b) / 2} fontSize={11} fill={TONE.slate} textAnchor="middle" transform={`rotate(-90 14 ${(pad.t + H - pad.b) / 2})`}>
-        Boshqa xarajat, 1 so'm daromadga
+        Boshqa xarajat, 1 so&apos;m daromadga
       </text>
       {path && <polyline points={path} fill="none" stroke={TONE.income} strokeWidth={2} />}
       {pts.map((p) => {

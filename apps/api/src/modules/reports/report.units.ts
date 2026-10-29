@@ -40,7 +40,12 @@ interface Scope {
   segment: string | null;
   departmentId: string | null;
   regionCode: number | null;
+  /** Markaz › Umumiy — hech qaysi bo'limga tegishli bo'lmagan Markaz yozuvlari */
+  general?: boolean;
 }
+
+/** «Bo'lim» ro'yxatidagi Markaz › Umumiy (bo'limsiz) bandi */
+export const CENTER_GENERAL_ID = '__general';
 
 @Injectable()
 export class UnitsReport {
@@ -58,7 +63,7 @@ export class UnitsReport {
       this.prisma.district.findMany({ select: { id: true, regionCode: true, name: true }, orderBy: { name: 'asc' } }).catch(() => [] as { id: string; regionCode: number; name: string }[]),
     ]);
     return {
-      departments: deps,
+      departments: [{ id: CENTER_GENERAL_ID, name: "Markaz › Umumiy (bo'limga tegishli emas)" }, ...deps],
       regions: regions.map((r) => ({ code: r.code, name: r.name, districts: districts.filter((d) => d.regionCode === r.code).map((d) => ({ id: d.id, name: d.name })) })),
       segments: SEGMENTS.filter((s) => s.code !== QOMITA_SEGMENT).map((s) => ({ code: s.code, name: s.label })),
     };
@@ -69,6 +74,7 @@ export class UnitsReport {
     const id = typeof input?.id === 'string' ? input.id.trim() : String(input?.id ?? '');
     const district = typeof input?.district === 'string' && input.district ? input.district : null;
     const norm = (s: string) => s.toLowerCase().replace(/[ʻʼ‘’`']/g, '').replace(/\s+/g, ' ').trim();
+    if (kind === 'DEPT' && id === CENTER_GENERAL_ID) return { kind, id, district: null, name: 'Markaz › Umumiy', segment: null, departmentId: null, regionCode: 0, general: true };
     if (kind === 'DEPT') {
       const d = await this.prisma.department.findUnique({ where: { id }, select: { id: true, name: true } });
       if (!d) throw new NotFoundException("Bo'lim topilmadi");
@@ -114,12 +120,16 @@ export class UnitsReport {
 
     // ── Yozuvlar ──
     const qCodes = s.departmentId ? await this.qomitaCodes(s.departmentId) : [];
-    const expWhere =
-      s.kind === 'REGION'
+    // Markaz › Umumiy: Markazda yozilgan, bo'lim va yo'nalish ko'rsatilmagan yozuvlar
+    const generalWhere = { regionCode: 0, departmentId: null, segment: null };
+    const expWhere = s.general
+      ? generalWhere
+      : s.kind === 'REGION'
         ? { regionCode: s.regionCode!, ...(s.district ? { districtId: s.district } : {}) }
         : { OR: [...(s.departmentId && s.kind === 'DEPT' ? [{ departmentId: s.departmentId }] : []), ...(s.segment ? [{ segment: s.segment }] : [])] };
-    const incWhere =
-      s.kind === 'REGION'
+    const incWhere = s.general
+      ? generalWhere
+      : s.kind === 'REGION'
         ? { regionCode: s.regionCode!, ...(s.district ? { districtId: s.district } : {}) }
         : {
             OR: [

@@ -37,7 +37,8 @@ export function TasksPage() {
   const [confirm, setConfirm] = useState<{ task: Task; kind: 'cancel' | 'delete' } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: 'success' | 'error' } | null>(null);
-  const [, setTick] = useState(0);
+  // Joriy vaqt — har daqiqada yangilanadi («qoldi» yozuvlari va «bugun muddati» uchun)
+  const [now, setNow] = useState(() => Date.now());
 
   const list = useAsync(() => tasksApi.list(filter), [filter]);
   const counts = useAsync(() => Promise.all([tasksApi.list('active'), tasksApi.list('overdue')]), [list.data]);
@@ -45,7 +46,7 @@ export function TasksPage() {
 
   // «qoldi» yozuvlari har daqiqada yangilanadi
   useEffect(() => {
-    const t = window.setInterval(() => setTick((x) => x + 1), 60_000);
+    const t = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(t);
   }, []);
 
@@ -53,7 +54,7 @@ export function TasksPage() {
   const tasks = list.data?.data ?? [];
   const active = counts.data?.[0].data ?? [];
   const overdue = counts.data?.[1].data.length ?? 0;
-  const dueToday = active.filter((t) => !t.overdue && new Date(t.deadline).getTime() - Date.now() < 24 * 3_600_000).length;
+  const dueToday = active.filter((t) => !t.overdue && new Date(t.deadline).getTime() - now < 24 * 3_600_000).length;
   const unlinked = new Set(active.filter((t) => !t.linked).map((t) => t.pinfl)).size;
 
   const run = useCallback(

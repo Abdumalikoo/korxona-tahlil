@@ -23,7 +23,7 @@ export function BudgetPage() {
   const thisMonth = todayInput().slice(0, 7);
   const [period, setPeriod] = useState(thisMonth);
   const lk = useAsync(() => rdApi.lookups(), []);
-  const regions = lk.data?.data.regions ?? [];
+  const regions = useMemo(() => lk.data?.data.regions ?? [], [lk.data]);
   const [region, setRegion] = useState<number | null>(null);
   useEffect(() => {
     if (region === null && regions.length) setRegion(regions[0]!.code);

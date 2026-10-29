@@ -157,7 +157,7 @@ export default function LeasesPage() {
   };
 
   const data = list.data?.data;
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data]);
   const groups = useMemo(() => groupLeases(items), [items]);
   const listTotal = items.reduce((sum, item) => sum + BigInt(item.monthlyTiyin), 0n);
 

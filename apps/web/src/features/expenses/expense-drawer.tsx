@@ -1,6 +1,5 @@
 'use client';
 
-import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
 import { DiscussMenu } from '@/features/reactions/discuss';
 import { categoryMark, counterpartyMark, recordMark } from '@/features/reactions/marks';
@@ -418,6 +417,26 @@ export function ExpenseDrawer({
               disabled={saving || readOnly}
             />
           </div>
+
+          {/* Bank ko'chirmasidan yo'naltirilgan bo'lsa — bankdagi kontragent ma'lumoti (faqat ko'rish) */}
+          {expense && (expense.counterpartyInn || expense.bankPurpose) && (
+            <div className="rounded-(--radius-control) border border-(--color-line) bg-(--color-surface-muted)/50 px-3 py-2 text-xs">
+              <p className="font-semibold text-heading">Bank ko&apos;chirmasidan</p>
+              <p className="mt-1 text-(--color-text-muted)">
+                {expense.counterpartyInn && (
+                  <>
+                    ИНН <b className="money text-heading">{expense.counterpartyInn}</b>
+                  </>
+                )}
+                {expense.counterpartyMfo && (
+                  <>
+                    {' '}· МФО <b className="money text-heading">{expense.counterpartyMfo}</b>
+                  </>
+                )}
+              </p>
+              {expense.bankPurpose && <p className="mt-1 whitespace-pre-wrap text-(--color-text)">To&apos;lov maqsadi: {expense.bankPurpose}</p>}
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Input

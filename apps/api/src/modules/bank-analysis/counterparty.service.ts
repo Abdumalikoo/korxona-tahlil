@@ -60,7 +60,8 @@ export class CounterpartyService {
           for (const r of m.rows) {
             const inn = String(r.inn ?? '').replace(/\D/g, '');
             if (inn.length !== 9) continue;
-            const period = src === 'INVOICE' ? (r as InvoiceRow).period || r.docDate.slice(0, 7) : r.docDate.slice(0, 7);
+            // Bank — ishlov sanasi oyi (vipiskadagidek), faktura — xizmat oyi
+            const period = src === 'INVOICE' ? (r as InvoiceRow).period || r.docDate.slice(0, 7) : (r.procDate && /^\d{4}-\d{2}-\d{2}$/.test(r.procDate) ? r.procDate : r.docDate).slice(0, 7);
             if (want && !want.has(period)) continue;
             const ir = r as InvoiceRow;
             const manual = store.groups[src === 'INVOICE' ? invoiceGroupKey(ir) : groupKey(r.dir, r.inn, r.accountName, r.purpose)]?.kind;
