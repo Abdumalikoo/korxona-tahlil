@@ -234,7 +234,8 @@ type View = 'parts' | 'months' | 'split' | 'forecast';
  * kartalar, filtrlar va yorliqlar: manbalar va yo'nalishlar (daromad → xarajat → natija),
  * oylar kesimi (bir yil oldin bilan), doimiy va bir martalik natija, yil prognozi.
  */
-export function StructureOverview({ range }: { range: DateRange }) {
+/** fixedView — faqat shu ko'rinish (Chuqur tahlil › Barqarorlik: «Doimiy va bir martalik»), tanlov yashiriladi */
+export function StructureOverview({ range, fixedView }: { range: DateRange; fixedView?: View }) {
   const [section, setSection] = useState<SectionFilter>('ALL');
   const [compare, setCompare] = useState<CompareMode>('prev');
   const flow = useAsync(() => structureApi.flow(range, section, compare).then((r) => r.data), [range.from, range.to, section, compare]);
@@ -254,7 +255,7 @@ export function StructureOverview({ range }: { range: DateRange }) {
       </Card>
     );
   }
-  return <OverviewBody data={data} loading={flow.loading} section={section} onSection={setSection} compare={compare} onCompare={setCompare} />;
+  return <OverviewBody data={data} loading={flow.loading} section={section} onSection={setSection} compare={compare} onCompare={setCompare} fixedView={fixedView} />;
 }
 
 function OverviewBody({
@@ -264,6 +265,7 @@ function OverviewBody({
   onSection,
   compare,
   onCompare,
+  fixedView,
 }: {
   data: FlowResult;
   loading: boolean;
@@ -271,8 +273,10 @@ function OverviewBody({
   onSection: (value: SectionFilter) => void;
   compare: CompareMode;
   onCompare: (value: CompareMode) => void;
+  /** Faqat shu ko'rinish (tanlov yashiriladi) */
+  fixedView?: View;
 }) {
-  const [view, setView] = useState<View>('parts');
+  const [view, setView] = useState<View>(fixedView ?? 'parts');
   const d = derive(data);
   const fi = d.forecast.income;
   const fe = d.forecast.expense;
@@ -333,7 +337,7 @@ function OverviewBody({
         </Field>
       </FilterBar>
 
-      <PillTabs
+      {!fixedView && <PillTabs
         value={activeView}
         onChange={setView}
         options={[
@@ -342,7 +346,7 @@ function OverviewBody({
           ...(showSplit ? [{ value: 'split' as const, label: 'Doimiy va bir martalik', hint: 'Muntazam tushumlar muntazam xarajatlarni qoplaydimi' }] : []),
           ...(fi && fe ? [{ value: 'forecast' as const, label: 'Yil prognozi', hint: "Shu sur'at davom etsa, yil qanday yopiladi" }] : []),
         ]}
-      />
+      />}
 
       {activeView === 'parts' && (
         <ReportCard title="Daromad manbalari, xarajat yo'nalishlari va natija" badge={period}>

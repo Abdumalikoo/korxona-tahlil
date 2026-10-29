@@ -29,11 +29,12 @@ type View = 'composition' | 'months' | 'split' | 'analysis';
  * tepada — ko'rsatkich kartalari, filtrlar; jadval — o'tgan / joriy / farq / ulush;
  * modda nomini bosib ichiga kiriladi, «Batafsil» — modda kartasi (12 oy jadvali, prognoz, xulosa).
  */
-export function StructureExplorer({ kind, range }: { kind: StructureKind; range: DateRange }) {
+/** fixedView — faqat shu ko'rinish (Chuqur tahlil: «Tahliliy jadvallar»), ko'rinish tanlovi yashiriladi */
+export function StructureExplorer({ kind, range, fixedView }: { kind: StructureKind; range: DateRange; fixedView?: View }) {
   const [section, setSection] = useState<SectionFilter>('ALL');
   const [compare, setCompare] = useState<CompareMode>('prev');
   const [steps, setSteps] = useState<Step[]>([]);
-  const [view, setView] = useState<View>('composition');
+  const [view, setView] = useState<View>(fixedView ?? 'composition');
   const [sort, setSort] = useState<SortKey>('amount');
   const [query, setQuery] = useState('');
   const [cardKey, setCardKey] = useState<string | null>(null);
@@ -154,7 +155,7 @@ export function StructureExplorer({ kind, range }: { kind: StructureKind; range:
             </Field>
           </FilterBar>
 
-          {!data.records && (
+          {!data.records && !fixedView && (
             <PillTabs
               value={activeView}
               onChange={setView}

@@ -1,23 +1,18 @@
 'use client';
 
-import {
-  IconAlert,
-  IconChart,
-  IconDashboard,
-  IconTrendUp,
-  IconUsers,
-  IconWallet,
-} from '@/components/ui/icons';
+import { IconAlert, IconChart, IconTrendUp, IconUsers, IconWallet } from '@/components/ui/icons';
 
-export type AnalysisTab =
-  | 'result'
-  | 'overview'
-  | 'dynamics'
-  | 'efficiency'
-  | 'structure'
-  | 'revenue'
-  | 'expenses'
-  | 'insights';
+export type AnalysisTab = 'dynamics' | 'drivers' | 'stability' | 'productivity' | 'insights';
+
+/** Eski manzillar (?tab=…) — yangi yorliqqa yo'naltiriladi */
+export const LEGACY_TABS: Record<string, AnalysisTab> = {
+  result: 'dynamics',
+  overview: 'insights',
+  efficiency: 'productivity',
+  structure: 'stability',
+  revenue: 'drivers',
+  expenses: 'drivers',
+};
 
 interface TabItem {
   key: AnalysisTab;
@@ -28,67 +23,47 @@ interface TabItem {
   hover: string;
 }
 
+/**
+ * Chuqur tahlil — har yorliq bitta savolga javob beradi, boshqa bo'limlarni takrorlamaydi
+ * (tarkib — Daromad / Xarajat sahifalarida, birliklar — Solishtirmada, DEA va prognoz — Prognoz va modellarda).
+ */
 export const ANALYSIS_TABS: TabItem[] = [
-  {
-    key: 'result',
-    label: 'Natija jadvali',
-    question: 'Har oyda va har bir birlikda qancha topdik, qancha sarfladik, natija qanday?',
-    icon: IconWallet,
-    accent: 'text-brand-700',
-    hover: 'hover:border-brand-600',
-  },
-  {
-    key: 'overview',
-    label: 'Umumiy holat',
-    question: 'Korxona foydada ishlayaptimi?',
-    icon: IconDashboard,
-    accent: 'text-brand-700',
-    hover: 'hover:border-brand-600',
-  },
   {
     key: 'dynamics',
     label: 'Dinamika',
-    question: 'Vaqt davomida nima bo\u2018ldi?',
+    question: 'Oyma-oy qancha topdik, qancha sarfladik, natija qanday o‘zgardi?',
     icon: IconChart,
+    accent: 'text-brand-700',
+    hover: 'hover:border-brand-600',
+  },
+  {
+    key: 'drivers',
+    label: 'O‘zgarish sabablari',
+    question: 'Daromad va xarajat nima hisobiga o‘zgardi: hajm, narx, yangi yoki to‘xtagan moddalar?',
+    icon: IconTrendUp,
     accent: 'text-(--color-warn)',
     hover: 'hover:border-(--color-warn)',
   },
   {
-    key: 'efficiency',
-    label: 'Samaradorlik',
-    question: 'Qayerda qanday natija bor?',
+    key: 'stability',
+    label: 'Barqarorlik',
+    question: 'Daromad va xarajatning qancha qismi doimiy, qanchasi bir martalik?',
+    icon: IconWallet,
+    accent: 'text-brand-700',
+    hover: 'hover:border-brand-600',
+  },
+  {
+    key: 'productivity',
+    label: 'Xodim samaradorligi',
+    question: 'Har birlikda bir xodimga qancha daromad, xarajat va natija to‘g‘ri keladi?',
     icon: IconUsers,
-    accent: 'text-brand-700',
-    hover: 'hover:border-brand-600',
-  },
-  {
-    key: 'structure',
-    label: 'Daromad va xarajat tarkibi',
-    question: 'Pul qayerdan kelib, qayerga ketmoqda?',
-    icon: IconChart,
-    accent: 'text-brand-700',
-    hover: 'hover:border-brand-600',
-  },
-  {
-    key: 'revenue',
-    label: 'Daromad tarkibi',
-    question: 'Daromad nimadan keladi?',
-    icon: IconTrendUp,
     accent: 'text-(--color-income)',
     hover: 'hover:border-(--color-income)',
   },
   {
-    key: 'expenses',
-    label: 'Xarajat tarkibi',
-    question: 'Pul qayerga ketmoqda?',
-    icon: IconWallet,
-    accent: 'text-(--color-expense)',
-    hover: 'hover:border-(--color-expense)',
-  },
-  {
     key: 'insights',
-    label: 'Xulosa',
-    question: 'Nima o\u2018zgardi, nimaga e\u2019tibor berish kerak?',
+    label: 'Xulosalar',
+    question: 'Umumiy holat qanday, nimaga e’tibor berish kerak?',
     icon: IconAlert,
     accent: 'text-(--color-warn)',
     hover: 'hover:border-(--color-warn)',

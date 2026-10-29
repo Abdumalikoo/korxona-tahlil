@@ -35,25 +35,26 @@ import { DrillProvider, useDrill } from './drill';
 //  Markaz, hududlar va yo'nalishlar natijasi. Grafiklar yo'q; har bir summa bosiladi — yozuvlar ochiladi.
 // ═══════════════════════════════════════════════════════════
 
-export function ResultExplorer({ range }: { range: DateRange }) {
+/** only = 'pnl' — Chuqur tahlil › Dinamika: faqat oylar bo'yicha natija (kartalar va birliklar jadvali boshqa joyda) */
+export function ResultExplorer({ range, only }: { range: DateRange; only?: 'pnl' }) {
   const res = useAsync(() => exploreApi.result(range.from, range.to).then((r) => r.data), [range.from, range.to]);
   if (res.loading && !res.data) return <LoadingState />;
   if (res.error) return <ErrorState message={res.error} onRetry={res.reload} />;
   const d = res.data!;
   return (
     <DrillProvider range={range}>
-      <Body d={d} />
+      <Body d={d} only={only} />
     </DrillProvider>
   );
 }
 
-function Body({ d }: { d: ResultExplore }) {
+function Body({ d, only }: { d: ResultExplore; only?: 'pnl' }) {
   const { open } = useDrill();
   const t = d.totals;
   const marginText = (v: number | null) => (v === null ? '' : pct(v));
   return (
     <div className="space-y-4">
-      <StatTiles
+      {!only && <StatTiles
         compareLabel="Avval"
         items={[
           {
@@ -99,10 +100,10 @@ function Body({ d }: { d: ResultExplore }) {
             icon: <IconScale />,
           },
         ]}
-      />
+      />}
 
       <PnlTable d={d} />
-      <UnitsTable units={d.units} totals={d.totals} />
+      {!only && <UnitsTable units={d.units} totals={d.totals} />}
     </div>
   );
 }

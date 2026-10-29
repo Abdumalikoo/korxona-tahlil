@@ -1,12 +1,12 @@
 'use client';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
-import { changeOf, DiffCell, MoneyCell, NameCell, PctCell, ReportCard, RTable, StatTiles, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { changeOf, DiffCell, MoneyCell, NameCell, PctCell, ReportCard, RTable, StatTiles, Td, Th, Tr } from '@/components/report/report';
 import { EmptyNote, NotesList, pctPlain, ppText, StatusBadge, SubTitle } from '@/components/report/report-extra-b';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { econApi } from '@/features/econ/api';
 import { regionsApi, statsOf } from '@/features/regions/api';
-import { structureApi, type StructureNode } from '@/features/structure/api';
+import { structureApi } from '@/features/structure/api';
 import { flowFigures, flowNotes } from '@/features/structure/structure-overview';
 import { formatDate } from '@/lib/format';
 import { useAsOf } from '@/lib/period';
@@ -59,16 +59,6 @@ export function InsightsTab({ range }: { range: DateRange }) {
   const center = units.find((s) => s.unit.kind === 'center') ?? null;
   const centerNet = center ? center.expense - center.income : 0;
   const coverage = centerNet > 0 ? (rProfit / centerNet) * 100 : null;
-
-  // Eng katta o'zgarishlar: daromad turlari va xarajat guruhlari
-  const movers = [
-    ...(income.data?.nodes ?? []).map((n) => ({ n, side: 'Daromad' as const })),
-    ...(expense.data?.nodes ?? []).map((n) => ({ n, side: 'Xarajat' as const })),
-  ]
-    .map((x) => ({ ...x, d: Number(x.n.amountTiyin) - Number(x.n.previousTiyin) }))
-    .filter((x) => x.d !== 0)
-    .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
-    .slice(0, 10);
 
   const sections: { title: string; notes: string[]; state: ReactNode }[] = [
     { title: 'Umumiy natija', notes: flowNotes(f), state: null },
@@ -183,33 +173,6 @@ export function InsightsTab({ range }: { range: DateRange }) {
         </RTable>
       </ReportCard>
 
-      <ReportCard title="Eng katta o'zgarishlar" badge="daromad turlari va xarajat guruhlari — so'mda eng ko'p o'zgarganlari">
-        {income.loading && expense.loading && movers.length === 0 ? (
-          <LoadingState />
-        ) : movers.length === 0 ? (
-          <EmptyNote>O&apos;zgarish yo&apos;q</EmptyNote>
-        ) : (
-          <RTable minWidth={900}>
-            <thead>
-              <tr>
-                <Th className="w-12">№</Th>
-                <Th className="min-w-64 text-left">Modda</Th>
-                <Th>Turi</Th>
-                <Th>{cap(f.compareLabel)}</Th>
-                <Th>Joriy davr</Th>
-                <Th>Farqi, foizda</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {movers.map(({ n, side, d: delta }, i) => (
-                <MoverRow key={`${side}-${n.key}`} index={i + 1} node={n} side={side} delta={delta} />
-              ))}
-            </tbody>
-          </RTable>
-        )}
-        <TableNote>Daromadda o&apos;sish — yashil, xarajatda o&apos;sish — qizil. Batafsil — «Daromad tarkibi» va «Xarajat tarkibi» yorliqlarida.</TableNote>
-      </ReportCard>
-
       <ReportCard title="Xulosalar" badge="tizim hisoblagan raqamlardan">
         {sections.map((s) => (
           <div key={s.title} className="border-t border-(--color-line) pt-3 first:border-t-0 first:pt-0">
@@ -226,21 +189,4 @@ function sectionState(loading: boolean, error: string | null): ReactNode {
   if (error) return <p className="px-5 pb-4 text-sm text-(--color-expense)">{error}</p>;
   if (loading) return <p className="px-5 pb-4 text-sm text-(--color-text-muted)">Yuklanmoqda…</p>;
   return null;
-}
-
-function MoverRow({ index, node, side, delta }: { index: number; node: StructureNode; side: 'Daromad' | 'Xarajat'; delta: number }) {
-  const income = side === 'Daromad';
-  const previous = Number(node.previousTiyin);
-  return (
-    <Tr>
-      <Td className="text-(--color-text-faint)">{index}</Td>
-      <NameCell sticky={false}>{node.label}</NameCell>
-      <Td>
-        <StatusBadge tone={income ? 'green' : 'red'}>{side}</StatusBadge>
-      </Td>
-      <MoneyCell value={previous} />
-      <MoneyCell value={Number(node.amountTiyin)} strong />
-      <DiffCell value={delta} pct={previous === 0 ? null : changeOf(Number(node.amountTiyin), previous)} growthGood={income} />
-    </Tr>
-  );
 }

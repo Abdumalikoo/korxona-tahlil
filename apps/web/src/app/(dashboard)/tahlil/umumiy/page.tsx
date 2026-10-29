@@ -5,25 +5,28 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { usePeriod } from '@/lib/period';
 
-import { ANALYSIS_TABS, tabQuestion, type AnalysisTab } from './_components/analysis-nav';
-import { DynamicsTab } from './_components/dynamics-tab';
-import { EfficiencyTab } from './_components/efficiency-tab';
-import { ExpensesTab } from './_components/expenses-tab';
+import { ANALYSIS_TABS, LEGACY_TABS, tabQuestion, type AnalysisTab } from './_components/analysis-nav';
 import { InsightsTab } from './_components/insights-tab';
-import { OverviewTab } from './_components/overview-tab';
-import { RevenueTab } from './_components/revenue-tab';
+import { ProductivityTab } from '@/features/analysis/productivity-tab';
 import { StructureExplorer } from '@/features/structure/structure-explorer';
 import { ResultExplorer } from '@/features/explore/result-explorer';
 import { StructureOverview } from '@/features/structure/structure-overview';
 
 const VALID_TABS = ANALYSIS_TABS.map((item) => item.key);
 
+function tabOf(value: string | null): AnalysisTab {
+  if (!value) return 'dynamics';
+  if (VALID_TABS.includes(value as AnalysisTab)) return value as AnalysisTab;
+  return LEGACY_TABS[value] ?? 'dynamics';
+}
+
 /**
- * Umumiy tahlil.
+ * Chuqur tahlil.
  *
- * Tepada tahlil bo'limlari doim ko'rinib turadi (Natija jadvali, Umumiy holat, Dinamika…) —
- * bittasidan ikkinchisiga to'g'ridan-to'g'ri o'tiladi. Har bo'lim — kartalar va jadvallar, grafiklarsiz.
- * Tanlangan bo'lim va sana oralig'i manzilga yoziladi — havolani ulashsa, o'sha holat ochiladi.
+ * Har yorliq bitta savolga javob beradi: Dinamika, O'zgarish sabablari, Barqarorlik, Xodim samaradorligi, Xulosalar.
+ * Tarkib (daromad / xarajat jadvallari) — Daromad va Xarajat sahifalarida, birliklar natijasi — Solishtirmada,
+ * DEA va prognoz — «Prognoz va modellar»da; bu yerda takrorlanmaydi.
+ * Tanlangan yorliq va sana oralig'i manzilga yoziladi — havolani ulashsa, o'sha holat ochiladi.
  */
 export default function GeneralAnalysisPage() {
   const searchParams = useSearchParams();
@@ -33,16 +36,14 @@ export default function GeneralAnalysisPage() {
   /** Davr — yuqori paneldagi «Davr» tugmasidan (u manzilga ham yozadi) */
   const { range } = usePeriod();
 
-  const [tab, setTab] = useState<AnalysisTab>(() => {
-    const value = searchParams.get('tab') as AnalysisTab | null;
-    return value && VALID_TABS.includes(value) ? value : 'result';
-  });
+  const [tab, setTab] = useState<AnalysisTab>(() => tabOf(searchParams.get('tab')));
+  const [side, setSide] = useState<'income' | 'expense'>(() => (searchParams.get('tab') === 'expenses' ? 'expense' : 'income'));
 
   /** Tanlangan yorliq manzilga yoziladi — sahifa yangilansa ham saqlanadi */
   function openTab(next: AnalysisTab) {
     setTab(next);
     const params = new URLSearchParams({ dateFrom: range.from, dateTo: range.to });
-    if (next !== 'result') params.set('tab', next);
+    if (next !== 'dynamics') params.set('tab', next);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
@@ -56,23 +57,22 @@ export default function GeneralAnalysisPage() {
         </p>
       </div>
 
-      {tab === 'result' && <ResultExplorer range={range} />}
-      {tab === 'overview' && <OverviewTab range={range} />}
-      {tab === 'dynamics' && <DynamicsTab range={range} />}
-      {tab === 'efficiency' && <EfficiencyTab range={range} />}
-      {tab === 'structure' && <StructureOverview range={range} />}
-      {tab === 'revenue' && (
+      {tab === 'dynamics' && <ResultExplorer range={range} only="pnl" />}
+      {tab === 'drivers' && (
         <div className="space-y-4">
-          <StructureExplorer kind="income" range={range} />
-          <RevenueTab range={range} />
+          <PillTabs
+            value={side}
+            onChange={setSide}
+            options={[
+              { value: 'income', label: 'Daromad', hint: "Daromad o'zgarishining omillari" },
+              { value: 'expense', label: 'Xarajat', hint: "Xarajat o'zgarishining omillari" },
+            ]}
+          />
+          <StructureExplorer key={side} kind={side} range={range} fixedView="analysis" />
         </div>
       )}
-      {tab === 'expenses' && (
-        <div className="space-y-4">
-          <StructureExplorer kind="expense" range={range} />
-          <ExpensesTab range={range} />
-        </div>
-      )}
+      {tab === 'stability' && <StructureOverview range={range} fixedView="split" />}
+      {tab === 'productivity' && <ProductivityTab range={range} />}
       {tab === 'insights' && <InsightsTab range={range} />}
     </div>
   );
