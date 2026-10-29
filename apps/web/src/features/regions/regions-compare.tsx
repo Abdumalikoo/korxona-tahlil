@@ -45,10 +45,11 @@ import { CenterDepartmentDrill, CenterDrill } from './center-drill';
 import { UNASSIGNED_KEY } from './drill-api';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { RegionCard } from './region-card';
+import { CenterCoverView } from './center-cover-view';
 import { isRegionModelTab, REGION_MODEL_TABS, RegionModel, type RegionModelTab } from './region-models';
 import { useBrief } from '@/lib/view-mode';
 
-type View = 'table' | RegionModelTab;
+type View = 'table' | 'cover' | RegionModelTab;
 type SortKey = 'order' | 'income' | 'expense' | 'profit' | 'delta';
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -383,7 +384,7 @@ function Body({
   const params = useSearchParams();
   const pathname = usePathname();
   const m = params.get('m');
-  const [view, setViewState] = useState<View>(() => (m && isRegionModelTab(m) ? m : 'table'));
+  const [view, setViewState] = useState<View>(() => (m === 'cover' ? 'cover' : m && isRegionModelTab(m) ? m : 'table'));
   /** Yorliq manzilga yoziladi (?m=panel …) — havolani ulashsa, o'sha model ochiladi */
   const setView = (next: View) => {
     setViewState(next);
@@ -420,6 +421,8 @@ function Body({
   const all = useMemo(() => data.units.map(statsOf), [data]);
   const regions = all.filter((s) => s.unit.kind === 'region');
   const activeRegions = regions.filter((s) => s.income !== 0 || s.expense !== 0);
+  /** Markazni qoplash uchun: Markaz (hududlar foydasi uning sof xarajatini qoplaydi) */
+  const center = all.find((s) => s.unit.kind === 'center') ?? null;
 
   const q = query.trim().toLowerCase();
   const found = regions.filter((s) => !q || s.unit.name.toLowerCase().includes(q));
@@ -553,6 +556,7 @@ function Body({
         onChange={setView}
         options={[
           { value: 'table', label: 'Hududlar kesimida', hint: 'Har hudud: daromad, xarajat va natija — joriy va oldingi davr' },
+          ...(center && activeRegions.length > 0 ? [{ value: 'cover' as const, label: 'Markazni qoplash', hint: 'Hududlar foydasi Markazning sof xarajatini qanchalik qoplaydi — har hudud ulushi' }] : []),
           ...(brief ? [] : REGION_MODEL_TABS),
         ]}
       />
@@ -617,13 +621,19 @@ function Body({
                 {cap(data.compareLabel)} ({previousPeriod}) uchun ma&apos;lumot yo&apos;q — solishtirish o&apos;rniga ulush ko&apos;rsatildi (hududlar jamiga nisbatan).{' '}
               </>
             )}
-            Qatorni bosing — tagida ochiladi (tumanlar, xarajat tarkibi, mashinalar …); ikki marta bosing — ichiga kirasiz. Ma&apos;lumot Daromadlar, Xarajatlar va Xodimlar bo&apos;limlaridan olinadi. Rentabellik — foyda ÷ daromad. Markaz, yo&apos;nalishlar, Markazni qoplash va korxona natijasi — «Umumiy» sahifasida.
+            Qatorni bosing — tagida ochiladi (tumanlar, xarajat tarkibi, mashinalar …); ikki marta bosing — ichiga kirasiz. Ma&apos;lumot Daromadlar, Xarajatlar va Xodimlar bo&apos;limlaridan olinadi. Rentabellik — foyda ÷ daromad. Markaz, yo&apos;nalishlar va korxona natijasi — «Umumiy» sahifasida; Markazni qoplash — shu yerdagi yorliqda.
             Raqamni bosing — qanday hisoblangani ko&apos;rinadi.
           </TableNote>
         </ReportCard>
         </DrillProvider>
       ) : (
-        <RegionModel tab={view} />
+        view === 'cover' ? (
+          <ReportCard title="Markazni qoplash: har bir hudud ulushi" badge={period}>
+            <CenterCoverView regions={activeRegions} center={center} onOpen={open} range={data.range} section={data.section} compare={data.compare} />
+          </ReportCard>
+        ) : (
+          <RegionModel tab={view} />
+        )
       )}
 
       <RegionCard data={data} stats={openKey ? (all.find((s) => s.unit.key === openKey) ?? null) : null} regions={activeRegions} onClose={() => setOpenKey(null)} />

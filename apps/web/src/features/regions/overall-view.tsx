@@ -32,11 +32,11 @@ import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { unitByCode } from '@/lib/segments';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { KIND_LABEL, regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { MonthsTable } from './overall-tables';
-import { CenterCoverView } from './center-cover-view';
 import { UnitTree } from './overall-tree';
 import { BridgeTree } from './bridge-tree';
 import { DrillProvider } from '@/features/explore/drill';
@@ -46,7 +46,7 @@ import { Fragment } from 'react';
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Umumiy — butun korxona bitta ekranda (grafiklarsiz):
 //   • tepada kartalar: korxona daromadi, xarajati, natijasi, hududlar natijasi, Markazni qoplash;
-//   • yorliqlar: natija jadvali (o'tgan davr bilan, qator joyida kengayadi), oylar kesimida, Markazni qoplash,
+//   • yorliqlar: natija jadvali (o'tgan davr bilan, qator joyida kengayadi), oylar kesimida,
 //     natija qanday shakllanadi (bo'lim-bo'lim, ichma-ich: Hudud → xizmat turlari → viloyatlar …).
 // ═══════════════════════════════════════════════════════════
 
@@ -136,7 +136,7 @@ function subOf(s: UnitStats): string {
 // Asosiy komponent
 // ═══════════════════════════════════════════════════════════
 
-type View = 'result' | 'months' | 'cover' | 'bridge';
+type View = 'result' | 'months' | 'bridge';
 
 export function OverallView({ range }: { range: DateRange }) {
   const [section, setSection] = useState<SectionFilter>('ALL');
@@ -167,6 +167,7 @@ function Body({
   compare: CompareMode;
   onCompare: (v: CompareMode) => void;
 }) {
+  const router = useRouter();
   const [view, setView] = useState<View>('result');
   const [unOpen, setUnOpen] = useState(false);
   /** Natija jadvalida ochilgan birliklar — qator joyida kengayadi */
@@ -244,14 +245,14 @@ function Body({
       text: coverage === null ? '' : `${coverage.toFixed(1).replace('.', ',')}%`,
       note: centerNet > 0 ? `Markaz sof xarajati ${moneyText(centerNet)}` : "Markazning sof xarajati yo'q",
       tone: 'purple',
-      onClick: () => setView('cover'),
+      // Markazni qoplash — Solishtirma › Hududlar sahifasida
+      onClick: () => router.push('/solishtirma?m=cover'),
     },
   ];
 
   const views: { value: View; label: string }[] = [
     { value: 'result', label: 'Natija jadvali' },
     { value: 'months', label: 'Oylar kesimida' },
-    ...(center && activeRegions.length > 0 ? [{ value: 'cover' as const, label: 'Markazni qoplash' }] : []),
     { value: 'bridge', label: 'Natija qanday shakllanadi' },
   ];
 
@@ -369,22 +370,6 @@ function Body({
       )}
 
       {view === 'months' && <MonthsTable units={units} months={data.months} range={data.range} onOpen={open} />}
-
-      {view === 'cover' && center && activeRegions.length > 0 && (
-        <ReportCard title="Markazni qoplash: har bir hudud ulushi" badge={period}>
-          <CenterCoverView
-            regions={activeRegions}
-            center={center}
-            onOpen={(key) => {
-              const u = activeRegions.find((x) => x.unit.key === key);
-              if (u) open(u);
-            }}
-            range={data.range}
-            section={data.section}
-            compare={data.compare}
-          />
-        </ReportCard>
-      )}
 
       {view === 'bridge' && <BridgeTree center={center} regions={activeRegions} segments={segments} unassigned={unassigned} compareLabel={data.compareLabel} period={`Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}`} notes={data.notes} />}
 

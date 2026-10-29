@@ -73,7 +73,7 @@ export const INTROS: Record<string, PageIntro> = {
     how: "Taqsimlanmagan summani «Xodimga biriktirish» bilan o'tkazing; hudud yig'indisi o'zgarmaydi.",
   },
   '/solishtirma/umumiy': {
-    what: "Butun korxona bitta ekranda: Markaz va barcha hududlar bir jadvalda — daromad, xarajat tarkibi, natija, rentabellik va Markazni qoplash.",
+    what: "Butun korxona bitta ekranda: Markaz, hududlar va yo‘nalishlar bir jadvalda — daromad, xarajat, natija, rentabellik, oylar kesimi va natija qanday shakllanishi. Markazni qoplash — Hududlar sahifasida.",
     from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
     how: "Yuqorida korxona jami (Hududlar | Markaz bo'yicha), so'ng natija ko'prigi va jadval. Qatorni bosing — o'sha hudud yoki Markaz sahifasi ochiladi.",
   },

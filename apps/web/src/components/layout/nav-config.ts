@@ -224,8 +224,8 @@ export const MENU: NavItem[] = [
     icon: NavCompare,
     description: "Hududlar, Markaz va yo'nalishlar (Tax free …) yonma-yon",
     pages: [
-      { label: 'Umumiy', href: '/solishtirma/umumiy', description: "Markaz va barcha hududlar birga: korxona daromadi, xarajat tarkibi, natija va Markazni qoplash" },
-      { label: 'Hududlar', href: '/solishtirma', description: 'Viloyatlar → tumanlar → xodimlar: daromad, xarajat, natija; hududlar modellari (prognoz, salohiyat, KPI, DEA …)' },
+      { label: 'Umumiy', href: '/solishtirma/umumiy', description: "Markaz, hududlar va yo‘nalishlar birga: korxona daromadi, xarajati, natijasi va u qanday shakllanishi" },
+      { label: 'Hududlar', href: '/solishtirma', description: 'Viloyatlar → tumanlar → xodimlar: daromad, xarajat, natija; Markazni qoplash; hududlar modellari (prognoz, salohiyat, KPI, DEA …)' },
       { label: 'Markaz', href: '/solishtirma/markaz', description: "Markaz → bo'limlar → xodimlar: daromad manbalari, o'z xarajati, hududlar uchun to'langan" },
       { label: 'Tax free', href: '/solishtirma/tax-free', description: "Tax free: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
       { label: 'Marksheyder', href: '/solishtirma/marksheyder', description: "Marksheyder: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
