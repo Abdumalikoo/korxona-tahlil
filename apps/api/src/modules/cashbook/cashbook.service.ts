@@ -14,6 +14,7 @@ import {
 } from './cashbook.calc';
 import { SEED_ACCOUNTS } from './cashbook.seed';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { latinize, parseAmount as parseAmountText } from '../../common/text/parse';
 
 // ═══════════════════════════════════════════════════════════
 // Buxgalteriya › Kunlik tushum va qoldiq.
@@ -197,14 +198,10 @@ const COLUMN_LABEL: Record<CashColumn, string> = {
   balance: 'Qoldiq',
 };
 
-/** Nomni solishtirish uchun: kichik harf, faqat harf va raqam, kirill «А» → «a» */
+/** Nomni solishtirish uchun: kichik harf, faqat harf va raqam; kirill yozuv va aralash harflar («Андижон», «Аndijon») — lotinga */
 function norm(s: string): string {
-  return String(s ?? '')
-    .toLowerCase()
-    .replace(/[аА]/g, 'a')
-    .replace(/[сС]/g, 'c')
-    .replace(/[дД]/g, 'd')
-    .replace(/[ʼ‘’`']/g, '')
+  return latinize(String(s ?? ''))
+    .replace(/[ʻʼ‘’`']/g, '')
     .replace(/[^a-z0-9]/g, '');
 }
 
@@ -936,8 +933,9 @@ export class CashbookService {
     const amount = (v: ExcelJS.CellValue): bigint | null => {
       const raw = v && typeof v === 'object' && 'result' in v ? v.result : v;
       if (raw === null || raw === undefined || raw === '') return null;
-      const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/\s/g, '').replace(',', '.'));
-      if (!Number.isFinite(n)) return null;
+      // Matn ko'rinishidagi summa: «1 234,5», «1,234.5», «1.234.567» — ajratgichlar o'zi aniqlanadi
+      const n = parseAmountText(raw);
+      if (n === null) return null;
       return BigInt(Math.round(n * 1000)) * 100n; // ming so'm → so'm → tiyin
     };
 

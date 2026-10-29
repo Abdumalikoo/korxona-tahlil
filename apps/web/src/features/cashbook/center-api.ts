@@ -54,6 +54,8 @@ export interface CenterRow {
   defaultMode: CenterMode | null;
   owner: CenterOwner | null;
   defaultOwner: CenterOwner | null;
+  /** Egasi Markaz bo'lsa — Markaz bo'limi (null — bo'limsiz, «Markaz › Umumiy») */
+  departmentId: string | null;
   months: Record<string, string | null>;
   totalTiyin: string;
 }
@@ -111,8 +113,9 @@ export const centerIncomeApi = {
   upload: (file: File, date?: string) => send<CenterPreview & { year: CenterYear }>(`/cashbook/center-income/upload${dateQ(date)}`, file),
   sync: async (year: number, period?: string) =>
     (await api.post<ApiResponse<CenterYear>>(`/cashbook/center-income/sync?year=${year}${period ? `&period=${period}` : ''}`)).data,
-  setModes: async (year: number, modes: Record<string, CenterMode>, owners: Record<string, CenterOwner> = {}) =>
-    (await api.patch<ApiResponse<CenterYear>>('/cashbook/center-income/modes', { year, modes, owners })).data,
+  /** departments: qator → Markaz bo'limi (null — «Markaz › Umumiy») */
+  setModes: async (year: number, modes: Record<string, CenterMode>, owners: Record<string, CenterOwner> = {}, departments: Record<string, string | null> = {}) =>
+    (await api.patch<ApiResponse<CenterYear>>('/cashbook/center-income/modes', { year, modes, owners, departments })).data,
   async template(): Promise<void> {
     const token = getToken();
     const response = await fetch(`${BASE}/cashbook/center-income/template`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });

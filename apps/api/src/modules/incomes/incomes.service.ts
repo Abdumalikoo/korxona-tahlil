@@ -137,6 +137,7 @@ export class IncomesService {
       const term = query.search.trim();
       where.OR = [
         { clientName: { contains: term, mode: 'insensitive' } },
+        { counterpartyInn: { contains: term } },
         { description: { contains: term, mode: 'insensitive' } },
         { contractNo: { contains: term, mode: 'insensitive' } },
       ];

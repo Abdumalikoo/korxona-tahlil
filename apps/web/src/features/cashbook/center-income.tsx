@@ -10,6 +10,8 @@ import { Dropzone, Notice, openDropzone, Stat, som } from '@/features/regional-d
 import { SourceActions } from '@/components/shared/source-actions';
 import { errorMessage } from '@/lib/error-message';
 import { formatCompact } from '@/lib/format';
+import { referencesApi } from '@/features/shared/references';
+import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { BriefNote, useBrief } from '@/lib/view-mode';
 import { Mark } from '@/features/reactions/mark';
@@ -165,6 +167,9 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const [edits, setEdits] = useState<Record<string, CenterMode>>({});
   /** Qator egasi o'zgarishlari (Markaz ↔ yo'nalish) */
   const [ownerEdits, setOwnerEdits] = useState<Record<string, CenterOwner>>({});
+  /** Markaz qatori bo'limi o'zgarishlari ('' — «Markaz › Umumiy») */
+  const [depEdits, setDepEdits] = useState<Record<string, string>>({});
+  const departments = useAsync(() => referencesApi.departments().then((r) => r.data.filter((d) => d.isActive)), []);
   const [askModes, setAskModes] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'error' } | null>(null);
 
@@ -231,10 +236,11 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const saveModes = async () => {
     setSaving(true);
     try {
-      setData(await centerIncomeApi.setModes(year, edits, ownerEdits));
+      setData(await centerIncomeApi.setModes(year, edits, ownerEdits, Object.fromEntries(Object.entries(depEdits).map(([k, v]) => [k, v || null]))));
       setEdits({});
       setOwnerEdits({});
-      setToast({ message: "Qator turlari va egalari saqlandi — oylar Daromadlarga qayta yozildi" });
+      setDepEdits({});
+      setToast({ message: "Qator turlari, egalari va bo'limlari saqlandi — oylar Daromadlarga qayta yozildi" });
     } catch (e) {
       setToast({ message: errorMessage(e), tone: 'error' });
     } finally {
@@ -248,7 +254,8 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const chart = months.map((m) => ({ period: m.period, amountTiyin: m.reportDate ? m.markazTiyin : '0' }));
   const outOfSync = months.filter((m) => m.reportDate && !m.inSync).length + months.filter((m) => !m.reportDate && m.syncedTiyin !== '0').length;
   const doubled = months.filter((m) => m.otherCenterTiyin !== '0');
-  const editCount = Object.keys(edits).length + Object.keys(ownerEdits).length;
+  const editCount = Object.keys(edits).length + Object.keys(ownerEdits).length + Object.keys(depEdits).length;
+  const depName = new Map((departments.data ?? []).map((d) => [d.id, d.name]));
 
   return (
     <>
@@ -453,6 +460,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                       onClick={() => {
                         setEdits({});
                         setOwnerEdits({});
+                        setDepEdits({});
                       }}
                     >
                       Bekor
@@ -561,6 +569,37 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                                   {OWNER_LABEL[o]}
                                 </span>
                               ))}
+                            {/* Markaz qatori — qaysi Markaz bo'liminiki (daromad doim shu bo'limga yoziladi) */}
+                            {o === 'CENTER' &&
+                              income &&
+                              (() => {
+                                const dep = depEdits[r.id] ?? r.departmentId ?? '';
+                                return manage ? (
+                                  <select
+                                    value={dep}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setDepEdits((x) => {
+                                        const n = { ...x };
+                                        if (v === (r.departmentId ?? '')) delete n[r.id];
+                                        else n[r.id] = v;
+                                        return n;
+                                      });
+                                    }}
+                                    className={cn('mt-1 block max-w-48 rounded-lg border-0 bg-slate-50 px-2 py-1 text-[11px]', depEdits[r.id] !== undefined && 'ring-2 ring-brand-400')}
+                                    aria-label={`${r.name} — Markaz bo'limi`}
+                                  >
+                                    <option value="">Umumiy (bo&apos;limsiz)</option>
+                                    {(departments.data ?? []).map((d) => (
+                                      <option key={d.id} value={d.id}>
+                                        {d.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  dep && <span className="mt-1 block text-[11px] text-(--color-text-muted)">› {depName.get(dep) ?? "bo'lim"}</span>
+                                );
+                              })()}
                           </td>
                           {months.map((mo) => {
                             const v = r.months[mo.period];

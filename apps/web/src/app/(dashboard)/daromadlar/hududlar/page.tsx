@@ -6,7 +6,6 @@ import { useState, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
 import { errorMessage } from '@/lib/error-message';
-import { ApiError } from '@/lib/api';
 import {
   regionalIncomeApi,
   downloadRegionalTemplate,
@@ -32,6 +31,7 @@ import {
   IconSpinner,
 } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
+import { ServiceRegionMatrix } from '@/features/incomes/service-region-matrix';
 
 
 export default function RegionalIncomePage() {
@@ -419,6 +419,9 @@ export default function RegionalIncomePage() {
           )}
         </Card>
       </div>
+
+      {/* Xizmat turi × viloyat — har xizmat qaysi viloyatda qancha */}
+      <ServiceRegionMatrix period={period} stamp={byService.data} />
 
       <ConfirmDialog
         open={confirmOpen}

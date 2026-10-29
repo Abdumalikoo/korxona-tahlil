@@ -106,6 +106,13 @@ export class RegionalIncomeController {
     return { data };
   }
 
+  /** Xizmat turi × viloyat: har xizmat qaysi viloyatda qancha */
+  @Get('summary/matrix')
+  async summaryMatrix(@Query('period') period: string) {
+    const data = await this.regional.summaryMatrix(period);
+    return { data };
+  }
+
   /** Bitta viloyat tumanlari bo'yicha (tumansiz yozuvlar — alohida qator) */
   @Get('summary/district')
   async summaryByDistrict(

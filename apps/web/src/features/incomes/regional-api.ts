@@ -69,6 +69,14 @@ export interface RegionSummaryRow {
   sharePercent: number;
 }
 
+/** Xizmat turi × viloyat: kataklar — viloyat kodi → summa (tiyin) */
+export interface ServiceRegionMatrix {
+  regions: { regionCode: number; name: string }[];
+  rows: { categoryCode: string; label: string; totalTiyin: string; quantity: number; cells: Record<string, string> }[];
+  regionTotals: Record<string, string>;
+  totalTiyin: string;
+}
+
 export interface ServiceSummaryRow {
   categoryCode: string;
   label: string;
@@ -164,6 +172,10 @@ export const regionalIncomeApi = {
       '/incomes/regional/summary/district',
       { params: { period, regionCode } },
     ),
+
+  /** Xizmat turi × viloyat */
+  summaryMatrix: (period: string) =>
+    api.get<ApiResponse<ServiceRegionMatrix>>('/incomes/regional/summary/matrix', { params: { period } }),
 
   /** districtId: tuman kaliti yoki "-" (tumanga bo'linmagan) */
   summaryByService: (period: string, regionCode?: number, districtId?: string) =>

@@ -55,6 +55,18 @@ const cashbook = { accounts: async () => ACCOUNTS };
 
   await assert.rejects(() => svc.setModes({ year: 2026, owners: { a1: 'XYZ' } }, 'adm'), /noto'g'ri/);
 
+  // Markaz qatorining bo'limi: daromad doim shu bo'limga (qayta yozilganda ham); yo'nalish qatorida — bo'lim yo'q
+  T.department.push({ id: 'dPay', name: "To'lov tizimi va marketing", index: 18, isActive: true });
+  y = await svc.setModes({ year: 2026, departments: { a1: 'dPay' } }, 'adm');
+  assert.strictEqual(y.rows.find((x) => x.id === 'a1').departmentId, 'dPay');
+  assert.deepStrictEqual([by('I.1').regionCode, by('I.1').departmentId], [0, 'dPay'], 'EHF — Markaz › To‘lov tizimi');
+  assert.strictEqual(by('I.2').departmentId ?? null, null, 'Tax free — yo‘nalish, bo‘limsiz');
+  await svc.syncPeriod('2026-03', 'adm');
+  assert.strictEqual(by('I.1').departmentId, 'dPay', 'qayta sinxronlashda ham — doim shu bo‘lim');
+  await assert.rejects(() => svc.setModes({ year: 2026, departments: { a1: 'yoq' } }, 'adm'), /bo'limi topilmadi/);
+  y = await svc.setModes({ year: 2026, departments: { a1: null } }, 'adm');
+  assert.strictEqual(by('I.1').departmentId ?? null, null, 'olib tashlansa — Markaz › Umumiy');
+
   console.log('t-center-income-segments OK');
 })().catch((e) => {
   console.error(e);

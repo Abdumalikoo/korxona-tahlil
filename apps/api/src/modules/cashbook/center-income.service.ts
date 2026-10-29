@@ -30,6 +30,8 @@ const MODES: CenterMode[] = ['DOIMIY', 'BOSHQA', 'REGION', 'NONE'];
 const MAP_KEY = 'center-income.map';
 /** Qator egasi: Markaz yoki yo'nalish (Tax free, Marksheyder …) */
 const SEG_KEY = 'center-income.segments';
+/** Markaz qatorining bo'limi (Quyoshli xonadon, Ijtimoiy keshbek → To'lov tizimi …): daromad doim shu bo'limga yoziladi */
+const DEP_KEY = 'center-income.departments';
 export type CenterOwner = 'CENTER' | SegmentCode;
 const isOwner = (v: unknown): v is CenterOwner => v === 'CENTER' || isSegment(v);
 const CENTRAL = 0;
@@ -91,6 +93,8 @@ export interface CenterRow {
   /** Qator egasi (tushum qatorlari uchun): Markaz yoki yo'nalish */
   owner: CenterOwner | null;
   defaultOwner: CenterOwner | null;
+  /** Egasi Markaz bo'lsa — Markaz bo'limi (null — bo'limsiz, «Markaz › Umumiy») */
+  departmentId: string | null;
   months: Record<string, string | null>;
   totalTiyin: string;
 }
@@ -183,6 +187,13 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     return out;
   }
 
+  private async departmentMap(): Promise<Record<string, string>> {
+    const v = (await this.prisma.setting.findUnique({ where: { key: DEP_KEY } }))?.value;
+    const out: Record<string, string> = {};
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k, d] of Object.entries(v as Record<string, unknown>)) if (typeof d === 'string' && d) out[k] = d;
+    return out;
+  }
+
   private async owners(accounts: CashAccountView[]): Promise<Map<string, CenterOwner>> {
     const map = await this.ownerMap();
     return new Map(accounts.filter(counted).map((a) => [a.id, map[a.id] ?? this.defaultOwner(a)]));
@@ -203,10 +214,11 @@ export class CenterIncomeService implements OnApplicationBootstrap {
   }
 
   async setModes(input: unknown, userId: string): Promise<CenterYear> {
-    const body = (input ?? {}) as { modes?: Record<string, unknown>; owners?: Record<string, unknown>; year?: unknown };
+    const body = (input ?? {}) as { modes?: Record<string, unknown>; owners?: Record<string, unknown>; departments?: Record<string, unknown>; year?: unknown };
     const hasModes = Boolean(body.modes && typeof body.modes === 'object');
     const hasOwners = Boolean(body.owners && typeof body.owners === 'object');
-    if (!hasModes && !hasOwners) throw new BadRequestException("O'zgartirish yuborilmadi");
+    const hasDeps = Boolean(body.departments && typeof body.departments === 'object');
+    if (!hasModes && !hasOwners && !hasDeps) throw new BadRequestException("O'zgartirish yuborilmadi");
     const accounts = await this.cashbook.accounts();
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const map = await this.modeMap();
@@ -222,6 +234,20 @@ export class CenterIncomeService implements OnApplicationBootstrap {
         else owners[id] = raw;
       }
       await this.prisma.setting.upsert({ where: { key: SEG_KEY }, create: { key: SEG_KEY, value: owners }, update: { value: owners } });
+    }
+    if (hasDeps) {
+      const deps = await this.departmentMap();
+      const names = new Map((await this.prisma.department.findMany({ where: { isActive: true }, select: { id: true, name: true } })).map((d) => [d.id, d.name]));
+      for (const [id, raw] of Object.entries(body.departments!)) {
+        const a = byId.get(id);
+        if (!a || !counted(a)) throw new BadRequestException('Hisobraqam topilmadi (sahifani yangilang)');
+        const dep = typeof raw === 'string' && raw ? raw : null;
+        if (dep && !names.has(dep)) throw new BadRequestException(`${a.name}: Markaz bo'limi topilmadi`);
+        if ((deps[id] ?? null) !== dep) changed.push(`${a.name} → ${dep ? `Markaz › ${names.get(dep)}` : 'Markaz › Umumiy'}`);
+        if (dep) deps[id] = dep;
+        else delete deps[id];
+      }
+      await this.prisma.setting.upsert({ where: { key: DEP_KEY }, create: { key: DEP_KEY, value: deps }, update: { value: deps } });
     }
     for (const [id, raw] of Object.entries(body.modes ?? {})) {
       const a = byId.get(id);
@@ -332,14 +358,15 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     const owners = await this.owners(accounts);
     const month = (await this.monthValues([period])).get(period);
     const center = await this.prisma.region.findUnique({ where: { code: CENTRAL }, select: { code: true } });
-    const rows: { a: CashAccountView; amount: bigint; section: EntrySection; category: string; segment: SegmentCode | null }[] = [];
+    const deps = await this.departmentMap();
+    const rows: { a: CashAccountView; amount: bigint; section: EntrySection; category: string; segment: SegmentCode | null; departmentId: string | null }[] = [];
     if (month) {
       for (const a of accounts) {
         const m = modes.get(a.id);
         const amount = month.values.get(a.id) ?? 0n;
         if ((m !== 'DOIMIY' && m !== 'BOSHQA') || amount <= 0n) continue;
         const owner = owners.get(a.id) ?? 'CENTER';
-        rows.push({ a, amount, section: m, category: await this.categoryFor(a), segment: owner === 'CENTER' ? null : owner });
+        rows.push({ a, amount, section: m, category: await this.categoryFor(a), segment: owner === 'CENTER' ? null : owner, departmentId: owner === 'CENTER' ? (deps[a.id] ?? null) : null });
       }
     }
     const date = month ? new Date(`${month.date}T00:00:00Z`) : null;
@@ -357,6 +384,8 @@ export class CenterIncomeService implements OnApplicationBootstrap {
             categoryCode: r.category,
             // Yo'nalish daromadi — hudud/bo'limsiz, `segment` bilan (yo'nalish xarajatlari bilan bir birlikda)
             regionCode: r.segment ? null : center ? CENTRAL : null,
+            // Markaz qatorining bo'limi (sozlamada) — daromad doim shu bo'limga
+            departmentId: !r.segment && center ? r.departmentId : null,
             segment: r.segment,
             description: `${r.a.code ? `${r.a.code}. ` : ''}${r.a.name} — kunlik ma'lumotnoma ${dmy} holatiga («Oy boshidan», o'tgan oyga nisbatan farq)`.slice(0, 500),
             paymentStatus: 'PAID' as const,
@@ -404,6 +433,7 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     const accounts = await this.cashbook.accounts();
     const modes = await this.modes(accounts);
     const owners = await this.owners(accounts);
+    const deps = await this.departmentMap();
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const values = await this.monthValues(periods);
     const [synced, incomes, latest] = await Promise.all([
@@ -484,6 +514,7 @@ export class CenterIncomeService implements OnApplicationBootstrap {
           defaultMode: counted(a) ? this.defaultMode(a, byId) : null,
           owner: owners.get(a.id) ?? null,
           defaultOwner: counted(a) ? this.defaultOwner(a) : null,
+          departmentId: (owners.get(a.id) ?? 'CENTER') === 'CENTER' ? (deps[a.id] ?? null) : null,
           months: ms,
           totalTiyin: total.toString(),
         };

@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
+import { REGION_GENERAL } from '../../common/segments/segments';
+import { latinize, parseAmount } from '../../common/text/parse';
 
 const CENTRAL_REGION = 0;
 const TASHKENT_OFFSET_HOURS = 5;
@@ -142,8 +144,8 @@ export class RegionalIncomeService {
    * Tutuq belgilarining barcha turlari olib tashlanadi: O'zbekiston = Ozbekiston.
    */
   private normalize(value: string): string {
-    return value
-      .toLowerCase()
+    // Kirill yozuvi va aralash harflar («Андижон», «Аndijon») ham lotindagidek solishtiriladi
+    return latinize(value)
       .replace(/['`´ʻʼ‘’]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -161,10 +163,10 @@ export class RegionalIncomeService {
     if (value === null || value === undefined || String(value).trim() === '') return null;
     if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
 
-    const text = String(value).replace(/[\s  ]/g, '').replace(',', '.');
-    const parsed = Number(text);
+    // Matn ko'rinishidagi summa: «1 234 567,89», «1,234,567.89», «1.234.567», «12 345 so'm»
+    const parsed = parseAmount(value);
 
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+    return parsed !== null && parsed >= 0 ? parsed : null;
   }
 
   private percent(part: bigint, total: bigint): number {
@@ -187,7 +189,7 @@ export class RegionalIncomeService {
   /** Faol hududlar shablon tartibida, Markazsiz */
   private async loadRegions(): Promise<RegionRef[]> {
     const regions = await this.prisma.region.findMany({
-      where: { isActive: true, code: { not: CENTRAL_REGION } },
+      where: { isActive: true, code: { notIn: [CENTRAL_REGION, REGION_GENERAL] } },
       select: { code: true, name: true },
     });
 
@@ -934,6 +936,39 @@ export class RegionalIncomeService {
       .filter((row): row is NonNullable<typeof row> => row !== null);
 
     return { rows, totalTiyin: total };
+  }
+
+  /** Xizmat turi × viloyat: qatorlar — xizmatlar (kattasidan), ustunlar — viloyatlar (shablon tartibida), kataklar — summa */
+  async summaryMatrix(period: string) {
+    this.assertPeriod(period);
+    const [grouped, regions, services] = await Promise.all([
+      this.prisma.income.groupBy({
+        by: ['categoryCode', 'regionCode'],
+        where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
+        _sum: { amountTiyin: true, quantity: true },
+      }),
+      this.loadRegions(),
+      this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
+    ]);
+    const labels = new Map(services.map((s) => [s.code, s.label]));
+    const used = new Set(grouped.map((g) => g.regionCode));
+    const cols = regions.filter((r) => used.has(r.code)).map((r) => ({ regionCode: r.code, name: r.name }));
+    const byService = new Map<string, { categoryCode: string; label: string; totalTiyin: bigint; quantity: number; cells: Record<number, bigint> }>();
+    const regionTotals: Record<number, bigint> = {};
+    let total = 0n;
+    for (const g of grouped) {
+      const amount = g._sum.amountTiyin ?? 0n;
+      const code = g.regionCode!;
+      const row = byService.get(g.categoryCode) ?? { categoryCode: g.categoryCode, label: labels.get(g.categoryCode) ?? g.categoryCode, totalTiyin: 0n, quantity: 0, cells: {} };
+      row.cells[code] = (row.cells[code] ?? 0n) + amount;
+      row.totalTiyin += amount;
+      row.quantity += g._sum.quantity ?? 0;
+      byService.set(g.categoryCode, row);
+      regionTotals[code] = (regionTotals[code] ?? 0n) + amount;
+      total += amount;
+    }
+    const rows = [...byService.values()].sort((a, b) => (b.totalTiyin > a.totalTiyin ? 1 : b.totalTiyin < a.totalTiyin ? -1 : 0));
+    return { regions: cols, rows, regionTotals, totalTiyin: total };
   }
 
   /** Bitta viloyat tumanlari bo'yicha; tumansiz yozuvlar — "Tumanga bo'linmagan" qatori */
