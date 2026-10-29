@@ -124,6 +124,8 @@ export interface CashImportResult {
   date: string | null;
   matched: number;
   unmatched: string[];
+  /** To'ldirilgan, lekin son sifatida o'qilmagan kataklar (qator — ustun: matn) */
+  invalid: string[];
   values: Record<string, ValuesView>;
 }
 
@@ -957,6 +959,8 @@ export class CashbookService {
     const used = new Set<string>();
     const values: Record<string, ValuesView> = {};
     const unmatched: string[] = [];
+    const invalid: string[] = [];
+    const COLUMN_LABEL: Record<CashColumn, string> = { ytd: 'Yil boshidan', mtd: 'Oy boshidan', refund: 'Qaytarilgan', daily: 'Kunlik tushum', balance: 'Qoldiq' };
     let section: string | null = null;
     const ROMAN = /^(I|II|III|IV|V|VI|VII|VIII|IX|X)$/;
 
@@ -988,9 +992,16 @@ export class CashbookService {
       used.add(best.id);
       const v: ValuesView = { ytd: null, mtd: null, refund: null, daily: null, balance: null };
       const cells: Record<CashColumn, number> = { ytd: 4, mtd: 5, refund: 6, daily: 7, balance: 8 };
-      for (const col of CASH_COLUMNS) if (best.inputs.includes(col)) v[col] = toView(amount(row.getCell(cells[col]).value));
+      for (const col of CASH_COLUMNS) {
+        if (!best.inputs.includes(col)) continue;
+        const cell = row.getCell(cells[col]).value;
+        const t = amount(cell);
+        // To'ldirilgan, lekin son sifatida o'qilmagan katak — jim bo'sh qolmasin, ro'yxatda ko'rinadi
+        if (t === null && text(cell).trim()) invalid.push(`${name.replace(/\s+/g, ' ').slice(0, 60)} — ${COLUMN_LABEL[col]}: «${text(cell).trim().slice(0, 24)}»`);
+        v[col] = toView(t);
+      }
       values[best.id] = v;
     }
-    return { date, matched: Object.keys(values).length, unmatched, values };
+    return { date, matched: Object.keys(values).length, unmatched, invalid, values };
   }
 }

@@ -422,6 +422,11 @@ export function CashDaySheet({ adminView = false }: { adminView?: boolean }) {
               {!d.opening && " «Yil/Oy boshidan» fayldan olinmadi — ular oldingi kundan avtomatik."}
             </span>
             {importInfo.unmatched.length > 0 && <span className="text-amber-800">Topilmagan qatorlar: {importInfo.unmatched.join(', ')}</span>}
+            {(importInfo.invalid?.length ?? 0) > 0 && (
+              <span className="text-(--color-expense)">
+                Son sifatida o&apos;qilmagan kataklar ({importInfo.invalid!.length}) — bo&apos;sh qoldi, faylda tuzating: {importInfo.invalid!.join('; ')}
+              </span>
+            )}
             <button type="button" className="ml-auto text-xs font-semibold underline" onClick={() => setImportInfo(null)}>
               Yopish
             </button>

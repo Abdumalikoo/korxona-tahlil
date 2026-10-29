@@ -113,6 +113,8 @@ export interface CenterPreview {
   exists: boolean;
   matched: number;
   unmatched: string[];
+  /** To'ldirilgan, lekin son sifatida o'qilmagan kataklar */
+  invalid: string[];
   /** Oldingi saqlangan kun bilan «Oy/Yil boshidan» mos kelmaydi (oraliq kunlar kiritilmagan) — fayldagisi olinadi */
   gap: { prevDate: string; accounts: number } | null;
   /** Oyning keyingi kunlari allaqachon bor — oy daromadi o'sha kundan olinadi */
@@ -596,6 +598,7 @@ export class CenterIncomeService implements OnApplicationBootstrap {
       exists,
       matched: parsed.matched,
       unmatched: parsed.unmatched,
+      invalid: parsed.invalid,
       gap: prev && gapAccounts ? { prevDate: prev.date, accounts: gapAccounts } : null,
       laterInMonth: later ? ymd(later.date) : null,
       doimiyTiyin: by.DOIMIY.toString(),

@@ -75,6 +75,8 @@ export interface CenterPreview {
   exists: boolean;
   matched: number;
   unmatched: string[];
+  /** To'ldirilgan, lekin son sifatida o'qilmagan kataklar */
+  invalid?: string[];
   gap: { prevDate: string; accounts: number } | null;
   laterInMonth: string | null;
   doimiyTiyin: string;

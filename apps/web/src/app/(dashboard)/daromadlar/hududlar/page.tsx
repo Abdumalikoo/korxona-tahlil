@@ -533,6 +533,28 @@ function AnalysisView({
         </Card>
       )}
 
+      {/* O'qilmagan kataklar va summasiz qatorlar — jim tashlab yuborilmasin, saqlashdan oldin ko'rinsin */}
+      {((analysis.invalidCells?.length ?? 0) > 0 || (analysis.quantityWithoutAmount ?? 0) > 0) && (
+        <Card className="overflow-hidden border-(--color-expense)/40">
+          <CardHeader
+            title={`Hisobga olinmaydigan kataklar — ${(analysis.invalidCells?.length ?? 0) + (analysis.quantityWithoutAmount ?? 0)} ta`}
+            description="Son sifatida o'qilmadi yoki summasi yo'q — faylda tuzatib qayta yuklang, aks holda bu qiymatlar saqlanmaydi"
+          />
+          <CardBody className="max-h-48 space-y-1 overflow-y-auto text-xs">
+            {(analysis.quantityWithoutAmount ?? 0) > 0 && (
+              <p className="text-(--color-expense)">Soni bor, summasi yo&apos;q: {analysis.quantityWithoutAmount} ta qator — hisobga olinmaydi.</p>
+            )}
+            <ul className="space-y-1 text-(--color-text-muted)">
+              {(analysis.invalidCells ?? []).slice(0, 50).map((c, index) => (
+                <li key={`${c.sheet}-${c.rowIndex}-${index}`}>
+                  <span className="money">{c.sheet}</span> &middot; {c.rowIndex}-qator &middot; {c.region} &mdash; son emas
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
       {/* G'alati qiymatlar — saqlashdan oldin tekshirish (son va summa ustunlari adashganmi, ming so'mda yozilganmi) */}
       {(analysis.anomalies?.length ?? 0) > 0 && (
         <Card className="overflow-hidden border-amber-300">

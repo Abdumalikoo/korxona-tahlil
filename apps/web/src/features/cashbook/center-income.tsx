@@ -99,6 +99,11 @@ function PreviewPanel({ p, saving, onSave, onCancel }: { p: CenterPreview; savin
           Shu oyda keyingi kun ({dmy(p.laterInMonth)}) ham bor — {p.label} daromadi o&apos;sha kundan olinadi. Bu fayl kunlik ma&apos;lumotnoma sifatida saqlanadi.
         </Notice>
       )}
+      {(p.invalid?.length ?? 0) > 0 && (
+        <Notice tone="warn">
+          Son sifatida o&apos;qilmagan kataklar ({p.invalid!.length}) — hisobga olinmaydi, faylda tuzating: <b>{p.invalid!.join('; ')}</b>
+        </Notice>
+      )}
       {p.unmatched.length > 0 && (
         <Notice tone="warn">
           Tanilmagan qatorlar ({p.unmatched.length}) — olinmaydi: <b>{p.unmatched.join(', ')}</b>. Kerak bo&apos;lsa, Buxgalteriya › Hisobraqamlar bo&apos;limida qo&apos;shing.

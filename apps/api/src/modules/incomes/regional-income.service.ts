@@ -623,7 +623,9 @@ export class RegionalIncomeService {
       let header = region ? this.findDistrictColumns(sheet, region, districts) : null;
       if (!header || header.columns.size === 0) header = this.findRegionColumns(sheet, matchRegion);
       if (header.columns.size === 0) {
+        // Jim o'tkazilmasin: viloyati aniqlanmagan varaq ham ro'yxatda (bo'sh varaqdan tashqari)
         if (region) unknownHeaders.push(`${sheet.name}: tuman ustunlari topilmadi — varaq o'tkazib yuborildi`);
+        else if (sheet.actualRowCount > 1) unknownHeaders.push(`${sheet.name}: viloyat yoki tuman ustunlari aniqlanmadi — varaq o'qilmadi`);
         continue;
       }
 

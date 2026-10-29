@@ -67,6 +67,8 @@ export interface CashImport {
   date: string | null;
   matched: number;
   unmatched: string[];
+  /** To'ldirilgan, lekin son sifatida o'qilmagan kataklar — saqlanmaydi */
+  invalid?: string[];
   values: Record<string, CashValuesText>;
 }
 
