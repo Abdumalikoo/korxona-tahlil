@@ -7,6 +7,7 @@ import { NO_DEPARTMENT, type CenterDetailResult, type CenterEmployeeRow, type De
 import type { DrillBase, MoneyPart } from './districts.types';
 import { bounds, compareRange, parseDay, trendMonths } from './structure.engine';
 import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } from './structure.types';
+import { covers, placementAt, readPlacements } from '../../common/placements/placements';
 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
@@ -90,7 +91,8 @@ interface Collected {
   regionalBy: Map<number | null, bigint>;
   regionName: Map<number, string>;
   trend: { income: bigint[]; own: bigint[]; regional: bigint[]; assets: bigint[] };
-  employees: Map<string, { fullName: string; position: string | null; employmentType: string; isActive: boolean; departmentId: string | null }>;
+  /** inCenter — davr oxirida Markazda (joylashuv davri bo'yicha hududga o'tgan bo'lsa — yo'q: bo'lim ro'yxatiga chiqmaydi) */
+  employees: Map<string, { fullName: string; position: string | null; employmentType: string; isActive: boolean; departmentId: string | null; inCenter: boolean }>;
 }
 
 const addPart = (parts: Map<string, Part>, key: string, label: string, amount: bigint, isCurrent: boolean, isPrevious: boolean) => {
@@ -358,13 +360,28 @@ export class CenterService {
     // ── Xodimlar (Markaz) ──
     const workedIn = (e: (typeof employees)[number], b: { start: Date; end: Date }) =>
       (!e.hiredAt || e.hiredAt < b.end) && (!e.firedAt || e.firedAt >= b.start) && (e.isActive || e.firedAt !== null);
+    // Joylashuv davrlari (Xodimlar › «shu oydan shu oygacha shu joyda»): davr oxiridagi joyi, bo'limi va lavozimi —
+    // reestrdagidan ustun. Reestrda hududda, davr bo'yicha Markazda bo'lganlar ham qo'shiladi.
+    const placements = await readPlacements(this.prisma);
+    const curEnd = range.to.slice(0, 7);
+    const prevEnd = previousRange.to.slice(0, 7);
+    const placedIn = placements.filter((p) => p.unit === 'CENTER' && (covers(p, curEnd) || covers(p, prevEnd)) && !employees.some((e) => e.pinfl === p.pinfl)).map((p) => p.pinfl);
+    if (placedIn.length) employees.push(...(await this.prisma.employee.findMany({ where: { pinfl: { in: [...new Set(placedIn)] } }, select: { pinfl: true, fullName: true, position: true, employmentType: true, departmentId: true, hiredAt: true, firedAt: true, isActive: true } })));
+    const inCenterAt = (pinfl: string, period: string, registry: boolean) => {
+      const pl = placementAt(placements, pinfl, period);
+      return pl ? pl.unit === 'CENTER' : registry;
+    };
+    const registryCenter = new Set(employees.filter((e) => !placedIn.includes(e.pinfl)).map((e) => e.pinfl));
     for (const e of employees) {
-      c.employees.set(e.pinfl, { fullName: e.fullName, position: e.position, employmentType: e.employmentType, isActive: e.isActive, departmentId: e.departmentId });
-      if (workedIn(e, current)) {
+      const pl = placementAt(placements, e.pinfl, curEnd);
+      const depId = pl?.unit === 'CENTER' ? (pl.departmentId ?? e.departmentId) : e.departmentId;
+      const nowIn = inCenterAt(e.pinfl, curEnd, registryCenter.has(e.pinfl));
+      c.employees.set(e.pinfl, { fullName: e.fullName, position: pl?.position ?? e.position, employmentType: e.employmentType, isActive: e.isActive, departmentId: depId, inCenter: nowIn });
+      if (nowIn && workedIn(e, current)) {
         c.headcount += 1;
-        dept(e.departmentId).headcount += 1;
+        dept(depId).headcount += 1;
       }
-      if (workedIn(e, prev)) c.previousHeadcount += 1;
+      if (inCenterAt(e.pinfl, prevEnd, registryCenter.has(e.pinfl)) && workedIn(e, prev)) c.previousHeadcount += 1;
     }
     // Xodimlar ish haqi — Markaz ish haqi xarajati yozilgan vedomostlardan. Xodim shu oy QAYSI bo'limda ish haqi
     // olgan bo'lsa (natijalar fayli / joy o'zgarishi — ish haqi xarajati qanday guruhlangan bo'lsa), o'sha bo'lim
@@ -388,7 +405,9 @@ export class CenterService {
         for (const e of extra) regOf.set(e.pinfl, { regionCode: e.regionCode, departmentId: e.departmentId });
         for (const e of extra) {
           const inCenter = periods.some((p) => locs.get(p)?.get(e.pinfl)?.regionCode === CENTRAL_REGION);
-          if (inCenter) c.employees.set(e.pinfl, { fullName: e.fullName, position: e.position, employmentType: e.employmentType, isActive: e.isActive, departmentId: e.departmentId });
+          // Reestrda Markazda emas — bo'lim ro'yxatiga faqat shu bo'limdan ish haqi olgan bo'lsa chiqadi (pastda, ish haqi
+          // qatori bo'yicha); reestrdagi bo'sh bo'lim bilan «Bo'limga biriktirilmagan»ga tushmasin (inCenter: false)
+          if (inCenter) c.employees.set(e.pinfl, { fullName: e.fullName, position: e.position, employmentType: e.employmentType, isActive: e.isActive, departmentId: e.departmentId, inCenter: false });
         }
       }
       for (const en of entries) {
@@ -558,7 +577,7 @@ export class CenterService {
       });
     };
     for (const pinfl of acc.employees.keys()) push(pinfl);
-    for (const [pinfl, e] of c.employees) if ((e.departmentId ?? NO_DEPARTMENT) === id && e.isActive) push(pinfl);
+    for (const [pinfl, e] of c.employees) if ((e.departmentId ?? NO_DEPARTMENT) === id && e.isActive && e.inCenter) push(pinfl);
     employees.sort((a, b) => Number(BigInt(b.salaryTiyin) - BigInt(a.salaryTiyin)) || a.fullName.localeCompare(b.fullName));
 
     const notes: string[] = [];

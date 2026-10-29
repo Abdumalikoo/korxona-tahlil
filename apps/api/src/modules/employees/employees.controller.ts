@@ -15,6 +15,7 @@ import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { EmployeesService } from './employees.service';
 import { EmployeesExportService } from './employees-export.service';
+import { EmployeePlacementsService } from './employee-placements.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { QueryEmployeeDto } from './dto/query-employee.dto';
@@ -26,6 +27,7 @@ export class EmployeesController {
   constructor(
     private readonly employees: EmployeesService,
     private readonly exportService: EmployeesExportService,
+    private readonly placementsService: EmployeePlacementsService,
   ) {}
 
   // --------- Statistika (":pinfl" dan oldin) ---------
@@ -85,6 +87,26 @@ export class EmployeesController {
   async findOne(@Param('pinfl') pinfl: string) {
     const data = await this.employees.findOne(pinfl);
     return { data };
+  }
+
+  // --------- Joylashuv davrlari: «shu oydan shu oygacha shu joyda, shu lavozimda» ---------
+
+  @Get(':pinfl/placements')
+  async placements(@Param('pinfl') pinfl: string) {
+    return { data: await this.placementsService.list(pinfl) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post(':pinfl/placements')
+  async addPlacement(@Param('pinfl') pinfl: string, @Body() body: Record<string, unknown>, @CurrentUser('id') userId: string) {
+    return { data: await this.placementsService.add(pinfl, body, userId) };
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete(':pinfl/placements/:id')
+  @HttpCode(HttpStatus.OK)
+  async removePlacement(@Param('pinfl') pinfl: string, @Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.placementsService.remove(pinfl, id, userId) };
   }
 
   @Roles(UserRole.ADMIN)

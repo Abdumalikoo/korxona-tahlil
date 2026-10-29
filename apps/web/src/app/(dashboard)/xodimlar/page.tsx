@@ -31,6 +31,7 @@ import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
 import { Toast } from '@/components/ui/toast';
 import { EmployeeDrawer } from '@/features/employees/employee-drawer';
 import type { Employee } from '@/lib/types';
+import { realRegions } from '@/lib/segments';
 
 const PAGE_LIMIT = 50;
 const CENTRAL_REGION = 0;
@@ -135,7 +136,7 @@ export default function EmployeesPage() {
 
   const regionOptions = [
     { value: '', label: 'Barcha hududlar' },
-    ...(regions.data?.data ?? []).map((region) => ({
+    ...(realRegions(regions.data?.data ?? [])).map((region) => ({
       value: String(region.code),
       label: region.code === CENTRAL_REGION ? region.name : `${region.code} — ${region.name}`,
     })),
@@ -422,7 +423,7 @@ export default function EmployeesPage() {
       <EmployeeDrawer
         employee={selected}
         creating={creating}
-        regions={regions.data?.data ?? []}
+        regions={realRegions(regions.data?.data ?? [])}
         departments={departments.data?.data ?? []}
         onClose={() => {
           setSelected(null);

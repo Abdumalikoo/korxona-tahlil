@@ -8,6 +8,7 @@ import { TaxesService } from '../taxes/taxes.service';
 import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { runExclusive } from '../../common/locks';
+import { covers, placementAt, readPlacements } from '../../common/placements/placements';
 import type { UnitMove } from '../unit-payroll/unit-payroll.service';
 import { isNdflWorkbook, parseNdfl, type NdflResult } from './ndfl.parser';
 
@@ -51,6 +52,8 @@ export interface LocationRef {
   district: { id: string; code: number; name: string } | null;
   /** Ish haqi tarkibi bo'yicha shu oy Markaz bo'limi (bor bo'lsa — reestrdagi bo'lim o'rniga) */
   department?: { id: string; name: string } | null;
+  /** Joylashuv davridagi lavozim (bor bo'lsa — reestrdagi lavozim o'rniga) */
+  position?: string | null;
 }
 
 /**
@@ -155,6 +158,32 @@ export async function loadLocationRefs(prisma: PrismaService, period: string, pi
     });
 
     const out = new Map<string, LocationRef>(locations.map((item) => [item.employeePinfl, item]));
+
+    // Xodimning joylashuv davri (Xodimlar › «shu oydan shu oygacha shu joyda») — natijalar faylidan ustun
+    const placed = (await readPlacements(prisma)).filter((p) => covers(p, period) && (!pinfls || pinfls.includes(p.pinfl)));
+    if (placed.length) {
+      const [regs, deps, dists] = await Promise.all([
+        prisma.region.findMany({ select: { code: true, name: true } }),
+        prisma.department.findMany({ where: { id: { in: placed.map((p) => p.departmentId).filter((x): x is string => Boolean(x)) } }, select: { id: true, name: true } }),
+        prisma.district.findMany({ where: { id: { in: placed.map((p) => p.districtId).filter((x): x is string => Boolean(x)) } }, select: { id: true, code: true, name: true } }),
+      ]);
+      const regBy = new Map(regs.map((r) => [r.code, r]));
+      const depBy = new Map(deps.map((d) => [d.id, d]));
+      const distBy = new Map(dists.map((d) => [d.id, d]));
+      for (const pinfl of new Set(placed.map((p) => p.pinfl))) {
+        const p = placementAt(placed, pinfl, period)!;
+        const loc = out.get(pinfl);
+        const keep = loc ? { employmentType: loc.employmentType } : {};
+        if (p.unit === 'CENTER') {
+          out.set(pinfl, { employeePinfl: pinfl, regionCode: CENTRAL_REGION, districtId: null, ...keep, region: { name: 'Markaz' }, district: null, department: p.departmentId ? (depBy.get(p.departmentId) ?? null) : null, position: p.position });
+          continue;
+        }
+        const reg = p.regionCode !== null ? regBy.get(p.regionCode) : undefined;
+        if (!reg) continue;
+        const dist = p.districtId ? (distBy.get(p.districtId) ?? null) : null;
+        out.set(pinfl, { employeePinfl: pinfl, regionCode: reg.code, districtId: dist?.id ?? null, ...keep, region: { name: reg.name }, district: dist, department: null, position: p.position });
+      }
+    }
 
     // Ish haqi tarkibi bo'yicha shu oy joyi (Markaz bo'limi) — natijalar faylidagi hududdan ham ustun
     const fixes = ((await prisma.setting.findUnique({ where: { key: COMPOSITION_PLACE_KEY(period) } }).catch(() => null))?.value as { fixes?: Record<string, { departmentId?: string | null; regionCode?: number | null; districtId?: string | null; unit?: string }> } | null)?.fixes ?? {};

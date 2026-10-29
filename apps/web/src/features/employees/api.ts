@@ -94,6 +94,42 @@ export async function downloadEmployeesExcel(
   URL.revokeObjectURL(url);
 }
 
+/** Joylashuv davri: «shu oydan shu oygacha shu joyda (Markaz bo'limi yoki hudud), shu lavozimda» */
+export interface EmployeePlacement {
+  id: string;
+  pinfl: string;
+  from: string;
+  /** null — hozirgacha */
+  to: string | null;
+  unit: 'CENTER' | 'REGION';
+  departmentId: string | null;
+  regionCode: number | null;
+  districtId: string | null;
+  position: string | null;
+  note: string | null;
+  createdAt: string;
+  createdBy: string;
+  /** «Markaz › Bo'lim» yoki «Viloyat › Tuman» */
+  placeLabel: string;
+}
+
+export interface PlacementPayload {
+  from: string;
+  to?: string | null;
+  unit: 'CENTER' | 'REGION';
+  departmentId?: string | null;
+  regionCode?: number | null;
+  districtId?: string | null;
+  position?: string | null;
+  note?: string | null;
+}
+
+export const placementsApi = {
+  list: (pinfl: string) => api.get<ApiResponse<{ items: EmployeePlacement[] }>>(`/employees/${pinfl}/placements`),
+  add: (pinfl: string, payload: PlacementPayload) => api.post<ApiResponse<EmployeePlacement>>(`/employees/${pinfl}/placements`, payload),
+  remove: (pinfl: string, id: string) => api.delete<ApiResponse<{ success: true }>>(`/employees/${pinfl}/placements/${id}`),
+};
+
 export const employeesApi = {
   list: (filters: EmployeeFilters) =>
     api.get<PaginatedResponse<Employee>>('/employees', { params: filters }),

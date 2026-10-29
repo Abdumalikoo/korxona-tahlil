@@ -10,6 +10,7 @@ import { AuditService } from '../audit/audit.service';
 import type { CreateEmployeeDto } from './dto/create-employee.dto';
 import type { UpdateEmployeeDto } from './dto/update-employee.dto';
 import type { QueryEmployeeDto } from './dto/query-employee.dto';
+import { REGION_GENERAL } from '../../common/segments/segments';
 
 const DEFAULT_LIMIT = 50;
 const CENTRAL_REGION = 0;
@@ -45,6 +46,10 @@ export class EmployeesService {
     const region = await this.prisma.region.findUnique({ where: { code: regionCode } });
     if (!region) {
       throw new BadRequestException('Hudud topilmadi');
+    }
+    // Hududlar › Umumiy — faqat pul yozuvlari uchun; xodim haqiqiy viloyatda bo'ladi
+    if (regionCode === REGION_GENERAL) {
+      throw new BadRequestException("«Hududlar › Umumiy» xodim joyi bo'la olmaydi — viloyatni tanlang");
     }
 
     if (regionCode === CENTRAL_REGION) {

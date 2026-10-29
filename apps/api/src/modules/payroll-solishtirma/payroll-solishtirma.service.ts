@@ -7,6 +7,7 @@ import { PayrollFactsService } from '../payroll-facts/payroll-facts.service';
 import { isPayrollUnit } from '../unit-payroll/unit-payroll.service';
 import { readStore, STORE_KEY } from '../acc-23106/acc23106.store';
 import { AuditService } from '../audit/audit.service';
+import { loadLocationRefs } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CompositionReconcileService } from '../salary-composition/salary-composition.reconcile';
 import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.service';
@@ -452,6 +453,8 @@ export class PayrollSolishtirmaService {
     let row = (await this.view(period, mode, 'CENTER')).rows.find((r) => r.pinfl === pinfl) ?? null;
     if (!row) row = (await this.view(period, mode, 'REGION')).rows.find((r) => r.pinfl === pinfl) ?? null;
     const emp = await this.prisma.employee.findUnique({ where: { pinfl }, select: { fullName: true, employmentType: true, position: true, regionCode: true, department: { select: { name: true } } } }).catch(() => null);
+    // Shu oydagi joy va lavozim — joylashuv davri bo'lsa, undan (reestrdagidan ustun)
+    const loc = (await loadLocationRefs(this.prisma, period, [pinfl])).get(pinfl);
 
     // ── Soliq hisoboti ──
     const entries = await this.prisma.payrollEntry.findMany({ where: { period, employeePinfl: pinfl, deletedAt: null }, select: { baseTiyin: true, batchId: true } });
@@ -535,7 +538,13 @@ export class PayrollSolishtirmaService {
       mode,
       pinfl,
       fullName: row?.fullName ?? emp?.fullName ?? pinfl,
-      employee: emp ? { position: emp.position, department: emp.department?.name ?? null, employmentType: emp.employmentType } : null,
+      employee: emp
+        ? {
+            position: loc?.position ?? emp.position,
+            department: loc && loc.regionCode !== 0 ? [loc.region.name, loc.district?.name].filter(Boolean).join(' › ') : (loc?.department?.name ?? emp.department?.name ?? null),
+            employmentType: emp.employmentType,
+          }
+        : null,
       row,
       soliq,
       soliqTiyin: soliq.filter((x) => x.counted).reduce((x, s) => x + BigInt(s.tiyin), 0n).toString(),

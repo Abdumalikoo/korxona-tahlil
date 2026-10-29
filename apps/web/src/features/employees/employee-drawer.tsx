@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { DiscussMenu } from '@/features/reactions/discuss';
 import { districtMark, employeeMark } from '@/features/reactions/marks';
-import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
 import { employeesApi } from './api';
 import { IconTrash } from '@/components/ui/icons';
@@ -18,6 +17,7 @@ import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { LocationPicker } from '@/components/shared/location-picker';
 import { TransferHistory } from './transfer-history';
+import { PlacementsCard } from './placements-card';
 import { EmployeeHoldings } from '@/features/warehouse/employee-holdings';
 import type {
   Employee,
@@ -431,6 +431,7 @@ export function EmployeeDrawer({
             />
           </div>
         </div>
+        {employee && <PlacementsCard pinfl={employee.pinfl} regions={regions} departments={departments} readOnly={readOnly} />}
         {employee && <TransferHistory pinfl={employee.pinfl} />}
         {employee && <EmployeeHoldings pinfl={employee.pinfl} />}
       </Drawer>
