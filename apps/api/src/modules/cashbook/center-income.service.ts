@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, type OnApplicationBootstrap } 
 import type { EntrySection } from '@prisma/client';
 import { CENTRAL_REGION as CENTRAL, isSegment, segmentLabel, type SegmentCode } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
+import { QOMITA_INCOME_PREFIX, QOMITA_SEGMENT } from '../qomita/qomita.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { CashbookService, type CashAccountView, type CashLineInput } from './cashbook.service';
 
@@ -23,6 +24,12 @@ import { CashbookService, type CashAccountView, type CashLineInput } from './cas
 //     Tax free daromadi, «marksheyder» so'zi bor qator — Marksheyder daromadi. Yo'nalish daromadi `segment` bilan yoziladi:
 //     Solishtirmada o'sha yo'nalishning o'z xarajatlari bilan bir qatorda (daromad − xarajat = natija) ko'rinadi.
 //     Buxgalter qatorning egasini o'zgartirishi mumkin (center-income.segments sozlamasi).
+//   • Qo'mita pullari (1.11 «3802-Haq evaziga xizmat ko'rsatish» — Call markaz; 1.14 «Marksheyderlik xizmati uchun» va
+//     1.15 «Qo'mita tomonidan marksheyder tushumi» — Marksheyder): bu pul Qo'mita mablag'lari sahifasida ham (Excel /
+//     bank / qo'lda) yoziladi — BITTA pul, ikki marta sanalmaydi. Daromad — kassa summasi: Qo'mita yozuvlari uni
+//     bo'limlarga taqsimlaydi; kassa ko'p bo'lsa — farq shu Qo'mita moddasiga bitta qator bo'lib yoziladi
+//     («Qo'mita faylida ko'rsatilmagan»), kam bo'lsa — Qo'mita yozuvlari qoladi (ogohlantirish bilan).
+//     Qator ↔ Qo'mita moddasi: center-income.qomita sozlamasi (bo'lmasa — kod bo'yicha: 1.11 → Call markaz, 1.14/1.15 → Marksheyder).
 // ═══════════════════════════════════════════════════════════
 
 export type CenterMode = 'DOIMIY' | 'BOSHQA' | 'REGION' | 'NONE';
@@ -32,6 +39,15 @@ const MAP_KEY = 'center-income.map';
 const SEG_KEY = 'center-income.segments';
 /** Markaz qatorining bo'limi (Quyoshli xonadon, Ijtimoiy keshbek → To'lov tizimi …): daromad doim shu bo'limga yoziladi */
 const DEP_KEY = 'center-income.departments';
+/** Qator → Qo'mita daromad moddasi (QOMITA_…): shu qator puli Qo'mita mablag'lari bilan bitta pul ('' — bog'lanmagan) */
+const QOMITA_KEY = 'center-income.qomita';
+/** Kassa va Qo'mita yozuvlari farqi shundan kichik bo'lsa — teng (yaxlitlash) */
+const QOMITA_TOLERANCE = 100_000n; // 1 000 so'm
+/** Standart bog'lanish: qator kodi → Qo'mita moddasi nomidagi so'z */
+const QOMITA_DEFAULTS: { codes: string[]; label: RegExp }[] = [
+  { codes: ['1.11'], label: /call/i },
+  { codes: ['1.14', '1.15'], label: /marksheyd|маркшейд/i },
+];
 export type CenterOwner = 'CENTER' | SegmentCode;
 const isOwner = (v: unknown): v is CenterOwner => v === 'CENTER' || isSegment(v);
 const MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
@@ -77,6 +93,22 @@ export interface CenterMonth {
   regionIncomeTiyin: string;
   /** Shundan yo'nalishlarga (Tax free, Marksheyder …) yozilgan daromad */
   segmentsTiyin: string;
+  /** Qo'mita qatorlari (kassada) — daromadga Qo'mita mablag'lari bilan bitta pul bo'lib kiradi */
+  qomitaKassaTiyin: string;
+  /** Qo'mita moddasi bo'yicha solishtirish: kassa ↔ Qo'mita yozuvlari; daromad = kattasi (farq — kassadan) */
+  qomita: QomitaMatch[];
+}
+
+export interface QomitaMatch {
+  code: string;
+  label: string;
+  kassaTiyin: string;
+  /** Qo'mita mablag'lari sahifasidagi yozuvlar (Excel / bank / qo'lda) */
+  qomitaTiyin: string;
+  /** Kassadan yozilgan farq (kassa − Qo'mita, musbat bo'lsa) */
+  extraTiyin: string;
+  /** kassa − Qo'mita (manfiy — Qo'mita yozuvlari kassadan ko'p) */
+  diffTiyin: string;
 }
 
 export interface CenterRow {
@@ -94,12 +126,16 @@ export interface CenterRow {
   defaultOwner: CenterOwner | null;
   /** Egasi Markaz bo'lsa — Markaz bo'limi (null — bo'limsiz, «Markaz › Umumiy») */
   departmentId: string | null;
+  /** Qo'mita moddasi (shu qator puli Qo'mita mablag'lari bilan bitta pul); null — bog'lanmagan */
+  qomitaCode: string | null;
   months: Record<string, string | null>;
   totalTiyin: string;
 }
 
 export interface CenterYear {
   year: number;
+  /** Qo'mita moddalari (qatorni bog'lash uchun) */
+  qomitaCodes: { code: string; label: string }[];
   latestDate: string | null;
   months: CenterMonth[];
   rows: CenterRow[];
@@ -142,14 +178,14 @@ export class CenterIncomeService implements OnApplicationBootstrap {
       void (async () => {
         const KEY = 'center-income.rule';
         const row = await this.prisma.setting.findUnique({ where: { key: KEY } });
-        // v3 — yo'nalish qatorlari (Tax free, Marksheyder) o'z yo'nalishiga yoziladi
-        if ((row?.value as { v?: number } | null)?.v === 3) return;
+        // v3 — yo'nalish qatorlari (Tax free, Marksheyder) o'z yo'nalishiga yoziladi; v4 — Qo'mita qatorlari Qo'mita mablag'lari bilan bitta pul
+        if ((row?.value as { v?: number } | null)?.v === 4) return;
         const admin = await this.prisma.user.findFirst({ where: { role: 'ADMIN' }, orderBy: { createdAt: 'asc' }, select: { id: true } });
         if (!admin) return;
         const r = await this.syncAll(admin.id);
-        const value = { v: 3, at: new Date().toISOString(), periods: r.periods };
+        const value = { v: 4, at: new Date().toISOString(), periods: r.periods };
         await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
-        this.logger.log(`Markaz daromadi qayta yozildi (yo'nalishlar bilan): ${r.periods} oy`);
+        this.logger.log(`Markaz daromadi qayta yozildi (yo'nalishlar va Qo'mita qatorlari bilan): ${r.periods} oy`);
       })().catch((e: unknown) => this.logger.warn(`Markaz daromadi qayta hisoblanmadi: ${(e as Error).message}`));
     }, 6_000);
   }
@@ -195,6 +231,67 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     return out;
   }
 
+  /** Qo'mita daromad moddalari (QOMITA_…) */
+  private async qomitaCategories(): Promise<{ code: string; label: string }[]> {
+    return this.prisma.incomeCategory.findMany({ where: { code: { startsWith: QOMITA_INCOME_PREFIX } }, select: { code: true, label: true }, orderBy: { code: 'asc' } });
+  }
+
+  private async qomitaMap(): Promise<Record<string, string>> {
+    const v = (await this.prisma.setting.findUnique({ where: { key: QOMITA_KEY } }))?.value;
+    const out: Record<string, string> = {};
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k, c] of Object.entries(v as Record<string, unknown>)) if (typeof c === 'string') out[k] = c;
+    return out;
+  }
+
+  /** Standart: kod 1.11 → Call markaz, 1.14 / 1.15 → Marksheyder (shunday Qo'mita moddasi bo'lsa) */
+  defaultQomita(a: CashAccountView, cats: { code: string; label: string }[]): string | null {
+    const code = String(a.code ?? '').trim().replace(/\.$/, '');
+    const rule = QOMITA_DEFAULTS.find((r) => r.codes.includes(code));
+    return rule ? (cats.find((c) => rule.label.test(c.label))?.code ?? null) : null;
+  }
+
+  /** Hisobraqam → Qo'mita moddasi (faqat bog'langanlar) */
+  private async qomitaLinks(accounts: CashAccountView[]): Promise<Map<string, string>> {
+    const [map, cats] = await Promise.all([this.qomitaMap(), this.qomitaCategories()]);
+    const known = new Set(cats.map((c) => c.code));
+    const out = new Map<string, string>();
+    for (const a of accounts.filter(counted)) {
+      const code = a.id in map ? map[a.id]! : this.defaultQomita(a, cats);
+      if (code && known.has(code)) out.set(a.id, code);
+    }
+    return out;
+  }
+
+  /** Oy bo'yicha Qo'mita mablag'lari yozuvlari (kassadan yozilgan farqdan tashqari): modda → summa */
+  private async qomitaRecorded(periods: string[]): Promise<Map<string, Map<string, bigint>>> {
+    const rows = periods.length
+      ? await this.prisma.income.findMany({
+          where: { deletedAt: null, segment: QOMITA_SEGMENT, period: { in: periods }, NOT: { importBatchId: { startsWith: 'kassa:' } } },
+          select: { period: true, categoryCode: true, amountTiyin: true },
+        })
+      : [];
+    const out = new Map<string, Map<string, bigint>>();
+    for (const r of rows) {
+      const m = out.get(r.period) ?? new Map<string, bigint>();
+      m.set(r.categoryCode, (m.get(r.categoryCode) ?? 0n) + r.amountTiyin);
+      out.set(r.period, m);
+    }
+    return out;
+  }
+
+  /** Bir oy: kassadagi Qo'mita qatorlari ↔ Qo'mita yozuvlari (modda bo'yicha) */
+  private qomitaMatches(values: Map<string, bigint> | undefined, links: Map<string, string>, recorded: Map<string, bigint> | undefined, labels: Map<string, string>): QomitaMatch[] {
+    const kassa = new Map<string, bigint>();
+    if (values) for (const [id, code] of links) { const v = values.get(id) ?? 0n; if (v > 0n) kassa.set(code, (kassa.get(code) ?? 0n) + v); }
+    const codes = [...new Set([...kassa.keys(), ...[...links.values()].filter((c) => (recorded?.get(c) ?? 0n) !== 0n)])].sort();
+    return codes.map((code) => {
+      const k = kassa.get(code) ?? 0n;
+      const q = recorded?.get(code) ?? 0n;
+      const diff = k - q;
+      return { code, label: labels.get(code) ?? code, kassaTiyin: k.toString(), qomitaTiyin: q.toString(), extraTiyin: (diff > QOMITA_TOLERANCE ? diff : 0n).toString(), diffTiyin: diff.toString() };
+    });
+  }
+
   private async owners(accounts: CashAccountView[]): Promise<Map<string, CenterOwner>> {
     const map = await this.ownerMap();
     return new Map(accounts.filter(counted).map((a) => [a.id, map[a.id] ?? this.defaultOwner(a)]));
@@ -215,11 +312,12 @@ export class CenterIncomeService implements OnApplicationBootstrap {
   }
 
   async setModes(input: unknown, userId: string): Promise<CenterYear> {
-    const body = (input ?? {}) as { modes?: Record<string, unknown>; owners?: Record<string, unknown>; departments?: Record<string, unknown>; year?: unknown };
+    const body = (input ?? {}) as { modes?: Record<string, unknown>; owners?: Record<string, unknown>; departments?: Record<string, unknown>; qomita?: Record<string, unknown>; year?: unknown };
     const hasModes = Boolean(body.modes && typeof body.modes === 'object');
     const hasOwners = Boolean(body.owners && typeof body.owners === 'object');
     const hasDeps = Boolean(body.departments && typeof body.departments === 'object');
-    if (!hasModes && !hasOwners && !hasDeps) throw new BadRequestException("O'zgartirish yuborilmadi");
+    const hasQomita = Boolean(body.qomita && typeof body.qomita === 'object');
+    if (!hasModes && !hasOwners && !hasDeps && !hasQomita) throw new BadRequestException("O'zgartirish yuborilmadi");
     const accounts = await this.cashbook.accounts();
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const map = await this.modeMap();
@@ -249,6 +347,22 @@ export class CenterIncomeService implements OnApplicationBootstrap {
         else delete deps[id];
       }
       await this.prisma.setting.upsert({ where: { key: DEP_KEY }, create: { key: DEP_KEY, value: deps }, update: { value: deps } });
+    }
+    if (hasQomita) {
+      const links = await this.qomitaMap();
+      const cats = await this.qomitaCategories();
+      const label = new Map(cats.map((c) => [c.code, c.label]));
+      for (const [id, raw] of Object.entries(body.qomita!)) {
+        const a = byId.get(id);
+        if (!a || !counted(a)) throw new BadRequestException('Hisobraqam topilmadi (sahifani yangilang)');
+        const code = typeof raw === 'string' ? raw : '';
+        if (code && !label.has(code)) throw new BadRequestException(`${a.name}: Qo'mita moddasi topilmadi`);
+        const before = id in links ? links[id]! : (this.defaultQomita(a, cats) ?? '');
+        if (before !== code) changed.push(`${a.name} → ${code ? `Qo'mita: ${label.get(code)}` : "Qo'mitaga bog'lanmagan"}`);
+        if (code === (this.defaultQomita(a, cats) ?? '')) delete links[id];
+        else links[id] = code;
+      }
+      await this.prisma.setting.upsert({ where: { key: QOMITA_KEY }, create: { key: QOMITA_KEY, value: links }, update: { value: links } });
     }
     for (const [id, raw] of Object.entries(body.modes ?? {})) {
       const a = byId.get(id);
@@ -360,11 +474,14 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     const month = (await this.monthValues([period])).get(period);
     const center = await this.prisma.region.findUnique({ where: { code: CENTRAL }, select: { code: true } });
     const deps = await this.departmentMap();
+    const links = await this.qomitaLinks(accounts);
     const rows: { a: CashAccountView; amount: bigint; section: EntrySection; category: string; segment: SegmentCode | null; departmentId: string | null }[] = [];
     if (month) {
       for (const a of accounts) {
         const m = modes.get(a.id);
         const amount = month.values.get(a.id) ?? 0n;
+        // Qo'mita qatori — quyida, Qo'mita mablag'lari bilan birga (bitta pul)
+        if (links.has(a.id)) continue;
         if ((m !== 'DOIMIY' && m !== 'BOSHQA') || amount <= 0n) continue;
         const owner = owners.get(a.id) ?? 'CENTER';
         rows.push({ a, amount, section: m, category: await this.categoryFor(a), segment: owner === 'CENTER' ? null : owner, departmentId: owner === 'CENTER' ? (deps[a.id] ?? null) : null });
@@ -373,8 +490,39 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     const date = month ? new Date(`${month.date}T00:00:00Z`) : null;
     const dmy = month ? month.date.split('-').reverse().join('.') : '';
     const tag = tagOf(period);
+    // Qo'mita qatorlari: daromad = kassa; Qo'mita yozuvlari bor bo'lsa — faqat farq (kassa ko'p bo'lsa) yoziladi
+    const labels = new Map((await this.qomitaCategories()).map((c) => [c.code, c.label]));
+    const matches = month ? this.qomitaMatches(month.values, links, (await this.qomitaRecorded([period])).get(period), labels) : [];
+    const extra = matches.filter((x) => BigInt(x.extraTiyin) > 0n);
+    const lineNames = (code: string) =>
+      accounts
+        .filter((a) => links.get(a.id) === code)
+        .map((a) => `${a.code ? `${a.code}. ` : ''}${a.name}`)
+        .join('; ');
     await this.prisma.$transaction(async (tx) => {
       await tx.income.deleteMany({ where: { importBatchId: tag } });
+      if (extra.length && date)
+        await tx.income.createMany({
+          data: extra.map((x) => ({
+            date,
+            period,
+            amountTiyin: BigInt(x.extraTiyin),
+            paidTiyin: BigInt(x.extraTiyin),
+            categoryCode: x.code,
+            // Qo'mita mablag'lari kabi: yo'nalish «Qo'mita», hudud/bo'limsiz (bo'lim — modda orqali)
+            regionCode: null,
+            departmentId: null,
+            segment: QOMITA_SEGMENT,
+            clientName: "Qo'mita",
+            description: `${lineNames(x.code)} — kunlik ma'lumotnoma ${dmy}: Qo'mita faylida ko'rsatilmagan farq (kassa ${(Number(x.kassaTiyin) / 100).toLocaleString('ru-RU')} − Qo'mita yozuvlari ${(Number(x.qomitaTiyin) / 100).toLocaleString('ru-RU')} so'm)`.slice(0, 500),
+            paymentStatus: 'PAID' as const,
+            paymentMethod: 'BANK' as const,
+            source: 'IMPORT' as const,
+            section: 'DOIMIY' as const,
+            importBatchId: tag,
+            createdById: userId,
+          })),
+        });
       if (rows.length && date)
         await tx.income.createMany({
           data: rows.map((r) => ({
@@ -398,8 +546,8 @@ export class CenterIncomeService implements OnApplicationBootstrap {
           })),
         });
     });
-    const total = rows.reduce((s, r) => s + r.amount, 0n);
-    return { period, created: rows.length, totalTiyin: total.toString() };
+    const total = rows.reduce((s, r) => s + r.amount, 0n) + extra.reduce((s, x) => s + BigInt(x.extraTiyin), 0n);
+    return { period, created: rows.length + extra.length, totalTiyin: total.toString() };
   }
 
   /** Kun saqlangan/o'chirilgandan keyin: shu oy va keyingi oy (zanjir o'zgargan bo'lishi mumkin) */
@@ -435,6 +583,10 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     const modes = await this.modes(accounts);
     const owners = await this.owners(accounts);
     const deps = await this.departmentMap();
+    const links = await this.qomitaLinks(accounts);
+    const qomitaCodes = await this.qomitaCategories();
+    const qomitaLabels = new Map(qomitaCodes.map((c) => [c.code, c.label]));
+    const recorded = await this.qomitaRecorded(periods);
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const values = await this.monthValues(periods);
     const [synced, incomes, latest] = await Promise.all([
@@ -447,11 +599,13 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     const months: CenterMonth[] = periods.map((p) => {
       const m = values.get(p);
       const by: Record<CenterMode, bigint> = { DOIMIY: 0n, BOSHQA: 0n, REGION: 0n, NONE: 0n };
-      if (m) for (const [id, v] of m.values) { const mode = modes.get(id); if (mode) by[mode] += v; }
+      let qomitaKassa = 0n;
+      if (m) for (const [id, v] of m.values) { const mode = modes.get(id); if (links.has(id)) { if (v > 0n) qomitaKassa += v; } else if (mode) by[mode] += v; }
       const markaz = by.DOIMIY + by.BOSHQA;
-      // Daromadlar jadvaliga faqat musbat qiymatlar yoziladi
-      let expected = 0n;
-      if (m) for (const [id, v] of m.values) { const mode = modes.get(id); if ((mode === 'DOIMIY' || mode === 'BOSHQA') && v > 0n) expected += v; }
+      const qomita = this.qomitaMatches(m?.values, links, recorded.get(p), qomitaLabels);
+      // Daromadlar jadvaliga faqat musbat qiymatlar yoziladi; Qo'mita qatorlari — faqat farq
+      let expected = qomita.reduce((s, x) => s + BigInt(x.extraTiyin), 0n);
+      if (m) for (const [id, v] of m.values) { const mode = modes.get(id); if (!links.has(id) && (mode === 'DOIMIY' || mode === 'BOSHQA') && v > 0n) expected += v; }
       const syncedT = sum(synced, p);
       const other = incomes.filter((x) => x.period === p && x.regionCode === CENTRAL && !String(x.importBatchId ?? '').startsWith('kassa:')).reduce((s, x) => s + x.amountTiyin, 0n);
       const regionIncome = incomes.filter((x) => x.period === p && x.regionCode !== null && x.regionCode !== CENTRAL).reduce((s, x) => s + x.amountTiyin, 0n);
@@ -468,7 +622,9 @@ export class CenterIncomeService implements OnApplicationBootstrap {
         inSync: syncedT === expected,
         otherCenterTiyin: other.toString(),
         regionIncomeTiyin: regionIncome.toString(),
-        segmentsTiyin: synced.filter((x) => x.period === p && x.segment).reduce((s, x) => s + x.amountTiyin, 0n).toString(),
+        segmentsTiyin: synced.filter((x) => x.period === p && x.segment && x.segment !== QOMITA_SEGMENT).reduce((s, x) => s + x.amountTiyin, 0n).toString(),
+        qomitaKassaTiyin: qomitaKassa.toString(),
+        qomita,
       };
     });
 
@@ -516,6 +672,7 @@ export class CenterIncomeService implements OnApplicationBootstrap {
           owner: owners.get(a.id) ?? null,
           defaultOwner: counted(a) ? this.defaultOwner(a) : null,
           departmentId: (owners.get(a.id) ?? 'CENTER') === 'CENTER' ? (deps[a.id] ?? null) : null,
+          qomitaCode: links.get(a.id) ?? null,
           months: ms,
           totalTiyin: total.toString(),
         };
@@ -526,6 +683,7 @@ export class CenterIncomeService implements OnApplicationBootstrap {
     const tot = (k: keyof CenterMonth) => months.reduce((s, m) => s + BigInt(m[k] as string), 0n).toString();
     return {
       year,
+      qomitaCodes,
       latestDate: latest ? ymd(latest.date) : null,
       months,
       rows,

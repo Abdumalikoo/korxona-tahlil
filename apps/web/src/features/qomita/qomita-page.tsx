@@ -358,7 +358,7 @@ function SubRow({
   );
 }
 
-const ORIGIN_LABEL: Record<QomitaDetail['incomes'][number]['origin'], string> = { BANK: 'bank tahlilidan', MANUAL: "qo'lda", FILE: "ko'chirma faylidan", OTHER: 'boshqa manba' };
+const ORIGIN_LABEL: Record<QomitaDetail['incomes'][number]['origin'], string> = { BANK: 'bank tahlilidan', MANUAL: "qo'lda", FILE: "ko'chirma faylidan", KASSA: "kunlik ma'lumotnomadan — Qo'mita faylida ko'rsatilmagan farq", OTHER: 'boshqa manba' };
 
 function RowDetail({
   mode,
@@ -477,14 +477,14 @@ function RowDetail({
               sub={[ORIGIN_LABEL[x.origin], x.clientName, x.documentNo ? `№ ${x.documentNo}` : '', x.description].filter(Boolean).join(' · ')}
               allocated={n(x.amountTiyin)}
               action={
-                canEdit && (x.origin === 'MANUAL' || x.origin === 'FILE') ? (
+                canEdit && (x.origin === 'MANUAL' || x.origin === 'FILE' || x.origin === 'BANK') ? (
                   <button
                     type="button"
                     title="O'chirish"
                     className="shrink-0 rounded px-1.5 text-xs text-(--color-text-faint) hover:bg-red-50 hover:text-(--color-expense)"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setRemoving({ id: x.id, text: `${sum(n(x.amountTiyin))} so'm · ${formatPeriod(x.period)}` });
+                      setRemoving({ id: x.id, text: `${sum(n(x.amountTiyin))} so'm · ${formatPeriod(x.period)}${x.origin === 'BANK' ? " (bank ko'chirmasidagi yo'naltirish ham bekor qilinadi — to'lov yana «yo'naltirilmagan» bo'ladi)" : ''}` });
                     }}
                   >
                     ✕
@@ -589,7 +589,7 @@ function RowDetail({
       <ConfirmDialog
         open
         title="Ajratmani o'chirish"
-        message={`Qo'lda kiritilgan ajratma o'chiriladi: ${removing?.text ?? ''}. Davom etasizmi?`}
+        message={`Ajratma o'chiriladi (Savatdan tiklash mumkin): ${removing?.text ?? ''}. Davom etasizmi?`}
         confirmLabel="O'chirish"
         danger
         loading={busy}

@@ -258,7 +258,7 @@ function UnitDetail({ u, months, mode, from, to, isAdmin, onToast, onChanged }: 
             <table className="w-full text-xs">
               <tbody>
                 {inc.data.incomes.map((x) => {
-                  const canDelete = x.origin === 'MANUAL' || x.origin === 'FILE';
+                  const canDelete = x.origin === 'MANUAL' || x.origin === 'FILE' || x.origin === 'BANK';
                   return (
                     <tr key={x.id} className="border-t border-(--color-line) first:border-t-0">
                       <td className="px-2 py-1.5 whitespace-nowrap">{x.date.split('-').reverse().join('.')}</td>

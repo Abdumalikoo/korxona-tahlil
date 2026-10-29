@@ -56,7 +56,7 @@ export interface QomitaDetail {
   label: string;
   months: string[];
   incomeCode: string | null;
-  incomes: { id: string; date: string; period: string; amountTiyin: string; description: string | null; clientName: string | null; documentNo: string | null; origin: 'BANK' | 'MANUAL' | 'FILE' | 'OTHER'; approved?: { at: string; by: string } | null }[];
+  incomes: { id: string; date: string; period: string; amountTiyin: string; description: string | null; clientName: string | null; documentNo: string | null; origin: 'BANK' | 'MANUAL' | 'FILE' | 'KASSA' | 'OTHER'; approved?: { at: string; by: string } | null }[];
   payrollParts: { code: string; name: string; totalTiyin: string; months: Record<string, string> }[];
   employees: { pinfl: string; fullName: string; totalTiyin: string; parts: Record<string, string>; months: Record<string, string> }[];
   categories: { code: string; label: string; totalTiyin: string; months: Record<string, string>; sub: string | null }[];

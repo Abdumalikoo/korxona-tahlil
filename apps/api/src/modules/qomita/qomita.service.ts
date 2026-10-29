@@ -5,6 +5,7 @@ import { UNIT_CATEGORIES_KEY } from '../../common/segments/unit-categories';
 import { runExclusive } from '../../common/locks';
 import { AuditService } from '../audit/audit.service';
 import { BANK_ANALYSIS_KEY, BankAnalysisService, readStore, rk } from '../bank-analysis/bank-analysis.service';
+import { CenterIncomeService } from '../cashbook/center-income.service';
 import { policyRouting, readPolicy, writePolicy } from '../expense-policy/policy.util';
 import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -76,7 +77,22 @@ export class QomitaService {
     private readonly audit: AuditService,
     @Optional() private readonly payroll?: PayrollService,
     @Optional() private readonly bank?: BankAnalysisService,
+    @Optional() private readonly centerIncome?: CenterIncomeService,
   ) {}
+
+  /**
+   * Kassadagi Qo'mita qatorlari (1.11, 1.14, 1.15) Qo'mita mablag'lari bilan bitta pul: yozuv qo'shilsa/o'chirilsa —
+   * kassa farqi qayta hisoblanadi (periods bo'lmasa — hamma oylar). Xato bo'lsa — logga, amal bekor bo'lmaydi.
+   */
+  async resyncKassa(userId: string, periods?: string[]): Promise<void> {
+    if (!this.centerIncome) return;
+    try {
+      if (periods?.length) for (const p of [...new Set(periods)].sort()) await this.centerIncome.syncPeriod(p, userId);
+      else await this.centerIncome.syncAll(userId);
+    } catch (e) {
+      this.logger.warn(`Kassa (Qo'mita qatorlari) qayta hisoblanmadi: ${(e as Error).message}`);
+    }
+  }
 
   // ═══════════ Sozlama ═══════════
 
@@ -374,7 +390,7 @@ export class QomitaService {
         description: i.description,
         clientName: i.clientName,
         documentNo: i.contractNo,
-        origin: bankIds.has(i.id) ? ('BANK' as const) : i.source === 'MANUAL' ? ('MANUAL' as const) : i.importBatchId?.startsWith(QOMITA_BANK_TAG) ? ('FILE' as const) : ('OTHER' as const),
+        origin: bankIds.has(i.id) ? ('BANK' as const) : i.source === 'MANUAL' ? ('MANUAL' as const) : i.importBatchId?.startsWith(QOMITA_BANK_TAG) ? ('FILE' as const) : i.importBatchId?.startsWith('kassa:') ? ('KASSA' as const) : ('OTHER' as const),
         approved: approved[i.id] ?? null,
       }));
     // Ish haqi qismlari: modda × oy, xodimlar (davr bo'yicha jami)
@@ -472,6 +488,7 @@ export class QomitaService {
       select: { id: true },
     });
     await this.audit.log({ userId, action: 'CREATE', entity: 'qomita_income', entityId: income.id, summary: `Qo'mita ajratmasi — ${dep?.name ?? ''}, ${period}: ${(Number(amount) / 100).toLocaleString('uz-UZ')} so'm` });
+    await this.resyncKassa(userId, [period]);
     return { id: income.id, amountTiyin: amount.toString() };
   }
 
@@ -496,13 +513,24 @@ export class QomitaService {
     return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, { at: string; by: string }>) : {};
   }
 
-  /** Qo'lda yoki shu sahifada ko'chirma faylidan kiritilgan Qo'mita daromadini o'chirish (bank tahlilidan yo'naltirilgani — o'sha yerda bekor qilinadi) */
+  /**
+   * Qo'mita daromadini o'chirish (yumshoq — Savatdan tiklash mumkin): qo'lda, ko'chirma faylidan yoki bank tahlilidan
+   * yo'naltirilgani (bu holda bank yo'naltirishi ham bekor qilinadi — to'lov yana «yo'naltirilmagan» bo'ladi).
+   * Kassadan yozilgan farq qatori bu yerda o'chirilmaydi — u kassa bo'yicha hisoblanadi.
+   */
   async removeIncome(id: string, userId: string) {
     const income = await this.prisma.income.findUnique({ where: { id }, select: { id: true, segment: true, source: true, deletedAt: true, amountTiyin: true, period: true, categoryCode: true, importBatchId: true } });
     if (!income || income.deletedAt || income.segment !== QOMITA_SEGMENT) throw new NotFoundException('Yozuv topilmadi');
-    if (income.source !== 'MANUAL' && !income.importBatchId?.startsWith(QOMITA_BANK_TAG)) throw new BadRequestException("Bu yozuv bank ko'chirmasidan yo'naltirilgan — «Bank ko'chirmasi»da yo'naltirishni bekor qiling");
-    await this.prisma.income.update({ where: { id }, data: { deletedAt: new Date() } });
-    await this.audit.log({ userId, action: 'DELETE', entity: 'qomita_income', entityId: id, summary: `Qo'mita ajratmasi o'chirildi: ${income.period}, ${(Number(income.amountTiyin) / 100).toLocaleString('uz-UZ')} so'm` });
+    if (income.importBatchId?.startsWith('kassa:')) throw new BadRequestException("Bu qator kunlik ma'lumotnomadan (kassa farqi) — Buxgalteriya › Markaz daromadlari sahifasida hisoblanadi");
+    const post = this.bank ? readStore((await this.prisma.setting.findUnique({ where: { key: BANK_ANALYSIS_KEY } }))?.value).posts?.find((p) => p.status === 'POSTED' && p.entryId === id) : undefined;
+    if (post) {
+      await this.bank!.unroute({ ids: [post.id] }, userId);
+    } else {
+      if (income.source !== 'MANUAL' && !income.importBatchId?.startsWith(QOMITA_BANK_TAG)) throw new BadRequestException("Bu yozuv boshqa manbadan (bank ko'chirmasi tahlili yoki import) — o'sha yerda o'chiring");
+      await this.prisma.income.update({ where: { id }, data: { deletedAt: new Date() } });
+    }
+    await this.audit.log({ userId, action: 'DELETE', entity: 'qomita_income', entityId: id, summary: `Qo'mita ajratmasi o'chirildi${post ? " (bank yo'naltirishi bekor qilindi)" : ''}: ${income.period}, ${(Number(income.amountTiyin) / 100).toLocaleString('uz-UZ')} so'm` });
+    await this.resyncKassa(userId, [income.period]);
     return { removed: true };
   }
 
@@ -533,6 +561,8 @@ export class QomitaService {
     if (!this.bank) throw new BadRequestException("Bank ko'chirmasi moduli ulanmagan");
     const departmentId = typeof body?.departmentId === 'string' ? body.departmentId : '';
     const incomeCode = await this.incomeCodeFor(departmentId);
-    return this.bank.route({ items: body?.items, place: { unit: QOMITA_SEGMENT }, categoryCode: incomeCode, section: 'DOIMIY', description: body?.description, force: body?.force, skipDuplicates: body?.skipDuplicates }, userId);
+    const res = await this.bank.route({ items: body?.items, place: { unit: QOMITA_SEGMENT }, categoryCode: incomeCode, section: 'DOIMIY', description: body?.description, force: body?.force, skipDuplicates: body?.skipDuplicates }, userId);
+    await this.resyncKassa(userId);
+    return res;
   }
 }

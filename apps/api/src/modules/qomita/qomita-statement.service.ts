@@ -296,6 +296,7 @@ export class QomitaStatementService {
       entityId: id,
       summary: `Qo'mita mablag'lari — bank ko'chirmasi «${entry.fileName}»: ${plan.length} ta ajratma (${(Number(total) / 100).toLocaleString('uz-UZ')} so'm), daromad emas ${notIncome}, o'tkazildi ${skipped}`,
     });
+    await this.qomita.resyncKassa(userId);
     return { uploadId: id, written: plan.length, totalTiyin: total.toString(), notIncome, skipped };
   }
 
@@ -324,6 +325,7 @@ export class QomitaStatementService {
       await this.write(UPLOADS_KEY, (Array.isArray(cur) ? cur : []).map((x) => (x.id === id ? { ...x, removedAt: new Date().toISOString() } : x)));
     });
     await this.audit.log({ userId, action: 'DELETE', entity: 'qomita_income', entityId: id, summary: `Qo'mita mablag'lari — bank ko'chirmasi «${u.fileName}» yuklashi o'chirildi: ${res.count} ta yozuv` });
+    await this.qomita.resyncKassa(userId);
     return { removed: res.count };
   }
 }

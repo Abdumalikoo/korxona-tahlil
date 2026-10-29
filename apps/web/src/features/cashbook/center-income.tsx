@@ -174,6 +174,8 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const [ownerEdits, setOwnerEdits] = useState<Record<string, CenterOwner>>({});
   /** Markaz qatori bo'limi o'zgarishlari ('' — «Markaz › Umumiy») */
   const [depEdits, setDepEdits] = useState<Record<string, string>>({});
+  /** Qator → Qo'mita moddasi o'zgarishlari ('' — bog'lanmagan) */
+  const [qomitaEdits, setQomitaEdits] = useState<Record<string, string>>({});
   const departments = useAsync(() => referencesApi.departments().then((r) => r.data.filter((d) => d.isActive)), []);
   const [askModes, setAskModes] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'error' } | null>(null);
@@ -241,10 +243,11 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const saveModes = async () => {
     setSaving(true);
     try {
-      setData(await centerIncomeApi.setModes(year, edits, ownerEdits, Object.fromEntries(Object.entries(depEdits).map(([k, v]) => [k, v || null]))));
+      setData(await centerIncomeApi.setModes(year, edits, ownerEdits, Object.fromEntries(Object.entries(depEdits).map(([k, v]) => [k, v || null])), qomitaEdits));
       setEdits({});
       setOwnerEdits({});
       setDepEdits({});
+      setQomitaEdits({});
       setToast({ message: "Qator turlari, egalari va bo'limlari saqlandi — oylar Daromadlarga qayta yozildi" });
     } catch (e) {
       setToast({ message: errorMessage(e), tone: 'error' });
@@ -259,7 +262,9 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
   const chart = months.map((m) => ({ period: m.period, amountTiyin: m.reportDate ? m.markazTiyin : '0' }));
   const outOfSync = months.filter((m) => m.reportDate && !m.inSync).length + months.filter((m) => !m.reportDate && m.syncedTiyin !== '0').length;
   const doubled = months.filter((m) => m.otherCenterTiyin !== '0');
-  const editCount = Object.keys(edits).length + Object.keys(ownerEdits).length + Object.keys(depEdits).length;
+  const editCount = Object.keys(edits).length + Object.keys(ownerEdits).length + Object.keys(depEdits).length + Object.keys(qomitaEdits).length;
+  const qomitaLabel = new Map((data?.qomitaCodes ?? []).map((c) => [c.code, c.label.replace(/^Qo'mita ajratmasi:\s*/, '')]));
+  const qomitaMonths = months.filter((m) => (m.qomita ?? []).length > 0);
   const depName = new Map((departments.data ?? []).map((d) => [d.id, d.name]));
 
   return (
@@ -391,6 +396,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                       <th className="px-3 py-2.5">Oxirgi kun</th>
                       <th className="px-3 py-2.5 text-right">Markaz daromadi</th>
                       {!brief && <th className="px-3 py-2.5 text-right" title="Tax free, Marksheyder va boshqa yo'nalishlarga yozilgani (Kimniki ustunida tanlangan)">shundan yo&apos;nalishlarga</th>}
+                      {!brief && <th className="px-3 py-2.5 text-right" title="Kassadagi Qo'mita qatorlari (1.11, 1.14, 1.15) — Qo'mita mablag'lari bilan bitta pul: Markaz daromadiga kirmaydi">Qo&apos;mita (kassa)</th>}
                       {!brief && <th className="px-3 py-2.5 text-right">Doimiy</th>}
                       {!brief && <th className="px-3 py-2.5 text-right">Boshqa</th>}
                       <th className="px-3 py-2.5 text-right">Hududlardan tushgan</th>
@@ -413,6 +419,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                         </td>
                         <td className="money px-3 py-2 text-right font-bold">{m.reportDate ? som(m.markazTiyin) : '—'}</td>
                         {!brief && <td className="money px-3 py-2 text-right text-amber-800">{m.segmentsTiyin !== '0' ? som(m.segmentsTiyin) : '—'}</td>}
+                        {!brief && <td className="money px-3 py-2 text-right text-sky-800">{m.qomitaKassaTiyin && m.qomitaKassaTiyin !== '0' ? som(m.qomitaKassaTiyin) : '—'}</td>}
                         {!brief && <td className="money px-3 py-2 text-right">{m.reportDate ? som(m.doimiyTiyin) : '—'}</td>}
                         {!brief && <td className="money px-3 py-2 text-right">{m.reportDate && m.boshqaTiyin !== '0' ? som(m.boshqaTiyin) : '—'}</td>}
                         <td className="money px-3 py-2 text-right text-violet-700">{m.reportDate ? som(m.regionsTiyin) : '—'}</td>
@@ -440,6 +447,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                       </td>
                       <td className="money px-3 py-2.5 text-right">{som(data.totals.markazTiyin)}</td>
                       {!brief && <td className="money px-3 py-2.5 text-right text-amber-800">{som(months.reduce((x, m) => x + BigInt(m.segmentsTiyin ?? '0'), 0n).toString())}</td>}
+                      {!brief && <td className="money px-3 py-2.5 text-right text-sky-800">{som(months.reduce((x, m) => x + BigInt(m.qomitaKassaTiyin ?? '0'), 0n).toString())}</td>}
                       {!brief && <td className="money px-3 py-2.5 text-right">{som(data.totals.doimiyTiyin)}</td>}
                       {!brief && <td className="money px-3 py-2.5 text-right">{som(data.totals.boshqaTiyin)}</td>}
                       <td className="money px-3 py-2.5 text-right text-violet-700">{som(data.totals.regionsTiyin)}</td>
@@ -450,6 +458,50 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                 </table>
               </div>
             </Section>
+
+            {!brief && qomitaMonths.length > 0 && (
+              <Section title="Qo'mita pullari: kassa ↔ Qo'mita mablag'lari" hint="bitta pul — daromadga bir marta, kassa summasi bo'yicha">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[820px] text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-(--color-text-muted)">
+                        <th className="px-4 py-2.5">Oy</th>
+                        <th className="px-3 py-2.5">Qo&apos;mita moddasi</th>
+                        <th className="px-3 py-2.5 text-right">Kassada</th>
+                        <th className="px-3 py-2.5 text-right">Qo&apos;mita mablag&apos;larida</th>
+                        <th className="px-3 py-2.5 text-right">Farq</th>
+                        <th className="px-3 py-2.5 text-right">Daromadga kassadan qo&apos;shildi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-(--color-line)">
+                      {qomitaMonths.flatMap((m) =>
+                        m.qomita.map((q, i) => {
+                          const diff = BigInt(q.diffTiyin);
+                          const big = diff > 100_000n || diff < -100_000n;
+                          return (
+                            <tr key={`${m.period}-${q.code}`}>
+                              <td className="px-4 py-2 font-semibold text-heading">{i === 0 ? m.label : ''}</td>
+                              <td className="px-3 py-2">{qomitaLabel.get(q.code) ?? q.label}</td>
+                              <td className="money px-3 py-2 text-right">{q.kassaTiyin !== '0' ? som(q.kassaTiyin) : '—'}</td>
+                              <td className="money px-3 py-2 text-right">{q.qomitaTiyin !== '0' ? som(q.qomitaTiyin) : '—'}</td>
+                              <td className={cn('money px-3 py-2 text-right', !big ? 'text-emerald-700' : diff > 0n ? 'text-amber-700' : 'text-(--color-expense)')}>
+                                {!big ? 'teng' : `${diff > 0n ? '+' : '−'}${som((diff > 0n ? diff : -diff).toString())}`}
+                              </td>
+                              <td className="money px-3 py-2 text-right font-semibold">{q.extraTiyin !== '0' ? som(q.extraTiyin) : '—'}</td>
+                            </tr>
+                          );
+                        }),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="border-t border-(--color-line) px-4 py-2.5 text-xs text-(--color-text-muted)">
+                  Kassadagi Qo&apos;mita qatorlari (1.11 — 3802, Call markaz; 1.14 va 1.15 — Marksheyder) Qo&apos;mita mablag&apos;lari sahifasidagi yozuvlar bilan bitta pul: daromadga
+                  bir marta kiradi. Daromad — kassa summasi; Qo&apos;mita yozuvlari uni bo&apos;limlarga taqsimlaydi. Kassa ko&apos;p bo&apos;lsa — farq «Qo&apos;mita faylida ko&apos;rsatilmagan» qatori
+                  bo&apos;lib shu Qo&apos;mita moddasiga yoziladi; Qo&apos;mita yozuvlari ko&apos;p bo&apos;lsa (qizil) — ular qoladi, kassani tekshiring. 1 000 so&apos;mgacha farq — yaxlitlash (teng).
+                </p>
+              </Section>
+            )}
 
             {!brief && (
             <Section
@@ -466,6 +518,7 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                         setEdits({});
                         setOwnerEdits({});
                         setDepEdits({});
+                        setQomitaEdits({});
                       }}
                     >
                       Bekor
@@ -498,7 +551,8 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                     {data.rows.map((r) => {
                       const m = r.mode ? (edits[r.id] ?? r.mode) : null;
                       const o = r.owner ? (ownerEdits[r.id] ?? r.owner) : null;
-                      const income = m === 'DOIMIY' || m === 'BOSHQA';
+                      const q = r.mode ? (r.id in qomitaEdits ? qomitaEdits[r.id]! : (r.qomitaCode ?? '')) : '';
+                      const income = (m === 'DOIMIY' || m === 'BOSHQA') && !q;
                       const head = r.mode === null;
                       return (
                         <tr key={r.id} className={cn(head ? 'bg-amber-50/50 font-semibold' : '', m === 'NONE' ? 'text-(--color-text-faint)' : '')}>
@@ -541,6 +595,35 @@ export function CenterIncomePage({ mode }: { mode: 'manage' | 'analysis' }) {
                               ))}
                           </td>
                           <td className="px-2 py-1.5">
+                            {/* Qo'mita qatori: Qo'mita mablag'lari bilan bitta pul (daromad — Qo'mita moddasi bo'yicha, bir marta) */}
+                            {r.mode &&
+                              (data.qomitaCodes ?? []).length > 0 &&
+                              (manage ? (
+                                <select
+                                  value={q}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setQomitaEdits((x) => {
+                                      const n = { ...x };
+                                      if (v === (r.qomitaCode ?? '')) delete n[r.id];
+                                      else n[r.id] = v;
+                                      return n;
+                                    });
+                                  }}
+                                  className={cn('mb-1 block max-w-52 rounded-lg border-0 px-2 py-1 text-[11px]', q ? 'bg-sky-50 font-semibold text-sky-800' : 'bg-transparent text-(--color-text-faint)', r.id in qomitaEdits && 'ring-2 ring-brand-400')}
+                                  aria-label={`${r.name} — Qo'mita moddasi`}
+                                  title="Shu qator puli Qo'mita mablag'lari bilan bitta pulmi (ikki marta sanalmasin)"
+                                >
+                                  <option value="">Qo&apos;mitaga bog&apos;lanmagan</option>
+                                  {(data.qomitaCodes ?? []).map((c) => (
+                                    <option key={c.code} value={c.code}>
+                                      Qo&apos;mita: {qomitaLabel.get(c.code) ?? c.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                q && <span className="mb-1 inline-block whitespace-nowrap rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800">Qo&apos;mita: {qomitaLabel.get(q) ?? q}</span>
+                              ))}
                             {o &&
                               income &&
                               (manage ? (

@@ -41,6 +41,21 @@ export interface CenterMonth {
   regionIncomeTiyin: string;
   /** Shundan yo'nalishlarga yozilgan */
   segmentsTiyin: string;
+  /** Qo'mita qatorlari (kassada) — Qo'mita mablag'lari bilan bitta pul */
+  qomitaKassaTiyin: string;
+  qomita: QomitaMatch[];
+}
+
+/** Qo'mita moddasi bo'yicha: kassa ↔ Qo'mita mablag'lari (Excel / bank / qo'lda); daromad — kassa summasi */
+export interface QomitaMatch {
+  code: string;
+  label: string;
+  kassaTiyin: string;
+  qomitaTiyin: string;
+  /** Kassadan yozilgan farq (Qo'mita faylida ko'rsatilmagan) */
+  extraTiyin: string;
+  /** kassa − Qo'mita */
+  diffTiyin: string;
 }
 
 export interface CenterRow {
@@ -56,12 +71,15 @@ export interface CenterRow {
   defaultOwner: CenterOwner | null;
   /** Egasi Markaz bo'lsa — Markaz bo'limi (null — bo'limsiz, «Markaz › Umumiy») */
   departmentId: string | null;
+  /** Qo'mita moddasi (shu qator puli Qo'mita mablag'lari bilan bitta pul); null — bog'lanmagan */
+  qomitaCode: string | null;
   months: Record<string, string | null>;
   totalTiyin: string;
 }
 
 export interface CenterYear {
   year: number;
+  qomitaCodes: { code: string; label: string }[];
   latestDate: string | null;
   months: CenterMonth[];
   rows: CenterRow[];
@@ -115,9 +133,9 @@ export const centerIncomeApi = {
   upload: (file: File, date?: string) => send<CenterPreview & { year: CenterYear }>(`/cashbook/center-income/upload${dateQ(date)}`, file),
   sync: async (year: number, period?: string) =>
     (await api.post<ApiResponse<CenterYear>>(`/cashbook/center-income/sync?year=${year}${period ? `&period=${period}` : ''}`)).data,
-  /** departments: qator → Markaz bo'limi (null — «Markaz › Umumiy») */
-  setModes: async (year: number, modes: Record<string, CenterMode>, owners: Record<string, CenterOwner> = {}, departments: Record<string, string | null> = {}) =>
-    (await api.patch<ApiResponse<CenterYear>>('/cashbook/center-income/modes', { year, modes, owners, departments })).data,
+  /** departments: qator → Markaz bo'limi (null — «Markaz › Umumiy»); qomita: qator → Qo'mita moddasi ('' — bog'lanmagan) */
+  setModes: async (year: number, modes: Record<string, CenterMode>, owners: Record<string, CenterOwner> = {}, departments: Record<string, string | null> = {}, qomita: Record<string, string> = {}) =>
+    (await api.patch<ApiResponse<CenterYear>>('/cashbook/center-income/modes', { year, modes, owners, departments, qomita })).data,
   async template(): Promise<void> {
     const token = getToken();
     const response = await fetch(`${BASE}/cashbook/center-income/template`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
