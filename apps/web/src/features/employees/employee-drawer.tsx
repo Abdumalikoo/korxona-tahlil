@@ -25,8 +25,8 @@ import type {
   Department,
   EmploymentType,
 } from '@/lib/types';
+import { CENTRAL_REGION } from '@/lib/segments';
 
-const CENTRAL_REGION = 0;
 
 const employmentTypes: { value: EmploymentType; label: string }[] = [
   { value: 'SHTAT', label: 'Asosiy shtat' },

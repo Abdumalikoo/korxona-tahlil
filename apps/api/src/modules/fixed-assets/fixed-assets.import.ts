@@ -10,7 +10,7 @@ import { ASSET_MODES, FixedAssetsService, MODE_LABEL, type AssetMode } from './f
 import { TASHKENT_MS } from './fixed-assets.util';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { assertAmount } from '../../common/validation/amount';
-import { REGION_GENERAL } from '../../common/segments/segments';
+import { CENTRAL_REGION, REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Asosiy vositalar — Excel'dan yuklash (xodimlarga berilgan inventar).
@@ -23,7 +23,6 @@ import { REGION_GENERAL } from '../../common/segments/segments';
 // Bazada shu inventar raqamli vosita bo'lsa — qayta yozilmaydi.
 // ═══════════════════════════════════════════════════════════
 
-const CENTRAL_REGION = 0;
 const MAX_SIZE = 10 * 1024 * 1024;
 const MAX_ROWS = 5000;
 

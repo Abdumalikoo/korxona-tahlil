@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { ASSET_MODES, FixedAssetsService, MODE_LABEL, type AssetMode } from './fixed-assets.service';
 import { bookValue, periodOf, TASHKENT_MS } from './fixed-assets.util';
+import { CENTRAL_REGION } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Asosiy vositalar — balans hisoboti (sanaga): qayerda, kimda, qancha.
@@ -11,7 +12,6 @@ import { bookValue, periodOf, TASHKENT_MS } from './fixed-assets.util';
 // Guruh: joy (hudud / Markaz bo'limi) → qabul qiluvchi → vositalar. Excel'ga ham chiqadi.
 // ═══════════════════════════════════════════════════════════
 
-const CENTRAL_REGION = 0;
 
 export interface ReportItem {
   id: string;

@@ -10,10 +10,9 @@ import { AuditService } from '../audit/audit.service';
 import type { CreateEmployeeDto } from './dto/create-employee.dto';
 import type { UpdateEmployeeDto } from './dto/update-employee.dto';
 import type { QueryEmployeeDto } from './dto/query-employee.dto';
-import { REGION_GENERAL } from '../../common/segments/segments';
+import { CENTRAL_REGION, REGION_GENERAL } from '../../common/segments/segments';
 
 const DEFAULT_LIMIT = 50;
-const CENTRAL_REGION = 0;
 
 @Injectable()
 export class EmployeesService {

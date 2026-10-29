@@ -7,7 +7,7 @@ import type { AssetStatus, StockDocKind, StockItemKind } from '@prisma/client';
 // faqat kimda va qayerda ekani hisobga olinadi (asosiy vositalar harakati bilan).
 // ═══════════════════════════════════════════════════════════
 
-export const CENTRAL_REGION = 0;
+export { CENTRAL_REGION } from '../../common/segments/segments';
 
 /** Ombor xarajat moddalari: ota modda va standart bandlar (buyum boshqa moddani ham tanlashi mumkin) */
 export const WAREHOUSE_PARENT_CATEGORY = 'WAREHOUSE';

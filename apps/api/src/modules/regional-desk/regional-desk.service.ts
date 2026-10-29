@@ -8,7 +8,7 @@ import { PeriodCloseService } from '../regional-data/period-close.service';
 import { RegionalIncomeService, type ParsedRow } from '../incomes/regional-income.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
 import { monthSpan } from '../../common/period';
-import { REGION_GENERAL } from '../../common/segments/segments';
+import { CENTRAL_REGION, REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Hududchi (hududlar bo'limi) ish joyi:
@@ -22,7 +22,6 @@ import { REGION_GENERAL } from '../../common/segments/segments';
 // Pul — tiyin (BigInt), javobda matn.
 // ═══════════════════════════════════════════════════════════
 
-const CENTRAL_REGION = 0;
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
 const TASHKENT_OFFSET_HOURS = 5;
 const MAX_TIYIN = 9_000_000_000_000_000n;

@@ -3,10 +3,9 @@ import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
-import { REGION_GENERAL } from '../../common/segments/segments';
+import { CENTRAL_REGION, REGION_GENERAL } from '../../common/segments/segments';
 import { latinize, parseAmount } from '../../common/text/parse';
 
-const CENTRAL_REGION = 0;
 const TASHKENT_OFFSET_HOURS = 5;
 const SHEET_LABEL = 'List 1';
 
@@ -771,7 +770,8 @@ export class RegionalIncomeService {
     const previousCount = await this.prisma.income.count({
       where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
     });
-    const anomalies = await this.anomalies(period, rows);
+    // Faqat ogohlantirish — tarixni o'qib bo'lmasa ham tahlil davom etadi
+    const anomalies = await this.anomalies(period, rows).catch(() => []);
 
     return {
       period,

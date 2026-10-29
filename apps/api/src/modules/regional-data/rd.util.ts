@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 
 // Hududchi ma'lumot asosi — umumiy yordamchilar (sana, oy, pul)
 
-export const CENTRAL_REGION = 0;
+export { CENTRAL_REGION } from '../../common/segments/segments';
 export const TASHKENT_OFFSET_HOURS = 5;
 export const MAX_TIYIN = 9_000_000_000_000_000n;
 

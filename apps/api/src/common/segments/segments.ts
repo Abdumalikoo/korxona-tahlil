@@ -6,6 +6,9 @@
 // Yangi yo'nalish qo'shish: shu ro'yxatga bitta qator (web: apps/web/src/lib/segments.ts — xuddi shunday).
 // ═══════════════════════════════════════════════════════════
 
+/** Markaz hududi kodi (regions jadvalida 0) — hamma modul shu konstantani ishlatadi */
+export const CENTRAL_REGION = 0;
+
 /**
  * Hududlar › Umumiy: hech qaysi viloyatga tegishli bo'lmagan hudud xarajati / daromadi (Markaz › Umumiy kabi).
  * regions jadvalida alohida qator — Hudud jamisiga kiradi; xodim, reja, tarif kabi joylarda viloyat sifatida chiqmaydi.

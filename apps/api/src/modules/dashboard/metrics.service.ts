@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CENTRAL_REGION } from '../../common/segments/segments';
 
 const TASHKENT_OFFSET_HOURS = 5;
-const CENTRAL_REGION = 0;
 
 export interface DepartmentRating {
   departmentId: string | null;

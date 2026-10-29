@@ -7,7 +7,7 @@ export const LEASE_CATEGORY = 'LEASE';
 export const LEASE_CATEGORY_LABEL = 'Ijara';
 
 /** Markaz hudud kodi */
-export const CENTRAL_REGION = 0;
+export { CENTRAL_REGION } from '../../common/segments/segments';
 
 /** QQS stavkasi, foizda — summa ichidagi QQS = summa × 12 / 112 */
 export const VAT_PERCENT = 12n;

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CENTRAL_REGION as CENTRAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › O'zgarishlar — oy bo'yicha xodimlar harakati (ish haqi vedomostidan).
@@ -15,7 +16,6 @@ import { PrismaService } from '../prisma/prisma.service';
 //   • Birlik (hudud yoki Markaz) — shu oyning hudud tarixidan (natijalar fayli), bo'lmasa xodimlar reestridan.
 // ═══════════════════════════════════════════════════════════
 
-const CENTRAL = 0;
 const TASHKENT_MS = 5 * 3600_000;
 const CHANGE_PCT = 20;
 

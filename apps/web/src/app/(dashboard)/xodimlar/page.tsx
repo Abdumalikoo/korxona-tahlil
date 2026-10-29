@@ -31,10 +31,9 @@ import { Table, TBody, Td, Th, THead, Tr } from '@/components/ui/table';
 import { Toast } from '@/components/ui/toast';
 import { EmployeeDrawer } from '@/features/employees/employee-drawer';
 import type { Employee } from '@/lib/types';
-import { realRegions } from '@/lib/segments';
+import { CENTRAL_REGION, realRegions } from '@/lib/segments';
 
 const PAGE_LIMIT = 50;
-const CENTRAL_REGION = 0;
 
 const groupOptions = [
   { value: '', label: 'Barcha guruhlar' },

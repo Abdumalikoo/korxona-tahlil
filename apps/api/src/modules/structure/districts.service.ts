@@ -16,10 +16,10 @@ import {
 } from './districts.types';
 import { bounds, compareRange, parseDay, periodsEndingIn, trendMonths } from './structure.engine';
 import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } from './structure.types';
+import { CENTRAL_REGION } from '../../common/segments/segments';
 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
-const CENTRAL_REGION = 0;
 const TREND_MONTHS = 12;
 const UNASSIGNED_NAME = "Tumanga bo'linmagan";
 

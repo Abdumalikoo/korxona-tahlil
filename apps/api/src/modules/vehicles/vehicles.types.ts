@@ -58,7 +58,7 @@ export const VEHICLE_BODY_TYPES = ['SEDAN', 'HATCH', 'SUV', 'MINIVAN', 'PICKUP',
 export type VehicleBodyType = (typeof VEHICLE_BODY_TYPES)[number];
 
 /** Markaz hudud kodi */
-export const CENTRAL_REGION = 0;
+export { CENTRAL_REGION } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Kirish ma'lumotlari

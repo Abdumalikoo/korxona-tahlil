@@ -4,10 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { runExclusive } from '../../common/locks';
 import { overlaps, PLACEMENTS_KEY, readPlacements, readPlacementsValue, type Placement } from '../../common/placements/placements';
-import { REGION_GENERAL } from '../../common/segments/segments';
+import { CENTRAL_REGION, REGION_GENERAL } from '../../common/segments/segments';
 
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
-const CENTRAL_REGION = 0;
 const text = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.replace(/\s+/g, ' ').trim().slice(0, max) : null);
 const periodLabel = (p: Pick<Placement, 'from' | 'to'>) => `${p.from} — ${p.to ?? 'hozirgacha'}`;
 

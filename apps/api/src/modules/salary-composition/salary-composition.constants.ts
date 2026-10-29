@@ -85,4 +85,4 @@ export const SERVICE_CODES = {
 export const RESERVED_CODES: string[] = Object.values(SERVICE_CODES);
 
 /** Markaz hudud kodi */
-export const CENTRAL_REGION = 0;
+export { CENTRAL_REGION } from '../../common/segments/segments';

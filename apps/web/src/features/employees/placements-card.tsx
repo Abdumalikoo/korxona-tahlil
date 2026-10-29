@@ -11,8 +11,8 @@ import { formatPeriod } from '@/lib/format';
 import type { Department, RegionWithDistricts } from '@/lib/types';
 import { useAsync } from '@/lib/use-async';
 import { placementsApi, type EmployeePlacement } from './api';
+import { CENTRAL_REGION } from '@/lib/segments';
 
-const CENTRAL_REGION = 0;
 const EMPTY = { from: '', to: '', unit: 'CENTER' as 'CENTER' | 'REGION', departmentId: '', regionCode: '', districtId: '', position: '', note: '' };
 
 /**

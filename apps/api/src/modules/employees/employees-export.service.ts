@@ -3,8 +3,8 @@ import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmployeesService } from './employees.service';
 import type { QueryEmployeeDto } from './dto/query-employee.dto';
+import { CENTRAL_REGION } from '../../common/segments/segments';
 
-const CENTRAL_REGION = 0;
 
 @Injectable()
 export class EmployeesExportService {

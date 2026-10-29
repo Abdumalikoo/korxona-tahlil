@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { ASSET_CHARGE_CATEGORY, ASSET_EXPENSE_CATEGORY, ASSET_INVENTORY_CATEGORY, ensureCenterCategories, expandCategories } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { addMonths, bookValue, chargeSchedule, monthsBetween, periodOf, periodStartDate, TASHKENT_MS } from './fixed-assets.util';
+import { CENTRAL_REGION } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Asosiy vositalar (balans).
@@ -27,7 +28,6 @@ import { addMonths, bookValue, chargeSchedule, monthsBetween, periodOf, periodSt
 // ═══════════════════════════════════════════════════════════
 
 export const ASSET_POLICY_KEY = 'asset.policy';
-const CENTRAL_REGION = 0;
 const MAX_LIFE = 600;
 
 /** Standart xizmat muddatlari (oy) — moddaga qarab; qolganlari — umumiy muddat */

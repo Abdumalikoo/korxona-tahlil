@@ -4,7 +4,7 @@ import ExcelJS from 'exceljs';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
-import { REGION_GENERAL } from '../../common/segments/segments';
+import { CENTRAL_REGION as CENTRAL, REGION_GENERAL } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Soliqlar — hamma soliqlar bir joyda (turlarini o'zingiz qo'shasiz).
@@ -24,7 +24,6 @@ import { REGION_GENERAL } from '../../common/segments/segments';
 
 export const TAX_TYPES_KEY = 'tax.types';
 export const TAX_PARENT = { code: 'SOLIQLAR', label: 'Soliqlar' };
-const CENTRAL = 0;
 const TASHKENT_MS = 5 * 3600_000;
 const MANUAL_TAG = 'TAX';
 const AUTO_TAG = 'TAX-AUTO';

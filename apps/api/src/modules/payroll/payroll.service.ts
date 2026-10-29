@@ -11,8 +11,8 @@ import { runExclusive } from '../../common/locks';
 import { covers, placementAt, readPlacements } from '../../common/placements/placements';
 import type { UnitMove } from '../unit-payroll/unit-payroll.service';
 import { isNdflWorkbook, parseNdfl, type NdflResult } from './ndfl.parser';
+import { CENTRAL_REGION } from '../../common/segments/segments';
 
-const CENTRAL_REGION = 0;
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
 const TASHKENT_OFFSET_HOURS = 5;
 

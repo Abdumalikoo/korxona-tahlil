@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { EntrySection } from '@prisma/client';
-import { isSegment, segmentLabel, type SegmentCode } from '../../common/segments/segments';
+import { CENTRAL_REGION as CENTRAL, isSegment, segmentLabel, type SegmentCode } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CashbookService, type CashAccountView, type CashLineInput } from './cashbook.service';
@@ -34,7 +34,6 @@ const SEG_KEY = 'center-income.segments';
 const DEP_KEY = 'center-income.departments';
 export type CenterOwner = 'CENTER' | SegmentCode;
 const isOwner = (v: unknown): v is CenterOwner => v === 'CENTER' || isSegment(v);
-const CENTRAL = 0;
 const MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
 
 export const tagOf = (period: string) => `kassa:${period}`;

@@ -3,8 +3,8 @@
 import { useMemo } from 'react';
 import { Select } from '@/components/ui/select';
 import type { RegionWithDistricts } from '@/lib/types';
+import { CENTRAL_REGION } from '@/lib/segments';
 
-const CENTRAL_REGION = 0;
 
 interface LocationPickerProps {
   regions: RegionWithDistricts[];

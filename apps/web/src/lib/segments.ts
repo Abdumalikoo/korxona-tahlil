@@ -3,6 +3,9 @@
 // (backend: apps/api/src/common/segments/segments.ts bilan BIR XIL ro'yxat).
 // ═══════════════════════════════════════════════════════════
 
+/** Markaz hududi kodi (regions jadvalida 0) — hamma modul shu konstantani ishlatadi */
+export const CENTRAL_REGION = 0;
+
 /**
  * Hududlar › Umumiy: hech qaysi viloyatga tegishli bo'lmagan hudud xarajati / daromadi (Markaz › Umumiy kabi).
  * Pul yoziladigan joylarda «Umumiy» bo'lib chiqadi; xodim, reja, tarif kabi joylarda — yashirin (realRegions).

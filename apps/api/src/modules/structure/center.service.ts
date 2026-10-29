@@ -8,10 +8,10 @@ import type { DrillBase, MoneyPart } from './districts.types';
 import { bounds, compareRange, parseDay, trendMonths } from './structure.engine';
 import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } from './structure.types';
 import { covers, placementAt, readPlacements } from '../../common/placements/placements';
+import { CENTRAL_REGION } from '../../common/segments/segments';
 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
-const CENTRAL_REGION = 0;
 const TREND_MONTHS = 12;
 const NO_DEPARTMENT_NAME = "Bo'limga biriktirilmagan";
 
