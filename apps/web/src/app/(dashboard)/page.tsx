@@ -28,6 +28,7 @@ import { calcResult, calcSum, Q } from '@/lib/calc';
 import { formatDate, formatPeriod } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
 import { unitByCode } from '@/lib/segments';
+import { StructureDrill } from '@/features/dashboard/structure-drill';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -36,12 +37,13 @@ import { useState } from 'react';
 /**
  * Bosh sahifa — korxona bir qarashda:
  *  • tepada — daromad, xarajat, natija, rentabellik (o'tgan teng davr bilan);
- *  • «Korxona tarkibi» — hududlar, Markaz va yo'nalishlar bitta jadvalda (bosib ichiga kiriladi);
+ *  • «Daromad tarkibi» / «Xarajat tarkibi» — Markaz, Hudud (viloyatlar yoki xizmat turlari), 4 yo'nalish — shu sahifada ichma-ich;
+ *  • «Natija bo'yicha» — Markaz, Hudud va yo'nalishlar bitta jadvalda (bosib Solishtirmaga kiriladi);
  *  • «Oylar kesimida» — so'nggi 12 oy: daromad, xarajat, natija.
  * Ma'lumot Solishtirma bilan bir manbadan (bir xil raqamlar).
  */
 
-type View = 'units' | 'months';
+type View = 'income' | 'expense' | 'units' | 'months';
 
 interface Totals {
   income: number;
@@ -111,7 +113,7 @@ export default function DashboardPage() {
   /** Davr — yuqori paneldagi «Davr» tugmasidan (hamma bo'lim uchun bitta) */
   const { range } = usePeriod();
   const router = useRouter();
-  const [view, setView] = useState<View>('units');
+  const [view, setView] = useState<View>('income');
   const result = useAsync(() => regionsApi.compare(range, 'ALL', 'prev').then((r) => r.data), [range.from, range.to]);
   const data = result.data;
 
@@ -172,8 +174,8 @@ export default function DashboardPage() {
           const monthTotal = monthRows.reduce((a, x) => ({ income: a.income + x.income, expense: a.expense + x.expense }), { income: 0, expense: 0 });
 
           const unitRows: { key: string; label: string; sub: string; t: Totals; href: string | null }[] = [
-            { key: 'regions', label: `Hududlar · ${regions.length} ta`, sub: 'viloyatlar → tumanlar → xodimlar', t: r, href: '/solishtirma' },
             ...(center ? [{ key: 'center', label: 'Markaz', sub: "bo'limlar va xodimlar", t: center, href: '/solishtirma/markaz' }] : []),
+            { key: 'regions', label: `Hududlar · ${regions.length} ta`, sub: 'viloyatlar → tumanlar → xodimlar', t: r, href: '/solishtirma' },
             ...segments.map((s) => {
               const u = s.unit.segment ? unitByCode(s.unit.segment) : null;
               return { key: s.unit.key, label: s.unit.name, sub: "yo'nalish", t: s as Totals, href: u ? `/solishtirma/${u.slug}` : null };
@@ -240,12 +242,24 @@ export default function DashboardPage() {
                 value={view}
                 onChange={setView}
                 options={[
-                  { value: 'units', label: 'Korxona tarkibi', hint: 'Hududlar, Markaz va yo‘nalishlar' },
+                  { value: 'income', label: 'Daromad tarkibi', hint: 'Markaz, Hudud (viloyatlar / xizmat turlari), yo‘nalishlar — ichma-ich' },
+                  { value: 'expense', label: 'Xarajat tarkibi', hint: 'Markaz, Hudud (viloyatlar / moddalar), yo‘nalishlar — ichma-ich' },
+                  { value: 'units', label: 'Natija bo‘yicha', hint: 'Markaz, Hudud va yo‘nalishlar: daromad, xarajat, natija' },
                   { value: 'months', label: 'Oylar kesimida', hint: "So'nggi 12 oy" },
                 ]}
               />
 
-              {view === 'units' ? (
+              {view === 'income' || view === 'expense' ? (
+                <ReportCard
+                  title={view === 'income' ? 'Daromad tarkibi' : 'Xarajat tarkibi'}
+                  badge={cmpOn ? `Joriy: ${period} · o'tgan teng davr: ${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)}` : period}
+                >
+                  <StructureDrill key={view} units={data.units} kind={view} cmpOn={cmpOn} />
+                  <TableNote>
+                    Qatorni bosing — ichiga ochiladi: Markaz va yo&apos;nalishlar — {view === 'income' ? 'xizmatlar' : 'moddalar'} bo&apos;yicha; Hudud — viloyatlar, viloyat — {view === 'income' ? 'xizmatlari' : 'moddalari'}. Hudud qatoridagi tugma — «{view === 'income' ? 'Xizmat turlari' : 'Moddalar'} bo&apos;yicha» (har biri — viloyatlar kesimida).
+                  </TableNote>
+                </ReportCard>
+              ) : view === 'units' ? (
                 <ReportCard title="Korxona tarkibi: daromad, xarajat va natija" badge={cmpOn ? `Joriy: ${period} · o'tgan teng davr: ${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)}` : period}>
                   <RTable minWidth={cmpOn ? 980 : 820}>
                     <thead>
