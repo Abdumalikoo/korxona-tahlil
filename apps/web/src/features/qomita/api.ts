@@ -73,6 +73,8 @@ export interface QomitaBankRow {
   amountTiyin: string;
   purpose: string;
   matched: boolean;
+  /** Tozalangan (ro'yxatdan chiqarilgan) bo'lsa — qachon, kim, sabab */
+  dismissed?: { at: string; by: string; reason: string | null } | null;
 }
 
 /** Qo'mita ajratmasi — o'chirish ro'yxati uchun */
@@ -101,7 +103,11 @@ export const qomitaApi = {
   incomes: (from: string, to: string) => api.get<ApiResponse<QomitaIncomeRow[]>>('/qomita/incomes', { params: { from, to } }),
   /** Bir nechta ajratmani o'chirish (Savatdan tiklanadi; bankdan yo'naltirilgani — yo'naltirish bekor qilinadi) */
   removeIncomes: (ids: string[]) => api.post<ApiResponse<{ removed: number; failed: { id: string; message: string }[] }>>('/qomita/income/remove-many', { ids }),
-  bank: (q?: string) => api.get<ApiResponse<{ total: number; items: QomitaBankRow[] }>>('/qomita/bank', { params: q ? { q } : {} }),
+  /** dismissed — faqat tozalanganlar (tiklash uchun) */
+  bank: (q?: string, dismissed = false) => api.get<ApiResponse<{ total: number; dismissedCount: number; items: QomitaBankRow[] }>>('/qomita/bank', { params: { ...(q ? { q } : {}), ...(dismissed ? { dismissed: '1' } : {}) } }),
+  /** Kirimlarni tozalash — ro'yxatdan chiqarish (daromadga yozilmaydi; tiklanadi) */
+  bankDismiss: (items: { account: string; rowId: string }[], reason?: string) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string }>>('/qomita/bank/dismiss', { items, reason }),
+  bankUndismiss: (items: { account: string; rowId: string }[]) => api.post<ApiResponse<{ success: true; count: number }>>('/qomita/bank/dismiss/undo', { items }),
   bankRoute: (body: { items: { account: string; rowId: string }[]; departmentId: string; description?: string; skipDuplicates?: boolean; force?: boolean }) =>
     api.post<ApiResponse<{ count: number; totalTiyin: string; skipped: number }>>('/qomita/bank', body),
 };

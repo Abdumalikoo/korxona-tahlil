@@ -145,6 +145,18 @@ const { splitWithQomita } = require('../dist/modules/qomita/qomita.util');
   assert.deepStrictEqual(b.items.map((x) => [x.rowId, x.matched]), [['r2', false]], 'qidiruv bilan har qanday kirim');
   const routed = await svc.bankRoute({ items: [{ account: 'A1', rowId: 'r1' }], departmentId: 'd1' }, 'u1');
   assert.deepStrictEqual([routed.routed.place, routed.routed.categoryCode], [{ unit: 'QOMITA' }, 'QOMITA_7']);
+  // Tozalash: bank tahlilining «ro'yxatdan chiqarish»i orqali (sabab bilan); tozalangani ro'yxatda chiqmaydi, alohida ko'rinadi
+  bankStub.dismiss = async (body) => ({ dismissed: body });
+  bankStub.undismiss = async (body) => ({ undone: body });
+  const dis = await svc.bankDismiss({ items: [{ account: 'A1', rowId: 'r1' }] }, 'u1');
+  assert.deepStrictEqual(dis.dismissed.items, [{ account: 'A1', rowId: 'r1' }]);
+  assert.match(dis.dismissed.reason, /Qo'mita mablag'larida tozalandi/);
+  assert.deepStrictEqual((await svc.bankUndismiss({ items: [{ account: 'A1', rowId: 'r1' }] }, 'u1')).undone.items, [{ account: 'A1', rowId: 'r1' }]);
+  T.setting.find((s) => s.key === 'bank.analysis.store').value.dismissed = { 'A1:r1': { at: '2026-10-01T00:00:00Z', by: 'Admin', reason: 'kassada bor' } };
+  b = await svc.bankCandidates();
+  assert.deepStrictEqual([b.items.length, b.dismissedCount], [0, 1], 'tozalangani ro‘yxatda yo‘q');
+  b = await svc.bankCandidates(undefined, true);
+  assert.deepStrictEqual(b.items.map((x) => [x.rowId, x.dismissed.reason]), [['r1', 'kassada bor']], 'tozalanganlar — tiklash uchun');
 
   // ── 5. Olib tashlash: ish haqi bo'limga qaytadi, siyosat tozalanadi
   await svc.removeItem('d1', 'u1');

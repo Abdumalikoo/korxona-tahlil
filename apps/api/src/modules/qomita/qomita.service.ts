@@ -589,24 +589,45 @@ export class QomitaService {
 
   // ═══════════ Daromad: bank ko'chirmasidan ═══════════
 
-  /** Bank ko'chirmasidagi yo'naltirilmagan kirimlar: Qo'mitadan kelganlari (yoki q — qidiruv matni bo'yicha har qanday kirim) */
-  async bankCandidates(q?: string) {
+  /**
+   * Bank ko'chirmasidagi yo'naltirilmagan kirimlar: Qo'mitadan kelganlari (yoki q — qidiruv matni bo'yicha har qanday kirim).
+   * Tozalangan (ro'yxatdan chiqarilgan) kirimlar chiqmaydi; dismissed = true — faqat tozalanganlar (tiklash uchun).
+   */
+  async bankCandidates(q?: string, dismissed = false) {
     const row = await this.prisma.setting.findUnique({ where: { key: BANK_ANALYSIS_KEY } });
     const store = readStore(row?.value);
     const posted = new Set(store.posts.filter((p) => p.status === 'POSTED').map((p) => rk(p.account, p.rowId)));
     const needle = typeof q === 'string' ? q.trim().toLowerCase().slice(0, 60) : '';
-    const out: { account: string; accountLabel: string; rowId: string; docDate: string; docNo: string; payer: string; amountTiyin: string; purpose: string; matched: boolean }[] = [];
+    const out: { account: string; accountLabel: string; rowId: string; docDate: string; docNo: string; payer: string; amountTiyin: string; purpose: string; matched: boolean; dismissed: { at: string; by: string; reason: string | null } | null }[] = [];
+    let dismissedCount = 0;
     for (const acc of Object.values(store.accounts))
       for (const m of Object.values(acc.months ?? {}))
         for (const r of m.rows ?? []) {
-          if (r.dir !== 'IN' || posted.has(rk(acc.key, r.id))) continue;
+          const k = rk(acc.key, r.id);
+          if (r.dir !== 'IN' || posted.has(k)) continue;
           const matched = QOMITA_RE.test(r.accountName) || QOMITA_RE.test(r.purpose);
           const hit = needle ? `${r.accountName} ${r.purpose} ${r.docNo}`.toLowerCase().includes(needle) : matched;
           if (!hit) continue;
-          out.push({ account: acc.key, accountLabel: acc.label, rowId: r.id, docDate: r.docDate, docNo: r.docNo, payer: r.accountName, amountTiyin: r.amountTiyin, purpose: r.purpose, matched });
+          const dis = store.dismissed[k] ?? null;
+          if (dis) dismissedCount += 1;
+          if (Boolean(dis) !== dismissed) continue;
+          out.push({ account: acc.key, accountLabel: acc.label, rowId: r.id, docDate: r.docDate, docNo: r.docNo, payer: r.accountName, amountTiyin: r.amountTiyin, purpose: r.purpose, matched, dismissed: dis ? { at: dis.at, by: dis.by, reason: dis.reason ?? null } : null });
         }
     out.sort((a, b) => b.docDate.localeCompare(a.docDate));
-    return { total: out.length, items: out.slice(0, 300) };
+    return { total: out.length, dismissedCount, items: out.slice(0, 300) };
+  }
+
+  /** Kirimlarni tozalash — ro'yxatdan chiqarish (yozuv yaratilmaydi; bank tahlilida «Bekor qilinganlar»da turadi, tiklanadi) */
+  async bankDismiss(body: { items?: unknown; reason?: unknown }, userId: string) {
+    if (!this.bank) throw new BadRequestException("Bank ko'chirmasi moduli ulanmagan");
+    const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason : "Qo'mita mablag'larida tozalandi (daromadga yozilmaydi)";
+    return this.bank.dismiss({ items: body?.items, reason }, userId);
+  }
+
+  /** Tozalangan kirimlarni qaytarish */
+  async bankUndismiss(body: { items?: unknown }, userId: string) {
+    if (!this.bank) throw new BadRequestException("Bank ko'chirmasi moduli ulanmagan");
+    return this.bank.undismiss({ items: body?.items }, userId);
   }
 
   /** Tanlangan kirimlar → shu bo'limning Qo'mita daromadi (bank ko'chirmasi yo'naltirishi orqali — bekor qilish ham o'sha yerda) */

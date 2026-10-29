@@ -66,14 +66,9 @@ export function QomitaPage() {
         description="Qo'mitadan kelgan pullar (daromad): bo'limlar bo'yicha, oyma-oy — bankdan yoki qo'lda"
         actions={
           isAdmin && (cfg.data?.departments.length ?? 0) > 0 ? (
-            <div className="flex gap-2">
-              <Button size="sm" variant="secondary" className="text-red-700 hover:text-red-800" disabled={Boolean(range.error)} onClick={() => setRemoveOpen(true)} title="Davrdagi Qo'mita ajratmalarini belgilab o'chirish (Savatdan tiklash mumkin)">
-                O&apos;chirish
-              </Button>
-              <Button size="sm" onClick={() => setIncomeOpen(items[0]?.departmentId ?? '')}>
-                + Ajratma kiritish
-              </Button>
-            </div>
+            <Button size="sm" onClick={() => setIncomeOpen(items[0]?.departmentId ?? '')}>
+              + Ajratma kiritish
+            </Button>
           ) : undefined
         }
       />
@@ -93,6 +88,15 @@ export function QomitaPage() {
               ]}
             />
             <ReportTable mode="INCOME" rows={rows} from={rep.data.from} to={rep.data.to} isAdmin={isAdmin} onChanged={reloadAll} setToast={setToast} onAddIncome={setIncomeOpen} />
+            {/* Ajratmalarni o'chirish — jadval ostida: davrdagi hamma ajratmalar ro'yxati, belgilab o'chiriladi */}
+            {isAdmin && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white px-5 py-3 shadow-card">
+                <span className="text-sm text-(--color-text-muted)">Noto&apos;g&apos;ri yoki takror kiritilgan Qo&apos;mita ajratmalarini o&apos;chirish — davrdagi hammasi bitta ro&apos;yxatda, belgilab o&apos;chiriladi (Savatdan tiklash mumkin)</span>
+                <Button size="sm" variant="secondary" className="text-red-700 hover:text-red-800" onClick={() => setRemoveOpen(true)}>
+                  Ajratmalarni o&apos;chirish
+                </Button>
+              </div>
+            )}
           </>
         )}
         <QomitaStatementCard isAdmin={isAdmin} onSaved={reloadAll} setToast={setToast} />

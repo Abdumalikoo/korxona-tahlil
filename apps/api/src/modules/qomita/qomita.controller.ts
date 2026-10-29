@@ -74,8 +74,22 @@ export class QomitaController {
 
   /** Bank ko'chirmasidagi Qo'mitadan kelgan (yo'naltirilmagan) kirimlar; q — qidiruv */
   @Get('bank')
-  async bank(@Query('q') q?: string) {
-    return { data: await this.qomita.bankCandidates(q) };
+  async bank(@Query('q') q?: string, @Query('dismissed') dismissed?: string) {
+    return { data: await this.qomita.bankCandidates(q, dismissed === '1' || dismissed === 'true') };
+  }
+
+  /** Kirimlarni tozalash (ro'yxatdan chiqarish, yozuv yaratilmaydi): { items: [{account,rowId}], reason? } */
+  @Post('bank/dismiss')
+  @Roles(UserRole.ADMIN)
+  async bankDismiss(@Body() body: { items?: unknown; reason?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.qomita.bankDismiss(body, userId) };
+  }
+
+  /** Tozalanganlarni qaytarish: { items } */
+  @Post('bank/dismiss/undo')
+  @Roles(UserRole.ADMIN)
+  async bankUndismiss(@Body() body: { items?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.qomita.bankUndismiss(body, userId) };
   }
 
   /** Kirimlarni bo'lim ajratmasi sifatida yozish: { items: [{account,rowId}], departmentId, description?, skipDuplicates?, force? } */

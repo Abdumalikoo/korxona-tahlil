@@ -2,6 +2,7 @@
 
 import { ReportCard, RTable, TableNote, Td, Th, sum } from '@/components/report/report';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Drawer } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -98,7 +99,11 @@ export function QomitaIncomeDrawer({
 export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config: QomitaConfigView; isAdmin: boolean; onRouted: () => void; setToast: (t: ToastState) => void }) {
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
-  const res = useAsync(() => qomitaApi.bank(query || undefined).then((r) => r.data), [query]);
+  /** Ko'rinish: yo'naltirilmagan kirimlar yoki tozalanganlar (tiklash uchun) */
+  const [showDismissed, setShowDismissed] = useState(false);
+  const res = useAsync(() => qomitaApi.bank(query || undefined, showDismissed).then((r) => r.data), [query, showDismissed]);
+  const [askClear, setAskClear] = useState(false);
+  const [clearReason, setClearReason] = useState('');
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [dep, setDep] = useState(config.items[0]?.departmentId ?? config.departments[0]?.id ?? '');
   const [skipDup, setSkipDup] = useState(false);
@@ -114,6 +119,25 @@ export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config
       else next.add(k);
       return next;
     });
+
+  /** Tanlanganlarni tozalash (ro'yxatdan chiqarish) yoki tozalanganlarni qaytarish */
+  async function clear(undo: boolean) {
+    if (!chosen.length) return;
+    setBusy(true);
+    try {
+      const list = chosen.map((x) => ({ account: x.account, rowId: x.rowId }));
+      const r = undo ? (await qomitaApi.bankUndismiss(list)).data : (await qomitaApi.bankDismiss(list, clearReason.trim() || undefined)).data;
+      setToast({ message: undo ? `${r.count} ta kirim ro'yxatga qaytarildi` : `${r.count} ta kirim tozalandi (daromadga yozilmaydi) — «Tozalanganlar»dan qaytarish mumkin`, tone: 'success' });
+      setPicked(new Set());
+      setAskClear(false);
+      setClearReason('');
+      res.reload();
+    } catch (err) {
+      setToast({ message: errorMessage(err, undo ? "Qaytarib bo'lmadi" : "Tozalab bo'lmadi"), tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function route() {
     if (!chosen.length || !dep) return;
@@ -135,7 +159,7 @@ export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config
   return (
     <ReportCard
       title="Bankdan: Qo'mitadan kelgan kirimlar"
-      badge={res.data ? `${res.data.total} ta yo'naltirilmagan${query ? ` · «${query}»` : ''}` : undefined}
+      badge={res.data ? `${res.data.total} ta ${showDismissed ? 'tozalangan' : "yo'naltirilmagan"}${query ? ` · «${query}»` : ''}` : undefined}
       actions={
         <form
           className="flex items-center gap-2"
@@ -172,13 +196,36 @@ export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config
       }
     >
       <div className="p-4">
+        {/* Ko'rinish: yo'naltirilmagan kirimlar yoki tozalanganlar */}
+        <div className="mb-3 inline-flex rounded-lg border border-(--color-line-strong) bg-white p-0.5 text-xs" role="tablist">
+          {(
+            [
+              [false, "Yo'naltirilmagan"],
+              [true, `Tozalanganlar${res.data?.dismissedCount ? ` (${res.data.dismissedCount})` : ''}`],
+            ] as const
+          ).map(([v, t]) => (
+            <button
+              key={String(v)}
+              type="button"
+              role="tab"
+              aria-selected={showDismissed === v}
+              onClick={() => {
+                setShowDismissed(v);
+                setPicked(new Set());
+              }}
+              className={cn('rounded-md px-3 py-1 font-medium', showDismissed === v ? 'bg-brand-600 text-white' : 'text-(--color-text-muted) hover:text-heading')}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
         {res.error ? (
           <p className="text-sm text-(--color-expense)">{res.error}</p>
         ) : !res.data ? (
           <p className="text-sm text-(--color-text-muted)">Yuklanmoqda…</p>
         ) : !items.length ? (
           <p className="text-sm text-(--color-text-muted)">
-            {query ? 'Topilmadi.' : "Bank ko'chirmasida Qo'mitadan kelgan yo'naltirilmagan kirim yo'q (to'lovchi yoki izohida «qo'mita» / «комитет» so'zi bo'lsa — shu yerda chiqadi)."}
+            {query ? 'Topilmadi.' : showDismissed ? "Tozalangan kirim yo'q." : "Bank ko'chirmasida Qo'mitadan kelgan yo'naltirilmagan kirim yo'q (to'lovchi yoki izohida «qo'mita» / «комитет» so'zi bo'lsa — shu yerda chiqadi)."}
           </p>
         ) : (
           <>
@@ -207,14 +254,27 @@ export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config
                         <span className="font-medium text-heading">{x.payer || '—'}</span>
                         <span className="block text-[10.5px] text-(--color-text-faint)">{x.accountLabel}</span>
                       </Td>
-                      <Td className="text-left text-xs text-(--color-text-muted)">{x.purpose}</Td>
+                      <Td className="text-left text-xs text-(--color-text-muted)">
+                        {x.purpose}
+                        {x.dismissed && <span className="block text-[10.5px] text-amber-700">Tozalangan {x.dismissed.at.slice(0, 10).split('-').reverse().join('.')}{x.dismissed.reason ? ` — ${x.dismissed.reason}` : ''}</span>}
+                      </Td>
                       <Td className="whitespace-nowrap font-semibold text-(--color-income)">{sum(Number(x.amountTiyin))}</Td>
                     </tr>
                   );
                 })}
               </tbody>
             </RTable>
-            {isAdmin && (
+            {isAdmin && showDismissed && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl bg-[#f7f9fc] px-3 py-2.5">
+                <span className="text-sm text-heading">
+                  Tanlandi: <b>{chosen.length}</b> ta · <b>{sum(chosenSum)}</b> so&apos;m
+                </span>
+                <Button size="sm" variant="secondary" className="ml-auto" disabled={!chosen.length} loading={busy} onClick={() => void clear(true)}>
+                  Ro&apos;yxatga qaytarish
+                </Button>
+              </div>
+            )}
+            {isAdmin && !showDismissed && (
               <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl bg-[#f7f9fc] px-3 py-2.5">
                 <span className="text-sm text-heading">
                   Tanlandi: <b>{chosen.length}</b> ta · <b>{sum(chosenSum)}</b> so&apos;m →
@@ -230,14 +290,35 @@ export function QomitaBankCard({ config, isAdmin, onRouted, setToast }: { config
                   <input type="checkbox" checked={skipDup} onChange={(e) => setSkipDup(e.target.checked)} className="size-3.5" />
                   shu sana va summada yozuvi borini o&apos;tkazib yuborish
                 </label>
-                <Button size="sm" className="ml-auto" disabled={!chosen.length || !dep} loading={busy} onClick={() => void route()}>
+                <input
+                  value={clearReason}
+                  onChange={(e) => setClearReason(e.target.value)}
+                  placeholder="Tozalash sababi (ixtiyoriy)"
+                  className="ml-auto h-8 w-56 rounded-md border border-(--color-line-strong) bg-white px-2 text-xs"
+                  maxLength={300}
+                />
+                <Button size="sm" variant="secondary" className="text-red-700 hover:text-red-800" disabled={!chosen.length} onClick={() => setAskClear(true)} title="Ro'yxatdan chiqarish: daromadga yozilmaydi (masalan, kassada hisobga olingan), keyin qaytarish mumkin">
+                  Tozalash
+                </Button>
+                <Button size="sm" disabled={!chosen.length || !dep} loading={busy} onClick={() => void route()}>
                   Daromadga yozish
                 </Button>
               </div>
             )}
           </>
         )}
+        <ConfirmDialog
+          open={askClear}
+          danger
+          title="Kirimlarni tozalash"
+          message={`${chosen.length} ta kirim (${sum(chosenSum)} so'm) ro'yxatdan chiqariladi — daromadga yozilmaydi. Bank ko'chirmasining o'zi o'zgarmaydi; «Tozalanganlar»dan qaytarish mumkin.`}
+          confirmLabel="Tozalash"
+          loading={busy}
+          onConfirm={() => void clear(false)}
+          onCancel={() => setAskClear(false)}
+        />
         <TableNote>
+          «Tozalash» — kirimni ro&apos;yxatdan chiqaradi (daromadga yozilmaydi; bank tahlilida «Bekor qilinganlar»da ham ko&apos;rinadi), «Tozalanganlar»dan qaytariladi.
           Bank ko&apos;chirmasi «Daromadlar › Bank ko&apos;chirmasi»da yuklanadi. Yozilgan kirim Qo&apos;mita daromadi bo&apos;ladi (bo&apos;lim ajratmasi); bekor qilish — bank
           ko&apos;chirmasi sahifasida («yo&apos;naltirishni bekor qilish»).
         </TableNote>
