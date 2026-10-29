@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
 
 interface AsyncState<T> {
@@ -27,8 +27,11 @@ export function useAsync<T>(
   const [tick, setTick] = useState(0);
 
   const requestId = useRef(0);
+  // Eng so'nggi fetcher — render paytida emas, effektda yangilanadi (pastdagi yuklash effektidan oldin ishlaydi)
   const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
+  useLayoutEffect(() => {
+    fetcherRef.current = fetcher;
+  });
 
   useEffect(() => {
     const id = ++requestId.current;

@@ -2,7 +2,7 @@
 
 import { formatTiyin } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { bodyTypeOf, type VehicleItem } from '../api';
@@ -42,7 +42,10 @@ export function Garage3D({
   const slots = useRef<Slot[]>([]);
   const selected = useRef<string | null>(selectedId);
   const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
+  // Eng so'nggi qiymat — render paytida emas, effektda
+  useLayoutEffect(() => {
+    onSelectRef.current = onSelect;
+  });
   const [failed, setFailed] = useState(false);
 
   // Kamera faqat foydalanuvchi tanlaganda mashinaga buriladi (birinchi avtomatik tanlovda — butun avtopark)

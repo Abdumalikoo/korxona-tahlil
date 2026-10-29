@@ -66,7 +66,7 @@ export function UnitPolicyView({ unit }: { unit: EntryUnit }) {
     setChecked(new Set());
   }, [unit.code]);
 
-  const cats = data?.categories ?? [];
+  const cats = useMemo(() => data?.categories ?? [], [data]);
   const parent = useMemo(() => new Map(cats.map((c) => [c.code, c.parentCode])), [cats]);
   const children = useMemo(() => {
     const m = new Map<string | null, UnitPolicyCategory[]>();

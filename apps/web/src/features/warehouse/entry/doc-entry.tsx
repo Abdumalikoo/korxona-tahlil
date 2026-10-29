@@ -13,7 +13,7 @@ import { formatDate, formatSum, formatTiyin, parseSum, todayInput } from '@/lib/
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   DOC_KIND_HINTS,
   DOC_KIND_LABELS,
@@ -170,7 +170,10 @@ export function DocEntry({ kind }: { kind: DocKind }) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const formRef = useRef(form);
-  formRef.current = form;
+  // Eng so'nggi qiymat — render paytida emas, effektda
+  useLayoutEffect(() => {
+    formRef.current = form;
+  });
 
   const label = DOC_KIND_LABELS[kind];
   const usesLines = kind !== 'TRANSFER';
@@ -445,7 +448,10 @@ export function DocEntry({ kind }: { kind: DocKind }) {
 
   // Ctrl+S — saqlash
   const submitRef = useRef(submit);
-  submitRef.current = submit;
+  // Eng so'nggi qiymat — render paytida emas, effektda
+  useLayoutEffect(() => {
+    submitRef.current = submit;
+  });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {

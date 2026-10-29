@@ -4,13 +4,12 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useAsync } from '@/lib/use-async';
-import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
 import { referencesApi, categoriesApi } from '@/features/shared/references';
 
 import { PageHeader } from '@/components/layout/page-header';
 import { Tabs } from '@/components/ui/tabs';
-import { Card, CardHeader } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BehaviorBadge, Badge } from '@/components/ui/badge';
 import { Toast } from '@/components/ui/toast';

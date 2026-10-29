@@ -93,8 +93,8 @@ export function PeriodDataHint({ className, auto = true }: { className?: string;
     return () => {
       alive = false;
     };
-    // setRange barqaror (useCallback) — bog'liqlikka qo'shilmaydi
-  }, [range.from, range.to, auto]);
+    // setRange barqaror (useCallback) — bog'liqlikda bo'lsa ham qayta ishlamaydi
+  }, [range.from, range.to, auto, setRange]);
 
   if (found) {
     const all = { from: monthStart(found.first), to: monthEnd(found.last) };

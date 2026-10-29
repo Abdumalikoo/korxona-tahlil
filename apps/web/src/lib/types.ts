@@ -115,6 +115,10 @@ export interface Expense {
   paymentMethod: PaymentMethod;
   documentNo: string | null;
   counterparty: string | null;
+  /** Kontragent INN, MFO va bankdagi asl to'lov maqsadi (bank ko'chirmasidan yo'naltirilganda) */
+  counterpartyInn?: string | null;
+  counterpartyMfo?: string | null;
+  bankPurpose?: string | null;
 
   /** Tolov holati - kreditorlik qarzini kuzatish uchun */
   paymentStatus: PaymentStatus;
@@ -155,6 +159,10 @@ export interface Income {
   clientName: string | null;
   description: string | null;
   contractNo: string | null;
+  /** To'lovchi INN, MFO va bankdagi asl to'lov maqsadi (bank ko'chirmasidan yo'naltirilganda) */
+  counterpartyInn?: string | null;
+  counterpartyMfo?: string | null;
+  bankPurpose?: string | null;
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
   source: EntrySource;

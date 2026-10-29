@@ -17,7 +17,7 @@ import { formatDate, formatDateTime, formatTiyin, todayInput } from '@/lib/forma
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Ombor › Inventarizatsiya (sanoq):
@@ -210,7 +210,10 @@ function CountSheet({ id }: { id: string }) {
 
   // ── Avtomatik saqlash (1 soniya jimlikdan keyin) ──
   const pending = useRef({ dirtyLines, dirtyAssets, head, headDirty });
-  pending.current = { dirtyLines, dirtyAssets, head, headDirty };
+  // Eng so'nggi qiymat — render paytida emas, effektda
+  useLayoutEffect(() => {
+    pending.current = { dirtyLines, dirtyAssets, head, headDirty };
+  });
   const flush = useCallback(async () => {
     const p = pending.current;
     const lines = Object.entries(p.dirtyLines).map(([itemId, actualQty]) => ({ itemId, actualQty }));

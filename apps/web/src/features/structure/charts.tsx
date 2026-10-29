@@ -3,7 +3,7 @@
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
-import { compact, inkOn, pct, rampColor, TONE, type FlowResult, type Insights, type StructureKind } from './api';
+import { compact, inkOn, pct, TONE, type FlowResult, type Insights, type StructureKind } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Umumiy: o'q uchun "chiroyli" qadamlar
@@ -612,8 +612,18 @@ export function Sankey({ flow }: { flow: FlowResult }) {
   const leftColor = (key: string) => (key === 'loss' ? TONE.expense : TONE.income);
   const rightColor = (key: string) => (key === 'profit' ? TONE.income : TONE.slate);
 
-  let midIn = midY;
-  let midOut = midY;
+  // O'rta ustunga kiruvchi / chiquvchi oqimlarning y nuqtasi — oldingilar balandligi yig'indisi
+  const cumY = (list: { h: number }[]) => {
+    const out: number[] = [];
+    let y = midY;
+    for (const p of list) {
+      out.push(y);
+      y += p.h;
+    }
+    return out;
+  };
+  const midIn = cumY(L);
+  const midOut = cumY(R);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full">
       {/* Ustun sarlavhalari */}
@@ -621,18 +631,16 @@ export function Sankey({ flow }: { flow: FlowResult }) {
       <text x={colX[1]! + nodeW / 2} y={14} textAnchor="middle" fontSize={10.5} fontWeight={600} letterSpacing={0.6} fill="#6b7280">KORXONA</text>
       <text x={colX[2]!} y={14} fontSize={10.5} fontWeight={600} letterSpacing={0.6} fill="#6b7280">XARAJATLAR VA FOYDA</text>
 
-      {L.map((p) => {
-        const d = band(colX[0]! + nodeW, p.y, colX[1]!, midIn, p.h);
-        midIn += p.h;
+      {L.map((p, i) => {
+        const d = band(colX[0]! + nodeW, p.y, colX[1]!, midIn[i]!, p.h);
         return (
           <path key={`l${p.key}`} d={d} fill={leftColor(p.key)} opacity={0.16}>
             <title>{`${p.label}: ${compact(p.value)} so'm`}</title>
           </path>
         );
       })}
-      {R.map((p) => {
-        const d = band(colX[1]! + nodeW, midOut, colX[2]!, p.y, p.h);
-        midOut += p.h;
+      {R.map((p, i) => {
+        const d = band(colX[1]! + nodeW, midOut[i]!, colX[2]!, p.y, p.h);
         return (
           <path key={`r${p.key}`} d={d} fill={rightColor(p.key)} opacity={p.key === 'profit' ? 0.2 : 0.13}>
             <title>{`${p.label}: ${compact(p.value)} so'm`}</title>

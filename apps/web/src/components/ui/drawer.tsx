@@ -106,7 +106,6 @@ export function Drawer({
       document.removeEventListener('keydown', handleKey);
       document.body.style.overflow = previous;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, requestClose, asking]);
 
   // Ochilganda: birinchi maydonga kursor (agar forma o'zi tanlamagan bo'lsa); saqlash tugmasi bormi

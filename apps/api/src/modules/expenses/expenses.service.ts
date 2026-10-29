@@ -154,6 +154,7 @@ export class ExpensesService {
       where.OR = [
         { description: { contains: term, mode: "insensitive" } },
         { counterparty: { contains: term, mode: "insensitive" } },
+        { counterpartyInn: { contains: term } },
         { documentNo: { contains: term, mode: "insensitive" } },
         { responsible: { contains: term, mode: "insensitive" } },
       ];

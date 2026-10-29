@@ -2,7 +2,7 @@
 
 import type { DateRange } from '@/components/shared/date-range-picker';
 import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Umumiy «Davr» — butun dastur uchun bitta sana oralig'i.
@@ -390,7 +390,10 @@ export function presetLabel(key: PresetKey): string {
 export function useMonthChange(month: string, effect: () => void) {
   const previous = useRef(month);
   const latest = useRef(effect);
-  latest.current = effect;
+  // Eng so'nggi funksiya — render paytida emas, effektda (pastdagi effektdan oldin ishlaydi)
+  useLayoutEffect(() => {
+    latest.current = effect;
+  });
   useEffect(() => {
     if (previous.current === month) return;
     previous.current = month;

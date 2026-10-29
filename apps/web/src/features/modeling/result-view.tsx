@@ -84,10 +84,10 @@ export function ResultView({
         <Card>
           <div className="flex flex-col items-center px-6 py-12 text-center">
             <IconChart className="mb-3 size-10 text-(--color-text-faint)" strokeWidth={1.5} />
-            <p className="text-sm font-medium text-(--color-text)">Ma'lumot yetarli emas</p>
+            <p className="text-sm font-medium text-(--color-text)">Ma&apos;lumot yetarli emas</p>
             <p className="mt-1 max-w-md text-sm text-(--color-text-muted)">
-              Davrni kengaytiring yoki boshqa ko'rsatkichni tanlang. Noto'g'ri xulosa chiqmasligi uchun natija
-              ko'rsatilmadi.
+              Davrni kengaytiring yoki boshqa ko&apos;rsatkichni tanlang. Noto&apos;g&apos;ri xulosa chiqmasligi uchun natija
+              ko&apos;rsatilmadi.
             </p>
           </div>
         </Card>

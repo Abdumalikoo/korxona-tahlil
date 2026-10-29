@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/error-message';
 import { categoriesApi } from '@/features/shared/references';
 import { Button } from '@/components/ui/button';

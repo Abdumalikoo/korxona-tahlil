@@ -48,6 +48,14 @@ for (const [url, title] of [
     await expect(page.getByRole('button', { name: /Shablon \(23106\)/ })).toBeVisible();
     await analysis.click();
     await expect(page.getByText(/saqlanmagan|Oyma-oy/).first()).toBeVisible();
+    // Nomma-nom (vipiska kabi) ko'rinishi — ko'chirma saqlangan bo'lsa (faqat ko'rish, hech narsa bosilmaydi)
+    const rowsToggle = page.getByRole('button', { name: 'Nomma-nom (vipiska kabi)' });
+    if (await rowsToggle.count()) {
+      await rowsToggle.click();
+      await expect(page.getByText(/^Nomma-nom · /).first()).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'ИНН' })).toBeVisible();
+      await page.getByRole('button', { name: 'Guruhlab' }).click();
+    }
     expect(errors).toEqual([]);
   });
 }

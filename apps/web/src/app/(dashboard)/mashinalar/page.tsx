@@ -31,7 +31,7 @@ import { errorMessage } from '@/lib/error-message';
 import { currentPeriod, formatDate, formatTiyin, todayInput } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Mashinalar › Xarajat kiritish — omborchi uchun tez forma:
@@ -211,7 +211,10 @@ export default function VehicleEntryPage() {
   };
 
   const submitRef = useRef(submit);
-  submitRef.current = submit;
+  // Eng so'nggi qiymat — render paytida emas, effektda
+  useLayoutEffect(() => {
+    submitRef.current = submit;
+  });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {

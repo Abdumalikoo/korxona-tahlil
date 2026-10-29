@@ -343,13 +343,14 @@ export function ExpenseMix({ rows, onOpen }: { rows: UnitStats[]; onOpen: (key: 
 
 export function Bridge({ steps }: { steps: { label: string; value: number; total?: boolean; hint?: string }[] }) {
   // Yig'ilib boruvchi qiymatlar
+  const bars: ((typeof steps)[number] & { start: number; end: number })[] = [];
   let running = 0;
-  const bars = steps.map((s) => {
+  for (const s of steps) {
     const start = s.total ? 0 : running;
     const end = s.total ? s.value : running + s.value;
     running = s.total ? s.value : end;
-    return { ...s, start, end };
-  });
+    bars.push({ ...s, start, end });
+  }
   const lo = Math.min(0, ...bars.flatMap((b) => [b.start, b.end]));
   const hi = Math.max(0, ...bars.flatMap((b) => [b.start, b.end]), 1);
   const span = hi - lo || 1;

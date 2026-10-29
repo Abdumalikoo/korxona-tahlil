@@ -138,7 +138,7 @@ function PinChoice({
       <label className="flex cursor-pointer items-start gap-2 text-sm">
         <input type="checkbox" className="mt-0.5 size-4" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} disabled={disabled} />
         <span>
-          Birinchi kirishda o&apos;z PIN&apos;ini o&apos;rnatsin <span className="text-xs text-(--color-text-muted)">(tavsiya — PIN'ni faqat xodimning o'zi biladi)</span>
+          Birinchi kirishda o&apos;z PIN&apos;ini o&apos;rnatsin <span className="text-xs text-(--color-text-muted)">(tavsiya — PIN&apos;ni faqat xodimning o&apos;zi biladi)</span>
         </span>
       </label>
     </div>

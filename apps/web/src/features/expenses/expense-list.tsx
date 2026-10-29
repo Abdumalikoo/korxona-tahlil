@@ -118,10 +118,13 @@ export function ExpenseList({ section, unit = null }: { section: SectionValue; u
   const overview = useAsync(() => sectionsApi.overview('expense', period), [period]);
   const summary = overview.data?.data.sections.find((s) => s.section === section);
 
+  // reload — barqaror funksiyalar (useAsync), shuning uchun reloadAll ham barqaror
+  const reloadList = list.reload;
+  const reloadOverview = overview.reload;
   const reloadAll = useCallback(() => {
-    list.reload();
-    overview.reload();
-  }, [list, overview]);
+    reloadList();
+    reloadOverview();
+  }, [reloadList, reloadOverview]);
 
   // Oy almashganda — birinchi sahifaga
   useMonthChange(period, () => setPage(1));
@@ -215,7 +218,7 @@ export function ExpenseList({ section, unit = null }: { section: SectionValue; u
       setToast(message);
       reloadAll();
     },
-    [reloadAll],
+    [reloadAll, setToast],
   );
 
   const departmentOptions = [
@@ -534,6 +537,7 @@ export function ExpenseList({ section, unit = null }: { section: SectionValue; u
                           {expense.description && expense.counterparty && (
                             <p className="truncate text-xs text-(--color-text-faint)">{expense.counterparty}</p>
                           )}
+                          {expense.counterpartyInn && <p className="money text-[11px] text-(--color-text-muted)">ИНН {expense.counterpartyInn}</p>}
                         </Td>
 
                         <Td>
@@ -586,6 +590,7 @@ export function ExpenseList({ section, unit = null }: { section: SectionValue; u
         departments={departments.data?.data ?? []}
         onClose={() => setSelected(null)}
         onSaved={handleSaved}
+        onCategoryCreated={categoryLeaves.reload}
       />
 
       <ConfirmDialog

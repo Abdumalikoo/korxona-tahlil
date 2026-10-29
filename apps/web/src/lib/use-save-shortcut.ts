@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // Sahifadagi forma uchun tugmalar: Ctrl+S — saqlash, Ctrl+Enter — «Saqlash va yana»
@@ -10,8 +10,11 @@ import { useEffect, useRef } from 'react';
 export function useSaveShortcut(onSave: () => void, onSaveNext?: () => void, enabled = true) {
   const save = useRef(onSave);
   const next = useRef(onSaveNext);
-  save.current = onSave;
-  next.current = onSaveNext;
+  // Eng so'nggi funksiyalar — render paytida emas, effektda
+  useLayoutEffect(() => {
+    save.current = onSave;
+    next.current = onSaveNext;
+  });
 
   useEffect(() => {
     if (!enabled) return;

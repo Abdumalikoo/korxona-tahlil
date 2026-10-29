@@ -136,17 +136,17 @@ function DonutView({
   const circumference = 2 * Math.PI * radius;
   const center = DONUT_SIZE / 2;
 
+  const segments: (ChartSlice & { color: string; dashArray: string; dashOffset: number })[] = [];
   let offset = 0;
-  const segments = slices.map((slice) => {
+  for (const slice of slices) {
     const length = (slice.sharePercent / 100) * circumference;
-    const segment = {
+    segments.push({
       ...slice,
       dashArray: `${length} ${circumference - length}`,
       dashOffset: -offset,
-    };
+    });
     offset += length;
-    return segment;
-  });
+  }
 
   const active = hovered ? segments.find((s) => s.key === hovered) : null;
 

@@ -149,6 +149,7 @@ export function ExcludedIncomesPage() {
                       {i.source === 'BANK' && <Badge tone="income">bankdan</Badge>}
                       <span className="min-w-0 flex-1 truncate text-(--color-text-muted)" title={[i.counterparty, i.documentNo ? `№ ${i.documentNo}` : null, i.note].filter(Boolean).join(' · ')}>
                         {i.counterparty ? <b className="font-medium text-heading">{i.counterparty} · </b> : null}
+                        {i.counterpartyInn ? <span className="money text-heading">ИНН {i.counterpartyInn} · </span> : null}
                         {i.note ?? ''}
                       </span>
                       <span className="text-xs text-(--color-text-faint)" title={i.updatedAt ? `O'zgartirgan: ${i.updatedBy} · ${formatDateTime(i.updatedAt)}` : undefined}>

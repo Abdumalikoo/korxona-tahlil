@@ -58,18 +58,18 @@ export function DonutChart({ slices, totalTiyin, size = 200 }: DonutChartProps) 
   const center = size / 2;
 
   // Har bo'lak uchun boshlanish nuqtasi
+  const segments: (DonutSlice & { color: string; dashArray: string; dashOffset: number })[] = [];
   let offset = 0;
-  const segments = slices.map((slice, index) => {
+  for (const [index, slice] of slices.entries()) {
     const length = (slice.sharePercent / 100) * circumference;
-    const segment = {
+    segments.push({
       ...slice,
       color: COLORS[index % COLORS.length]!,
       dashArray: `${length} ${circumference - length}`,
       dashOffset: -offset,
-    };
+    });
     offset += length;
-    return segment;
-  });
+  }
 
   const active = hovered ? segments.find((s) => s.key === hovered) : null;
 
