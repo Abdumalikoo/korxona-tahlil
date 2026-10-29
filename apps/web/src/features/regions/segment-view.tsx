@@ -35,17 +35,19 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { segmentApi, type DrillNode, type SegFlow, type SegmentView } from './segment-api';
+import { SarfSection } from '@/features/qomita/qomita-sarf';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Tax free / Marksheyder / Fermer xo'jaligi / Buxgalteriya xizmatlari / Qo'mita —
-// yagona hisobot uslubida: kartalar → yorliqlar (xarajat, daromad — ichma-ich jadval; siyosat oqimlari; oylar).
+// Markaz bo'limi kabi: kartalar → yorliqlar (daromad manbalari, xarajat tarkibi — ichma-ich; oylar kesimida; siyosat oqimlari).
+// Qo'mita — oxirida «Qo'mita pullari sarfi (3802)»: qaysi bo'limga qancha kelgani, qoplangani, sarfi va xodimlar.
 // Istalgan summa bosilsa — o'sha summani tashkil qilgan yozuvlar ochiladi.
 // ═══════════════════════════════════════════════════════════
 
 const n = (s: string) => Number(s);
 const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
-type View = 'expense' | 'income' | 'flows' | 'months';
+type View = 'income' | 'expense' | 'months' | 'flows' | 'qomita';
 
 export function SegmentSolishtirma({ unit, range }: { unit: EntryUnit; range: DateRange }) {
   const [section, setSection] = useState<SectionFilter>('ALL');
@@ -63,7 +65,7 @@ export function SegmentSolishtirma({ unit, range }: { unit: EntryUnit; range: Da
             <SelectBox value={compare} options={COMPARE_OPTIONS} onChange={setCompare} />
           </Field>
         </FilterBar>
-        {!res.data ? <LoadingCard label="Hisoblanmoqda" error={res.error} onRetry={res.reload} /> : <Body d={res.data} unit={unit} />}
+        {!res.data ? <LoadingCard label="Hisoblanmoqda" error={res.error} onRetry={res.reload} /> : <Body d={res.data} unit={unit} range={range} />}
       </div>
     </DrillProvider>
   );
@@ -74,14 +76,15 @@ function fmtRange(r: { from: string; to: string }) {
   return `${f(r.from)} — ${f(r.to)}`;
 }
 
-function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
-  const [view, setView] = useState<View>('expense');
+function Body({ d, unit, range }: { d: SegmentView; unit: EntryUnit; range: DateRange }) {
   const t = d.totals;
   const ROOT = d.label;
   const income = n(t.incomeTiyin);
   const expense = n(t.expenseTiyin);
   const result = n(t.resultTiyin);
   const empty = !income && !expense && !n(t.previousIncomeTiyin) && !n(t.previousExpenseTiyin);
+  const isQomita = unit.code === 'QOMITA';
+  const [view, setView] = useState<View>(isQomita && empty ? 'qomita' : 'income');
   const policyHref = `/xarajatlar/bolim/${unit.slug}/siyosat`;
   const hasFlows = d.incoming.length > 0 || d.outgoing.length > 0;
   const pctText = (v: number | null) => (v === null ? '' : `${(v * 100).toFixed(1).replace('.', ',')}%`);
@@ -100,18 +103,20 @@ function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
     },
   ];
 
+  // Markaz bo'limi tartibida: daromad manbalari → xarajat tarkibi → oylar; so'ng siyosat oqimlari, Qo'mitada — 3802 sarfi
   const views: { value: View; label: string }[] = [
-    { value: 'expense', label: 'Xarajat — ichma-ich' },
-    { value: 'income', label: 'Daromad — ichma-ich' },
-    ...(hasFlows ? [{ value: 'flows' as const, label: 'Siyosat oqimlari' }] : []),
+    { value: 'income', label: 'Daromad manbalari' },
+    { value: 'expense', label: 'Xarajat tarkibi' },
     { value: 'months', label: 'Oylar kesimida' },
+    ...(hasFlows ? [{ value: 'flows' as const, label: 'Siyosat oqimlari' }] : []),
+    ...(isQomita ? [{ value: 'qomita' as const, label: "Qo'mita pullari sarfi (3802)" }] : []),
   ];
 
   return (
     <>
       <StatTiles items={tiles} compareLabel="Avval" />
 
-      {empty ? (
+      {empty && !isQomita ? (
         <div className="rounded-2xl bg-white px-6 py-12 text-center shadow-card">
           <p className="text-sm font-semibold text-heading">Bu davrda «{d.label}» bo&apos;yicha yozuv yo&apos;q</p>
           <p className="mt-1 text-xs text-(--color-text-muted)">
@@ -127,7 +132,7 @@ function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
 
           {view === 'expense' && (
             <TreeCard
-              title={`${d.label}: xarajat`}
+              title={`${d.label}: xarajat tarkibi`}
               hint="Tuzilma → xodim / filial / to'lov oluvchi / modda → oylar → yozuvlar"
               nodes={d.tree.expense}
               months={d.tree.months}
@@ -149,7 +154,7 @@ function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
           )}
           {view === 'income' && (
             <TreeCard
-              title={`${d.label}: daromad`}
+              title={`${d.label}: daromad manbalari`}
               hint="Xizmat turi → mijoz → oylar → yozuvlar"
               nodes={d.tree.income}
               months={d.tree.months}
@@ -167,6 +172,11 @@ function Body({ d, unit }: { d: SegmentView; unit: EntryUnit }) {
             </>
           )}
           {view === 'months' && <MonthsCard d={d} />}
+          {view === 'qomita' && (
+            // 3802 bo'yicha: bo'limlarga kelgan Qo'mita puli, qoplangani, sarfi va qoldig'i (oyma-oy); bo'lim ichida — xodimlar.
+            // Solishtirmada faqat ko'rish: o'zgartirish — «3802 — Qo'mita qoplashi» sahifasida
+            <SarfSection from={range.from.slice(0, 7)} to={range.to.slice(0, 7)} isAdmin={false} onToast={() => undefined} />
+          )}
         </>
       )}
     </>
