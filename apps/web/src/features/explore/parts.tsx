@@ -3,8 +3,8 @@
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { ReactNode } from 'react';
-import { changeOf, DiffCell, ReportCard, RTable, Td, Th, Tr } from '@/components/report/report';
-import { change, goodUp, pctSigned, short, som, spanText, type Filter, type Kind, type RecordRow, type Span, type XNode } from './api';
+import { ReportCard, RTable, Td, Th, Tr } from '@/components/report/report';
+import { change, goodUp, pctSigned, short, som, spanText, type Filter, type Kind, type RecordRow, type Span } from './api';
 import { useDrill } from './drill';
 
 // ═══════════════════════════════════════════════════════════
@@ -167,74 +167,4 @@ export function TopRecords({ rows, kind, title }: { rows: RecordRow[]; kind: Kin
       </RTable>
     </ReportCard>
   );
-}
-
-/** Eng ko'p o'sgan va kamaygan moddalar (o'tgan davrga nisbatan, summa farqi bo'yicha) */
-export function ChangesTable({ nodes, kind, root, title }: { nodes: XNode[]; kind: Kind; root: string; title: string }) {
-  const { open } = useDrill();
-  const up = goodUp(kind);
-  const list = nodes.filter((n) => n.cur !== n.prev);
-  const grow = [...list].filter((n) => n.cur > n.prev).sort((a, b) => b.cur - b.prev - (a.cur - a.prev)).slice(0, 8);
-  const fall = [...list].filter((n) => n.cur < n.prev).sort((a, b) => a.cur - a.prev - (b.cur - b.prev)).slice(0, 8);
-  const side = (label: string, items: XNode[], positive: boolean) => {
-    const good = positive === up;
-    return (
-      <div className="min-w-0 flex-1">
-        <p className={cn('mb-1.5 text-sm font-bold', good ? 'text-(--color-income)' : 'text-(--color-expense)')}>{label}</p>
-        <table className="w-full border-separate border-spacing-0 overflow-hidden rounded-xl border border-(--color-line) text-[13px]">
-          <thead>
-            <tr>
-              <Th className="text-left">Modda</Th>
-              <Th className="w-28">O&apos;tgan davr</Th>
-              <Th className="w-28">Joriy davr</Th>
-              <Th className="w-32">Farqi, foizda</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((n) => (
-              <Tr key={n.key + JSON.stringify(n.f)}>
-                <Td className="text-left">
-                  <button type="button" onClick={() => open({ kind: n.kind, f: n.f, title: `${root} › ${n.label}`, expected: n.cur })} className="text-left text-heading hover:text-brand-700 hover:underline">
-                    {n.label}
-                  </button>
-                </Td>
-                <Td className="whitespace-nowrap text-(--color-text-muted)">{som(n.prev)}</Td>
-                <Td className="whitespace-nowrap text-heading">{som(n.cur)}</Td>
-                <DiffCell value={n.cur - n.prev} growthGood={up} pct={changeOf(n.cur, n.prev)} />
-              </Tr>
-            ))}
-            {!items.length && (
-              <tr>
-                <td colSpan={4} className="px-3 py-4 text-center text-xs text-(--color-text-faint)">
-                  Yo&apos;q
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-  return (
-    <ReportCard title={title} badge="O'tgan davrga nisbatan, so'mdagi farq bo'yicha">
-      <div className="flex flex-col gap-6 px-4 pb-4 lg:flex-row">
-        {side("Ko'paygan", grow, true)}
-        {side('Kamaygan', fall, false)}
-      </div>
-    </ReportCard>
-  );
-}
-
-/** Daraxtning eng pastki moddalari (birlik qatorlarisiz) */
-export function leafCategories(nodes: XNode[]): XNode[] {
-  const out: XNode[] = [];
-  const walk = (list: XNode[]) =>
-    list.forEach((n) => {
-      if (n.f.unit) return;
-      const sub = (n.children ?? []).filter((c) => !c.f.unit);
-      if (sub.length) walk(sub);
-      else out.push(n);
-    });
-  walk(nodes);
-  return out;
 }

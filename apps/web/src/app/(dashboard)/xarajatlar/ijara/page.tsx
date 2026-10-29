@@ -39,7 +39,6 @@ import { MonthPanel } from './_components/month-panel';
 
 const tabs = [
   { href: '/xarajatlar/doimiy', label: "Ro'yxat" },
-  { href: '/xarajatlar/tahlil', label: 'Tahlil' },
   { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
   { href: '/xarajatlar/soliq-hisoboti', label: 'Soliq hisoboti' },
   { href: '/xarajatlar/tarkib', label: 'Ish haqi tarkibi' },

@@ -1,33 +1,14 @@
 'use client';
 
-import {
-  changeOf,
-  DiffCell,
-  GroupTh,
-  MoneyCell,
-  NameCell,
-  PctCell,
-  PillTabs,
-  ReportCard,
-  RTable,
-  StatTiles,
-  sum,
-  STICKY_NAME,
-  STICKY_NO,
-  TableNote,
-  Td,
-  Th,
-  Tr,
-} from '@/components/report/report';
+import { PillTabs, ReportCard, StatTiles, sum, TableNote } from '@/components/report/report';
 import { PeriodDataHint } from '@/components/shared/period-data-hint';
 import { Card } from '@/components/ui/card';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { regionsApi, statsOf, type UnitStats } from '@/features/regions/api';
 import { useAuth } from '@/lib/auth-context';
 import { calcResult, calcSum, Q } from '@/lib/calc';
-import { formatDate, formatPeriod } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
-import { unitByCode } from '@/lib/segments';
 import { StructureDrill } from '@/features/dashboard/structure-drill';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
@@ -38,12 +19,11 @@ import { useState } from 'react';
  * Bosh sahifa — korxona bir qarashda:
  *  • tepada — daromad, xarajat, natija, rentabellik (o'tgan teng davr bilan);
  *  • «Daromad tarkibi» / «Xarajat tarkibi» — Markaz, Hudud (viloyatlar yoki xizmat turlari), 4 yo'nalish — shu sahifada ichma-ich;
- *  • «Natija bo'yicha» — Markaz, Hudud va yo'nalishlar bitta jadvalda (bosib Solishtirmaga kiriladi);
- *  • «Oylar kesimida» — so'nggi 12 oy: daromad, xarajat, natija.
+ *  • birliklar natijasi — Solishtirmada, oyma-oy natija — Tahlil › Dinamikada (kartalarni bosib o'tiladi).
  * Ma'lumot Solishtirma bilan bir manbadan (bir xil raqamlar).
  */
 
-type View = 'income' | 'expense' | 'units' | 'months';
+type View = 'income' | 'expense';
 
 interface Totals {
   income: number;
@@ -59,54 +39,6 @@ function totalsOf(rows: UnitStats[]): Totals {
   );
 }
 
-/** base — solishtirish yo'q bo'lsa: ulush hisoblanadigan jami (korxona bo'yicha) */
-function Cells({ t, base }: { t: Totals; base: Totals | null }) {
-  const profit = t.income - t.expense;
-  // Joriy davrda daromad yoki xarajat yuklanmagan (o'tgan davrda bor edi) — natija va rentabellik hisoblanmaydi
-  const partial = (t.income === 0 && t.previousIncome > 0) || (t.expense === 0 && t.previousExpense > 0);
-  if (!base && partial) {
-    return (
-      <>
-        <MoneyCell value={t.previousIncome} />
-        <MoneyCell value={t.income} />
-        <DiffCell value={t.income - t.previousIncome} pct={changeOf(t.income, t.previousIncome)} />
-        <MoneyCell value={t.previousExpense} />
-        <MoneyCell value={t.expense} />
-        <DiffCell value={t.expense - t.previousExpense} pct={changeOf(t.expense, t.previousExpense)} growthGood={false} />
-        <Td className="text-center text-(--color-text-faint)" title="Ma'lumot to'liq emas — hisoblanmadi">
-          —
-        </Td>
-        <Td className="text-center text-(--color-text-faint)" title="Ma'lumot to'liq emas — hisoblanmadi">
-          —
-        </Td>
-      </>
-    );
-  }
-  if (base) {
-    return (
-      <>
-        <MoneyCell value={t.income} />
-        <PctCell value={base.income > 0 ? (t.income / base.income) * 100 : null} plain className="font-normal text-(--color-text-muted)" />
-        <MoneyCell value={t.expense} />
-        <PctCell value={base.expense > 0 ? (t.expense / base.expense) * 100 : null} plain className="font-normal text-(--color-text-muted)" />
-        <MoneyCell value={profit} strong signedColor calc={calcResult(t.income, t.expense)} />
-        <PctCell value={t.income > 0 ? (profit / t.income) * 100 : null} plain />
-      </>
-    );
-  }
-  return (
-    <>
-      <MoneyCell value={t.previousIncome} />
-      <MoneyCell value={t.income} />
-      <DiffCell value={t.income - t.previousIncome} pct={changeOf(t.income, t.previousIncome)} />
-      <MoneyCell value={t.previousExpense} />
-      <MoneyCell value={t.expense} />
-      <DiffCell value={t.expense - t.previousExpense} pct={changeOf(t.expense, t.previousExpense)} growthGood={false} />
-      <MoneyCell value={profit} strong signedColor calc={calcResult(t.income, t.expense)} />
-      <PctCell value={t.income > 0 ? (profit / t.income) * 100 : null} plain />
-    </>
-  );
-}
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -145,12 +77,7 @@ export default function DashboardPage() {
       ) : (
         (() => {
           const all = data.units.map(statsOf);
-          const regions = all.filter((s) => s.unit.kind === 'region');
-          const center = all.find((s) => s.unit.kind === 'center') ?? null;
-          const segments = all.filter((s) => s.unit.kind === 'segment');
-          const unassigned = all.find((s) => s.unit.kind === 'unassigned') ?? null;
           const t = totalsOf(all);
-          const r = totalsOf(regions);
           const profit = t.income - t.expense;
           const previousProfit = t.previousIncome - t.previousExpense;
           /** Oldingi davrda ma'lumot bormi (yo'q bo'lsa — solishtirish o'rniga ulush) */
@@ -163,25 +90,6 @@ export default function DashboardPage() {
           const expenseMissing = t.expense === 0 && t.previousExpense > 0;
           const partial = incomeMissing || expenseMissing;
 
-          // So'nggi 12 oy — barcha birliklar yig'indisi
-          const months = data.months.slice(-12);
-          const offset = data.months.length - months.length;
-          const monthRows = months.map((m, i) => {
-            const income = all.reduce((a, s) => a + Number(s.unit.incomeTrend[offset + i] ?? 0), 0);
-            const expense = all.reduce((a, s) => a + Number(s.unit.expenseTrend[offset + i] ?? 0), 0);
-            return { month: m, income, expense };
-          });
-          const monthTotal = monthRows.reduce((a, x) => ({ income: a.income + x.income, expense: a.expense + x.expense }), { income: 0, expense: 0 });
-
-          const unitRows: { key: string; label: string; sub: string; t: Totals; href: string | null }[] = [
-            ...(center ? [{ key: 'center', label: 'Markaz', sub: "bo'limlar va xodimlar", t: center, href: '/solishtirma/markaz' }] : []),
-            { key: 'regions', label: `Hududlar · ${regions.length} ta`, sub: 'viloyatlar → tumanlar → xodimlar', t: r, href: '/solishtirma' },
-            ...segments.map((s) => {
-              const u = s.unit.segment ? unitByCode(s.unit.segment) : null;
-              return { key: s.unit.key, label: s.unit.name, sub: "yo'nalish", t: s as Totals, href: u ? `/solishtirma/${u.slug}` : null };
-            }),
-            ...(unassigned ? [{ key: 'unassigned', label: unassigned.unit.name, sub: 'hudud belgilanmagan yozuvlar', t: unassigned as Totals, href: '/solishtirma' }] : []),
-          ];
 
           return (
             <div className={cn('space-y-4 transition-opacity', result.loading && 'opacity-60')}>
@@ -244,119 +152,18 @@ export default function DashboardPage() {
                 options={[
                   { value: 'income', label: 'Daromad tarkibi', hint: 'Markaz, Hudud (viloyatlar / xizmat turlari), yo‘nalishlar — ichma-ich' },
                   { value: 'expense', label: 'Xarajat tarkibi', hint: 'Markaz, Hudud (viloyatlar / moddalar), yo‘nalishlar — ichma-ich' },
-                  { value: 'units', label: 'Natija bo‘yicha', hint: 'Markaz, Hudud va yo‘nalishlar: daromad, xarajat, natija' },
-                  { value: 'months', label: 'Oylar kesimida', hint: "So'nggi 12 oy" },
                 ]}
               />
 
-              {view === 'income' || view === 'expense' ? (
-                <ReportCard
-                  title={view === 'income' ? 'Daromad tarkibi' : 'Xarajat tarkibi'}
-                  badge={cmpOn ? `Joriy: ${period} · o'tgan teng davr: ${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)}` : period}
-                >
-                  <StructureDrill key={view} units={data.units} kind={view} cmpOn={cmpOn} />
-                  <TableNote>
-                    Qatorni bosing — ichiga ochiladi: Markaz va yo&apos;nalishlar — {view === 'income' ? 'xizmatlar' : 'moddalar'} bo&apos;yicha; Hudud — viloyatlar, viloyat — {view === 'income' ? 'xizmatlari' : 'moddalari'}. Hudud qatoridagi tugma — «{view === 'income' ? 'Xizmat turlari' : 'Moddalar'} bo&apos;yicha» (har biri — viloyatlar kesimida).
-                  </TableNote>
-                </ReportCard>
-              ) : view === 'units' ? (
-                <ReportCard title="Korxona tarkibi: daromad, xarajat va natija" badge={cmpOn ? `Joriy: ${period} · o'tgan teng davr: ${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)}` : period}>
-                  <RTable minWidth={cmpOn ? 980 : 820}>
-                    <thead>
-                      <tr>
-                        <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>№</Th>
-                        <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>Birlik</Th>
-                        <GroupTh span={cmpOn ? 3 : 2}>Daromad</GroupTh>
-                        <GroupTh span={cmpOn ? 3 : 2}>Xarajat</GroupTh>
-                        <GroupTh span={2}>Natija</GroupTh>
-                      </tr>
-                      {cmpOn ? (
-                        <tr>
-                          <Th className="first:border-l">O&apos;tgan davr</Th>
-                          <Th>Joriy davr</Th>
-                          <Th>Farqi, foizda</Th>
-                          <Th>O&apos;tgan davr</Th>
-                          <Th>Joriy davr</Th>
-                          <Th>Farqi, foizda</Th>
-                          <Th>Foyda</Th>
-                          <Th>Rentabellik</Th>
-                        </tr>
-                      ) : (
-                        <tr>
-                          <Th className="first:border-l">Summa</Th>
-                          <Th>Ulushi</Th>
-                          <Th>Summa</Th>
-                          <Th>Ulushi</Th>
-                          <Th>Foyda</Th>
-                          <Th>Rentabellik</Th>
-                        </tr>
-                      )}
-                    </thead>
-                    <tbody>
-                      <Tr total>
-                        <Td className={STICKY_NO} />
-                        <NameCell>Korxona bo&apos;yicha</NameCell>
-                        <Cells t={t} base={cmpOn ? null : t} />
-                      </Tr>
-                      {unitRows.map((row, i) => (
-                        <Tr key={row.key} onClick={row.href ? () => router.push(row.href!) : undefined}>
-                          <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
-                          <NameCell drill={Boolean(row.href)} sub={row.sub}>
-                            {row.label}
-                          </NameCell>
-                          <Cells t={row.t} base={cmpOn ? null : t} />
-                        </Tr>
-                      ))}
-                    </tbody>
-                  </RTable>
-                  <TableNote>
-                    {!cmpOn && "O'tgan teng davr uchun ma'lumot yo'q — solishtirish o'rniga ulush ko'rsatildi (korxona jamiga nisbatan). "}
-                    Qatorni bosing — Solishtirmada ichiga kirasiz. Yuqoridagi kartalarni bosing — daromad, xarajat yoki natija tahlili ochiladi.</TableNote>
-                </ReportCard>
-              ) : (
-                <ReportCard title="Oylar kesimida" badge={`${formatPeriod(months[0]!)} — ${formatPeriod(months[months.length - 1]!)}`}>
-                  <RTable minWidth={900}>
-                    <thead>
-                      <tr>
-                        <Th className="text-left">Oy</Th>
-                        <Th>Daromad</Th>
-                        <Th>O&apos;zgarish</Th>
-                        <Th>Xarajat</Th>
-                        <Th>O&apos;zgarish</Th>
-                        <Th>Natija</Th>
-                        <Th>Rentabellik</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <Tr total>
-                        <NameCell sticky={false}>12 oy jami</NameCell>
-                        <MoneyCell value={monthTotal.income} />
-                        <Td />
-                        <MoneyCell value={monthTotal.expense} />
-                        <Td />
-                        <MoneyCell value={monthTotal.income - monthTotal.expense} strong signedColor />
-                        <PctCell value={monthTotal.income > 0 ? ((monthTotal.income - monthTotal.expense) / monthTotal.income) * 100 : null} plain />
-                      </Tr>
-                      {[...monthRows].reverse().map((m) => {
-                        const index = monthRows.indexOf(m);
-                        const prev = index > 0 ? monthRows[index - 1]! : null;
-                        return (
-                          <Tr key={m.month}>
-                            <NameCell sticky={false}>{formatPeriod(m.month)}</NameCell>
-                            <MoneyCell value={m.income} />
-                            {prev ? <DiffCell value={m.income - prev.income} pct={changeOf(m.income, prev.income)} /> : <Td />}
-                            <MoneyCell value={m.expense} />
-                            {prev ? <DiffCell value={m.expense - prev.expense} pct={changeOf(m.expense, prev.expense)} growthGood={false} /> : <Td />}
-                            <MoneyCell value={m.income - m.expense} strong signedColor />
-                            <PctCell value={m.income > 0 ? ((m.income - m.expense) / m.income) * 100 : null} plain />
-                          </Tr>
-                        );
-                      })}
-                    </tbody>
-                  </RTable>
-                  <TableNote>O&apos;zgarish — oldingi oyga nisbatan. Oxirgi oy tanlangan davr oxirigacha hisoblanadi.</TableNote>
-                </ReportCard>
-              )}
+              <ReportCard
+                title={view === 'income' ? 'Daromad tarkibi' : 'Xarajat tarkibi'}
+                badge={cmpOn ? `Joriy: ${period} · o'tgan teng davr: ${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)}` : period}
+              >
+                <StructureDrill key={view} units={data.units} kind={view} cmpOn={cmpOn} />
+                <TableNote>
+                  Qatorni bosing — ichiga ochiladi: Markaz va yo&apos;nalishlar — {view === 'income' ? 'xizmatlar' : 'moddalar'} bo&apos;yicha; Hudud — viloyatlar, viloyat — {view === 'income' ? 'xizmatlari' : 'moddalari'}. Hudud qatoridagi tugma — «{view === 'income' ? 'Xizmat turlari' : 'Moddalar'} bo&apos;yicha» (har biri — viloyatlar kesimida).
+                </TableNote>
+              </ReportCard>
             </div>
           );
         })()

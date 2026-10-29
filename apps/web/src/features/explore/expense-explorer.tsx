@@ -9,7 +9,8 @@ import { exploreApi, pct, share, short, som } from './api';
 import { DrillProvider, useDrill } from './drill';
 import { DrillTable, type ExtraCol } from './drill-table';
 import { MatrixTable } from './matrix-table';
-import { ChangesTable, leafCategories, SpansNote, Switch, TopRecords } from './parts';
+import { SpansNote, Switch, TopRecords } from './parts';
+import { BehaviorCard } from './behavior-card';
 import { SalaryStructureCard } from '@/features/salary-composition/salary-structure';
 
 // ═══════════════════════════════════════════════════════════
@@ -117,7 +118,7 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
 
         <MatrixTable data={d.months} months={d.monthList} title="Oylar kesimida: xarajat guruhlari × oylar" root={ROOT} csv="Xarajat — oylar" />
 
-        <ChangesTable nodes={leafCategories(d.tree)} kind="expense" root={ROOT} title="Eng ko'p o'zgargan xarajat moddalari" />
+        <BehaviorCard cur={d.cur} prev={d.prev} />
 
         <SalaryStructureCard range={range} compact />
 

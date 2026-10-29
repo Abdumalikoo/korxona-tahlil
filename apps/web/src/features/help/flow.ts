@@ -17,7 +17,7 @@ const REPORTS = (what: string): FlowTarget => ({ label: 'Hisobotlar', href: '/hi
 const INCOME_TARGETS: FlowTarget[] = [
   HOME("«Daromad» va «Tahlil» kartochkalari — davr jami va foyda"),
   { label: 'Daromad tahlili', href: '/tahlil/daromad', what: 'Turlar, hududlar, oylar, o‘tgan davrga nisbatan o‘zgarish' },
-  { label: 'Tahlil', href: '/tahlil/umumiy', what: 'Foyda, rentabellik, dinamika, tarkib' },
+  { label: 'Tahlil', href: '/tahlil/umumiy', what: 'Dinamika, o‘zgarish sabablari, barqarorlik, xodim samaradorligi' },
   { label: 'Solishtirma', href: '/solishtirma', what: 'Hudud daromadi (hudud yoki bo‘lim ko‘rsatilgan yozuvlar)' },
   { label: 'Solishtirma › Markaz', href: '/solishtirma/markaz', what: 'Markazga yoki Markaz bo‘limiga yozilgan daromad — manbalar bo‘yicha' },
   { label: 'Katta modellar', href: '/katta-modellar', what: 'Daromad prognozi, omillar, samaradorlik' },
@@ -29,7 +29,7 @@ const INCOME_TARGETS: FlowTarget[] = [
 const EXPENSE_TARGETS: FlowTarget[] = [
   HOME("«Xarajat» va «Tahlil» kartochkalari — davr jami va foyda"),
   { label: 'Xarajat tahlili', href: '/tahlil/xarajat', what: 'Yo‘nalishlar, moddalar, hududlar, oylar' },
-  { label: 'Tahlil', href: '/tahlil/umumiy', what: 'Foyda, rentabellik, xarajat tarkibi' },
+  { label: 'Tahlil', href: '/tahlil/umumiy', what: 'Xarajat o‘zgarish sabablari, doimiy / bir martalik qismi' },
   { label: 'Solishtirma', href: '/solishtirma', what: 'Hudud xarajati va natijasi' },
   { label: 'Solishtirma › Markaz', href: '/solishtirma/markaz', what: 'Markaz bo‘limlari xarajati va Xarajatlar siyosati bo‘yicha hududlar uchun to‘langani' },
   { label: 'Katta modellar', href: '/katta-modellar', what: 'Xarajat prognozi, zararsizlik, stsenariy' },
@@ -62,7 +62,6 @@ export const FLOW: Record<string, FlowTarget[]> = {
   '/daromadlar/markaz': [
     { label: 'Daromadlar ro‘yxati', href: '/daromadlar/doimiy', what: 'Har oy × hisobraqam bitta Markaz daromadi yozuvi (Kassa: …)' },
     { label: 'Solishtirma › Markaz', href: '/solishtirma/markaz', what: 'Markaz daromadi manbalari' },
-    { label: 'Tahlil › Markaz tushumi', href: '/tahlil/markaz', what: 'Oylar va hisobraqamlar bo‘yicha' },
     HOME('Daromad jami'),
     REPORTS('«Daromadlar tarkibi»'),
   ],

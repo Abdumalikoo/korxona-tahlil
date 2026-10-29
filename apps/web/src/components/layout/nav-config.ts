@@ -78,7 +78,7 @@ export const MENU: NavItem[] = [
       { label: 'Bosh sahifa', href: '/', description: 'Daromad, xarajat va foyda bir qarashda' },
       { label: 'Daromad', href: '/tahlil/daromad', description: 'Daromad tahlili: xizmatlar, mijozlar, hududlar' },
       { label: 'Xarajat', href: '/tahlil/xarajat', description: 'Xarajat tahlili: moddalar, kontragentlar, hududlar' },
-      { label: 'Tahlil', href: '/tahlil/umumiy', description: 'Umumiy tahlil: foyda, dinamika, tarkib' },
+      { label: 'Tahlil', href: '/tahlil/umumiy', description: "Chuqur tahlil: dinamika, o'zgarish sabablari, barqarorlik, xodim samaradorligi, xulosalar" },
     ],
   },
   {
@@ -105,7 +105,6 @@ export const MENU: NavItem[] = [
       { label: 'Schyot-fakturalar', href: '/daromadlar/fakturalar', description: "Biz yozgan (chiquvchi) schyot-fakturalar: mijoz va xizmat bo'yicha oyma-oy nazorat" },
       { label: 'Kontragentlar', href: '/daromadlar/kontragentlar', description: "Mijozlar: biz yozgan faktura va bankka tushgan, farq (tushmagan), shartnomalar" },
       { label: 'Reja va tushum', href: '/daromadlar/reja-tushum', description: "Xodimlar reja / tushum fayli — daromadni xodimlarga bo'lib beradi" },
-      { label: 'Tahlil', href: '/daromadlar/tahlil', description: 'Daromad dinamikasi va tarkibi' },
       // 6 bo'lim — chap menyuda «Daromadlar» ostida; yorliqlar qatorida emas (qidiruvda bor)
       ...ENTRY_UNITS.map((u) => ({ label: `Daromadlar · ${u.label}`, href: `/daromadlar/bolim/${u.slug}`, description: `${u.hint}: daromadlar va xizmat turlari`, hidden: true })),
     ],
@@ -137,7 +136,6 @@ export const MENU: NavItem[] = [
       { label: '3D avtopark', href: '/xarajatlar/mashinalar/avtopark', description: "Hamma mashinalar 3D'da: raqami, oy xarajati, tafsilot", group: 'Mashina xarajatlari' },
       { label: 'Ombor kirimi', href: '/xarajatlar/ombor-kirim', description: "Omborga kelgan TMZ va asosiy vositalar — xarajatga yoziladi (asosiy vosita — balansga)" },
       { label: 'Pochta', href: '/xarajatlar/pochta', description: "Pochta korxonalariga to'lovlar" },
-      { label: 'Tahlil', href: '/xarajatlar/tahlil', description: 'Xarajat dinamikasi va tarkibi' },
       { label: 'Soliqlar', href: '/xarajatlar/soliqlar', description: "Hamma soliqlar: hudud va Markaz bo'yicha, ish haqidan foizlilar avtomatik" },
       { label: 'Asosiy vositalar', href: '/xarajatlar/asosiy-vositalar', description: "Balansdagi vositalar va oylik sarfi (eskirish)" },
       { label: 'Xarajatlar siyosati', href: '/xarajatlar/siyosat', description: "Har bir xarajat moddasi kim hisobidan: yozilgan joyida, Markaz yoki yo'nalish" },

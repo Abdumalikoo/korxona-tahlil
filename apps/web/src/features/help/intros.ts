@@ -33,9 +33,9 @@ export const INTROS: Record<string, PageIntro> = {
     how: '▸ belgisi — qator ichini ochadi; istalgan summa bosilsa — uni tashkil qilgan aniq yozuvlar ochiladi. Grafiklar sahifa oxirida.',
   },
   '/tahlil/umumiy': {
-    what: 'Korxona foydada ishlayaptimi: foyda, rentabellik, foyda nima uchun o‘zgargani va xavfli holatlar.',
+    what: 'Chuqur tahlil: natija oyma-oy qanday o‘zgardi, nima hisobiga, qancha qismi doimiy, bir xodimga qancha to‘g‘ri keladi va xulosalar.',
     from: BOTH_SRC,
-    how: '«Natija jadvali» — oylar bo‘yicha foyda va zarar hamda Markaz va hududlar natijasi (summalar bosiladi); boshqa yorliqlar — dinamika, samaradorlik va tarkib.',
+    how: 'Har yorliq bitta savolga javob beradi. Tarkib — «Daromad» va «Xarajat» sahifalarida, birliklar natijasi — Solishtirmada, DEA va prognoz — «Katta modellar»da.',
   },
   '/solishtirma': {
     what: 'Hududlar va Markaz yonma-yon: kim qancha daromad keltirdi, qancha xarajat qildi va natijasi.',
@@ -92,11 +92,6 @@ export const INTROS: Record<string, PageIntro> = {
     from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
     how: "Bo'limni bosing — xodimlari, xodimni bosing — oylar bo'yicha ish haqi ochiladi.",
   },
-  '/tahlil/markaz': {
-    what: "Markaz hisobraqamlari bo'yicha oylik tushum (kunlik ma'lumotnomadan).",
-    from: "Buxgalteriya › Kunlik tushum va qoldiq (qo'lda yoki fayldan)",
-    how: "Oy daromadi — oyning oxirgi ma'lumotnomasidagi «Oy boshidan» + «Kunlik tushum».",
-  },
   '/daromadlar/markaz': {
     what: "Markaz tushumi: kunlik tushum va qoldiq faylini yuklash, oylik Markaz daromadi.",
     from: "«Kunlik tushum va qoldiq» Excel fayli yoki Buxgalter kiritgan ma'lumotnoma",
@@ -144,10 +139,6 @@ export const INTROS: Record<string, PageIntro> = {
   '/daromadlar/natijalar': {
     what: 'Xodimlarning oylik natijalari (reja va fakt) — yuklash va hisobot.',
     from: 'Yuklangan Excel fayllar, Xodimlar bo‘limi',
-  },
-  '/daromadlar/tahlil': {
-    what: 'Tanlangan oyda daromadning bo‘limlar va xulq-atvor bo‘yicha taqsimoti.',
-    from: INCOME_SRC,
   },
   '/xarajatlar': {
     what: 'Xarajatlar bo‘limi: tanlangan oyda Doimiy va Boshqa xarajatlar jami va dinamikasi.',
@@ -208,10 +199,6 @@ export const INTROS: Record<string, PageIntro> = {
   '/xarajatlar/ijara': {
     what: 'Ijara shartnomalari va oylik to‘lovlar: oyni yopish, muddati tugayotganlar.',
     from: 'Ijara shartnomalari (to‘lovlar Xarajatlarga yoziladi)',
-  },
-  '/xarajatlar/tahlil': {
-    what: 'Tanlangan oyda xarajatning bo‘limlar, xulq-atvori va keskin oshgan moddalar bo‘yicha tahlili.',
-    from: EXPENSE_SRC,
   },
   '/xodimlar': {
     what: 'Xodimlar ro‘yxati: hudud, bo‘lim, lavozim; o‘tkazmalar (kim qayerdan qayerga o‘tgan).',

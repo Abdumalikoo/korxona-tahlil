@@ -102,7 +102,6 @@ export const SECTION_NAV: Record<SectionKind, KindNav> = {
         href: '/xarajatlar/doimiy',
         tabs: [
           { href: '/xarajatlar/doimiy', label: "Ro'yxat" },
-          { href: '/xarajatlar/tahlil', label: 'Tahlil' },
           { href: '/xarajatlar/ish-haqi', label: 'Ish haqi' },
           { href: '/xarajatlar/soliq-hisoboti', label: 'Soliq hisoboti' },
           { href: '/xarajatlar/tarkib', label: 'Ish haqi tarkibi' },
@@ -142,7 +141,6 @@ export const SECTION_NAV: Record<SectionKind, KindNav> = {
         href: '/daromadlar/doimiy',
         tabs: [
           { href: '/daromadlar/doimiy', label: "Ro'yxat" },
-          { href: '/daromadlar/tahlil', label: 'Tahlil' },
           { href: '/daromadlar/hududlar', label: 'Hududlar' },
           { href: '/daromadlar/natijalar', label: 'Natijalar' },
           { href: '/daromadlar/bank-kochirma', label: 'Bank ko‘chirmasi' },

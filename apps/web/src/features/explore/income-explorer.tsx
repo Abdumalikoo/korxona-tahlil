@@ -9,7 +9,7 @@ import { exploreApi, pct, share, short, som } from './api';
 import { DrillProvider, useDrill } from './drill';
 import { DrillTable, type ExtraCol } from './drill-table';
 import { MatrixTable } from './matrix-table';
-import { ChangesTable, SpansNote, Switch, TopRecords } from './parts';
+import { SpansNote, Switch, TopRecords } from './parts';
 
 // ═══════════════════════════════════════════════════════════
 // Bosh sahifa › Daromad:
@@ -111,7 +111,6 @@ export function IncomeExplorer({ range }: { range: DateRange }) {
 
         <MatrixTable data={d.months} months={d.monthList} title="Oylar kesimida: moddalar × oylar" root={ROOT} csv="Daromad — oylar" />
 
-        <ChangesTable nodes={d.categories} kind="income" root={ROOT} title="Eng ko'p o'zgargan daromad moddalari" />
 
         <TopRecords rows={d.top} kind="income" title="Eng katta daromad yozuvlari" />
 
