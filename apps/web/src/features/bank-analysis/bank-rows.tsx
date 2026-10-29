@@ -8,7 +8,7 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatPeriod, formatTiyin } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
-import { smartQuery } from '@/lib/smart-search';
+import { facetWords, smartQuery } from '@/lib/smart-search';
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
 import { commonOf, ENTRY_LABEL, RoutePanel, SuggestBadge, type ToastFn } from './bank-analysis-parts';
@@ -30,7 +30,7 @@ export type RowsMode = 'OPEN' | 'CLARIFY' | 'ALL';
 const isOpen = (r: BankListRow) => !r.post && !r.dismissed && !r.clarify;
 
 /** query — tashqi (yuqoridagi) aqlli qidiruv: berilsa, ro'yxatning o'z qidiruv maydoni yashiriladi */
-export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, onChanged, query }: { v: BankView; dir: BankDir; isAdmin: boolean; reloadKey: number; mode: RowsMode; onMode: (m: RowsMode) => void; onToast: ToastFn; onChanged: () => void; query?: string }) {
+export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, onChanged, query, onQuery }: { v: BankView; dir: BankDir; isAdmin: boolean; reloadKey: number; mode: RowsMode; onMode: (m: RowsMode) => void; onToast: ToastFn; onChanged: () => void; query?: string; onQuery?: (q: string) => void }) {
   const { api } = useSource();
   const [rev, setRev] = useState(0);
   const res = useAsync(() => api.rows(v.from, v.to, v.account, dir).then((r) => r.data), [v.from, v.to, v.account, dir, reloadKey, rev]);
@@ -55,6 +55,23 @@ export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, on
       return sq.score(`${r.accountName} ${r.inn ?? ''} ${r.docNo} ${r.purpose} ${r.groupName ?? ''} ${r.note ?? ''}`) > 0;
     });
   }, [inMonth, mode, term]);
+  // Natijalarni ajratish (tashqi qidiruvda): topilganlar orasida farqlovchi so'zlar va kontragentlar
+  const facets = useMemo(() => {
+    const sq = query !== undefined ? smartQuery(query) : null;
+    if (!sq) return null;
+    const hits = inMonth.filter((r) => sq.score(`${r.accountName} ${r.inn ?? ''} ${r.docNo} ${r.purpose} ${r.groupName ?? ''} ${r.note ?? ''}`) > 0);
+    const parties = new Map<string, { name: string; inn: string | null; n: number }>();
+    for (const r of hits) {
+      const k = r.inn || r.accountName;
+      const x = parties.get(k) ?? { name: r.accountName, inn: r.inn && /^\d{9}$/.test(r.inn) ? r.inn : null, n: 0 };
+      x.n += 1;
+      parties.set(k, x);
+    }
+    return {
+      words: facetWords(hits.map((r) => `${r.purpose} ${r.groupName ?? ''}`), sq),
+      parties: [...parties.values()].filter((p) => p.n < hits.length || parties.size > 1).sort((a, b) => b.n - a.n).slice(0, 8),
+    };
+  }, [inMonth, query]);
   const months = useMemo(() => {
     const m = new Map<string, { n: number; open: number }>();
     for (const r of all) {
@@ -205,6 +222,43 @@ export function RowsList({ v, dir, isAdmin, reloadKey, mode, onMode, onToast, on
         </label>
         )}
       </div>
+      {/* Ajratish: «+» — faqat shular, «−» — chiqarib tashlash (yuqoridagi qidiruv so'ziga qo'shiladi) */}
+      {onQuery && query !== undefined && facets && (facets.words.length > 0 || facets.parties.length > 1) && (
+        <div className="space-y-1.5 border-b border-(--color-line) bg-brand-50/30 px-5 py-2.5 text-xs">
+          {facets.words.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-semibold text-heading">Ajratish:</span>
+              {facets.words.map((f) => (
+                <span key={f.word} className="inline-flex items-center overflow-hidden rounded-full border border-(--color-line-strong) bg-white">
+                  <button type="button" onClick={() => onQuery(`${query.trim()} ${f.word}`)} className="px-2 py-0.5 hover:bg-brand-50" title={`Faqat «${f.word}» borlari`}>
+                    + {f.word} <span className="money text-(--color-text-faint)">{f.count}</span>
+                  </button>
+                  <button type="button" onClick={() => onQuery(`${query.trim()} -${f.word}`)} className="border-l border-(--color-line) px-1.5 py-0.5 text-(--color-expense) hover:bg-(--color-expense-soft)" title={`«${f.word}» borlarini chiqarib tashlash`} aria-label={`${f.word} — chiqarib tashlash`}>
+                    −
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {facets.parties.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-semibold text-heading">Kontragentlar:</span>
+              {facets.parties.map((p) => (
+                <span key={p.inn ?? p.name} className="inline-flex items-center overflow-hidden rounded-full border border-(--color-line-strong) bg-white">
+                  <button type="button" disabled={!p.inn} onClick={() => p.inn && onQuery(`${query.trim()} ${p.inn}`)} className="max-w-56 truncate px-2 py-0.5 hover:bg-brand-50 disabled:cursor-default disabled:hover:bg-white" title={p.inn ? `Faqat shu kontragent (ИНН ${p.inn})` : p.name}>
+                    {p.name} <span className="money text-(--color-text-faint)">{p.n}</span>
+                  </button>
+                  {p.inn && (
+                    <button type="button" onClick={() => onQuery(`${query.trim()} -${p.inn}`)} className="border-l border-(--color-line) px-1.5 py-0.5 text-(--color-expense) hover:bg-(--color-expense-soft)" title="Shu kontragentni chiqarib tashlash" aria-label={`${p.name} — chiqarib tashlash`}>
+                      −
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {res.error ? (
         <ErrorState message={res.error} onRetry={res.reload} />
       ) : !res.data ? (

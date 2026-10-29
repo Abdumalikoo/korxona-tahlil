@@ -378,7 +378,7 @@ function AnalysisPage({ defaultDir }: { defaultDir: BankDir }) {
       {/* Aqlli qidiruv (Tahlil va saqlash): yozilsa — tahlil o'rnida topilgan hamma to'lovlar */}
       {shownPage === 'ANALYSIS' && v && v.totals.rows > 0 && <SmartSearchBar value={search} onChange={setSearch} dir={searchDir} onDir={setSearchDir} />}
       {shownPage === 'ANALYSIS' && v && v.totals.rows > 0 && search.trim() ? (
-        <RowsList key={searchDir} v={v} dir={searchDir} isAdmin={isAdmin} reloadKey={0} mode={searchMode} onMode={setSearchMode} onToast={setToast} onChanged={reloadAll} query={search} />
+        <RowsList key={searchDir} v={v} dir={searchDir} isAdmin={isAdmin} reloadKey={0} mode={searchMode} onMode={setSearchMode} onToast={setToast} onChanged={reloadAll} query={search} onQuery={setSearch} />
       ) : view.loading && !v ? (
         <LoadingState />
       ) : view.error ? (
