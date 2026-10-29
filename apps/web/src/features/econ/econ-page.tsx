@@ -4,49 +4,53 @@ import { formatPeriod } from '@/lib/format';
 import { useAsOf } from '@/lib/period';
 import { Card } from '@/components/ui/card';
 import { ErrorState, LoadingState } from '@/components/ui/states';
-import { Segmented, ViewTabs } from '@/features/structure/parts';
+import { ViewTabs } from '@/features/structure/parts';
 import { useAsync } from '@/lib/use-async';
 import { SmallButton } from '@/features/structure/parts';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { downloadEconFile, econApi } from './api';
 import { DataStatus } from './data-status';
-import { BreakevenView, EfficiencyView } from './efficiency-view';
 import { FactorsView } from './factors-view';
 import { ForecastView } from './forecast-view';
 import { ScenarioView } from './scenario-view';
-import { OverheadView } from '@/features/regional-econ/overhead-view';
-import { PerformanceView } from '@/features/regional-econ/performance-view';
-import { RegionalForecastView } from '@/features/regional-econ/forecast-view';
-import { PotentialView } from '@/features/regional-econ/potential-view';
-import { KpiView } from '@/features/regional-econ/kpi-view';
-import { DashboardView } from '@/features/regional-econ/dashboard-view';
-import { RegionScenarioView } from '@/features/regional-econ/scenario-view';
-import { RegionalDemoPanel } from '@/features/regional-econ/demo-panel';
 
-type Tab = 'forecast' | 'factors' | 'efficiency' | 'breakeven' | 'scenario' | 'data' | 'panel' | 'regions' | 'overhead' | 'rforecast' | 'potential' | 'kpi' | 'rscenario';
-type Group = 'regions' | 'company';
+type Tab = 'forecast' | 'factors' | 'scenario' | 'data';
+const ALL_TABS: Tab[] = ['forecast', 'factors', 'scenario', 'data'];
 
-/** Hududlar modellari (Solishtirma kuchaytirilgan qismi) */
-const REGION_TABS: Tab[] = ['panel', 'regions', 'overhead', 'rforecast', 'potential', 'kpi', 'rscenario'];
-const groupOf = (t: Tab): Group => (REGION_TABS.includes(t) ? 'regions' : 'company');
-const ALL_TABS: Tab[] = ['forecast', 'factors', 'efficiency', 'breakeven', 'scenario', 'data', ...REGION_TABS];
+/**
+ * Hududlarga tegishli modellar (panel, hudud natijasi, Markaz xarajati, prognoz, salohiyat, KPI, stsenariy, DEA, zararsizlik)
+ * Solishtirma › Hududlar sahifasiga ko'chirildi — eski havolalar (?tab=…) o'sha yerga yo'naltiriladi.
+ */
+const MOVED: Record<string, string> = {
+  panel: 'panel',
+  regions: 'perf',
+  overhead: 'overhead',
+  rforecast: 'rforecast',
+  potential: 'potential',
+  kpi: 'kpi',
+  rscenario: 'rscenario',
+  efficiency: 'efficiency',
+  breakeven: 'breakeven',
+};
 
-/** Katta modellar sahifasi: bo'limlar (yorliqlar) */
+/** Katta modellar sahifasi: korxona modellari (yorliqlar) */
 export function EconPage() {
   /** Umumiy «Davr» oyi: o'tgan oy bo'lsa — o'sha oy oxiridagi holat */
   const asOf = useAsOf();
   const overview = useAsync(() => econApi.overview(asOf).then((r) => r.data), [asOf]);
-  const [tab, setTab] = useState<Tab>('panel');
-  // Manzildan ochish: /katta-modellar?tab=panel
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>('forecast');
+  // Manzildan ochish: /katta-modellar?tab=factors; hududiy model — Solishtirma › Hududlar ga
   useEffect(() => {
     try {
-      const t = new URLSearchParams(window.location.search).get('tab') as Tab | null;
-      if (t && ALL_TABS.includes(t)) setTab(t);
+      const t = new URLSearchParams(window.location.search).get('tab');
+      if (t && MOVED[t]) router.replace(`/solishtirma?m=${MOVED[t]}`);
+      else if (t && ALL_TABS.includes(t as Tab)) setTab(t as Tab);
     } catch {
       /* e'tiborsiz */
     }
-  }, []);
-  const group = groupOf(tab);
+  }, [router]);
   const [downloading, setDownloading] = useState<'report' | 'slides' | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -109,58 +113,21 @@ export function EconPage() {
             ))}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3 px-5 pt-3">
-          <Segmented
-            value={group}
-            onChange={(g) => setTab(g === 'regions' ? 'panel' : 'forecast')}
-            options={[
-              { value: 'regions', label: 'Hududlar modellari', hint: "Hudud natijasi, Markaz ulushi, prognoz, salohiyat, KPI, stsenariy — Hududchi ma'lumotlari asosida" },
-              { value: 'company', label: 'Korxona modellari', hint: 'Korxona va birliklar bo‘yicha ekonometrik modellar' },
-            ]}
-          />
-        </div>
-        {group === 'regions' ? (
-          <ViewTabs
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: 'panel', label: 'Hududlar paneli', hint: 'Barcha hudud modellari bir joyda: holat, sabablar, avtomatik izoh, «nega o‘zgardi?»' },
-              { value: 'regions', label: 'Hudud natijasi', hint: "Har hudud daromadi, xarajati, Markaz ulushi bilan tuzatilgan natijasi va nisbatlari" },
-              { value: 'overhead', label: 'Markaz xarajati', hint: "Markaz bo'limlari xarajatini hududlarga taqsimlash: qoidalar, drayverlar, tekshiruv" },
-              { value: 'rforecast', label: 'Hudud prognozi', hint: "Hududlar bo'yicha daromad (xizmatlar), ish haqi (xodimlar), xarajat va natija prognozi; aniqlik va versiyalar" },
-              { value: 'potential', label: 'Salohiyat', hint: "Barqaror oyna o'rtachasi × o'rtacha o'sish: hudud va xizmatlar salohiyati, foydalanish darajasi" },
-              { value: 'kpi', label: 'KPI', hint: "Hududlar uchun oylik maqsadlar: model taklifi, tasdiqlash, fakt va bajarilish" },
-              { value: 'rscenario', label: 'Stsenariy', hint: "«Agar … bo'lsa»: tarif, hajm, maosh, xodimlar, xarajat, Markaz" },
-            ]}
-          />
-        ) : (
-          <ViewTabs
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: 'forecast', label: 'Prognoz', hint: 'Kelgusi oylar: daromad, xarajat, natija, ish haqi' },
-              { value: 'factors', label: 'Omillar', hint: "Daromad nimalarga bog'liq: regressiya, elastiklik, Kobb-Duglas" },
-              { value: 'efficiency', label: 'Samaradorlik', hint: 'Samaradorlik chegarasi (DEA): hududlar bir-biriga nisbatan' },
-              { value: 'breakeven', label: 'Zararsizlik', hint: 'Zararsizlik nuqtasi, xavfsizlik zaxirasi, Markazni qoplash' },
-              { value: 'scenario', label: 'Stsenariy va risk', hint: "«Agar … bo'lsa» hisobi va zararga tushish ehtimoli" },
-              { value: 'data', label: warns ? `Ma'lumot holati (${warns} ogohlantirish)` : "Ma'lumot holati", hint: "Qancha ma'lumot bor va qaysi model tayyor" },
-            ]}
-          />
-        )}
+        <p className="px-5 pt-3 text-xs text-(--color-text-muted)">Hududlar modellari (panel, prognoz, salohiyat, KPI, samaradorlik, zararsizlik …) — Solishtirma › Hududlar sahifasida.</p>
+        <ViewTabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: 'forecast', label: 'Prognoz', hint: 'Kelgusi oylar: daromad, xarajat, natija, ish haqi' },
+            { value: 'factors', label: 'Omillar', hint: "Daromad nimalarga bog'liq: regressiya, elastiklik, Kobb-Duglas" },
+            { value: 'scenario', label: 'Stsenariy va risk', hint: "«Agar … bo'lsa» hisobi va zararga tushish ehtimoli" },
+            { value: 'data', label: warns ? `Ma'lumot holati (${warns} ogohlantirish)` : "Ma'lumot holati", hint: "Qancha ma'lumot bor va qaysi model tayyor" },
+          ]}
+        />
       </Card>
       {tab === 'forecast' && <ForecastView overview={data} />}
       {tab === 'factors' && <FactorsView />}
-      {tab === 'efficiency' && <EfficiencyView />}
-      {tab === 'breakeven' && <BreakevenView />}
       {tab === 'scenario' && <ScenarioView overview={data} />}
-      {group === 'regions' && <RegionalDemoPanel />}
-      {tab === 'panel' && <DashboardView />}
-      {tab === 'regions' && <PerformanceView />}
-      {tab === 'overhead' && <OverheadView />}
-      {tab === 'rforecast' && <RegionalForecastView />}
-      {tab === 'potential' && <PotentialView />}
-      {tab === 'kpi' && <KpiView />}
-      {tab === 'rscenario' && <RegionScenarioView />}
       {tab === 'data' && <DataStatus overview={data} />}
     </div>
   );

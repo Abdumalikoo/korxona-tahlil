@@ -30,7 +30,7 @@ import { COMPARE_OPTIONS, SECTION_OPTIONS, type CompareMode, type SectionFilter 
 import { SmallButton } from '@/features/structure/parts';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatDate } from '@/lib/format';
-import { calcChange, calcDivide, calcResult, calcSum, moneyText, Q, type Calc } from '@/lib/calc';
+import { calcChange, calcResult, calcSum, moneyText, Q, type Calc } from '@/lib/calc';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { unitByCode } from '@/lib/segments';
@@ -43,11 +43,12 @@ import { KIND_LABEL, regionsApi, statsOf, unitMark, type RegionsResult, type Uni
 import { DistrictDrill, DrillBreadcrumb, EmployeeDrill, RegionDrill, type Crumb } from './drill';
 import { CenterDepartmentDrill, CenterDrill } from './center-drill';
 import { UNASSIGNED_KEY } from './drill-api';
-import { CenterCoverView } from './center-cover-view';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { RegionCard } from './region-card';
+import { isRegionModelTab, REGION_MODEL_TABS, RegionModel, type RegionModelTab } from './region-models';
+import { useBrief } from '@/lib/view-mode';
 
-type View = 'table' | 'cover';
+type View = 'table' | RegionModelTab;
 type SortKey = 'order' | 'income' | 'expense' | 'profit' | 'delta';
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -377,7 +378,21 @@ function Body({
   compare: CompareMode;
   onCompare: (value: CompareMode) => void;
 }) {
-  const [view, setView] = useState<View>('table');
+  const router = useRouter();
+  const brief = useBrief();
+  const params = useSearchParams();
+  const pathname = usePathname();
+  const m = params.get('m');
+  const [view, setViewState] = useState<View>(() => (m && isRegionModelTab(m) ? m : 'table'));
+  /** Yorliq manzilga yoziladi (?m=panel …) — havolani ulashsa, o'sha model ochiladi */
+  const setView = (next: View) => {
+    setViewState(next);
+    const q = new URLSearchParams(params.toString());
+    if (next === 'table') q.delete('m');
+    else q.set('m', next);
+    const text = q.toString();
+    router.replace(text ? `${pathname}?${text}` : pathname, { scroll: false });
+  };
   const [sort, setSort] = useState<SortKey>('order');
   const [query, setQuery] = useState('');
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -391,7 +406,6 @@ function Body({
       else next.add(key);
       return next;
     });
-  const router = useRouter();
 
   /** Viloyat bosilsa — ichiga (tumanlar); Markaz — bo'limlar; yo'nalish — o'z sahifasi; biriktirilmagan — yozuvlar */
   const open = (key: string) => {
@@ -406,11 +420,6 @@ function Body({
   const all = useMemo(() => data.units.map(statsOf), [data]);
   const regions = all.filter((s) => s.unit.kind === 'region');
   const activeRegions = regions.filter((s) => s.income !== 0 || s.expense !== 0);
-  const center = all.find((s) => s.unit.kind === 'center') ?? null;
-  const unassigned = all.find((s) => s.unit.kind === 'unassigned') ?? null;
-  /** Yo'nalishlar (Tax free, Marksheyder, Fermer xo'jaligi, Buxgalteriya xizmatlari) */
-  const segments = all.filter((s) => s.unit.kind === 'segment');
-  const others = [...(center ? [center] : []), ...segments, ...(unassigned ? [unassigned] : [])];
 
   const q = query.trim().toLowerCase();
   const found = regions.filter((s) => !q || s.unit.name.toLowerCase().includes(q));
@@ -420,9 +429,8 @@ function Body({
   const r = totalsOf(regions);
   const rProfit = r.income - r.expense;
   const rPrevProfit = r.previousIncome - r.previousExpense;
-  const t = totalsOf(all);
-  const centerNet = center ? center.expense - center.income : 0;
-  const coverage = centerNet > 0 ? (rProfit / centerNet) * 100 : null;
+  // Ulush va solishtirish — hududlar jamiga nisbatan (Markaz, yo'nalishlar — Umumiy va o'z sahifalarida)
+  const t = r;
   const winners = activeRegions.filter((s) => s.profit > 0).length;
   /** Oldingi davrda ma'lumot bormi (yo'q bo'lsa — solishtirish ustunlari o'rniga ulush) */
   const cmpOn = t.previousIncome !== 0 || t.previousExpense !== 0;
@@ -446,7 +454,7 @@ function Body({
         'Rentabellik, %',
       ],
       [
-        ...[...regions, ...others].map((s) => [
+        ...regions.map((s) => [
           s.unit.name,
           KIND_LABEL[s.unit.kind],
           csvSom(s.previousIncome),
@@ -462,7 +470,7 @@ function Body({
           csvPct(s.margin),
         ]),
         [
-          "Korxona bo'yicha jami",
+          "Hududlar bo'yicha jami",
           '',
           csvSom(t.previousIncome),
           csvSom(t.income),
@@ -515,26 +523,12 @@ function Body({
             calc: calcResult(r.income, r.expense, { title: 'Hududlar natijasi' }),
           },
           {
-            label: 'Markazni qoplash',
+            label: 'Rentabellik',
             value: 0,
-            text: coverage === null ? '' : `${coverage.toFixed(1).replace('.', ',')}%`,
+            text: r.income > 0 ? `${((rProfit / r.income) * 100).toFixed(1).replace('.', ',')}%` : '',
             note: `Foydada ${winners} / ${activeRegions.length} hudud`,
-            tone: 'orange',
-            icon: <IconShield />,
-            calc: center
-              ? calcDivide('Markazni qoplash', Q.money('Hududlar foydasi', rProfit), Q.money('Markaz sof xarajati', centerNet), 'pct', {
-                  note: `Markaz sof xarajati = Markaz xarajati − Markaz daromadi = ${moneyText(center.expense)} − ${moneyText(center.income)} = ${moneyText(centerNet)}. 100% dan yuqori — hududlar Markazni to'liq qoplaydi.`,
-                })
-              : null,
-            onClick: () => setView('cover'),
-          },
-          {
-            label: "Korxona natijasi",
-            value: t.income - t.expense,
-            previous: t.previousIncome - t.previousExpense,
-            signed: true,
             tone: 'purple',
-            calc: calcResult(t.income, t.expense, { title: 'Korxona natijasi (hududlar, Markaz, yo‘nalishlar)' }),
+            icon: <IconShield />,
           },
         ]}
       />
@@ -559,7 +553,7 @@ function Body({
         onChange={setView}
         options={[
           { value: 'table', label: 'Hududlar kesimida', hint: 'Har hudud: daromad, xarajat va natija — joriy va oldingi davr' },
-          { value: 'cover', label: 'Markazni qoplash', hint: "Markaz xarajati hududlarga bo'linadi, ortiqcha — foydaga" },
+          ...(brief ? [] : REGION_MODEL_TABS),
         ]}
       />
 
@@ -600,11 +594,11 @@ function Body({
             </thead>
             <tbody>
               <TotalRow label={`Hududlar bo'yicha · ${regions.length} ta`} rows={regions} compareLabel={data.compareLabel} />
-              {[...sorted, ...others].map((s) => (
+              {sorted.map((s) => (
                 <UnitRow
                   key={s.unit.key}
                   s={s}
-                  index={s.unit.kind === 'region' ? sorted.indexOf(s) + 1 : null}
+                  index={sorted.indexOf(s) + 1}
                   open={expanded.has(s.unit.key)}
                   onToggle={toggle}
                   onOpen={open}
@@ -614,25 +608,22 @@ function Body({
                   compare={data.compare}
                 />
               ))}
-              <TotalRow label="Korxona bo'yicha jami" rows={all} compareLabel={data.compareLabel} />
             </tbody>
           </RTable>
           </CmpContext.Provider>
           <TableNote>
             {!cmpOn && (
               <>
-                {cap(data.compareLabel)} ({previousPeriod}) uchun ma&apos;lumot yo&apos;q — solishtirish o&apos;rniga ulush ko&apos;rsatildi (korxona jamiga nisbatan).{' '}
+                {cap(data.compareLabel)} ({previousPeriod}) uchun ma&apos;lumot yo&apos;q — solishtirish o&apos;rniga ulush ko&apos;rsatildi (hududlar jamiga nisbatan).{' '}
               </>
             )}
-            Qatorni bosing — tagida ochiladi (tumanlar, xarajat tarkibi, mashinalar …); ikki marta bosing — ichiga kirasiz. Ma&apos;lumot Daromadlar, Xarajatlar va Xodimlar bo&apos;limlaridan olinadi. Rentabellik — foyda ÷ daromad.
+            Qatorni bosing — tagida ochiladi (tumanlar, xarajat tarkibi, mashinalar …); ikki marta bosing — ichiga kirasiz. Ma&apos;lumot Daromadlar, Xarajatlar va Xodimlar bo&apos;limlaridan olinadi. Rentabellik — foyda ÷ daromad. Markaz, yo&apos;nalishlar, Markazni qoplash va korxona natijasi — «Umumiy» sahifasida.
             Raqamni bosing — qanday hisoblangani ko&apos;rinadi.
           </TableNote>
         </ReportCard>
         </DrillProvider>
       ) : (
-        <ReportCard title="Markazni qoplash" badge={period}>
-          <CenterCoverView regions={activeRegions} center={center ?? null} onOpen={open} range={data.range} section={data.section} compare={data.compare} />
-        </ReportCard>
+        <RegionModel tab={view} />
       )}
 
       <RegionCard data={data} stats={openKey ? (all.find((s) => s.unit.key === openKey) ?? null) : null} regions={activeRegions} onClose={() => setOpenKey(null)} />

@@ -38,9 +38,9 @@ export const INTROS: Record<string, PageIntro> = {
     how: 'Har yorliq bitta savolga javob beradi. Tarkib — «Daromad» va «Xarajat» sahifalarida, birliklar natijasi — Solishtirmada, DEA va prognoz — «Katta modellar»da.',
   },
   '/solishtirma': {
-    what: 'Hududlar va Markaz yonma-yon: kim qancha daromad keltirdi, qancha xarajat qildi va natijasi.',
+    what: 'Viloyatlar yonma-yon: kim qancha daromad keltirdi, qancha xarajat qildi va natijasi; hududlar modellari (panel, prognoz, salohiyat, KPI, stsenariy, samaradorlik, zararsizlik).',
     from: `${BOTH_SRC}, Xodimlar bo'limi`,
-    how: "Viloyatni bosing — tumanlar, tumanni bosing — xizmatlar va xodimlar ochiladi. Markaz — yuqoridagi «Markaz» yorlig'ida.",
+    how: "Viloyatni bosing — tumanlar, tumanni bosing — xizmatlar va xodimlar ochiladi. Markaz, yo'nalishlar va korxona natijasi — «Umumiy» sahifasida.",
   },
   '/hudud-reja': {
     what: "Kelasi oy uchun statistik prognoz: jami, hududlar, xizmatlar va xodimlar rejasi; prognoz aniqligi (tarixiy test) va ma'lumotlar to'liqligi.",
@@ -246,7 +246,7 @@ export const INTROS: Record<string, PageIntro> = {
     how: 'Chapdan formulani tanlang, parametrlarni belgilang — natija va izoh pastda chiqadi.',
   },
   '/katta-modellar': {
-    what: 'Prognoz, omillar, samaradorlik, zararsizlik, stsenariy va risk — kelajak va sabablar.',
+    what: 'Korxona modellari: prognoz, omillar, stsenariy va risk — kelajak va sabablar. Hududlar modellari — Solishtirma › Hududlar sahifasida.',
     from: `${BOTH_SRC}, Xodimlar bo'limi`,
     how: "O'tgan oy tanlansa — modellar o'sha oy oxiridagi holat bo'yicha (prognozni haqiqat bilan solishtirish uchun).",
   },

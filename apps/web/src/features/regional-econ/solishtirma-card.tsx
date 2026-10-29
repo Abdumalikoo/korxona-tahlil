@@ -41,7 +41,7 @@ export function SolishtirmaModelsCard() {
             {compact(d.totals.forecastResultTiyin)} <span className="text-xs font-normal text-(--color-text-muted)">· salohiyatdan foydalanish {share(d.totals.utilization)}</span>
           </p>
         </div>
-        <Link href="/katta-modellar?tab=panel" className="ml-auto whitespace-nowrap rounded-(--radius-control) bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600">
+        <Link href="/solishtirma?m=panel" className="ml-auto whitespace-nowrap rounded-(--radius-control) bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600">
           Hududlar paneli →
         </Link>
       </div>

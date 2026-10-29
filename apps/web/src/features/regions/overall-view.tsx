@@ -34,9 +34,9 @@ import { cn } from '@/lib/utils';
 import { unitByCode } from '@/lib/segments';
 import { useMemo, useState } from 'react';
 import { KIND_LABEL, regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
-import { centerCover } from './center-cover';
 import { UnassignedDrawer } from './unassigned-drawer';
-import { CoverTable, MonthsTable } from './overall-tables';
+import { MonthsTable } from './overall-tables';
+import { CenterCoverView } from './center-cover-view';
 import { UnitTree } from './overall-tree';
 import { BridgeTree } from './bridge-tree';
 import { DrillProvider } from '@/features/explore/drill';
@@ -195,11 +195,6 @@ function Body({
   const centerNet = center ? center.expense - center.income : 0;
   const coverage = centerNet > 0 ? (regProfit / centerNet) * 100 : null;
   const label = cap(data.compareLabel);
-
-  const cover = centerCover(
-    activeRegions.map((s) => ({ key: s.unit.key, code: s.unit.code, name: s.unit.name, income: s.income, profit: s.profit })),
-    centerNet,
-  );
 
   /** Boshqa yorliqdan birlikni bosish — natija jadvalida ochib, unga o'tish */
   const open = (s: UnitStats) => {
@@ -376,13 +371,19 @@ function Body({
       {view === 'months' && <MonthsTable units={units} months={data.months} range={data.range} onOpen={open} />}
 
       {view === 'cover' && center && activeRegions.length > 0 && (
-        <CoverTable
-          cover={cover}
-          onOpenCode={(code) => {
-            const u = activeRegions.find((x) => x.unit.code === code);
-            if (u) open(u);
-          }}
-        />
+        <ReportCard title="Markazni qoplash: har bir hudud ulushi" badge={period}>
+          <CenterCoverView
+            regions={activeRegions}
+            center={center}
+            onOpen={(key) => {
+              const u = activeRegions.find((x) => x.unit.key === key);
+              if (u) open(u);
+            }}
+            range={data.range}
+            section={data.section}
+            compare={data.compare}
+          />
+        </ReportCard>
       )}
 
       {view === 'bridge' && <BridgeTree center={center} regions={activeRegions} segments={segments} unassigned={unassigned} compareLabel={data.compareLabel} period={`Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}`} notes={data.notes} />}

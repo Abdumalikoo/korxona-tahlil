@@ -8,14 +8,12 @@ import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useState, type ReactNode } from 'react';
 import { KIND_ORDER, type UnitPart, type UnitStats } from './api';
-import type { CoverResult } from './center-cover';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Umumiy — aniq jadvallar (grafiklar sahifa oxirida):
 //   • UnitDetail       — umumiy jadvalda qator ochilsa: daromad va xarajat tarkibi (joriy / o'tgan / o'zgarish / ulush)
 //   • CompareTable     — har bir birlik: daromad, xarajat, natija, rentabellik, xodimlar — joriy va o'tgan davr
 //   • MonthsTable      — birliklar × oylar: daromad / xarajat / natija
-//   • CoverTable       — Markazni qoplash: har bir hudud qancha beradi, qancha qoladi
 // Hamma summalar to'liq (so'm) — «qisqa» tugmasi bilan mln/mlrd ko'rinishiga o'tadi.
 // ═══════════════════════════════════════════════════════════
 
@@ -412,116 +410,6 @@ export function MonthsTable({ units, months, range, onOpen }: { units: UnitStats
       <p className="border-t border-(--color-line) px-5 py-2 text-[11px] text-(--color-text-faint)">
         «Jami» — jadvaldagi hamma oylar yig&apos;indisi ({formatPeriod(months[0] ?? '')} — {formatPeriod(months[months.length - 1] ?? '')}); tanlangan davr jamisi yuqoridagi jadvallarda.
       </p>
-    </Card>
-  );
-}
-
-// ───────────────────────── Markazni qoplash ─────────────────────────
-
-const STATUS: Record<'full' | 'partial' | 'none', { label: string; cls: string }> = {
-  full: { label: "To'liq ulush", cls: 'bg-(--color-income-soft) text-(--color-income)' },
-  partial: { label: 'Borini beradi', cls: 'bg-(--color-warn-soft) text-(--color-warn)' },
-  none: { label: 'Zararda', cls: 'bg-(--color-expense-soft) text-(--color-expense)' },
-};
-
-export function CoverTable({ cover, onOpenCode }: { cover: CoverResult; onOpenCode: (code: number | null | undefined) => void }) {
-  const [fmt, setFmt] = useState<Fmt>('full');
-  const [open, setOpen] = useState(true);
-  const t = cover.rows.reduce((a, r) => ({ income: a.income + r.income, profit: a.profit + r.profit, equal: a.equal + r.equalShare, equalRest: a.equalRest + r.equalRest, share: a.share + r.share, rest: a.rest + r.rest }), { income: 0, profit: 0, equal: 0, equalRest: 0, share: 0, rest: 0 });
-  const exportCsv = () =>
-    downloadCsv(
-      'markazni-qoplash.csv',
-      ['Hudud', "Daromad (so'm)", "Foyda (so'm)", "Teng ulush (so'm)", "Teng taqsimdan keyin (so'm)", "Optimal ulush (so'm)", 'Markazni qoplash %', 'Foydasidan %', "Qolgan foyda (so'm)", 'Qolgan rentabellik %', 'Holat'],
-      cover.rows.map((r) => [r.name, csvSom(r.income), csvSom(r.profit), csvSom(r.equalShare), csvSom(r.equalRest), csvSom(r.share), csvPct(r.coverPct), csvPct(r.ofProfitPct), csvSom(r.rest), csvPct(r.restMargin), STATUS[r.status].label]),
-    );
-  return (
-    <Card className="overflow-hidden rounded-2xl">
-      <Head
-        title="Markazni qoplash: har bir hudud ulushi"
-        hint={
-          <>
-            Markaz sof xarajati <b className="tabular-nums text-heading">{money(cover.centerNet, 'full')}</b> so&apos;m hududlar foydasidan qoplanadi. «Teng» — har hududga {money(cover.equalShare, 'full')} so&apos;m; «optimal» — hech bir hudud zararga
-            tushmaydigan eng tekis taqsim.
-          </>
-        }
-      >
-        <FmtToggle value={fmt} onChange={setFmt} />
-        <SmallButton onClick={exportCsv}>CSV</SmallButton>
-        <SmallButton onClick={() => setOpen((v) => !v)}>{open ? 'Yig‘ish' : 'Ochish'}</SmallButton>
-      </Head>
-      {open && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] border-collapse whitespace-nowrap text-[13px]">
-            <thead>
-              <tr className="border-y border-(--color-line) bg-[#f3f6fd]">
-                <th className={cn(TH, 'w-8 text-center')}>#</th>
-                <th className={cn(TH, 'text-left')}>Hudud</th>
-                <th className={cn(TH, 'text-right')}>Daromad</th>
-                <th className={cn(TH, 'text-right')}>Foyda</th>
-                <th className={cn(TH, 'border-l border-(--color-line) text-right')}>Teng ulush</th>
-                <th className={cn(TH, 'text-right')}>Teng taqsimdan keyin</th>
-                <th className={cn(TH, 'border-l border-(--color-line) text-right')}>Optimal ulush</th>
-                <th className={cn(TH, 'text-right')}>Markazdan %</th>
-                <th className={cn(TH, 'text-right')}>Foydasidan %</th>
-                <th className={cn(TH, 'border-l border-(--color-line) text-right')}>Qolgan foyda</th>
-                <th className={cn(TH, 'text-right')}>Qolgan rent.</th>
-                <th className={cn(TH, 'text-center')}>Holat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cover.rows.map((r, i) => (
-                <tr key={r.key} onClick={() => onOpenCode(r.code)} className="cursor-pointer border-b border-(--color-line) hover:bg-(--color-surface-muted)">
-                  <td className="px-2 py-2 text-center text-xs text-(--color-text-faint) tabular-nums">{i + 1}</td>
-                  <td className="px-2.5 py-2 font-medium">{r.name}</td>
-                  <td className="px-2.5 py-2 text-right tabular-nums">{money(r.income, fmt)}</td>
-                  <td className={cn('px-2.5 py-2 text-right font-semibold tabular-nums', r.profit < 0 && 'text-(--color-expense)')}>{money(r.profit, fmt)}</td>
-                  <td className="border-l border-(--color-line) px-2.5 py-2 text-right tabular-nums text-(--color-text-muted)">{money(r.equalShare, fmt)}</td>
-                  <td className={cn('px-2.5 py-2 text-right tabular-nums', r.equalRest < 0 ? 'font-semibold text-(--color-expense)' : 'text-(--color-text-muted)')}>{money(r.equalRest, fmt)}</td>
-                  <td className="border-l border-(--color-line) px-2.5 py-2 text-right font-semibold tabular-nums text-heading">{money(r.share, fmt)}</td>
-                  <td className="px-2.5 py-2 text-right tabular-nums">{pct(r.coverPct)}</td>
-                  <td className="px-2.5 py-2 text-right tabular-nums text-(--color-text-muted)">{pct(r.ofProfitPct)}</td>
-                  <td className={cn('border-l border-(--color-line) px-2.5 py-2 text-right font-semibold tabular-nums', r.rest < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{money(r.rest, fmt)}</td>
-                  <td className="px-2.5 py-2 text-right tabular-nums">{pct(r.restMargin)}</td>
-                  <td className="px-2.5 py-2 text-center">
-                    <span className={cn('inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUS[r.status].cls)}>{STATUS[r.status].label}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-t-(--color-text-faint) bg-[#eef2f8] font-semibold text-heading">
-                <td />
-                <td className="px-2.5 py-2.5">Jami ({cover.rows.length} ta hudud)</td>
-                <td className="px-2.5 py-2.5 text-right tabular-nums">{money(t.income, fmt)}</td>
-                <td className="px-2.5 py-2.5 text-right tabular-nums">{money(t.profit, fmt)}</td>
-                <td className="border-l border-(--color-line) px-2.5 py-2.5 text-right tabular-nums">{money(t.equal, fmt)}</td>
-                <td className="px-2.5 py-2.5 text-right tabular-nums">{money(t.equalRest, fmt)}</td>
-                <td className="border-l border-(--color-line) px-2.5 py-2.5 text-right tabular-nums">{money(t.share, fmt)}</td>
-                <td className="px-2.5 py-2.5 text-right tabular-nums">{pct(cover.centerNet > 0 ? (t.share / cover.centerNet) * 100 : null)}</td>
-                <td />
-                <td className="border-l border-(--color-line) px-2.5 py-2.5 text-right tabular-nums">{money(t.rest, fmt)}</td>
-                <td className="px-2.5 py-2.5 text-right tabular-nums">{pct(t.income > 0 ? (t.rest / t.income) * 100 : null)}</td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-      <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-(--color-line) px-5 py-2.5 text-xs text-(--color-text-muted)">
-        <span>
-          Qoplandi: <b className="tabular-nums text-heading">{money(cover.covered, 'full')}</b> ({pct(cover.centerNet > 0 ? (cover.covered / cover.centerNet) * 100 : null)})
-        </span>
-        {cover.shortfall > 0 ? (
-          <span className="text-(--color-expense)">
-            Yetishmovchilik: <b className="tabular-nums">{money(cover.shortfall, 'full')}</b>
-          </span>
-        ) : (
-          <span className="text-(--color-income)">
-            Qoplagandan ortgan foyda: <b className="tabular-nums">{money(cover.surplus, 'full')}</b>
-          </span>
-        )}
-        <span>Teng bo&apos;linsa zararga tushadigan hududlar: {cover.equalLosers}</span>
-      </div>
     </Card>
   );
 }
