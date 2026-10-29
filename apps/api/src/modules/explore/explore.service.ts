@@ -387,6 +387,30 @@ export class ExploreService {
 
   // ───────────────────────── Daromad ─────────────────────────
 
+  /**
+   * Birliklar daraxti (tartib: Markaz, Hududlar, yo'nalishlar, Biriktirilmagan):
+   *  byPart = false — Hududlar → viloyatlar → qismlar (xizmatlar / moddalar);
+   *  byPart = true  — Hududlar → qismlar → viloyatlar. center — Markaz uchun o'z tuguni (bo'lmasa — qismlari bilan).
+   */
+  private unitTree(K: Kind, s: Sets, lk: Lookups, units: string[], parts: (base: Filter, kids?: (code: string) => Node[]) => Node[], byPart: boolean, center?: Node): Node[] {
+    const regionUnits = units.filter((u) => u.startsWith('r:'));
+    const viloyatlar = (base: Filter) => ExploreService.tidy(regionUnits.map((u) => this.node(K, s, lk, u, this.unitLabel(u, lk), { ...base, unit: u })));
+    const tree = ExploreService.tidy([
+      center ?? this.node(K, s, lk, 'center', 'Markaz', { unit: 'center' }, parts({ unit: 'center' })),
+      this.node(
+        K, s, lk, 'regions', 'Hududlar', { unit: 'regions' },
+        byPart
+          ? parts({ unit: 'regions' }, (code) => viloyatlar({ cats: [code] }))
+          : ExploreService.tidy(regionUnits.map((u) => this.node(K, s, lk, u, this.unitLabel(u, lk), { unit: u }, parts({ unit: u })))),
+      ),
+      // Yo'nalishlar — har biri alohida: qismlari bilan
+      ...this.segmentsOf(s).map((k) => this.node(K, s, lk, k, this.unitLabel(k, lk), { unit: k }, parts({ unit: k }))),
+      this.node(K, s, lk, 'none', 'Biriktirilmagan', { unit: 'none' }, parts({ unit: 'none' })),
+    ]);
+    const ORDER = ['center', 'regions', ...SEGMENT_KEYS, 'none'];
+    return tree.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
+  }
+
   async income(from?: string, to?: string) {
     const r = ranges(from, to);
     const [lk, s, ps] = await Promise.all([this.lookups(), this.sets('income', r), this.sets('income', r, true)]);
@@ -398,17 +422,13 @@ export class ExploreService {
     const catNode = (code: string, base: Filter, children?: (c: string) => Node[]) =>
       this.node(K, s, lk, `c:${code}`, this.catLabel(K, code, lk), { ...base, cats: [code] }, children?.(code));
 
-    // 1) Asosiy daraxt: Markaz → moddalar → bo'limlar; Hududlar → moddalar → hududlar
-    const tree = ExploreService.tidy([
-      this.node(K, s, lk, 'center', 'Markaz', { unit: 'center' }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: 'center' }, (code) => ExploreService.tidy(deps.map((d) => this.node(K, s, lk, `d:${d}`, this.depLabel(d, lk), { unit: 'center', cats: [code], dep: d }))))))),
-      this.node(K, s, lk, 'regions', 'Hududlar', { unit: 'regions' }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: 'regions' }, (code) => ExploreService.tidy(regionUnits.map((u) => this.node(K, s, lk, u, this.unitLabel(u, lk), { unit: u, cats: [code] }))))))),
-      // Yo'nalishlar — har biri alohida bo'lim: moddalar → (Markazdagidek) ichiga kiriladi
-      ...this.segmentsOf(s).map((k) => this.node(K, s, lk, k, this.unitLabel(k, lk), { unit: k }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: k }))))),
-      this.node(K, s, lk, 'none', 'Biriktirilmagan', { unit: 'none' }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: 'none' })))),
-    ]);
-    // Daraxtdagi tartib: Markaz, Hududlar, yo'nalishlar, Biriktirilmagan
-    const ORDER = ['center', 'regions', ...SEGMENT_KEYS, 'none'];
-    tree.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
+    // 1) Asosiy daraxt: Markaz → xizmatlar → bo'limlar; Hududlar → viloyatlar → xizmatlar (treeByPart: xizmatlar → viloyatlar);
+    //    keyin yo'nalishlar va Biriktirilmagan — xizmatlari bilan
+    const centerNode = this.node(K, s, lk, 'center', 'Markaz', { unit: 'center' }, ExploreService.tidy(cats.map((c) => catNode(c, { unit: 'center' }, (code) => ExploreService.tidy(deps.map((d) => this.node(K, s, lk, `d:${d}`, this.depLabel(d, lk), { unit: 'center', cats: [code], dep: d })))))));
+    const incomeParts = (base: Filter, kids?: (code: string) => Node[]) => ExploreService.tidy(cats.map((c) => catNode(c, base, kids)));
+    const tree = this.unitTree(K, s, lk, units, incomeParts, false, centerNode);
+    const treeByPart = this.unitTree(K, s, lk, units, incomeParts, true, centerNode);
+    void regionUnits;
 
     // 2) Moddalar → birliklar (Markaz va har bir hudud)
     const categories = ExploreService.tidy(cats.map((c) => catNode(c, {}, (code) => ExploreService.tidy(units.map((u) => this.node(K, s, lk, u, this.unitLabel(u, lk), { unit: u, cats: [code] }))))));
@@ -443,6 +463,7 @@ export class ExploreService {
         bySegment: this.bySegment(K, s, lk),
       },
       tree,
+      treeByPart,
       categories,
       regions,
       departments,
@@ -499,6 +520,10 @@ export class ExploreService {
     const tree = this.expenseTree(s, lk, {}, units, true);
     const roots = tree.map((n) => ({ code: n.f.cats![0]!, label: n.label }));
     const rootNodes = (base: Filter) => ExploreService.tidy(roots.map((c) => this.node(K, s, lk, `c:${c.code}`, c.label, { ...base, cats: [c.code] })));
+    // Birliklar bo'yicha: Markaz → moddalar; Hududlar → viloyatlar → moddalar (unitTreeByPart: moddalar → viloyatlar); yo'nalishlar
+    const expenseParts = (base: Filter, kids?: (code: string) => Node[]) => ExploreService.tidy(roots.map((c) => this.node(K, s, lk, `c:${c.code}`, c.label, { ...base, cats: [c.code] }, kids?.(c.code))));
+    const unitTree = this.unitTree(K, s, lk, units, expenseParts, false);
+    const unitTreeByPart = this.unitTree(K, s, lk, units, expenseParts, true);
 
     const regions = units.map((u) => this.node(K, s, lk, u, this.unitLabel(u, lk), { unit: u }, rootNodes({ unit: u }))).filter(ExploreService.nonEmpty);
     const departments = ExploreService.tidy(deps.map((d) => this.node(K, s, lk, `d:${d}`, this.depLabel(d, lk), { dep: d }, rootNodes({ dep: d }))));
@@ -529,6 +554,8 @@ export class ExploreService {
         bySegment: this.bySegment(K, s, lk),
       },
       tree,
+      unitTree,
+      unitTreeByPart,
       regions,
       departments,
       months,

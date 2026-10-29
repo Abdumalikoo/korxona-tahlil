@@ -26,6 +26,8 @@ const OPEN_COL: ExtraCol = { key: 'open', label: "To'lanmagan", hint: 'Debitorli
 export function IncomeExplorer({ range }: { range: DateRange }) {
   const res = useAsync(() => exploreApi.income(range.from, range.to).then((r) => r.data), [range.from, range.to]);
   const [cut, setCut] = useState<Cut>('categories');
+  // Hudud ichi: viloyatlar → xizmatlar yoki xizmat turlari → viloyatlar
+  const [regionBy, setRegionBy] = useState<'regions' | 'parts'>('regions');
   if (res.loading && !res.data) return <LoadingState />;
   if (res.error) return <ErrorState message={res.error} onRetry={res.reload} />;
   const d = res.data!;
@@ -52,7 +54,27 @@ export function IncomeExplorer({ range }: { range: DateRange }) {
           </p>
         ) : null}
 
-        <DrillTable nodes={d.tree} title="Daromad tarkibi: qayerdan keldi" description="Markaz → moddalar → bo'limlar; Hududlar → moddalar → hududlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar" root={ROOT} openDepth={1} extra={[OPEN_COL]} total={t} csv="Daromad tarkibi" />
+        <DrillTable
+          key={regionBy}
+          nodes={regionBy === 'parts' && d.treeByPart ? d.treeByPart : d.tree}
+          title="Daromad tarkibi: qayerdan keldi"
+          description={regionBy === 'parts' ? "Markaz → xizmatlar → bo'limlar; Hududlar → xizmat turlari → viloyatlar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar" : "Markaz → xizmatlar → bo'limlar; Hududlar → viloyatlar → xizmatlar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar"}
+          root={ROOT}
+          openDepth={1}
+          extra={[OPEN_COL]}
+          total={t}
+          csv="Daromad tarkibi"
+          actions={
+            <Switch
+              value={regionBy}
+              onChange={setRegionBy}
+              options={[
+                { value: 'regions', label: 'Hudud: viloyatlar bo‘yicha' },
+                { value: 'parts', label: 'Xizmat turlari bo‘yicha' },
+              ]}
+            />
+          }
+        />
 
         <DrillTable
           key={cut}

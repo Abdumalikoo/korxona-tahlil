@@ -96,6 +96,8 @@ export type SegmentVals = UnitVals & { key: string; label: string };
 export interface IncomeExplore extends Header {
   totals: UnitVals & { received: number; quantity: number; center: UnitVals; regions: UnitVals; none: UnitVals; segments?: UnitVals; bySegment?: SegmentVals[] };
   tree: XNode[];
+  /** Hududlar → xizmat turlari → viloyatlar (tree — Hududlar → viloyatlar → xizmatlar) */
+  treeByPart?: XNode[];
   categories: XNode[];
   regions: XNode[];
   departments: XNode[];
@@ -107,6 +109,9 @@ export interface IncomeExplore extends Header {
 export interface ExpenseExplore extends Header {
   totals: UnitVals & { paid: number; unpaidCount: number; center: UnitVals; regions: UnitVals; none: UnitVals; segments?: UnitVals; bySegment?: SegmentVals[] };
   tree: XNode[];
+  /** Birliklar bo'yicha: Markaz, Hududlar → viloyatlar → moddalar, yo'nalishlar (…ByPart — Hududlar → moddalar → viloyatlar) */
+  unitTree?: XNode[];
+  unitTreeByPart?: XNode[];
   regions: XNode[];
   departments: XNode[];
   months: Months;

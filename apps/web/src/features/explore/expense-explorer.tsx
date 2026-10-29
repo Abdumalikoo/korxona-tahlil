@@ -31,6 +31,8 @@ const OPEN_COL: ExtraCol = { key: 'open', label: "To'lanmagan", hint: "Kreditorl
 export function ExpenseExplorer({ range }: { range: DateRange }) {
   const res = useAsync(() => exploreApi.expense(range.from, range.to).then((r) => r.data), [range.from, range.to]);
   const [cut, setCut] = useState<Cut>('regions');
+  // Hudud ichi: viloyatlar → moddalar yoki moddalar → viloyatlar
+  const [regionBy, setRegionBy] = useState<'regions' | 'parts'>('regions');
   if (res.loading && !res.data) return <LoadingState />;
   if (res.error) return <ErrorState message={res.error} onRetry={res.reload} />;
   const d = res.data!;
@@ -56,6 +58,30 @@ export function ExpenseExplorer({ range }: { range: DateRange }) {
             {som(t.none.cur)} so&apos;m xarajatda hudud, bo&apos;lim yoki yo&apos;nalish (Tax free …) ko&apos;rsatilmagan — ular Markaz, Hududlar va yo&apos;nalishlar ustunlariga kirmaydi.
           </p>
         ) : null}
+
+        {/* Birliklar bo'yicha: Markaz, Hudud (viloyatlar / moddalar tugmasi), yo'nalishlar */}
+        {d.unitTree && (
+          <DrillTable
+            key={`unit-${regionBy}`}
+            nodes={regionBy === 'parts' && d.unitTreeByPart ? d.unitTreeByPart : d.unitTree}
+            title="Xarajat tarkibi: qayerga ketdi"
+            description={regionBy === 'parts' ? "Markaz → moddalar; Hududlar → moddalar → viloyatlar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar" : "Markaz → moddalar; Hududlar → viloyatlar → moddalar; yo'nalishlar. › bosilsa ichi ochiladi, summa bosilsa — yozuvlar"}
+            root={ROOT}
+            openDepth={1}
+            total={t}
+            csv="Xarajat tarkibi"
+            actions={
+              <Switch
+                value={regionBy}
+                onChange={setRegionBy}
+                options={[
+                  { value: 'regions', label: 'Hudud: viloyatlar bo‘yicha' },
+                  { value: 'parts', label: 'Moddalar bo‘yicha' },
+                ]}
+              />
+            }
+          />
+        )}
 
         <DrillTable nodes={d.tree} title="Xarajat moddalari: pul nimaga sarflandi" description="Guruh → ichki moddalar. › bosilsa ichi ochiladi; Markaz / Hududlar / yo'nalishlar ustunlari ham bosiladi" nameHeader="Modda" root={ROOT} openDepth={1} extra={unitCols} total={t} csv="Xarajat moddalari" note="To‘lanmagan summalar — «Kesimlar» jadvalida va yuqoridagi «To‘lanmagan» kartochkasida." />
 
