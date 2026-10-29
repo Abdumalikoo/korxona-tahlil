@@ -159,8 +159,10 @@ const row = (o) => ({ dir: 'OUT', inn: '300000001', purpose: '', amountTiyin: '1
   assert.strictEqual((await svc.group(gA.key, '2026-01', '2026-02')).suggestion, null, 'yo‘naltirish yo‘q — taklif yo‘q');
   const rowsA = (await svc.group(gA.key, '2026-01', '2026-02')).rows;
   await svc.route({ items: [{ account: rowsA[0].account, rowId: rowsA[0].id }], place: { unit: 'CENTER', departmentId: 'dAUP' }, categoryCode: 'KOMM', section: 'DOIMIY' }, 'adm');
-  const sA = (await svc.group(gA.key, '2026-01', '2026-02')).suggestion;
-  assert.deepStrictEqual([sA.basis, sA.place.unit, sA.place.departmentId, sA.categoryCode, sA.section, sA.count], ['GROUP', 'CENTER', 'dAUP', 'KOMM', 'DOIMIY', 1]);
+  // Guruhda yo'naltirilmagan to'lov qolmadi — taklif kerak emas; keyingi oy shunday to'lov kelsa — oldingi tanlov
+  assert.strictEqual((await svc.group(gA.key, '2026-01', '2026-02')).suggestion, null);
+  const sA = svc.suggester(await svc.store())({ ...rowsA[0], id: 'keyingi-oy' });
+  assert.deepStrictEqual([sA.basis, sA.place.unit, sA.place.departmentId, sA.categoryCode, sA.section, sA.count], [R.contractRef(rowsA[0].purpose) ? 'CONTRACT' : 'GROUP', 'CENTER', 'dAUP', 'KOMM', 'DOIMIY', 1]);
   const sB = (await svc.group(gB.key, '2026-01', '2026-02')).suggestion;
   assert.deepStrictEqual([sB.basis, sB.categoryCode], ['COUNTERPARTY', 'KOMM'], 'izohi boshqa guruh — kontragent bo‘yicha');
   assert.strictEqual((await svc.group(byInn(v.groups, '300000012')[0].key, '2026-01', '2026-02')).suggestion, null, 'boshqa kontragent');

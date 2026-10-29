@@ -13,7 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { parseBankStatement, parseDate, text, type StatementChecks } from '../unit-bank/unit-bank.service';
 import { buildPivot, parsePivotQuery, pivotWorkbook } from './bank-analysis.pivot';
 import { findOutliers, type OutlierCode } from './bank-outliers';
-import { accountKey, accountLabel, accountTail, BANK_KIND_LABEL, counterpartyKey, groupKey, kindMatch, purposeKey, rowId, type BankDir, type BankKind } from './bank-analysis.rules';
+import { accountKey, accountLabel, accountTail, BANK_KIND_LABEL, contractRef, counterpartyKey, groupKey, kindMatch, purposeKey, purposeTokens, rowId, type BankDir, type BankKind } from './bank-analysis.rules';
 import { accountCode, counterpartyMemory, groupVerdict, INVOICE_STORE_KEY, KIND_RULES_KEY, MAX_KIND_RULES, prepareRules, readKindRules, rowVerdict, type KindContext, type KindVerdict } from './kind-engine';
 
 // ═══════════════════════════════════════════════════════════
@@ -36,6 +36,8 @@ import { accountCode, counterpartyMemory, groupVerdict, INVOICE_STORE_KEY, KIND_
 export const BANK_ANALYSIS_KEY = 'bank.analysis.store';
 const MAX_ROWS = 30000;
 const MAX_ITEMS = 3000;
+/** Izoh mazmuni o'xshashligi chegarasi (og'irlikli Jaccard): bundan past — «o'xshash» emas, taklif qilinmaydi */
+const SIMILAR_MIN = 0.45;
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 export const cap = (v: unknown, n: number) => text(v).slice(0, n);
 const dayDate = (day: string) => new Date(`${day.slice(0, 10)}T12:00:00+05:00`);
@@ -128,6 +130,36 @@ export interface BankPost {
   cancelReason: string | null;
 }
 
+/** Yo'naltirish taklifi — oldingi yo'naltirishdan: joy, modda, bo'lim (foydalanuvchi ko'rib tasdiqlaydi) */
+export interface RouteSuggestion {
+  /** Nimaga qarab: shu shartnoma, shu guruh (aynan o'xshash izoh), izoh mazmuni o'xshash to'lov yoki shu kontragent (doim bir xil) */
+  basis: 'CONTRACT' | 'GROUP' | 'SIMILAR' | 'COUNTERPARTY';
+  /** SIMILAR: izohlar o'xshashligi (%) va o'xshagan oldingi izoh */
+  score?: number;
+  matched?: string;
+  /** Tanlov kaliti (joy, modda, bo'lim) — takliflarni solishtirish uchun */
+  combo: string;
+  place: BankPlace;
+  categoryCode: string;
+  categoryLabel: string;
+  section: 'DOIMIY' | 'BOSHQA';
+  at: string;
+  /** Shu tanlov necha marta qilingan */
+  count: number;
+}
+
+export const suggestionCombo = (p: Pick<BankPost, 'place' | 'categoryCode' | 'section'>) => [p.place.unit, p.place.departmentId ?? '', p.place.regionCode ?? '', p.place.districtId ?? '', p.categoryCode, p.section].join('|');
+
+/** Bir nechta to'lovning umumiy taklifi: eng ko'p uchragani; mixed — takliflar har xil yoki bir qismida yo'q (bitta tanlov bilan yo'naltirib bo'lmaydi) */
+export function commonSuggestion(list: (RouteSuggestion | null)[]): { suggestion: RouteSuggestion | null; mixed: boolean } {
+  const has = list.filter((s): s is RouteSuggestion => s !== null);
+  if (!has.length) return { suggestion: null, mixed: false };
+  const by = new Map<string, RouteSuggestion[]>();
+  for (const s of has) by.set(s.combo, [...(by.get(s.combo) ?? []), s]);
+  const best = [...by.values()].sort((a, b) => b.length - a.length)[0]!;
+  return { suggestion: best[0]!, mixed: by.size > 1 || has.length < list.length };
+}
+
 /** Guruhga foydalanuvchi bergan nom va tur (o'xshashlik kaliti bo'yicha — keyingi oylarda ham qo'llanadi) */
 interface GroupMeta {
   name: string | null;
@@ -154,6 +186,11 @@ export interface Store {
    * Hech qanday yozuv yaratilmaydi va o'chirilmaydi — faqat ish ro'yxatidan yashiriladi; qaytarish mumkin. Tahlil va jamilarga ta'sir qilmaydi.
    */
   dismissed: Record<string, BankDismiss>;
+  /**
+   * `${hisob}:${qator}` → «aniqlashtirishda»: aniq tahlil talab qiladi (nima ekanligi, qayerga yozilishi) — tuzatilgach
+   * yo'naltiriladi (shunda belgi o'zi olinadi) yoki bekor qilinadi. Ish ro'yxatidan alohida turadi.
+   */
+  clarify: Record<string, BankDismiss>;
 }
 
 export interface BankDismiss {
@@ -171,6 +208,7 @@ export function readStore(raw: unknown): Store {
     posts: Array.isArray(v.posts) ? (v.posts as BankPost[]) : [],
     groups: v.groups && typeof v.groups === 'object' && !Array.isArray(v.groups) ? (v.groups as Record<string, GroupMeta>) : {},
     dismissed: v.dismissed && typeof v.dismissed === 'object' && !Array.isArray(v.dismissed) ? (v.dismissed as Record<string, BankDismiss>) : {},
+    clarify: v.clarify && typeof v.clarify === 'object' && !Array.isArray(v.clarify) ? (v.clarify as Record<string, BankDismiss>) : {},
   };
 }
 
@@ -215,8 +253,12 @@ export class BankAnalysisService {
   // ═══════════ Manbaga xos qoidalar (faktura tahlili o'zgartiradi) ═══════════
 
   /** To'lov qaysi oyga tegishli (bank — hujjat sanasi oyi) */
+  /**
+   * Tahlil oyi — bank vipiskasidagidek ishlov (o'tkazilgan) sanasi bo'yicha: hujjati dekabrda yozilib, yanvarda o'tgan to'lov — yanvar.
+   * Saqlash (oy bo'yicha almashtirish) esa hujjat sanasi bo'yicha qoladi — qayta yuklashda takror bo'lmasin.
+   */
   protected periodOf(r: BankAnRow): string {
-    return r.docDate.slice(0, 7);
+    return r.procDate && /^\d{4}-\d{2}-\d{2}$/.test(r.procDate) ? r.procDate.slice(0, 7) : r.docDate.slice(0, 7);
   }
 
   /** O'xshashlik kaliti */
@@ -240,6 +282,7 @@ export class BankAnalysisService {
   protected entryDate(r: BankAnRow): Date {
     const p = this.periodOf(r);
     if (r.docDate.startsWith(p)) return dayDate(r.docDate);
+    if (r.procDate && r.procDate.startsWith(p)) return dayDate(r.procDate);
     const [y, m] = p.split('-').map(Number) as [number, number];
     const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
     return dayDate(`${p}-${String(last).padStart(2, '0')}`);
@@ -454,7 +497,7 @@ export class BankAnalysisService {
   }
 
   /** O'xshashlar guruhi: oyma-oy, o'sib boruvchi, turi, muntazamligi, yo'naltirilgani */
-  protected groups(rows: (BankAnRow & { account: string })[], months: string[], posted: Map<string, BankPost>, withRows = false, meta: Record<string, GroupMeta> = {}, ctx: KindContext = { rules: [], memory: new Map() }, dismissed: Record<string, BankDismiss> = {}) {
+  protected groups(rows: (BankAnRow & { account: string })[], months: string[], posted: Map<string, BankPost>, withRows = false, meta: Record<string, GroupMeta> = {}, ctx: KindContext = { rules: [], memory: new Map() }, dismissed: Record<string, BankDismiss> = {}, clarify: Record<string, BankDismiss> = {}) {
     const map = new Map<string, { key: string; dir: BankDir; rows: (BankAnRow & { account: string })[] }>();
     for (const r of rows) {
       const k = this.keyOf(r);
@@ -470,8 +513,11 @@ export class BankAnalysisService {
       let postedCount = 0;
       let postedTiyin = 0n;
       let dismissedCount = 0;
+      let clarifyCount = 0;
       for (const r of g.rows) {
-        if (!posted.has(rk(r.account, r.id)) && dismissed[rk(r.account, r.id)]) dismissedCount += 1;
+        const k0 = rk(r.account, r.id);
+        if (!posted.has(k0) && dismissed[k0]) dismissedCount += 1;
+        else if (!posted.has(k0) && clarify[k0]) clarifyCount += 1;
         const p = this.periodOf(r);
         if (p in byMonth) {
           byMonth[p]! += big(r.amountTiyin);
@@ -547,22 +593,42 @@ export class BankAnalysisService {
         postedTiyin: postedTiyin.toString(),
         /** Yo'naltirmasdan ro'yxatdan chiqarilgani */
         dismissedCount,
-        /** Hali ko'rib chiqilmagani (yo'naltirilmagan va chiqarilmagan) */
-        openCount: g.rows.length - postedCount - dismissedCount,
+        /** Aniqlashtirishda (aniq tahlil talab qiladi) */
+        clarifyCount,
+        /** Hali ko'rib chiqilmagani (yo'naltirilmagan, bekor qilinmagan, aniqlashtirishda emas) */
+        openCount: g.rows.length - postedCount - dismissedCount - clarifyCount,
         ...(withRows ? { rowIds: sorted.map((r) => r.id) } : {}),
       };
     });
     return list.sort((a, b) => (big(b.totalTiyin) > big(a.totalTiyin) ? 1 : big(b.totalTiyin) < big(a.totalTiyin) ? -1 : a.counterparty.localeCompare(b.counterparty)));
   }
 
-  /** Tanlangan davr: oyma-oy jami (chiqim, kirim), o'sib boruvchi, turlar, guruhlar */
-  async view(from: string, to: string, account?: string | null) {
+  /** Aniqlashtirishda turgan to'lov: yo'naltirilmagan, ro'yxatdan chiqarilmagan, «Aniqlashtirish» belgisi bor */
+  protected inClarify(store: Store, posted: Map<string, BankPost>, r: BankAnRow & { account: string }) {
+    const k = rk(r.account, r.id);
+    return !posted.has(k) && !store.dismissed[k] && Boolean(store.clarify[k]);
+  }
+
+  /** Tanlangan davr: oyma-oy jami (chiqim, kirim), o'sib boruvchi, turlar, guruhlar.
+   *  only = 'clarify' — «Aniqlashtirish» sahifasi: faqat aniqlashtirishdagi to'lovlar, guruhlarda qolgan ish sifatida */
+  async view(from: string, to: string, account?: string | null, only?: string | null) {
     const months = this.range(from, to);
     const store = await this.store();
     const acc = account && store.accounts[account] ? account : null;
-    const rows = this.rowsIn(store, months, acc);
     const posted = this.postedMap(store);
-    const groups = this.groups(rows, months, posted, false, store.groups, await this.kindContext(store), store.dismissed);
+    const clarifyOnly = only === 'clarify';
+    const all = this.rowsIn(store, months, acc);
+    const rows = clarifyOnly ? all.filter((r) => this.inClarify(store, posted, r)) : all;
+    const groups = this.groups(rows, months, posted, false, store.groups, await this.kindContext(store), store.dismissed, clarifyOnly ? {} : store.clarify);
+    // Har guruhning qolgan (ochiq) to'lovlari uchun oldingi yo'naltirishdan taklif — ro'yxatda ogohlantirish belgisi bilan ko'rinadi
+    const suggest = this.suggester(store);
+    const openSuggestions = new Map<string, (RouteSuggestion | null)[]>();
+    for (const r of rows) {
+      const k = rk(r.account, r.id);
+      if (posted.has(k) || store.dismissed[k] || (!clarifyOnly && store.clarify[k])) continue;
+      const gk = this.keyOf(r);
+      openSuggestions.set(gk, [...(openSuggestions.get(gk) ?? []), suggest(r)]);
+    }
     const series = months.map((p) => {
       const list = rows.filter((r) => this.periodOf(r) === p);
       return {
@@ -624,11 +690,16 @@ export class BankAnalysisService {
         },
         /** Yo'naltirmasdan ro'yxatdan chiqarilganlar (davrda) */
         dismissed: rows.filter((r) => !posted.has(rk(r.account, r.id)) && store.dismissed[rk(r.account, r.id)]).length,
+        /** Aniqlashtirishda (davrda) */
+        clarify: rows.filter((r) => !posted.has(rk(r.account, r.id)) && !store.dismissed[rk(r.account, r.id)] && store.clarify[rk(r.account, r.id)]).length,
       },
       kinds: [...byKind.values()]
         .sort((a, b) => (a.dir === b.dir ? (b.total > a.total ? 1 : -1) : a.dir === 'OUT' ? -1 : 1))
         .map((k) => ({ dir: k.dir, kind: k.kind, label: k.label, count: k.count, groups: k.groups, totalTiyin: k.total.toString(), sharePct: (k.dir === 'OUT' ? outTotal : inTotal) > 0n ? Number((k.total * 10000n) / (k.dir === 'OUT' ? outTotal : inTotal)) / 100 : 0, byMonth: Object.fromEntries(Object.entries(k.byMonth).map(([p, v]) => [p, v.toString()])) })),
-      groups,
+      groups: groups.map((g) => {
+        const common = commonSuggestion(openSuggestions.get(g.key) ?? []);
+        return { ...g, suggestion: common.suggestion, suggestionMixed: common.mixed };
+      }),
     };
   }
 
@@ -750,19 +821,22 @@ export class BankAnalysisService {
   }
 
   /** Bitta guruh: har to'lov — sana, hujjat, oluvchi, summa, izohi (aynan o'zidek), sizning izohingiz, yo'naltirilgani */
-  async group(key: string, from: string, to: string, account?: string | null) {
+  async group(key: string, from: string, to: string, account?: string | null, only?: string | null) {
     if (typeof key !== 'string' || !key || key.length > 400) throw new BadRequestException("Guruh noto'g'ri");
     const months = this.range(from, to);
     const store = await this.store();
     const acc = account && store.accounts[account] ? account : null;
     const posted = this.postedMap(store);
+    const suggest = this.suggester(store);
     const rows = this.rowsIn(store, months, acc)
-      .filter((r) => this.keyOf(r) === key)
+      .filter((r) => this.keyOf(r) === key && (only !== 'clarify' || this.inClarify(store, posted, r)))
       .sort((a, b) => a.docDate.localeCompare(b.docDate) || a.docNo.localeCompare(b.docNo))
       .map((r) => {
         const p = posted.get(rk(r.account, r.id));
         const note = store.notes[rk(r.account, r.id)];
         return {
+          // Oldingi yo'naltirishdan taklif — faqat hali yo'naltirilmagan / chiqarilmagan to'lovga
+          suggestion: !p && !store.dismissed[rk(r.account, r.id)] ? suggest(r) : null,
           ...r,
           period: this.periodOf(r),
           accountLabel: store.accounts[r.account]?.label ?? r.account,
@@ -770,44 +844,156 @@ export class BankAnalysisService {
           noteBy: note ? `${note.by} · ${note.at}` : null,
           post: p ? { id: p.id, batch: p.batch, place: p.place.label, categoryLabel: p.categoryLabel, section: p.section, description: p.description, entryType: p.entryType, createdAt: p.createdAt, createdBy: p.createdBy } : null,
           dismissed: !p ? (store.dismissed[rk(r.account, r.id)] ?? null) : null,
+          clarify: !p && !store.dismissed[rk(r.account, r.id)] ? (store.clarify[rk(r.account, r.id)] ?? null) : null,
         };
       });
-    return { key, rows, totalTiyin: rows.reduce((s, r) => s + big(r.amountTiyin), 0n).toString(), suggestion: this.routeSuggestion(store, key) };
+    // Guruh taklifi — qolgan (ochiq) to'lovlarniki; har xil bo'lsa (masalan, turli shartnomalar) — mixed
+    const open = rows.filter((r) => !r.post && !r.dismissed && (only === 'clarify' || !r.clarify));
+    const common = commonSuggestion(open.map((r) => r.suggestion));
+    return { key, rows, totalTiyin: rows.reduce((s, r) => s + big(r.amountTiyin), 0n).toString(), suggestion: common.suggestion, suggestionMixed: common.mixed };
   }
 
   /**
-   * Yo'naltirish taklifi (joy, modda, bo'lim): shu guruhning oxirgi yo'naltirishi; bo'lmasa — shu kontragentning (INN,
-   * yo'nalish) eng ko'p takrorlangan yo'naltirishi. Faqat taklif — yozish foydalanuvchi tasdiqlaganda (route).
+   * Nomma-nom (vipiska kabi): davrdagi hamma to'lov — sana, ishlov sanasi, № hujjat, nomi, INN, MFO, summa, maqsad,
+   * guruhi, izohingiz, yo'naltirilgani / bekor qilingani. dir — faqat chiqim yoki kirim (bo'lmasa — hammasi).
    */
-  protected routeSuggestion(store: Store, key: string) {
-    const posts = store.posts.filter((p) => p.status === 'POSTED');
-    if (!posts.length) return null;
+  async rowsList(from: string, to: string, account?: string | null, dirRaw?: string | null) {
+    const months = this.range(from, to);
+    const store = await this.store();
+    const acc = account && store.accounts[account] ? account : null;
+    const dir: BankDir | null = dirRaw === 'IN' || dirRaw === 'OUT' ? dirRaw : null;
+    const posted = this.postedMap(store);
+    const suggest = this.suggester(store);
+    const rows = this.rowsIn(store, months, acc)
+      .filter((r) => !dir || r.dir === dir)
+      .sort((a, b) => a.docDate.localeCompare(b.docDate) || (a.procDate ?? '').localeCompare(b.procDate ?? '') || a.docNo.localeCompare(b.docNo, undefined, { numeric: true }))
+      .map((r) => {
+        const k = rk(r.account, r.id);
+        const p = posted.get(k);
+        const note = store.notes[k];
+        const gk = this.keyOf(r);
+        return {
+          ...r,
+          period: this.periodOf(r),
+          accountLabel: store.accounts[r.account]?.label ?? r.account,
+          groupKey: gk,
+          groupName: store.groups[gk]?.name ?? null,
+          suggestion: !p && !store.dismissed[k] ? suggest(r) : null,
+          note: note ? note.comment : null,
+          noteBy: note ? `${note.by} · ${note.at}` : null,
+          post: p ? { id: p.id, batch: p.batch, place: p.place.label, categoryLabel: p.categoryLabel, section: p.section, description: p.description, entryType: p.entryType, createdAt: p.createdAt, createdBy: p.createdBy } : null,
+          dismissed: !p ? (store.dismissed[k] ?? null) : null,
+          clarify: !p && !store.dismissed[k] ? (store.clarify[k] ?? null) : null,
+        };
+      });
+    return { from: months[0]!, to: months[months.length - 1]!, rows, totalTiyin: rows.reduce((s, r) => s + big(r.amountTiyin), 0n).toString() };
+  }
+
+  /** Shartnoma kaliti: yo'nalish, kontragent va izohdagi shartnoma raqami (raqam bo'lmasa — null) */
+  protected contractKey(r: BankAnRow): string | null {
+    const ref = contractRef(r.purpose);
+    return ref ? `${r.dir}|${counterpartyKey(r.inn, r.accountName)}|${ref}` : null;
+  }
+
+  /**
+   * Yo'naltirish taklifi (joy, modda, bo'lim) har to'lov uchun — oldingi yo'naltirishlardan, aniqligi bo'yicha:
+   * 1) shu kontragentning shu shartnomasi (izohdagi raqam) — oxirgisi; 2) shu guruh (o'xshash izoh) — oxirgisi;
+   * 3) shu kontragent (INN, yo'nalish) — eng ko'p takrorlangani. Faqat taklif — yozish foydalanuvchi tasdiqlaganda (route).
+   * Yo'naltirishlar bir marta indekslanadi — ko'p to'lov uchun ham tez.
+   */
+  protected suggester(store: Store): (r: BankAnRow) => RouteSuggestion | null {
     const rowsBy = new Map<string, BankAnRow>();
     for (const a of Object.values(store.accounts)) for (const m of Object.values(a.months)) for (const r of m.rows) rowsBy.set(rk(a.key, r.id), r);
-    const combo = (p: BankPost) => [p.place.unit, p.place.departmentId ?? '', p.place.regionCode ?? '', p.place.districtId ?? '', p.categoryCode, p.section].join('|');
-    const out = (p: BankPost, basis: 'GROUP' | 'COUNTERPARTY', count: number) => ({ basis, place: p.place, categoryCode: p.categoryCode, categoryLabel: p.categoryLabel, section: p.section, at: p.createdAt, count });
-    const latest = (l: BankPost[]) => l.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
-
-    const own = posts.filter((p) => {
+    const byContract = new Map<string, BankPost[]>();
+    const byGroup = new Map<string, BankPost[]>();
+    const byParty = new Map<string, BankPost[]>();
+    // Guruh / kontragentda yo'naltirilgan shartnomalar bor-yo'qligi — yangi shartnomaga boshqasining tanlovi taklif qilinmasin
+    const groupHasContract = new Set<string>();
+    const partyHasContract = new Set<string>();
+    const push = <T>(m: Map<string, T[]>, k: string, p: T) => m.set(k, [...(m.get(k) ?? []), p]);
+    // Kontragent: tashkilot — INN (yoki nomi), jismoniy shaxs — ismi (hammasi bitta «person» bo'lib ketmasin)
+    const partyKey = (r: BankAnRow) => {
+      const k = counterpartyKey(r.inn, r.accountName);
+      if (k === 'name:—') return null;
+      return `${r.dir}|${k === 'person' ? `person:${String(r.accountName ?? '').toLowerCase().replace(/\s+/g, ' ').trim()}` : k}`;
+    };
+    // Izoh mazmuni (o'xshashlik uchun): kontragentning har yo'naltirilgan to'lovi — so'zlari bilan
+    const byPartyText = new Map<string, { post: BankPost; tokens: string[]; purpose: string }[]>();
+    const df = new Map<string, number>();
+    let docs = 0;
+    for (const p of store.posts) {
+      if (p.status !== 'POSTED') continue;
       const r = rowsBy.get(rk(p.account, p.rowId));
-      return r ? this.keyOf(r) === key : false;
-    });
-    if (own.length) {
-      const last = latest(own);
-      return out(last, 'GROUP', own.filter((p) => combo(p) === combo(last)).length);
+      if (!r) continue;
+      const c = this.contractKey(r);
+      const gk = this.keyOf(r);
+      const party = partyKey(r);
+      if (c) {
+        push(byContract, c, p);
+        groupHasContract.add(gk);
+        if (party) partyHasContract.add(party);
+      }
+      push(byGroup, gk, p);
+      if (party) push(byParty, party, p);
+      const tokens = purposeTokens(r.purpose);
+      if (party && tokens.length) {
+        push(byPartyText, party, { post: p, tokens, purpose: r.purpose });
+        docs += 1;
+        for (const t of tokens) df.set(t, (df.get(t) ?? 0) + 1);
+      }
     }
-    const m = /^(OUT|IN)\|inn:(\d{9})\|/.exec(key);
-    if (!m) return null;
-    const same = posts.filter((p) => {
-      const r = rowsBy.get(rk(p.account, p.rowId));
-      return r ? r.dir === m[1] && String(r.inn ?? '').replace(/\D/g, '') === m[2] : false;
-    });
-    if (!same.length) return null;
-    const by = new Map<string, BankPost[]>();
-    for (const p of same) by.set(combo(p), [...(by.get(combo(p)) ?? []), p]);
-    // Eng ko'p takrorlangani; teng bo'lsa — eng so'nggisi
-    const best = [...by.values()].sort((a, b) => b.length - a.length || latest(b).createdAt.localeCompare(latest(a).createdAt))[0]!;
-    return out(latest(best), 'COUNTERPARTY', best.length);
+    // So'z og'irligi (IDF): kam uchraydigan so'z (masalan, «кондиционер») — kuchli, ko'p uchraydigan («услуги») — kuchsiz
+    const idf = (t: string) => Math.log(1 + (docs + 1) / ((df.get(t) ?? 0) + 1));
+    /** Og'irlikli Jaccard: umumiy so'zlar og'irligi / hamma so'zlar og'irligi (0…1) */
+    const similarity = (a: string[], b: string[]) => {
+      const sb = new Set(b);
+      let both = 0;
+      let all = 0;
+      for (const t of new Set([...a, ...b])) {
+        const w = idf(t);
+        all += w;
+        if (sb.has(t) && a.includes(t)) both += w;
+      }
+      return all > 0 ? both / all : 0;
+    };
+    const latest = (l: BankPost[]) => l.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+    const out = (list: BankPost[], p: BankPost, basis: RouteSuggestion['basis'], extra: Pick<RouteSuggestion, 'score' | 'matched'> = {}): RouteSuggestion => {
+      const combo = suggestionCombo(p);
+      return { basis, combo, place: p.place, categoryCode: p.categoryCode, categoryLabel: p.categoryLabel, section: p.section, at: p.createdAt, count: list.filter((x) => suggestionCombo(x) === combo).length, ...extra };
+    };
+    return (r) => {
+      const c = this.contractKey(r);
+      const lc = c ? byContract.get(c) : undefined;
+      if (lc) return out(lc, latest(lc), 'CONTRACT');
+      const gk = this.keyOf(r);
+      const party = partyKey(r);
+      // Yangi shartnoma (raqami bor, lekin yo'naltirilmagan), shu guruh / kontragentning boshqa shartnomalari esa bor — taxmin qilinmaydi
+      if (c && (groupHasContract.has(gk) || (party && partyHasContract.has(party)))) return null;
+      const lg = byGroup.get(gk);
+      if (lg) return out(lg, latest(lg), 'GROUP');
+      if (!party) return null;
+      // Izoh mazmuni: shu kontragentning eng o'xshash izohli yo'naltirilgan to'lovi (bitta kontragent har xil ish qilishi mumkin)
+      const tokens = purposeTokens(r.purpose);
+      const cands = byPartyText.get(party) ?? [];
+      if (tokens.length && cands.length) {
+        const scored = cands.map((x) => ({ ...x, score: similarity(tokens, x.tokens) })).filter((x) => x.score >= SIMILAR_MIN);
+        if (scored.length) {
+          // Tanlov (joy, modda, bo'lim) bo'yicha eng yuqori o'xshashlik; teng bo'lsa — ko'p qilingani, keyin so'nggisi
+          const byCombo = new Map<string, typeof scored>();
+          for (const x of scored) push(byCombo, suggestionCombo(x.post), x);
+          const best = [...byCombo.values()]
+            .map((l) => ({ l, top: l.reduce((a, b) => (b.score > a.score || (b.score === a.score && b.post.createdAt > a.post.createdAt) ? b : a)) }))
+            .sort((a, b) => b.top.score - a.top.score || b.l.length - a.l.length || b.top.post.createdAt.localeCompare(a.top.post.createdAt))[0]!;
+          return out(byParty.get(party) ?? [], best.top.post, 'SIMILAR', { score: Math.round(best.top.score * 100), matched: best.top.purpose.replace(/\s+/g, ' ').trim().slice(0, 160) });
+        }
+      }
+      // Kontragent bo'yicha — faqat u doim bir xil yo'naltirilgan bo'lsa (har xil bo'lsa va izoh o'xshamasa — taxmin qilinmaydi)
+      const lp = byParty.get(party);
+      if (!lp) return null;
+      const combos = new Set(lp.map(suggestionCombo));
+      if (combos.size !== 1) return null;
+      return out(lp, latest(lp), 'COUNTERPARTY');
+    };
   }
 
   // ═══════════ Izoh ═══════════
@@ -907,6 +1093,7 @@ export class BankAnalysisService {
         if (posted.has(k)) throw new BadRequestException(`${row.docDate.split('-').reverse().join('.')} № ${row.docNo || '—'}: yo'naltirilgan — avval yo'naltirishni bekor qiling`);
         if (store.dismissed[k]) continue;
         store.dismissed[k] = { at: now, by, reason };
+        delete store.clarify[k];
         count += 1;
         total += big(row.amountTiyin);
       }
@@ -915,6 +1102,57 @@ export class BankAnalysisService {
     });
     if (out.count) await this.audit.log({ userId, action: 'UPDATE', entity: `${this.entity}_dismiss`, entityId: list.map((x) => x.rowId).join(',').slice(0, 190), summary: `${this.sourceLabel}: ${out.count} ta to'lov ro'yxatdan chiqarildi (yo'naltirilmadi), ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm${reason ? ` — ${reason}` : ''}` });
     return { success: true as const, count: out.count, totalTiyin: out.total.toString() };
+  }
+
+  /**
+   * Aniqlashtirishga o'tkazish: items, note (nima aniqlanishi kerak — ixtiyoriy). Yozuv yaratilmaydi; to'lov ish ro'yxatidan
+   * «Aniqlashtirish» ro'yxatiga o'tadi. Yo'naltirilsa — belgi o'zi olinadi.
+   */
+  async clarify(body: { items?: unknown; note?: unknown }, userId: string) {
+    const list = this.items(body?.items);
+    const note = typeof body?.note === 'string' && body.note.trim() ? body.note.replace(/\s+/g, ' ').trim().slice(0, 300) : null;
+    const by = await this.userName(userId);
+    const out = await runExclusive(`setting:${this.key}`, async () => {
+      const store = await this.store();
+      const posted = this.postedMap(store);
+      const now = new Date().toISOString();
+      let count = 0;
+      let total = 0n;
+      for (const it of list) {
+        const row = this.findRow(store, it.account, it.rowId);
+        if (!row) throw new NotFoundException("To'lov topilmadi — sahifani yangilang");
+        const k = rk(it.account, it.rowId);
+        if (posted.has(k)) throw new BadRequestException(`${row.docDate.split('-').reverse().join('.')} № ${row.docNo || '—'}: yo'naltirilgan — aniqlashtirish kerak bo'lsa, avval yo'naltirishni bekor qiling`);
+        delete store.dismissed[k];
+        store.clarify[k] = { at: now, by, reason: note ?? store.clarify[k]?.reason ?? null };
+        count += 1;
+        total += big(row.amountTiyin);
+      }
+      if (count) await this.save(store);
+      return { count, total };
+    });
+    if (out.count) await this.audit.log({ userId, action: 'UPDATE', entity: `${this.entity}_clarify`, entityId: list.map((x) => x.rowId).join(',').slice(0, 190), summary: `${this.sourceLabel}: ${out.count} ta to'lov aniqlashtirishga o'tkazildi, ${(Number(out.total) / 100).toLocaleString('uz-UZ')} so'm${note ? ` — ${note}` : ''}` });
+    return { success: true as const, count: out.count, totalTiyin: out.total.toString() };
+  }
+
+  /** Aniqlashtirishdan ish ro'yxatiga qaytarish: items */
+  async unclarify(body: { items?: unknown }, userId: string) {
+    const list = this.items(body?.items);
+    const count = await runExclusive(`setting:${this.key}`, async () => {
+      const store = await this.store();
+      let n = 0;
+      for (const it of list) {
+        const k = rk(it.account, it.rowId);
+        if (store.clarify[k]) {
+          delete store.clarify[k];
+          n += 1;
+        }
+      }
+      if (n) await this.save(store);
+      return n;
+    });
+    if (count) await this.audit.log({ userId, action: 'UPDATE', entity: `${this.entity}_clarify`, entityId: list.map((x) => x.rowId).join(',').slice(0, 190), summary: `${this.sourceLabel}: ${count} ta to'lov aniqlashtirishdan qaytarildi` });
+    return { success: true as const, count };
   }
 
   /** Ro'yxatga qaytarish: items: [{ account, rowId }] */
@@ -935,6 +1173,41 @@ export class BankAnalysisService {
     });
     if (count) await this.audit.log({ userId, action: 'UPDATE', entity: `${this.entity}_dismiss`, entityId: list.map((x) => x.rowId).join(',').slice(0, 190), summary: `${this.sourceLabel}: ${count} ta to'lov ro'yxatga qaytarildi` });
     return { success: true as const, count };
+  }
+
+  /**
+   * To'lovni saqlangan ko'chirmadan butunlay o'chirish: items: [{ account, rowId }]. Tahlil, grafik va jamilardan ham ketadi
+   * (fayl qayta yuklansa — yana paydo bo'ladi). Yo'naltirilganini o'chirib bo'lmaydi (avval yo'naltirishni bekor qiling).
+   */
+  async deleteRows(body: { items?: unknown }, userId: string) {
+    const list = this.items(body?.items);
+    const out = await runExclusive(`setting:${this.key}`, async () => {
+      const store = await this.store();
+      const posted = this.postedMap(store);
+      const hit: BankAnRow[] = [];
+      for (const it of list) {
+        const k = rk(it.account, it.rowId);
+        const row = this.findRow(store, it.account, it.rowId);
+        if (!row) throw new NotFoundException("To'lov topilmadi — sahifani yangilang");
+        if (posted.has(k)) throw new BadRequestException(`${row.docDate.split('-').reverse().join('.')} № ${row.docNo || '—'}: yo'naltirilgan — avval yo'naltirishni bekor qiling`);
+        for (const m of Object.values(store.accounts[it.account]!.months)) m.rows = m.rows.filter((x) => x.id !== it.rowId);
+        delete store.notes[k];
+        delete store.dismissed[k];
+        delete store.clarify[k];
+        hit.push(row);
+      }
+      await this.save(store);
+      return hit;
+    });
+    const total = out.reduce((s, r) => s + big(r.amountTiyin), 0n);
+    await this.audit.log({
+      userId,
+      action: 'DELETE',
+      entity: `${this.entity}_row`,
+      entityId: list.map((x) => x.rowId).join(',').slice(0, 190),
+      summary: `${this.sourceLabel}dan ${out.length} ta to'lov o'chirildi, ${(Number(total) / 100).toLocaleString('uz-UZ')} so'm: ${out.map((r) => `${r.docDate} № ${r.docNo || '—'}`).join('; ').slice(0, 400)}`,
+    });
+    return { success: true as const, count: out.length, totalTiyin: total.toString() };
   }
 
   // ═══════════ Guruh nomi va turi ═══════════
@@ -1127,7 +1400,7 @@ export class BankAnalysisService {
       r.regionCode ? this.prisma.region.findUnique({ where: { code: r.regionCode }, select: { name: true } }) : null,
       r.districtId ? this.prisma.district.findUnique({ where: { id: r.districtId }, select: { name: true } }) : null,
     ]);
-    const label = unit === 'CENTER' ? `Markaz${d ? ` › ${d.name}` : ''}` : unit === 'REGION' ? `${rg?.name ?? `${r.regionCode}-hudud`}${ds ? ` › ${ds.name}` : ''}` : entryUnitLabel(unit);
+    const label = unit === 'CENTER' ? `Markaz › ${d ? d.name : 'Umumiy'}` : unit === 'REGION' ? `${rg?.name ?? `${r.regionCode}-hudud`}${ds ? ` › ${ds.name}` : ''}` : entryUnitLabel(unit);
     return { unit, departmentId: r.departmentId, regionCode: r.regionCode, districtId: r.districtId, label };
   }
 
@@ -1236,6 +1509,7 @@ export class BankAnalysisService {
                   updatedBy: null,
                   source: 'BANK',
                   counterparty: row.accountName.slice(0, 200) || null,
+                  counterpartyInn: row.inn ? row.inn.slice(0, 20) : null,
                   documentNo: row.docNo.slice(0, 100) || null,
                 };
                 list.push(item);
@@ -1243,6 +1517,8 @@ export class BankAnalysisService {
               }
               await writeExcluded(tx, list);
               store.posts.push(...posts);
+              // Aniqlashtirilib yo'naltirildi — belgi olinadi
+              for (const p of posts) delete store.clarify[rk(p.account, p.rowId)];
               await this.save(store, tx);
               return posts;
             }),
@@ -1297,6 +1573,10 @@ export class BankAnalysisService {
               source: 'IMPORT' as const,
               section,
               createdById: userId,
+              // Bankdagi kontragent ma'lumoti: INN, MFO va asl to'lov maqsadi (izoh o'zgartirilsa ham qoladi)
+              counterpartyInn: row.inn ? row.inn.slice(0, 20) : null,
+              counterpartyMfo: row.mfo ? row.mfo.slice(0, 10) : null,
+              bankPurpose: row.purpose ? row.purpose.slice(0, 1000) : null,
             };
             const e =
               dir === 'OUT'
@@ -1305,6 +1585,8 @@ export class BankAnalysisService {
             posts.push({ id: randomUUID(), batch, account, rowId: row.id, period: this.periodOf(row), docDate: row.docDate, dir, amountTiyin: row.amountTiyin, place, categoryCode: code, categoryLabel, section, description, entryType: dir === 'OUT' ? 'EXPENSE' : 'INCOME', entryId: e.id, createdAt: now, createdBy: by, status: 'POSTED', cancelledAt: null, cancelReason: null });
           }
           store.posts.push(...posts);
+          // Aniqlashtirilib yo'naltirildi — belgi olinadi
+          for (const p of posts) delete store.clarify[rk(p.account, p.rowId)];
           // Ko'p bo'lsa — bekor qilinganlarning eskilari tashlanadi (yo'naltirilganlar doim qoladi)
           if (store.posts.length > 20000) {
             const cancelled = store.posts.filter((p) => p.status !== 'POSTED');

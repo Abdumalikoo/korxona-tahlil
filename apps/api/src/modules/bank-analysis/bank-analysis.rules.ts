@@ -114,7 +114,37 @@ export function purposeKey(purpose: string): string {
   return words.slice(0, 7).join(' ');
 }
 
-const ORG_FORMS = /(?<![\p{L}\p{N}])(ооо|оао|зао|ао|ап|чп|ип|мчж|аж|хк|хт|ук|ддп|гуп|дук|ddp|mchj|aj|xk|xt|ooo|llc|jsc)(?![\p{L}\p{N}])/giu;
+/**
+ * Izoh mazmuni so'zlari (o'xshashlik tahlili uchun): sana, raqam, summa, oy nomi va ortiqcha so'zlarsiz; so'z o'zagi —
+ * birinchi 6 harf (qo'shimchalar farq qilmasin: «электроэнергию» = «электроэнергия»). Takrorlanmaydi.
+ */
+export function purposeTokens(purpose: string): string[] {
+  const words = String(purpose ?? '')
+    .toLowerCase()
+    .replace(/[ʻʼ‘’`']/g, '')
+    .replace(MONTH_WORDS, ' ')
+    .replace(/\d+([.,/-]\d+)*/g, ' ')
+    .replace(/[№#%«»"()[\]{}:;,.!?*+=_/\\|-]+/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !NOISE_WORDS.has(w));
+  return [...new Set(words.map((w) => w.slice(0, 6)))];
+}
+
+const CONTRACT_REF =/(?<![\p{L}\p{N}])(?:договор\p{L}*|дог|шартнома\p{L}*|shartnoma\p{L}*|contract)[\s.:]*(?:№|#|n|no)?[\s.:]*([\p{L}\p{N}][\p{L}\p{N}/-]*)/giu;
+
+/**
+ * Shartnoma raqami izohdan («дог. № 12/3», «договор №ИН-45/2024», «шартнома 45-А») — oylar bo'yicha o'zgarmaydi,
+ * bir kontragentning turli shartnomalarini ajratadi (purposeKey raqamlarni tashlab yuboradi). Raqamsiz bo'lsa — null.
+ */
+export function contractRef(purpose: string): string | null {
+  for (const m of String(purpose ?? '').matchAll(CONTRACT_REF)) {
+    const ref = m[1]!.toUpperCase().replace(/[/-]+$/, '');
+    if (/\d/.test(ref)) return ref;
+  }
+  return null;
+}
+
+const ORG_FORMS =/(?<![\p{L}\p{N}])(ооо|оао|зао|ао|ап|чп|ип|мчж|аж|хк|хт|ук|ддп|гуп|дук|ddp|mchj|aj|xk|xt|ooo|llc|jsc)(?![\p{L}\p{N}])/giu;
 
 /** Oluvchi kaliti: tashkilot ИНН (9 xona); jismoniy shaxs (14 xonali PINFL) — bitta guruh; bo'lmasa nomi */
 export function counterpartyKey(inn: string, name: string): string {

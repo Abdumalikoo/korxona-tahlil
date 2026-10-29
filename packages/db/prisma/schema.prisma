@@ -191,6 +191,12 @@ model Expense {
   paymentMethod PaymentMethod @default(BANK)
   documentNo    String?
   counterparty  String?
+  /// Kontragent INN (bank ko'chirmasidan)
+  counterpartyInn String?
+  /// Kontragent banki MFO (bank ko'chirmasidan)
+  counterpartyMfo String?
+  /// Bankdagi asl to'lov maqsadi (izoh o'zgartirilsa ham saqlanadi)
+  bankPurpose     String?
 
   /// To'lov holati вЂ” kreditorlik qarzini kuzatish uchun
   paymentStatus PaymentStatus @default(PAID)
@@ -232,6 +238,7 @@ model Expense {
   @@index([regionCode, period])
   @@index([segment, period])
   @@index([section, period])
+  @@index([counterpartyInn])
   @@map("expenses")
   @@index([districtId, period])
   @@index([payrollBatchId])
@@ -271,6 +278,12 @@ model Income {
   clientName  String?
   description String?
   contractNo  String?
+  /// Mijoz (to'lovchi) INN (bank ko'chirmasidan)
+  counterpartyInn String?
+  /// To'lovchi banki MFO (bank ko'chirmasidan)
+  counterpartyMfo String?
+  /// Bankdagi asl to'lov maqsadi (izoh o'zgartirilsa ham saqlanadi)
+  bankPurpose     String?
 
   paymentStatus PaymentStatus @default(PAID)
   paymentMethod PaymentMethod @default(BANK)
@@ -297,6 +310,7 @@ model Income {
   @@index([regionCode, period])
   @@index([segment, period])
   @@index([section, period])
+  @@index([counterpartyInn])
   @@map("incomes")
   @@index([districtId, period])
 }

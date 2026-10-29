@@ -48,14 +48,21 @@ export class InvoiceAnalysisController {
 
   @Personal()
   @Get('view')
-  async view(@Query('from') from: string, @Query('to') to: string) {
-    return { data: await this.service.view(from, to, null) };
+  async view(@Query('from') from: string, @Query('to') to: string, @Query('only') only?: string) {
+    return { data: await this.service.view(from, to, null, only || null) };
+  }
+
+  /** Nomma-nom (vipiska kabi): davrdagi hamma to'lov (?dir=OUT|IN) */
+  @Personal()
+  @Get('rows')
+  async rows(@Query('from') from: string, @Query('to') to: string, @Query('account') account?: string, @Query('dir') dir?: string) {
+    return { data: await this.service.rowsList(from, to, account || null, dir || null) };
   }
 
   @Personal()
   @Get('group')
-  async group(@Query('key') key: string, @Query('from') from: string, @Query('to') to: string) {
-    return { data: await this.service.group(key, from, to, null) };
+  async group(@Query('key') key: string, @Query('from') from: string, @Query('to') to: string, @Query('only') only?: string) {
+    return { data: await this.service.group(key, from, to, null, only || null) };
   }
 
   @Roles(UserRole.ADMIN)
@@ -126,6 +133,30 @@ export class InvoiceAnalysisController {
   @HttpCode(HttpStatus.OK)
   async dismiss(@Body() body: { items?: unknown; reason?: unknown }, @CurrentUser('id') userId: string) {
     return { data: await this.service.dismiss(body, userId) };
+  }
+
+  /** To'lovni ko'chirmadan butunlay o'chirish: { items } (yo'naltirilganini emas) */
+  @Roles(UserRole.ADMIN)
+  @Post('rows/delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteRows(@Body() body: { items?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.deleteRows(body, userId) };
+  }
+
+  /** Aniqlashtirishga o'tkazish: { items, note? } (yozuv yaratilmaydi) */
+  @Roles(UserRole.ADMIN)
+  @Post('clarify')
+  @HttpCode(HttpStatus.OK)
+  async clarify(@Body() body: { items?: unknown; note?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.clarify(body, userId) };
+  }
+
+  /** Aniqlashtirishdan qaytarish: { items } */
+  @Roles(UserRole.ADMIN)
+  @Post('clarify/undo')
+  @HttpCode(HttpStatus.OK)
+  async unclarify(@Body() body: { items?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.unclarify(body, userId) };
   }
 
   /** Ro'yxatga qaytarish: { items } */
