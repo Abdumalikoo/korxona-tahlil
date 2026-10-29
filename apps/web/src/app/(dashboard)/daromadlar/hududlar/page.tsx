@@ -533,6 +533,36 @@ function AnalysisView({
         </Card>
       )}
 
+      {/* G'alati qiymatlar — saqlashdan oldin tekshirish (son va summa ustunlari adashganmi, ming so'mda yozilganmi) */}
+      {(analysis.anomalies?.length ?? 0) > 0 && (
+        <Card className="overflow-hidden border-amber-300">
+          <CardHeader
+            title={`G'alati qiymatlar — ${analysis.anomalies.length} ta`}
+            description="Saqlashdan oldin faylda tekshiring: bir dona narxi odatdagidan 20 baravar farq qiladi yoki summa juda kichik"
+          />
+          <CardBody className="max-h-56 overflow-y-auto">
+            <ul className="space-y-1.5 text-xs">
+              {analysis.anomalies.slice(0, 50).map((a, index) => (
+                <li key={index} className="flex flex-wrap items-baseline gap-x-2">
+                  <IconAlert className="size-3.5 shrink-0 self-center text-amber-600" />
+                  <span className="font-medium text-heading">
+                    {a.regionName}
+                    {a.districtName ? ` › ${a.districtName}` : ''}
+                  </span>
+                  <span className="text-(--color-text-muted)">{a.categoryLabel}</span>
+                  <span className="money">
+                    soni {a.quantity ?? '—'} · {formatTiyin(a.amountTiyin)} so&apos;m
+                    {a.unitTiyin ? ` · 1 dona ${formatTiyin(a.unitTiyin)}` : ''}
+                    {a.usualUnitTiyin ? ` (odatda ${formatTiyin(a.usualUnitTiyin)})` : ''}
+                  </span>
+                  <span className="text-amber-800">{a.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
       {analysis.hasPrevious && (
         <div className="rounded-(--radius-card) border border-(--color-warn) bg-(--color-warn-soft) px-4 py-3">
           <div className="flex items-start gap-2.5">

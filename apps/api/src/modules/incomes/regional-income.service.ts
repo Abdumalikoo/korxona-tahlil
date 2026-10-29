@@ -771,6 +771,7 @@ export class RegionalIncomeService {
     const previousCount = await this.prisma.income.count({
       where: { deletedAt: null, period, source: 'IMPORT', regionCode: { not: null } },
     });
+    const anomalies = await this.anomalies(period, rows);
 
     return {
       period,
@@ -786,11 +787,45 @@ export class RegionalIncomeService {
       unknownPlaces,
       invalidCells,
       quantityWithoutAmount,
+      /** G'alati qiymatlar (saqlashdan oldin ko'rib chiqish uchun): bir dona narxi odatdagidan 20 marta farq, juda kichik summa */
+      anomalies,
       hasPrevious: previousCount > 0,
       previousCount,
       regions: orderedRegions,
       rows,
     };
+  }
+
+  /**
+   * G'alati qiymatlar: shu xizmatning o'tgan 12 oydagi bir dona narxi medianasidan 20 baravardan ko'p farq (son va summa
+   * ustunlari adashgani yoki raqam noto'g'ri o'qilgani belgisi) yoki 1 000 so'mdan kichik summa. Faqat ogohlantirish.
+   */
+  private async anomalies(period: string, rows: ParsedRow[]) {
+    const [y, m] = period.split('-').map(Number) as [number, number];
+    const from = `${y - 1}-${String(m).padStart(2, '0')}`;
+    const history = await this.prisma.income.findMany({
+      where: { deletedAt: null, source: 'IMPORT', regionCode: { not: null }, period: { gte: from, lt: period }, quantity: { gt: 0 }, categoryCode: { in: [...new Set(rows.map((r) => r.categoryCode))] } },
+      select: { categoryCode: true, amountTiyin: true, quantity: true },
+    });
+    const prices = new Map<string, number[]>();
+    for (const h of history) prices.set(h.categoryCode, [...(prices.get(h.categoryCode) ?? []), Number(h.amountTiyin) / h.quantity!]);
+    const median = new Map<string, number>();
+    for (const [code, list] of prices) {
+      // Kam tarix (5 tadan oz) — medianaga ishonilmaydi
+      if (list.length < 5) continue;
+      list.sort((a, b) => a - b);
+      median.set(code, list[Math.floor(list.length / 2)]!);
+    }
+    const out: { regionName: string; districtName: string | null; categoryLabel: string; quantity: number | null; amountTiyin: bigint; unitTiyin: bigint | null; usualUnitTiyin: bigint | null; reason: string }[] = [];
+    for (const r of rows) {
+      const unit = r.quantity && r.quantity > 0 ? Number(r.amountTiyin) / r.quantity : null;
+      const med = median.get(r.categoryCode) ?? null;
+      let reason: string | null = null;
+      if (r.amountTiyin > 0n && r.amountTiyin < 100_000n) reason = "Summa 1 000 so'mdan kichik — ming so'mda yozilganmi?";
+      else if (unit !== null && med !== null && (unit > med * 20 || unit < med / 20)) reason = `Bir dona narxi odatdagidan ${unit > med ? Math.round(unit / med) : Math.round(med / unit)} baravar ${unit > med ? 'qimmat' : 'arzon'} — soni yoki summasi to'g'rimi?`;
+      if (reason) out.push({ regionName: r.regionName, districtName: r.districtName, categoryLabel: r.categoryLabel, quantity: r.quantity, amountTiyin: r.amountTiyin, unitTiyin: unit !== null ? BigInt(Math.round(unit)) : null, usualUnitTiyin: med !== null ? BigInt(Math.round(med)) : null, reason });
+    }
+    return out;
   }
 
   // ═══════════ Saqlash ═══════════

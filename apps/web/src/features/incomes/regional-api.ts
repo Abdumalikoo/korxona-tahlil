@@ -36,6 +36,8 @@ export interface RegionalAnalyzeResult {
   unknownServices: { sheet: string; rowIndex: number; label: string }[];
   /** Tanilmagan viloyat/tuman (ro'yxat ko'rinishidagi faylda) */
   unknownPlaces: { sheet: string; rowIndex: number; value: string }[];
+  /** G'alati qiymatlar: bir dona narxi odatdagidan 20 marta farq yoki juda kichik summa — saqlashdan oldin ko'rib chiqish */
+  anomalies: { regionName: string; districtName: string | null; categoryLabel: string; quantity: number | null; amountTiyin: string; unitTiyin: string | null; usualUnitTiyin: string | null; reason: string }[];
   hasPrevious: boolean;
   previousCount: number;
   regions: RegionalGroup[];
