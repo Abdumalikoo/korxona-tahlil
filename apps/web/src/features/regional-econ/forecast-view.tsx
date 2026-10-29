@@ -1,13 +1,13 @@
 'use client';
 
+import { changeOf, ExcelButton, Field, FilterBar, MoneyCell, NameCell, PctInline, PillTabs, ReportCard, RTable, SelectBox, StatTiles, STICKY_NAME, STICKY_NO, sum, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { MiniButton, NotesList } from '@/components/report/report-extra-b';
+import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { ErrorState, LoadingState } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
 import { FIELD } from '@/features/purchases/bits';
 import { compact, TONE } from '@/features/structure/api';
-import { KpiStrip, PanelHeader, Segmented, SmallButton } from '@/features/structure/parts';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
@@ -15,16 +15,15 @@ import { formatPeriodShort } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
-import { Fragment, useMemo, useState } from 'react';
-import { type BandT, fcApi, type FcAccuracy, type RegionalForecast, type RegionForecast, RELIABILITY, type Reliability, share } from './api';
-import { InsightList } from './performance-view';
+import { Fragment, type ReactNode, useMemo, useState } from 'react';
+import { type BandT, fcApi, type FcAccuracy, type Insight, type RegionalForecast, type RegionForecast, RELIABILITY, type Reliability, share } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Katta modellar › Hudud prognozi (3-bosqich): daromad (hudud × xizmat), ish haqi (xodim bo'yicha),
 // xarajat, Markaz ulushi va natija; o'tmishda sinalgan aniqlik; saqlangan versiyalar va prognoz–fakt.
+// Ko'rinish — Solishtirma hisobot uslubida (kartalar, filtrlar qatori, yorliqlar, jadvallar).
 // ═══════════════════════════════════════════════════════════
 
-const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)';
 type View = 'overview' | 'revenue' | 'payroll' | 'opex' | 'runs';
 const VIEWS: { value: View; label: string }[] = [
   { value: 'overview', label: 'Umumiy' },
@@ -43,10 +42,12 @@ const n = (t: string | null | undefined) => (t ? Number(t) : 0);
 const neg = (t: string) => n(t) < 0;
 const wapeText = (w: number | null) => (w === null ? '—' : `±${(w * 100).toFixed(1).replace('.', ',')}%`);
 const bandSum = (bs: BandT[]) => bs.reduce((s, b) => s + n(b.meanTiyin), 0);
+/** Oraliq: «1 234 … 5 678» (to'liq summa) */
+const rangeText = (b: BandT) => `${sum(b.loTiyin)} … ${sum(b.hiTiyin)}`;
 
 function RelBadge({ r, title }: { r: Reliability; title?: string }) {
   return (
-    <span className={cn('whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold', RELIABILITY[r].cls)} title={title}>
+    <span className={cn('inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold', RELIABILITY[r].cls)} title={title}>
       {RELIABILITY[r].label}
     </span>
   );
@@ -56,12 +57,49 @@ function AccCell({ a }: { a: FcAccuracy }) {
   if (a.wape === null) return <span className="text-(--color-text-faint)">sinalmagan</span>;
   const better = a.naiveWape !== null && a.wape < a.naiveWape;
   return (
-    <span title={`1 oy oldinga xato ${wapeText(a.wape)} (${a.points} marta sinaldi); oddiy usul (o'tgan oy) ${wapeText(a.naiveWape)}; 2 oy ${wapeText(a.byH[1] ?? null)}, 3 oy ${wapeText(a.byH[2] ?? null)}`}>
+    <span className="whitespace-nowrap" title={`1 oy oldinga xato ${wapeText(a.wape)} (${a.points} marta sinaldi); oddiy usul (o'tgan oy) ${wapeText(a.naiveWape)}; 2 oy ${wapeText(a.byH[1] ?? null)}, 3 oy ${wapeText(a.byH[2] ?? null)}`}>
       {wapeText(a.wape)}
-      {a.naiveWape !== null && <span className={cn('ml-1 text-[10px]', better ? 'text-(--color-income)' : 'text-amber-700')}>{better ? '▲' : '▼'} {wapeText(a.naiveWape)}</span>}
+      {a.naiveWape !== null && <span className={cn('ml-1 text-[11px] font-semibold', better ? 'text-(--color-income)' : 'text-(--color-warn)')}>{better ? '▲' : '▼'} {wapeText(a.naiveWape)}</span>}
     </span>
   );
 }
+
+/** Avtomatik xulosalar — hisobot kartasida */
+function InsightsCard({ items }: { items: Insight[] }) {
+  if (!items.length) return null;
+  const cls = {
+    bad: 'border-red-200 bg-red-50 text-red-900',
+    warn: 'border-amber-200 bg-amber-50 text-amber-900',
+    good: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    info: 'border-sky-100 bg-sky-50/60 text-sky-900',
+  };
+  const icon = { bad: '▼', warn: '!', good: '▲', info: 'i' };
+  return (
+    <ReportCard title="Avtomatik xulosalar" badge={`${items.length} ta`}>
+      <ul className="grid gap-2 px-5 pb-5 lg:grid-cols-2">
+        {items.map((it, i) => (
+          <li key={i} className={cn('flex gap-2.5 rounded-xl border px-3 py-2 text-sm leading-snug', cls[it.level])}>
+            <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-white/70 text-[10px] font-bold">{icon[it.level]}</span>
+            <span>{it.text}</span>
+          </li>
+        ))}
+      </ul>
+    </ReportCard>
+  );
+}
+
+/** Jadval boshidagi № va nom sarlavhalari */
+function HeadNo() {
+  return <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>;
+}
+function HeadName({ children, className }: { children: ReactNode; className?: string }) {
+  return <Th className={cn(STICKY_NAME, 'z-[2] min-w-44 text-left', className)}>{children}</Th>;
+}
+function NoCell({ i }: { i?: number }) {
+  return <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i ?? ''}</Td>;
+}
+/** Tanlangan qator foni */
+const SELECTED = '[&>td]:bg-brand-50';
 
 // ─────────────────────────── Grafik ───────────────────────────
 
@@ -161,45 +199,42 @@ export function RegionalForecastView() {
   const res = useAsync(() => fcApi.forecast(month, Number(h)).then((r) => r.data), [month, h]);
   const d = res.data;
   const header = (
-    <PanelHeader
-      title="Hudud prognozi"
-      description={d ? `${d.lastLabel} gacha haqiqiy ma'lumot asosida · ${d.periodLabels[0]} – ${d.periodLabels[d.periodLabels.length - 1]}` : 'Daromad, ish haqi, xarajat va natija — hududlar bo‘yicha'}
-      actions={
-        <>
-          <Segmented value={h} onChange={setH} options={HORIZONS} size="sm" />
-        </>
-      }
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Segmented value={view} onChange={setView} options={VIEWS} size="sm" />
+    <>
+      <FilterBar
+        actions={
+          <span className="max-w-[36rem] text-right text-xs text-(--color-text-muted)">
+            <b className="font-semibold text-heading">Hudud prognozi</b> ·{' '}
+            {d ? `${d.lastLabel} gacha haqiqiy ma'lumot asosida · ${d.periodLabels[0]} – ${d.periodLabels[d.periodLabels.length - 1]}` : 'Daromad, ish haqi, xarajat va natija — hududlar bo‘yicha'}
+          </span>
+        }
+      >
+        <Field label="Prognoz muddati">
+          <SelectBox value={h} options={HORIZONS} onChange={setH} className="min-w-28" />
+        </Field>
         {d && view !== 'runs' && (
-          <select value={region ?? ''} onChange={(e) => setRegion(e.target.value ? Number(e.target.value) : null)} className={cn(FIELD, 'h-8 w-60 text-xs')}>
-            <option value="">Barcha hududlar</option>
-            {d.regions.map((r) => (
-              <option key={r.code} value={r.code}>
-                {r.name}
-              </option>
-            ))}
-          </select>
+          <Field label="Hudud">
+            <SelectBox
+              value={region === null ? '' : String(region)}
+              options={[{ value: '', label: 'Barcha hududlar' }, ...d.regions.map((r) => ({ value: String(r.code), label: r.name }))]}
+              onChange={(v) => setRegion(v ? Number(v) : null)}
+              className="w-60"
+            />
+          </Field>
         )}
-      </div>
-    </PanelHeader>
+      </FilterBar>
+      <PillTabs value={view} onChange={setView} options={VIEWS} />
+    </>
   );
-  if (res.error) return <div className="space-y-4">{header}<Card><ErrorState message={res.error} onRetry={res.reload} /></Card></div>;
-  if (!d) return <div className="space-y-4">{header}<Card><LoadingState label="Modellar o'rgatilmoqda va o'tmishda sinalmoqda" /></Card></div>;
+  if (res.error || !d) return <div className="space-y-4">{header}<LoadingCard label="Modellar o'rgatilmoqda va o'tmishda sinalmoqda" error={res.error} onRetry={res.reload} /></div>;
   const sel = region === null ? null : (d.regions.find((r) => r.code === region) ?? null);
 
   return (
     <div className="space-y-4">
       {header}
       {d.notes.length > 0 && (
-        <Card className="border-l-4 border-l-amber-400">
-          <ul className="space-y-1 px-5 py-3 text-sm text-amber-900">
-            {d.notes.map((x) => (
-              <li key={x}>• {x}</li>
-            ))}
-          </ul>
-        </Card>
+        <ReportCard title="Diqqat" className="border-l-4 border-l-amber-400">
+          <NotesList notes={d.notes} />
+        </ReportCard>
       )}
       {view === 'overview' && <Overview d={d} sel={sel} onSelect={setRegion} />}
       {view === 'revenue' && <RevenueView d={d} sel={sel} onSelect={setRegion} />}
@@ -207,16 +242,9 @@ export function RegionalForecastView() {
       {view === 'opex' && <OpexView d={d} sel={sel} />}
       {view === 'runs' && <RunsView d={d} month={month} h={Number(h)} />}
       {view !== 'runs' && (
-        <Card>
-          <div className="px-5 py-4">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">Qanday hisoblanadi</h3>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-              {d.method.map((m) => (
-                <li key={m}>{m}</li>
-              ))}
-            </ul>
-          </div>
-        </Card>
+        <ReportCard title="Qanday hisoblanadi">
+          <NotesList notes={d.method} />
+        </ReportCard>
       )}
     </div>
   );
@@ -243,21 +271,26 @@ function Overview({ d, sel, onSelect }: SelProps) {
   const lr = n(scope.last.revenueTiyin);
   const fr = n(scope.revenue[0]!.meanTiyin);
   const insights = sel ? d.insights.filter((i) => i.regionCode === sel.code || i.regionCode === null) : d.insights;
+  const exportCsv = () =>
+    downloadCsv(
+      `Hudud-prognozi-${d.lastActual}-${d.horizon}oy.csv`,
+      ['Hudud', ...d.periodLabels.flatMap((p) => [`Daromad ${p}`, `Ish haqi ${p}`, `Xarajat ${p}`, `Markaz ulushi ${p}`, `Natija ${p}`, `Natija 80% past ${p}`, `Natija 80% yuqori ${p}`])],
+      d.regions.map((r) => [r.name, ...d.periods.flatMap((_, i) => [csvSom(r.revenue.forecast[i]!.meanTiyin), csvSom(r.payroll.forecast[i]!.meanTiyin), csvSom(r.opex.forecast[i]!.meanTiyin), csvSom(r.overhead.forecast[i]!.meanTiyin), csvSom(r.result[i]!.meanTiyin), csvSom(r.result[i]!.loTiyin), csvSom(r.result[i]!.hiTiyin)])]),
+      [],
+    );
   return (
     <>
-      <KpiStrip
+      <StatTiles
         items={[
-          { label: `Daromad · ${d.periodLabels[0]}`, value: `${compact(scope.revenue[0]!.meanTiyin)} so'm`, sub: `${d.lastLabel}: ${compact(scope.last.revenueTiyin)} (${lr ? share(fr / lr - 1, true) : '—'}) · aniqlik ${wapeText(scope.wape)}` },
-          { label: `Ish haqi · ${d.periodLabels[0]}`, value: `${compact(scope.payroll[0]!.meanTiyin)} so'm`, sub: `${d.lastLabel}: ${compact(scope.last.payrollTiyin)} · aniqlik ${wapeText(scope.pw)}` },
-          { label: `Xarajat va Markaz ulushi`, value: `${compact(String(n(scope.opex[0]!.meanTiyin) + n(scope.overhead[0]!.meanTiyin)))} so'm`, sub: `xarajat ${compact(scope.opex[0]!.meanTiyin)} + Markaz ${compact(scope.overhead[0]!.meanTiyin)}` },
-          { label: `Natija · ${d.periodLabels[0]}`, value: `${compact(r0.meanTiyin)} so'm`, valueClass: neg(r0.meanTiyin) ? 'text-(--color-expense)' : 'text-heading', sub: `80%: ${compact(r0.loTiyin)} … ${compact(r0.hiTiyin)} · davr jami ${compact(String(bandSum(scope.result)))}` },
+          { label: `Daromad · ${d.periodLabels[0]}`, value: fr, previous: lr || null, growthGood: true, tone: 'green', note: `${d.lastLabel}: ${compact(scope.last.revenueTiyin)} (${lr ? share(fr / lr - 1, true) : '—'}) · aniqlik ${wapeText(scope.wape)}` },
+          { label: `Ish haqi · ${d.periodLabels[0]}`, value: n(scope.payroll[0]!.meanTiyin), tone: 'purple', note: `${d.lastLabel}: ${compact(scope.last.payrollTiyin)} · aniqlik ${wapeText(scope.pw)}` },
+          { label: 'Xarajat va Markaz ulushi', value: n(scope.opex[0]!.meanTiyin) + n(scope.overhead[0]!.meanTiyin), tone: 'red', note: `xarajat ${compact(scope.opex[0]!.meanTiyin)} + Markaz ${compact(scope.overhead[0]!.meanTiyin)}` },
+          { label: `Natija · ${d.periodLabels[0]}`, value: n(r0.meanTiyin), signed: true, tone: 'blue', note: `80%: ${compact(r0.loTiyin)} … ${compact(r0.hiTiyin)}` },
+          { label: 'Natija · davr jami', value: bandSum(scope.result), signed: true, tone: 'cyan', note: `${d.periodLabels[0]} – ${d.periodLabels[d.periodLabels.length - 1]}` },
         ]}
       />
-      <Card>
-        <div className="px-5 pt-4">
-          <h3 className="text-sm font-bold text-heading">{sel ? sel.name : 'Barcha hududlar'}: daromad va xarajat (ish haqi + xarajat)</h3>
-        </div>
-        <div className="px-3 pb-3">
+      <ReportCard title={`${sel ? sel.name : 'Barcha hududlar'}: daromad va xarajat`} badge="xarajat = ish haqi + xarajat">
+        <div className="px-4 pb-4">
           <FcChart
             history={d.history}
             periods={d.periods}
@@ -267,81 +300,65 @@ function Overview({ d, sel, onSelect }: SelProps) {
             ]}
           />
         </div>
-      </Card>
-      <InsightList items={insights} />
-      <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-(--color-line) px-5 py-2.5">
-          <p className="text-xs text-(--color-text-muted)">Keyingi oy ({d.periodLabels[0]}) va butun davr · qatorni bosing — hudud tanlanadi</p>
-          <SmallButton
-            onClick={() =>
-              downloadCsv(
-                `Hudud-prognozi-${d.lastActual}-${d.horizon}oy.csv`,
-                ['Hudud', ...d.periodLabels.flatMap((p) => [`Daromad ${p}`, `Ish haqi ${p}`, `Xarajat ${p}`, `Markaz ulushi ${p}`, `Natija ${p}`, `Natija 80% past ${p}`, `Natija 80% yuqori ${p}`])],
-                d.regions.map((r) => [r.name, ...d.periods.flatMap((_, i) => [csvSom(r.revenue.forecast[i]!.meanTiyin), csvSom(r.payroll.forecast[i]!.meanTiyin), csvSom(r.opex.forecast[i]!.meanTiyin), csvSom(r.overhead.forecast[i]!.meanTiyin), csvSom(r.result[i]!.meanTiyin), csvSom(r.result[i]!.loTiyin), csvSom(r.result[i]!.hiTiyin)])]),
-                [],
-              )
-            }
-          >
-            CSV
-          </SmallButton>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm">
-            <thead className="bg-(--color-surface-muted) text-left">
-              <tr>
-                <th className={TH}>Hudud</th>
-                <th className={cn(TH, 'text-right')}>Daromad</th>
-                <th className={cn(TH, 'text-right')}>Ish haqi</th>
-                <th className={cn(TH, 'text-right')}>Xarajat</th>
-                <th className={cn(TH, 'text-right')}>Markaz ulushi</th>
-                <th className={cn(TH, 'text-right')}>Natija (80% oraliq)</th>
-                <th className={cn(TH, 'text-right')}>Davr natijasi</th>
-                <th className={TH}>Ishonchlilik</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.regions.map((r) => {
-                const lr2 = n(r.last.revenueTiyin);
-                const f0 = n(r.revenue.forecast[0]!.meanTiyin);
-                return (
-                  <tr key={r.code} onClick={() => onSelect(sel?.code === r.code ? null : r.code)} className={cn('cursor-pointer border-t border-(--color-line) hover:bg-brand-50/40', sel?.code === r.code && 'bg-brand-50/70', !r.hasData && 'opacity-50')}>
-                    <td className="px-3 py-2 font-medium text-heading">{r.name}</td>
-                    <td className="money px-3 py-2 text-right">
-                      {compact(r.revenue.forecast[0]!.meanTiyin)}
-                      {lr2 > 0 && <div className={cn('text-[11px]', f0 < lr2 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{share(f0 / lr2 - 1, true)}</div>}
-                    </td>
-                    <td className="money px-3 py-2 text-right">{compact(r.payroll.forecast[0]!.meanTiyin)}</td>
-                    <td className="money px-3 py-2 text-right">{compact(r.opex.forecast[0]!.meanTiyin)}</td>
-                    <td className="money px-3 py-2 text-right text-(--color-text-muted)">{compact(r.overhead.forecast[0]!.meanTiyin)}</td>
-                    <td className={cn('money px-3 py-2 text-right font-semibold', neg(r.result[0]!.meanTiyin) ? 'text-(--color-expense)' : 'text-heading')}>
-                      {compact(r.result[0]!.meanTiyin)}
-                      <div className="text-[11px] font-normal text-(--color-text-muted)">
-                        {compact(r.result[0]!.loTiyin)} … {compact(r.result[0]!.hiTiyin)}
-                      </div>
-                    </td>
-                    <td className={cn('money px-3 py-2 text-right font-bold', bandSum(r.result) < 0 ? 'text-(--color-expense)' : 'text-heading')}>{compact(String(bandSum(r.result)))}</td>
-                    <td className="px-3 py-2">
-                      <RelBadge r={r.hasData ? r.revenue.reliability : 'none'} title={`Daromad aniqligi ${wapeText(r.revenue.wape)}, ish haqi ${wapeText(r.payroll.wape)}`} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-(--color-line) bg-brand-50 font-bold text-heading">
-                <td className="px-3 py-2.5">Jami hududlar</td>
-                <td className="money px-3 py-2.5 text-right">{compact(t.revenue[0]!.meanTiyin)}</td>
-                <td className="money px-3 py-2.5 text-right">{compact(t.payroll[0]!.meanTiyin)}</td>
-                <td className="money px-3 py-2.5 text-right">{compact(t.opex[0]!.meanTiyin)}</td>
-                <td className="money px-3 py-2.5 text-right">{compact(t.overhead[0]!.meanTiyin)}</td>
-                <td className="money px-3 py-2.5 text-right">{compact(t.result[0]!.meanTiyin)}</td>
-                <td className="money px-3 py-2.5 text-right">{compact(String(bandSum(t.result)))}</td>
-                <td className="px-3 py-2.5 text-xs font-normal">Markaz: {share(d.central.allocatedShare)} taqsimlanadi</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </Card>
+      </ReportCard>
+      <InsightsCard items={insights} />
+      <ReportCard title="Hududlar bo'yicha prognoz" badge={`Keyingi oy (${d.periodLabels[0]}) va butun davr`} actions={<ExcelButton onClick={exportCsv} />}>
+        <RTable minWidth={1080}>
+          <thead>
+            <tr>
+              <HeadNo />
+              <HeadName>Hudud</HeadName>
+              <Th>Daromad</Th>
+              <Th>Ish haqi</Th>
+              <Th>Xarajat</Th>
+              <Th>Markaz ulushi</Th>
+              <Th>Natija (80% oraliq)</Th>
+              <Th>Davr natijasi</Th>
+              <Th>Ishonchlilik</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <Tr total>
+              <Td className={STICKY_NO} />
+              <NameCell>Jami hududlar</NameCell>
+              <MoneyCell value={n(t.revenue[0]!.meanTiyin)} />
+              <MoneyCell value={n(t.payroll[0]!.meanTiyin)} />
+              <MoneyCell value={n(t.opex[0]!.meanTiyin)} />
+              <MoneyCell value={n(t.overhead[0]!.meanTiyin)} />
+              <MoneyCell value={n(t.result[0]!.meanTiyin)} className={cn(neg(t.result[0]!.meanTiyin) && 'text-(--color-expense)')} />
+              <MoneyCell value={bandSum(t.result)} className={cn(bandSum(t.result) < 0 && 'text-(--color-expense)')} />
+              <Td className="text-xs font-normal">Markaz: {share(d.central.allocatedShare)} taqsimlanadi</Td>
+            </Tr>
+            {d.regions.map((r, i) => {
+              const lr2 = n(r.last.revenueTiyin);
+              const f0 = n(r.revenue.forecast[0]!.meanTiyin);
+              const active = sel?.code === r.code;
+              return (
+                <Tr key={r.code} onClick={() => onSelect(active ? null : r.code)} title="Bosing — hudud tanlanadi" className={cn(active && SELECTED, !r.hasData && 'opacity-50')}>
+                  <NoCell i={i + 1} />
+                  <NameCell drill>{r.name}</NameCell>
+                  <Td className="whitespace-nowrap">
+                    {sum(f0)}
+                    {lr2 > 0 && <PctInline value={changeOf(f0, lr2)} />}
+                  </Td>
+                  <MoneyCell value={n(r.payroll.forecast[0]!.meanTiyin)} />
+                  <MoneyCell value={n(r.opex.forecast[0]!.meanTiyin)} />
+                  <MoneyCell value={n(r.overhead.forecast[0]!.meanTiyin)} className="text-(--color-text-muted)" />
+                  <Td className={cn('whitespace-nowrap font-semibold', neg(r.result[0]!.meanTiyin) ? 'text-(--color-expense)' : 'text-heading')}>
+                    {sum(r.result[0]!.meanTiyin)}
+                    <div className="text-[11px] font-normal text-(--color-text-muted)">{rangeText(r.result[0]!)}</div>
+                  </Td>
+                  <MoneyCell value={bandSum(r.result)} strong className={bandSum(r.result) < 0 ? 'text-(--color-expense)' : 'text-heading'} />
+                  <Td>
+                    <RelBadge r={r.hasData ? r.revenue.reliability : 'none'} title={`Daromad aniqligi ${wapeText(r.revenue.wape)}, ish haqi ${wapeText(r.payroll.wape)}`} />
+                  </Td>
+                </Tr>
+              );
+            })}
+          </tbody>
+        </RTable>
+        <TableNote>Qatorni bosing — hudud tanlanadi (yuqoridagi kartalar va grafik shu hududga o&apos;tadi). Natija ostida — 80% ishonch oralig&apos;i; foiz — {d.lastLabel} faktiga nisbatan.</TableNote>
+      </ReportCard>
     </>
   );
 }
@@ -351,9 +368,9 @@ function MonthCells({ bands, strong }: { bands: BandT[]; strong?: boolean }) {
   return (
     <>
       {bands.map((b, i) => (
-        <td key={i} className={cn('money px-3 py-2 text-right', strong && 'font-semibold', neg(b.meanTiyin) && 'text-(--color-expense)')} title={`80%: ${compact(b.loTiyin)} – ${compact(b.hiTiyin)}`}>
-          {compact(b.meanTiyin)}
-        </td>
+        <Td key={i} className={cn('whitespace-nowrap', strong && 'font-semibold', neg(b.meanTiyin) && 'text-(--color-expense)')} title={`80%: ${rangeText(b)}`}>
+          {sum(b.meanTiyin)}
+        </Td>
       ))}
     </>
   );
@@ -362,104 +379,93 @@ function MonthCells({ bands, strong }: { bands: BandT[]; strong?: boolean }) {
 function RevenueView({ d, sel, onSelect }: SelProps) {
   if (!sel) {
     return (
-      <Card className="overflow-hidden">
-        <div className="border-b border-(--color-line) px-5 py-3">
-          <h3 className="text-sm font-bold text-heading">Daromad prognozi — hududlar</h3>
-          <p className="text-xs text-(--color-text-muted)">Hudud jami — xizmatlar prognozlari yig&apos;indisi. Hududni bosing — xizmatlar bo&apos;yicha ochiladi.</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-sm">
-            <thead className="bg-(--color-surface-muted) text-left">
-              <tr>
-                <th className={TH}>Hudud</th>
-                <th className={cn(TH, 'text-right')}>{d.lastLabel} (fakt)</th>
-                {d.periods.map((p) => (
-                  <th key={p} className={cn(TH, 'text-right')}>{formatPeriodShort(p)}</th>
-                ))}
-                <th className={cn(TH, 'text-right')}>Aniqlik</th>
-                <th className={TH}>Xizmatlar</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.regions.map((r) => (
-                <tr key={r.code} onClick={() => onSelect(r.code)} className="cursor-pointer border-t border-(--color-line) hover:bg-brand-50/40">
-                  <td className="px-3 py-2 font-medium text-heading">{r.name}</td>
-                  <td className="money px-3 py-2 text-right text-(--color-text-muted)">{compact(r.last.revenueTiyin)}</td>
-                  <MonthCells bands={r.revenue.forecast} />
-                  <td className="money px-3 py-2 text-right">{wapeText(r.revenue.wape)}</td>
-                  <td className="px-3 py-2 text-xs text-(--color-text-muted)">{r.revenue.services.length} ta</td>
-                </tr>
+      <ReportCard title="Daromad prognozi — hududlar" badge={`${d.regions.length} ta hudud`}>
+        <RTable minWidth={900}>
+          <thead>
+            <tr>
+              <HeadNo />
+              <HeadName>Hudud</HeadName>
+              <Th>{d.lastLabel} (fakt)</Th>
+              {d.periods.map((p) => (
+                <Th key={p}>{formatPeriodShort(p)}</Th>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+              <Th>Aniqlik</Th>
+              <Th>Xizmatlar</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.regions.map((r, i) => (
+              <Tr key={r.code} onClick={() => onSelect(r.code)}>
+                <NoCell i={i + 1} />
+                <NameCell drill>{r.name}</NameCell>
+                <MoneyCell value={n(r.last.revenueTiyin)} className="text-(--color-text-muted)" />
+                <MonthCells bands={r.revenue.forecast} />
+                <Td>{wapeText(r.revenue.wape)}</Td>
+                <Td className="text-xs text-(--color-text-muted)">{r.revenue.services.length} ta</Td>
+              </Tr>
+            ))}
+          </tbody>
+        </RTable>
+        <TableNote>Hudud jami — xizmatlar prognozlari yig&apos;indisi. Hududni bosing — xizmatlar bo&apos;yicha ochiladi. Katakcha ustiga borganda — 80% oraliq.</TableNote>
+      </ReportCard>
     );
   }
   return (
     <>
-      <Card>
-        <div className="px-5 pt-4">
-          <h3 className="text-sm font-bold text-heading">{sel.name}: daromad</h3>
-        </div>
-        <div className="px-3 pb-3">
+      <ReportCard title={`${sel.name}: daromad`}>
+        <div className="px-4 pb-4">
           <FcChart history={d.history} periods={d.periods} series={[{ name: 'Daromad', color: TONE.income, history: sel.revenue.history.map((x) => n(x.valueTiyin)), forecast: sel.revenue.forecast }]} height={240} />
         </div>
-      </Card>
-      <Card className="overflow-hidden">
-        <div className="border-b border-(--color-line) px-5 py-3">
-          <h3 className="text-sm font-bold text-heading">Xizmatlar bo&apos;yicha</h3>
-          <p className="text-xs text-(--color-text-muted)">Aniqlik — o&apos;tmishda 1 oy oldinga aytilganda o&apos;rtacha xato; ▲ — oddiy usuldan (o&apos;tgan oy takrorlanadi) yaxshi</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-sm">
-            <thead className="bg-(--color-surface-muted) text-left">
-              <tr>
-                <th className={cn(TH, 'min-w-[220px]')}>Xizmat</th>
-                <th className={cn(TH, 'text-right')}>{formatPeriodShort(d.lastActual)} fakt</th>
-                {d.periods.map((p) => (
-                  <th key={p} className={cn(TH, 'text-right')}>{formatPeriodShort(p)}</th>
-                ))}
-                <th className={TH}>Model</th>
-                <th className={cn(TH, 'text-right')}>Aniqlik</th>
-                <th className={TH}>Ishonch</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sel.revenue.services.map((s) => (
-                <Fragment key={s.key}>
-                  <tr className="border-t border-(--color-line)">
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-heading">{s.label}</div>
-                      <div className="text-[11px] text-(--color-text-muted)">
-                        {s.used} oy ma&apos;lumot{s.fromPeriod ? `, ${formatPeriodShort(s.fromPeriod)} dan` : ''}
-                      </div>
-                    </td>
-                    <td className="money px-3 py-2 text-right text-(--color-text-muted)">{compact(s.history[s.history.length - 1]?.valueTiyin ?? '0')}</td>
-                    <MonthCells bands={s.forecast} />
-                    <td className="px-3 py-2 text-xs">{s.modelLabel}</td>
-                    <td className="money px-3 py-2 text-right text-xs">
-                      <AccCell a={s.accuracy} />
-                    </td>
-                    <td className="px-3 py-2">
-                      <RelBadge r={s.reliability} />
-                    </td>
-                  </tr>
-                  {s.notes.length > 0 && (
-                    <tr>
-                      <td colSpan={5 + d.periods.length} className="px-3 pb-2 text-[11px] text-sky-800">
-                        {s.notes.map((x) => (
-                          <div key={x}>↳ {x}</div>
-                        ))}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
+      </ReportCard>
+      <ReportCard title="Xizmatlar bo'yicha" badge={`${sel.revenue.services.length} ta`}>
+        <RTable minWidth={1000}>
+          <thead>
+            <tr>
+              <HeadNo />
+              <HeadName className="min-w-[220px]">Xizmat</HeadName>
+              <Th>{formatPeriodShort(d.lastActual)} fakt</Th>
+              {d.periods.map((p) => (
+                <Th key={p}>{formatPeriodShort(p)}</Th>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+              <Th>Model</Th>
+              <Th>Aniqlik</Th>
+              <Th>Ishonch</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {sel.revenue.services.map((s, i) => (
+              <Fragment key={s.key}>
+                <Tr>
+                  <NoCell i={i + 1} />
+                  <NameCell sub={`${s.used} oy ma'lumot${s.fromPeriod ? `, ${formatPeriodShort(s.fromPeriod)} dan` : ''}`}>
+                    <span className="font-medium text-heading">{s.label}</span>
+                  </NameCell>
+                  <MoneyCell value={n(s.history[s.history.length - 1]?.valueTiyin ?? '0')} className="text-(--color-text-muted)" />
+                  <MonthCells bands={s.forecast} />
+                  <Td className="text-xs">{s.modelLabel}</Td>
+                  <Td className="text-xs">
+                    <AccCell a={s.accuracy} />
+                  </Td>
+                  <Td>
+                    <RelBadge r={s.reliability} />
+                  </Td>
+                </Tr>
+                {s.notes.length > 0 && (
+                  <Tr muted>
+                    <Td className={STICKY_NO} />
+                    <Td colSpan={5 + d.periods.length} className="text-left text-[11px] text-sky-800">
+                      {s.notes.map((x) => (
+                        <div key={x}>↳ {x}</div>
+                      ))}
+                    </Td>
+                  </Tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </RTable>
+        <TableNote>Aniqlik — o&apos;tmishda 1 oy oldinga aytilganda o&apos;rtacha xato; ▲ — oddiy usuldan (o&apos;tgan oy takrorlanadi) yaxshi. Katakcha ustiga borganda — 80% oraliq.</TableNote>
+      </ReportCard>
     </>
   );
 }
@@ -469,37 +475,36 @@ const BASIS: Record<string, string> = { CARD: 'shtat kartasi', RECENT: "so'nggi 
 function PayrollView({ d, sel, onSelect, month, h }: SelProps & { month: string; h: number }) {
   return (
     <>
-      <Card className="overflow-hidden">
-        <div className="border-b border-(--color-line) px-5 py-3">
-          <h3 className="text-sm font-bold text-heading">Ish haqi prognozi — xodimlar bo&apos;yicha hisoblangan</h3>
-          <p className="text-xs text-(--color-text-muted)">Aniqlik — oxirgi 3 oyni shu usul bilan oldindan aytib ko&apos;rilgandagi xato. Hududni bosing — xodimlar ro&apos;yxati.</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-sm">
-            <thead className="bg-(--color-surface-muted) text-left">
-              <tr>
-                <th className={TH}>Hudud</th>
-                <th className={cn(TH, 'text-right')}>Xodimlar</th>
-                <th className={cn(TH, 'text-right')}>{formatPeriodShort(d.lastActual)} fakt</th>
-                {d.periods.map((p) => (
-                  <th key={p} className={cn(TH, 'text-right')}>{formatPeriodShort(p)}</th>
-                ))}
-                <th className={cn(TH, 'text-right')}>Aniqlik</th>
-                <th className={TH}>Asos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.regions.map((r) => (
-                <tr key={r.code} onClick={() => onSelect(sel?.code === r.code ? null : r.code)} className={cn('cursor-pointer border-t border-(--color-line) hover:bg-brand-50/40', sel?.code === r.code && 'bg-brand-50/70')}>
-                  <td className="px-3 py-2 font-medium text-heading">{r.name}</td>
-                  <td className="money px-3 py-2 text-right">
+      <ReportCard title="Ish haqi prognozi — xodimlar bo'yicha hisoblangan" badge={`${d.regions.length} ta hudud`}>
+        <RTable minWidth={900}>
+          <thead>
+            <tr>
+              <HeadNo />
+              <HeadName>Hudud</HeadName>
+              <Th>Xodimlar</Th>
+              <Th>{formatPeriodShort(d.lastActual)} fakt</Th>
+              {d.periods.map((p) => (
+                <Th key={p}>{formatPeriodShort(p)}</Th>
+              ))}
+              <Th>Aniqlik</Th>
+              <Th className="text-left">Asos</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.regions.map((r, i) => {
+              const active = sel?.code === r.code;
+              return (
+                <Tr key={r.code} onClick={() => onSelect(active ? null : r.code)} className={cn(active && SELECTED)}>
+                  <NoCell i={i + 1} />
+                  <NameCell drill>{r.name}</NameCell>
+                  <Td className="whitespace-nowrap">
                     {r.payroll.headcountNow}
                     {r.payroll.headcount[r.payroll.headcount.length - 1] !== r.payroll.headcountNow && <span className="text-xs text-(--color-text-muted)"> → {r.payroll.headcount[r.payroll.headcount.length - 1]}</span>}
-                  </td>
-                  <td className="money px-3 py-2 text-right text-(--color-text-muted)">{compact(r.last.payrollTiyin)}</td>
+                  </Td>
+                  <MoneyCell value={n(r.last.payrollTiyin)} className="text-(--color-text-muted)" />
                   <MonthCells bands={r.payroll.forecast} />
-                  <td className="money px-3 py-2 text-right">{r.payroll.backtestMonths ? wapeText(r.payroll.wape) : '—'}</td>
-                  <td className="px-3 py-2 text-[11px] text-(--color-text-muted)">
+                  <Td>{r.payroll.backtestMonths ? wapeText(r.payroll.wape) : '—'}</Td>
+                  <Td className="text-left text-[11px] text-(--color-text-muted)">
                     {Object.entries(r.payroll.basis)
                       .map(([k, v]) => `${BASIS[k] ?? k}: ${v}`)
                       .join(', ')}
@@ -512,13 +517,14 @@ function PayrollView({ d, sel, onSelect, month, h }: SelProps & { month: string;
                           .join(', ')}
                       </div>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+                  </Td>
+                </Tr>
+              );
+            })}
+          </tbody>
+        </RTable>
+        <TableNote>Aniqlik — oxirgi 3 oyni shu usul bilan oldindan aytib ko&apos;rilgandagi xato. Hududni bosing — xodimlar ro&apos;yxati.</TableNote>
+      </ReportCard>
       {sel && <PayrollEmployees month={month} h={h} code={sel.code} />}
     </>
   );
@@ -527,122 +533,120 @@ function PayrollView({ d, sel, onSelect, month, h }: SelProps & { month: string;
 function PayrollEmployees({ month, h, code }: { month: string; h: number; code: number }) {
   const res = useAsync(() => fcApi.payroll(month, h, code).then((r) => r.data), [month, h, code]);
   const d = res.data;
-  if (res.error) return <Card><ErrorState message={res.error} onRetry={res.reload} /></Card>;
-  if (!d) return <Card><LoadingState /></Card>;
+  if (res.error || !d) return <LoadingCard label="Xodimlar hisoblanmoqda" error={res.error} onRetry={res.reload} />;
   return (
-    <Card className="overflow-hidden">
-      <div className="border-b border-(--color-line) px-5 py-3">
-        <h3 className="text-sm font-bold text-heading">{d.region.name}: xodimlar ({d.rows.length})</h3>
-        <p className="text-xs text-(--color-text-muted)">
-          Karta = maosh × stavka; nisbat = to&apos;langan ÷ karta (so&apos;nggi 3 oy medianasi; hudud bo&apos;yicha {d.regionRatio === null ? '—' : d.regionRatio.toFixed(2).replace('.', ',')}).
-        </p>
-      </div>
-      <div className="max-h-[560px] overflow-auto">
-        <table className="w-full min-w-[1000px] text-sm">
-          <thead className="sticky top-0 bg-(--color-surface-muted) text-left">
+    <ReportCard title={`${d.region.name}: xodimlar`} badge={`${d.rows.length} ta`}>
+      {/* Uzun ro'yxat: jadval o'z ichida aylanadi, sarlavha qotib turadi */}
+      <div className="max-h-[600px] overflow-auto px-4 pb-4">
+        <table className="w-full min-w-[1000px] border-separate border-spacing-0 rounded-xl border border-(--color-line) text-sm">
+          <thead>
             <tr>
-              <th className={TH}>Xodim</th>
-              <th className={cn(TH, 'text-right')}>Karta</th>
-              <th className={cn(TH, 'text-right')}>Nisbat</th>
+              <Th className={cn(STICKY_NO, 'top-0 z-[3]')}>№</Th>
+              <Th className={cn(STICKY_NAME, 'top-0 z-[3] min-w-52 text-left')}>Xodim</Th>
+              <Th className="sticky top-0 z-[2]">Karta</Th>
+              <Th className="sticky top-0 z-[2]">Nisbat</Th>
               {d.recentPeriods.map((p) => (
-                <th key={p} className={cn(TH, 'text-right text-(--color-text-faint)')}>{formatPeriodShort(p)}</th>
+                <Th key={p} className="sticky top-0 z-[2] text-(--color-text-muted)">{formatPeriodShort(p)}</Th>
               ))}
               {d.periods.map((p) => (
-                <th key={p} className={cn(TH, 'text-right')}>{formatPeriodShort(p)}</th>
+                <Th key={p} className="sticky top-0 z-[2]">{formatPeriodShort(p)}</Th>
               ))}
-              <th className={TH}>O&apos;zgarishlar</th>
+              <Th className="sticky top-0 z-[2] text-left">O&apos;zgarishlar</Th>
             </tr>
           </thead>
           <tbody>
-            {d.rows.map((r) => (
-              <tr key={r.pinfl} className="border-t border-(--color-line)">
-                <td className="px-3 py-1.5">
-                  <div className="font-medium text-heading">{r.fullName}</div>
-                  {r.position && <div className="text-[11px] text-(--color-text-muted)">{r.position}</div>}
-                </td>
-                <td className="money px-3 py-1.5 text-right">
-                  {r.cardTiyin ? compact(r.cardTiyin) : <span className="text-amber-700">yo&apos;q</span>}
+            {d.rows.map((r, i) => (
+              <Tr key={r.pinfl}>
+                <NoCell i={i + 1} />
+                <NameCell sub={r.position || undefined}>
+                  <span className="font-medium text-heading">{r.fullName}</span>
+                </NameCell>
+                <Td className="whitespace-nowrap">
+                  {r.cardTiyin ? sum(r.cardTiyin) : <span className="text-(--color-warn)">yo&apos;q</span>}
                   {r.rate !== null && r.rate !== 1 && <div className="text-[10px] text-(--color-text-muted)">{String(r.rate).replace('.', ',')} st.</div>}
-                </td>
-                <td className="money px-3 py-1.5 text-right">{r.ratio === null ? '—' : r.ratio.toFixed(2).replace('.', ',')}</td>
-                {r.recent.map((v, i) => (
-                  <td key={i} className="money px-3 py-1.5 text-right text-(--color-text-muted)">{n(v) ? compact(v) : '—'}</td>
+                </Td>
+                <Td>{r.ratio === null ? '—' : r.ratio.toFixed(2).replace('.', ',')}</Td>
+                {r.recent.map((v, j) => (
+                  <Td key={j} className="whitespace-nowrap text-(--color-text-muted)">{n(v) ? sum(v) : '—'}</Td>
                 ))}
-                {r.months.map((m, i) => (
-                  <td key={i} className="money px-3 py-1.5 text-right" title={m ? BASIS[m.basis] : 'ishlamaydi'}>
-                    {m ? compact(m.valueTiyin) : <span className="text-(--color-text-faint)">—</span>}
-                    {m && m.basis !== 'CARD' && <div className="text-[10px] text-amber-700">{BASIS[m.basis]}</div>}
-                  </td>
+                {r.months.map((m, j) => (
+                  <Td key={j} className="whitespace-nowrap" title={m ? BASIS[m.basis] : 'ishlamaydi'}>
+                    {m ? sum(m.valueTiyin) : <span className="text-(--color-text-faint)">—</span>}
+                    {m && m.basis !== 'CARD' && <div className="text-[10px] text-(--color-warn)">{BASIS[m.basis]}</div>}
+                  </Td>
                 ))}
-                <td className="px-3 py-1.5 text-[11px] text-sky-800">{r.changes.join('; ')}</td>
-              </tr>
+                <Td className="text-left text-[11px] text-sky-800">{r.changes.join('; ')}</Td>
+              </Tr>
             ))}
           </tbody>
         </table>
       </div>
-    </Card>
+      <TableNote>
+        Karta = maosh × stavka; nisbat = to&apos;langan ÷ karta (so&apos;nggi 3 oy medianasi; hudud bo&apos;yicha {d.regionRatio === null ? '—' : d.regionRatio.toFixed(2).replace('.', ',')}). Och rangli oylar — oxirgi haqiqiy oylar.
+      </TableNote>
+    </ReportCard>
   );
 }
 
 function OpexView({ d, sel }: { d: RegionalForecast; sel: RegionForecast | null }) {
   const rows = sel ? [sel] : d.regions;
   return (
-    <Card className="overflow-hidden">
-      <div className="border-b border-(--color-line) px-5 py-3">
-        <h3 className="text-sm font-bold text-heading">Xarajat prognozi (ish haqisiz)</h3>
-        <p className="text-xs text-(--color-text-muted)">Takroriy va belgilanmagan xarajatlar — model; bir martalik — so&apos;nggi 6 oy o&apos;rtachasi zaxira sifatida. Reja — «Xarajat rejasi»dan.</p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[960px] text-sm">
-          <thead className="bg-(--color-surface-muted) text-left">
-            <tr>
-              <th className={TH}>Hudud</th>
-              <th className={cn(TH, 'text-right')}>{formatPeriodShort(d.lastActual)} fakt</th>
-              <th className={TH}>Model (takroriy)</th>
-              <th className={cn(TH, 'text-right')}>Bir martalik zaxira</th>
-              {d.periods.map((p) => (
-                <th key={p} className={cn(TH, 'text-right')}>{formatPeriodShort(p)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <Fragment key={r.code}>
-                <tr className="border-t border-(--color-line)">
-                  <td className="px-3 py-2 font-medium text-heading">{r.name}</td>
-                  <td className="money px-3 py-2 text-right text-(--color-text-muted)">{compact(r.last.opexTiyin)}</td>
-                  <td className="px-3 py-2 text-xs">
-                    {r.opex.recurring ? (
-                      <>
-                        {r.opex.recurring.modelLabel} · <AccCell a={r.opex.recurring.accuracy} />
-                      </>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="money px-3 py-2 text-right">{n(r.opex.oneTimeAllowanceTiyin) ? compact(r.opex.oneTimeAllowanceTiyin) : '—'}</td>
-                  <MonthCells bands={r.opex.forecast} strong />
-                </tr>
-                {r.opex.budget.some((b) => b !== null) && (
-                  <tr className="text-xs">
-                    <td colSpan={4} className="px-3 pb-2 text-right text-(--color-text-muted)">Reja / farq</td>
-                    {r.opex.budget.map((b, i) => {
-                      const diff = b === null ? null : n(r.opex.forecast[i]!.meanTiyin) / n(b) - 1;
-                      return (
-                        <td key={i} className="money px-3 pb-2 text-right">
-                          {b === null ? '—' : compact(b)}
-                          {diff !== null && <div className={cn(diff > 0.1 ? 'text-(--color-expense)' : 'text-(--color-text-muted)')}>{share(diff, true)}</div>}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                )}
-              </Fragment>
+    <ReportCard title="Xarajat prognozi (ish haqisiz)" badge={sel ? sel.name : `${rows.length} ta hudud`}>
+      <RTable minWidth={960}>
+        <thead>
+          <tr>
+            <HeadNo />
+            <HeadName>Hudud</HeadName>
+            <Th>{formatPeriodShort(d.lastActual)} fakt</Th>
+            <Th>Model (takroriy)</Th>
+            <Th>Bir martalik zaxira</Th>
+            {d.periods.map((p) => (
+              <Th key={p}>{formatPeriodShort(p)}</Th>
             ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <Fragment key={r.code}>
+              <Tr>
+                <NoCell i={i + 1} />
+                <NameCell>
+                  <span className="font-medium text-heading">{r.name}</span>
+                </NameCell>
+                <MoneyCell value={n(r.last.opexTiyin)} className="text-(--color-text-muted)" />
+                <Td className="text-xs">
+                  {r.opex.recurring ? (
+                    <>
+                      {r.opex.recurring.modelLabel} · <AccCell a={r.opex.recurring.accuracy} />
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </Td>
+                <Td className="whitespace-nowrap">{n(r.opex.oneTimeAllowanceTiyin) ? sum(r.opex.oneTimeAllowanceTiyin) : '—'}</Td>
+                <MonthCells bands={r.opex.forecast} strong />
+              </Tr>
+              {r.opex.budget.some((b) => b !== null) && (
+                <Tr muted>
+                  <Td className={STICKY_NO} />
+                  <Td colSpan={4} className="text-right text-xs text-(--color-text-muted)">Reja / farq</Td>
+                  {r.opex.budget.map((b, j) => {
+                    const diff = b === null ? null : n(r.opex.forecast[j]!.meanTiyin) / n(b) - 1;
+                    return (
+                      <Td key={j} className="whitespace-nowrap text-xs">
+                        {b === null ? '—' : sum(b)}
+                        {diff !== null && <div className={cn('font-semibold', diff > 0.1 ? 'text-(--color-expense)' : 'text-(--color-text-muted)')}>{share(diff, true)}</div>}
+                      </Td>
+                    );
+                  })}
+                </Tr>
+              )}
+            </Fragment>
+          ))}
+        </tbody>
+      </RTable>
+      <TableNote>Takroriy va belgilanmagan xarajatlar — model; bir martalik — so&apos;nggi 6 oy o&apos;rtachasi zaxira sifatida. Reja — «Xarajat rejasi»dan.</TableNote>
+    </ReportCard>
   );
 }
 
@@ -659,10 +663,9 @@ function RunsView({ d, month, h }: { d: RegionalForecast; month: string; h: numb
   return (
     <>
       {isAdmin && (
-        <Card>
-          <div className="flex flex-wrap items-end gap-3 px-5 py-4">
+        <ReportCard title="Joriy prognozni versiya sifatida saqlash" badge={`${d.lastLabel} gacha · ${d.horizon} oy`}>
+          <div className="flex flex-wrap items-end gap-3 px-5 pb-5">
             <div className="min-w-64 flex-1">
-              <p className="mb-1 text-sm font-medium text-heading">Joriy prognozni versiya sifatida saqlash</p>
               <p className="mb-2 text-xs text-(--color-text-muted)">
                 {d.lastLabel} gacha ma&apos;lumot, {d.horizon} oy. Oylar o&apos;tgach, shu versiya haqiqiy natija bilan avtomatik solishtiriladi.
               </p>
@@ -687,104 +690,91 @@ function RunsView({ d, month, h }: { d: RegionalForecast; month: string; h: numb
               Saqlash
             </Button>
           </div>
-        </Card>
+        </ReportCard>
       )}
-      {runs.error ? (
-        <Card><ErrorState message={runs.error} onRetry={runs.reload} /></Card>
-      ) : !runs.data ? (
-        <Card><LoadingState /></Card>
+      {runs.error || !runs.data ? (
+        <LoadingCard label="Versiyalar yuklanmoqda" error={runs.error} onRetry={runs.reload} />
       ) : !list.length ? (
-        <Card><p className="px-5 py-6 text-sm text-(--color-text-muted)">Hali saqlangan versiya yo&apos;q.</p></Card>
+        <ReportCard title="Saqlangan versiyalar">
+          <EmptyNote>Hali saqlangan versiya yo&apos;q.</EmptyNote>
+        </ReportCard>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead className="bg-(--color-surface-muted) text-left">
-                <tr>
-                  <th className={TH}>Versiya</th>
-                  <th className={TH}>Kim, qachon</th>
-                  <th className={cn(TH, 'text-right')}>Tekshirilgan oy</th>
-                  <th className={cn(TH, 'text-right')}>Daromad xatosi</th>
-                  <th className={cn(TH, 'text-right')}>Ish haqi xatosi</th>
-                  <th className={cn(TH, 'text-right')}>Xarajat xatosi</th>
-                  <th className={TH} />
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((r) => (
-                  <Fragment key={r.id}>
-                    <tr className="cursor-pointer border-t border-(--color-line) hover:bg-brand-50/40" onClick={() => setOpen(open === r.id ? null : r.id)}>
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-heading">
-                          {r.lastLabel} gacha · {r.horizon} oy
-                        </div>
-                        {r.note && <div className="text-[11px] text-(--color-text-muted)">{r.note}</div>}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-(--color-text-muted)">
-                        {r.createdBy ?? '—'}, {new Date(r.createdAt).toLocaleDateString('ru-RU')}
-                      </td>
-                      <td className="money px-3 py-2 text-right">
-                        {r.checked} / {r.horizon}
-                      </td>
-                      <td className="money px-3 py-2 text-right">{wapeText(r.wape.revenue)}</td>
-                      <td className="money px-3 py-2 text-right">{wapeText(r.wape.payroll)}</td>
-                      <td className="money px-3 py-2 text-right">{wapeText(r.wape.opex)}</td>
-                      <td className="px-3 py-2 text-right">
-                        {isAdmin && (
-                          <SmallButton
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDel(r.id);
-                            }}
-                          >
-                            O&apos;chirish
-                          </SmallButton>
-                        )}
-                      </td>
-                    </tr>
-                    {open === r.id && (
-                      <tr className="bg-(--color-surface-muted)/60">
-                        <td colSpan={7} className="px-5 py-3">
-                          <table className="w-full text-xs">
-                            <thead>
-                              <tr className="text-left text-(--color-text-muted)">
-                                <th className="py-1">Oy</th>
-                                <th className="px-3 py-1 text-right">Daromad: prognoz → fakt</th>
-                                <th className="px-3 py-1 text-right">Ish haqi: prognoz → fakt</th>
-                                <th className="px-3 py-1 text-right">Xarajat: prognoz → fakt</th>
-                                <th className="py-1 pl-4">Eng katta farq (hudud daromadi)</th>
+        <ReportCard title="Saqlangan versiyalar" badge={`${list.length} ta`}>
+          <RTable minWidth={900}>
+            <thead>
+              <tr>
+                <HeadNo />
+                <HeadName>Versiya</HeadName>
+                <Th className="text-left">Kim, qachon</Th>
+                <Th>Tekshirilgan oy</Th>
+                <Th>Daromad xatosi</Th>
+                <Th>Ish haqi xatosi</Th>
+                <Th>Xarajat xatosi</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((r, i) => (
+                <Fragment key={r.id}>
+                  <Tr onClick={() => setOpen(open === r.id ? null : r.id)} title="Bosing — oylar bo'yicha prognoz va fakt" className={cn(open === r.id && SELECTED)}>
+                    <NoCell i={i + 1} />
+                    <NameCell drill sub={r.note || undefined}>
+                      {r.lastLabel} gacha · {r.horizon} oy
+                    </NameCell>
+                    <Td className="text-left text-xs text-(--color-text-muted)">
+                      {r.createdBy ?? '—'}, {new Date(r.createdAt).toLocaleDateString('ru-RU')}
+                    </Td>
+                    <Td>
+                      {r.checked} / {r.horizon}
+                    </Td>
+                    <Td>{wapeText(r.wape.revenue)}</Td>
+                    <Td>{wapeText(r.wape.payroll)}</Td>
+                    <Td>{wapeText(r.wape.opex)}</Td>
+                    <Td>{isAdmin && <MiniButton onClick={() => setDel(r.id)}>O&apos;chirish</MiniButton>}</Td>
+                  </Tr>
+                  {open === r.id && (
+                    <Tr muted>
+                      <Td colSpan={8} className="px-5 py-3 text-left">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-left text-(--color-text-muted)">
+                              <th className="py-1 font-semibold">Oy</th>
+                              <th className="px-3 py-1 text-right font-semibold">Daromad: prognoz → fakt</th>
+                              <th className="px-3 py-1 text-right font-semibold">Ish haqi: prognoz → fakt</th>
+                              <th className="px-3 py-1 text-right font-semibold">Xarajat: prognoz → fakt</th>
+                              <th className="py-1 pl-4 font-semibold">Eng katta farq (hudud daromadi)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {r.months.map((m) => (
+                              <tr key={m.period} className="border-t border-(--color-line)">
+                                <td className="py-1.5 font-medium">{m.label}</td>
+                                {m.available ? (
+                                  <>
+                                    {[m.revenue, m.payroll, m.opex].map((c, j) => (
+                                      <td key={j} className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
+                                        {sum(c.forecastTiyin)} → {sum(c.actualTiyin)}{' '}
+                                        <b className={cn(c.error !== null && Math.abs(c.error) > 0.1 ? 'text-(--color-expense)' : 'text-heading')}>{share(c.error, true)}</b>
+                                      </td>
+                                    ))}
+                                    <td className="py-1.5 pl-4 text-(--color-text-muted)">{m.worst.map((w) => `${w.name} ${share(w.error, true)}`).join(', ')}</td>
+                                  </>
+                                ) : (
+                                  <td colSpan={4} className="py-1.5 text-(--color-text-faint)">hali haqiqiy ma&apos;lumot yo&apos;q</td>
+                                )}
                               </tr>
-                            </thead>
-                            <tbody>
-                              {r.months.map((m) => (
-                                <tr key={m.period} className="border-t border-(--color-line)">
-                                  <td className="py-1.5 font-medium">{m.label}</td>
-                                  {m.available ? (
-                                    <>
-                                      {[m.revenue, m.payroll, m.opex].map((c, i) => (
-                                        <td key={i} className="money whitespace-nowrap px-3 py-1.5 text-right">
-                                          {compact(c.forecastTiyin)} → {compact(c.actualTiyin)}{' '}
-                                          <b className={cn(c.error !== null && Math.abs(c.error) > 0.1 ? 'text-(--color-expense)' : 'text-heading')}>{share(c.error, true)}</b>
-                                        </td>
-                                      ))}
-                                      <td className="py-1.5 pl-4 text-(--color-text-muted)">{m.worst.map((w) => `${w.name} ${share(w.error, true)}`).join(', ')}</td>
-                                    </>
-                                  ) : (
-                                    <td colSpan={4} className="py-1.5 text-(--color-text-faint)">hali haqiqiy ma&apos;lumot yo&apos;q</td>
-                                  )}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                            ))}
+                          </tbody>
+                        </table>
+                      </Td>
+                    </Tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </RTable>
+          <TableNote>Qatorni bosing — versiyaning har oyi bo&apos;yicha prognoz va haqiqiy natija ochiladi.</TableNote>
+        </ReportCard>
       )}
       <ConfirmDialog
         open={del !== null}

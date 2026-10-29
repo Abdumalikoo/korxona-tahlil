@@ -1,10 +1,9 @@
 'use client';
 
-import { Card } from '@/components/ui/card';
-import { ErrorState, LoadingState } from '@/components/ui/states';
-import { FIELD } from '@/features/purchases/bits';
+import { DiffCell, ExcelButton, MoneyCell, NameCell, PillTabs, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr, type TileTone } from '@/components/report/report';
+import { NotesList } from '@/components/report/report-extra-b';
+import { LoadingCard } from '@/components/report/report-extra-c';
 import { compact } from '@/features/structure/api';
-import { KpiStrip, PanelHeader, Segmented, SmallButton } from '@/features/structure/parts';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
@@ -15,15 +14,18 @@ import { dashApi, type Levers, type ScenarioResult, share } from './api';
 // ═══════════════════════════════════════════════════════════
 // Katta modellar › Hudud stsenariysi (I): «agar … bo'lsa» — tarif, hajm, maosh, xodimlar, xarajat, Markaz.
 // Asos — Hudud prognozi. Hech narsa saqlanmaydi: faqat hisob.
+// Ko'rinish — hisobot uslubida (Solishtirma kabi): dastaklar kartasi, ko'rsatkich kartalari, jadval.
 // ═══════════════════════════════════════════════════════════
 
-const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)';
 const n = (t: string | null | undefined) => (t ? Number(t) : 0);
 const HORIZONS = [
   { value: '3', label: '3 oy' },
   { value: '6', label: '6 oy' },
   { value: '12', label: '12 oy' },
 ];
+/** Kiritish maydoni — hisobot uslubidagi filtrlar kabi */
+const INPUT = 'h-10 w-full rounded-lg border border-(--color-line-strong) bg-white px-3 text-sm text-(--color-text) outline-none placeholder:text-(--color-text-faint) focus:border-brand-500';
+const CHIP = 'whitespace-nowrap rounded-lg border border-brand-300 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 transition-colors hover:bg-brand-50';
 
 /** Formadagi qiymatlar (foizlar — foizda, pul — so'mda) */
 interface Form {
@@ -86,25 +88,21 @@ export function RegionScenarioView() {
   const set = (k: keyof Form) => (e: { target: { value: string } }) => setForm((s) => ({ ...s, [k]: e.target.value }));
   return (
     <div className="space-y-4">
-      <PanelHeader
-        title="Hudud stsenariysi"
-        description="«Agar … bo'lsa» — dastaklarni o'zgartiring, natija prognoz ustida darhol qayta hisoblanadi"
-        actions={<Segmented value={h} onChange={setH} options={HORIZONS} size="sm" />}
-      >
-        <div className="flex flex-wrap gap-2">
+      <ReportCard title="Hudud stsenariysi" badge="Dastaklarni o'zgartiring — natija prognoz ustida darhol qayta hisoblanadi" actions={<PillTabs value={h} onChange={setH} options={HORIZONS} />}>
+        <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
+          <span className="text-xs font-medium text-(--color-text-muted)">Tayyor stsenariylar:</span>
           {PRESETS.map((p) => (
-            <SmallButton key={p.label} onClick={() => setForm({ ...EMPTY, regionCode: form.regionCode, start: form.start, ...p.form })}>
+            <button key={p.label} type="button" className={CHIP} onClick={() => setForm({ ...EMPTY, regionCode: form.regionCode, start: form.start, ...p.form })}>
               {p.label}
-            </SmallButton>
+            </button>
           ))}
-          <SmallButton onClick={() => setForm(EMPTY)}>Tozalash</SmallButton>
+          <button type="button" className={cn(CHIP, 'border-(--color-line-strong) text-(--color-text-muted)')} onClick={() => setForm(EMPTY)}>
+            Tozalash
+          </button>
         </div>
-      </PanelHeader>
-
-      <Card>
-        <div className="grid gap-x-4 gap-y-3 px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-x-4 gap-y-3 border-t border-(--color-line) px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Hudud">
-            <select value={form.regionCode} onChange={set('regionCode')} className={FIELD}>
+            <select value={form.regionCode} onChange={set('regionCode')} className={INPUT}>
               <option value="">Barcha hududlar</option>
               {d?.regions.map((r) => (
                 <option key={r.code} value={r.code}>
@@ -114,7 +112,7 @@ export function RegionScenarioView() {
             </select>
           </Field>
           <Field label="Qaysi oydan">
-            <select value={form.start} onChange={set('start')} className={FIELD}>
+            <select value={form.start} onChange={set('start')} className={INPUT}>
               {(d?.periodLabels ?? []).map((p, i) => (
                 <option key={p} value={i}>
                   {p}
@@ -123,10 +121,10 @@ export function RegionScenarioView() {
             </select>
           </Field>
           <Field label="Tarif, %" hint="+10 — 10% oshirish">
-            <input value={form.tariff} onChange={set('tariff')} inputMode="decimal" placeholder="0" className={FIELD} />
+            <input value={form.tariff} onChange={set('tariff')} inputMode="decimal" placeholder="0" className={INPUT} />
           </Field>
           <Field label="Qaysi xizmat tarifi">
-            <select value={form.tariffService} onChange={set('tariffService')} className={FIELD}>
+            <select value={form.tariffService} onChange={set('tariffService')} className={INPUT}>
               <option value="">Barcha xizmatlar</option>
               {d?.services.map((s) => (
                 <option key={s.key} value={s.key}>
@@ -136,46 +134,41 @@ export function RegionScenarioView() {
             </select>
           </Field>
           <Field label="Talab elastikligi" hint="−0,3: narx +10% → hajm −3%">
-            <input value={form.elasticity} onChange={set('elasticity')} inputMode="decimal" placeholder="0" className={FIELD} />
+            <input value={form.elasticity} onChange={set('elasticity')} inputMode="decimal" placeholder="0" className={INPUT} />
           </Field>
           <Field label="Xizmatlar hajmi, %">
-            <input value={form.volume} onChange={set('volume')} inputMode="decimal" placeholder="0" className={FIELD} />
+            <input value={form.volume} onChange={set('volume')} inputMode="decimal" placeholder="0" className={INPUT} />
           </Field>
           <Field label="Maosh indeksatsiyasi, %">
-            <input value={form.wage} onChange={set('wage')} inputMode="decimal" placeholder="0" className={FIELD} />
+            <input value={form.wage} onChange={set('wage')} inputMode="decimal" placeholder="0" className={INPUT} />
           </Field>
           <Field label="Xodimlar soni ±" hint="hudud o'rtacha ish haqi bilan">
-            <input value={form.headcount} onChange={set('headcount')} inputMode="numeric" placeholder="0" className={FIELD} />
+            <input value={form.headcount} onChange={set('headcount')} inputMode="numeric" placeholder="0" className={INPUT} />
           </Field>
           <Field label="Xarajat, %">
-            <input value={form.opex} onChange={set('opex')} inputMode="decimal" placeholder="0" className={FIELD} />
+            <input value={form.opex} onChange={set('opex')} inputMode="decimal" placeholder="0" className={INPUT} />
           </Field>
           <Field label="Bir martalik xarajat, so'm" hint="boshlanish oyiga, har tanlangan hududga">
-            <input value={form.oneTime} onChange={set('oneTime')} inputMode="decimal" placeholder="0" className={FIELD} />
+            <input value={form.oneTime} onChange={set('oneTime')} inputMode="decimal" placeholder="0" className={INPUT} />
           </Field>
           <Field label="Markaz xarajati, %">
-            <input value={form.central} onChange={set('central')} inputMode="decimal" placeholder="0" className={FIELD} />
+            <input value={form.central} onChange={set('central')} inputMode="decimal" placeholder="0" className={INPUT} />
           </Field>
         </div>
-      </Card>
+      </ReportCard>
 
-      {res.error ? (
-        <Card><ErrorState message={res.error} onRetry={res.reload} /></Card>
-      ) : !d ? (
-        <Card><LoadingState label="Hisoblanmoqda" /></Card>
-      ) : (
-        <Results d={d} />
-      )}
+      {res.error || !d ? <LoadingCard label="Hisoblanmoqda" error={res.error} onRetry={res.reload} /> : <Results d={d} />}
     </div>
   );
 }
 
+/** Dastak maydoni: nom, kiritish, izoh (hisobot uslubidagi Field kabi) */
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-heading">{label}</span>
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-(--color-text-muted)">{label}</span>
       {children}
-      {hint && <span className="mt-0.5 block text-[11px] text-(--color-text-muted)">{hint}</span>}
+      {hint && <span className="text-[11px] text-(--color-text-faint)">{hint}</span>}
     </label>
   );
 }
@@ -186,33 +179,36 @@ function Results({ d }: { d: ScenarioResult }) {
   const rows = [...d.regions].sort((a, b) => n(a.deltaTiyin) - n(b.deltaTiyin));
   return (
     <>
-      <Card className="border-l-4 border-l-brand-500">
-        <div className="space-y-1 px-5 py-3 text-sm">
-          {d.narrative.map((x) => (
-            <p key={x}>{x}</p>
-          ))}
-        </div>
-      </Card>
-      <KpiStrip
-        items={(['revenue', 'payroll', 'opex', 'result'] as const).map((k) => ({
-          label: { revenue: 'Daromad', payroll: 'Ish haqi', opex: 'Xarajat', result: 'Natija (Markaz bilan)' }[k] + ` · ${d.horizon} oy`,
-          value: `${delta(k) > 0 ? '+' : ''}${compact(String(delta(k)))}`,
-          valueClass: delta(k) === 0 ? 'text-heading' : (k === 'revenue' || k === 'result' ? delta(k) > 0 : delta(k) < 0) ? 'text-(--color-income)' : 'text-(--color-expense)',
-          sub: `asos ${compact(String(tb(k)))} → ${compact(String(tb(k) + delta(k)))}`,
-        }))}
+      {d.narrative.length > 0 && (
+        <ReportCard title="Stsenariy natijasi">
+          <NotesList notes={d.narrative} />
+        </ReportCard>
+      )}
+      <StatTiles
+        items={(['revenue', 'payroll', 'opex', 'result'] as const).map((k) => {
+          const v = delta(k);
+          const good = (k === 'revenue' || k === 'result') === v > 0;
+          const tone: TileTone = v === 0 ? 'blue' : good ? 'green' : 'red';
+          return {
+            label: { revenue: 'Daromad', payroll: 'Ish haqi', opex: 'Xarajat', result: 'Natija (Markaz bilan)' }[k] + ` · ${d.horizon} oy`,
+            value: v,
+            text: `${v > 0 ? '+' : ''}${compact(String(v))}`,
+            tone,
+            note: `asos ${compact(String(tb(k)))} → ${compact(String(tb(k) + v))}`,
+          };
+        })}
       />
-      <Card>
-        <div className="px-5 pt-4">
-          <h3 className="text-sm font-bold text-heading">Natija oylar bo&apos;yicha: asos va stsenariy</h3>
-        </div>
-        <div className="px-3 pb-3">
+      <ReportCard title="Natija oylar bo'yicha: asos va stsenariy" badge={`${d.horizon} oy`}>
+        <div className="px-4 pb-4">
           <Bars d={d} />
         </div>
-      </Card>
-      <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-(--color-line) px-5 py-2.5">
-          <p className="text-xs text-(--color-text-muted)">Hududlar: davr natijasi, zarar ehtimoli (eng yuqori oy) va zararsizlik uchun kerakli tarif</p>
-          <SmallButton
+      </ReportCard>
+      <ReportCard
+        title="Hududlar bo'yicha stsenariy"
+        badge={`${d.horizon} oy · eng ko'p yutqazgan hudud tepada`}
+        actions={
+          <ExcelButton
+            label="CSV"
             onClick={() =>
               downloadCsv(
                 `Stsenariy-${d.lastActual}.csv`,
@@ -221,56 +217,51 @@ function Results({ d }: { d: ScenarioResult }) {
                 [],
               )
             }
-          >
-            CSV
-          </SmallButton>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-sm">
-            <thead className="bg-(--color-surface-muted) text-left">
-              <tr>
-                <th className={TH}>Hudud</th>
-                <th className={cn(TH, 'text-right')}>Asos natija</th>
-                <th className={cn(TH, 'text-right')}>Stsenariy</th>
-                <th className={cn(TH, 'text-right')}>O&apos;zgarish</th>
-                <th className={cn(TH, 'text-right')}>Zarar ehtimoli</th>
-                <th className={cn(TH, 'text-right')}>Zararsizlik tarifi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const b = r.baseResult.reduce((s, v) => s + n(v), 0);
-                const s = r.scenResult.reduce((s2, v) => s2 + n(v), 0);
-                const maxB = Math.max(...r.baseLoss.map((x) => x ?? 0));
-                const maxS = Math.max(...r.scenLoss.map((x) => x ?? 0));
-                const be = r.breakEvenTariff.filter((x): x is number => x !== null);
-                return (
-                  <tr key={r.code} className={cn('border-t border-(--color-line)', !r.touched && 'text-(--color-text-muted)')}>
-                    <td className="px-3 py-2 font-medium">{r.name}</td>
-                    <td className={cn('money px-3 py-2 text-right', b < 0 && 'text-(--color-expense)')}>{compact(String(b))}</td>
-                    <td className={cn('money px-3 py-2 text-right font-semibold', s < 0 && 'text-(--color-expense)')}>{compact(String(s))}</td>
-                    <td className={cn('money px-3 py-2 text-right', n(r.deltaTiyin) > 0 ? 'text-(--color-income)' : n(r.deltaTiyin) < 0 ? 'text-(--color-expense)' : '')}>{n(r.deltaTiyin) ? `${n(r.deltaTiyin) > 0 ? '+' : ''}${compact(r.deltaTiyin)}` : '—'}</td>
-                    <td className="money px-3 py-2 text-right">
-                      {share(maxB)} → <b className={cn(maxS >= 0.3 ? 'text-(--color-expense)' : 'text-heading')}>{share(maxS)}</b>
-                    </td>
-                    <td className="money px-3 py-2 text-right">{be.length ? `+${(Math.max(...be) * 100).toFixed(1).replace('.', ',')}%` : '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      <Card>
-        <div className="px-5 py-4">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">Qanday hisoblanadi</h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-            {d.method.map((m) => (
-              <li key={m}>{m}</li>
-            ))}
-          </ul>
-        </div>
-      </Card>
+          />
+        }
+      >
+        <RTable minWidth={900}>
+          <thead>
+            <tr>
+              <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+              <Th className={cn(STICKY_NAME, 'z-[2] min-w-44 text-left')}>Hudud</Th>
+              <Th>Asos natija</Th>
+              <Th>Stsenariy</Th>
+              <Th>O&apos;zgarish</Th>
+              <Th>Zarar ehtimoli</Th>
+              <Th>Zararsizlik tarifi</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, idx) => {
+              const b = r.baseResult.reduce((s, v) => s + n(v), 0);
+              const s = r.scenResult.reduce((s2, v) => s2 + n(v), 0);
+              const maxB = Math.max(...r.baseLoss.map((x) => x ?? 0));
+              const maxS = Math.max(...r.scenLoss.map((x) => x ?? 0));
+              const be = r.breakEvenTariff.filter((x): x is number => x !== null);
+              return (
+                <Tr key={r.code} muted={!r.touched} className={cn(!r.touched && 'text-(--color-text-muted)')}>
+                  <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{idx + 1}</Td>
+                  <NameCell>{r.name}</NameCell>
+                  <MoneyCell value={b} className={cn(b < 0 && 'text-(--color-expense)')} />
+                  <MoneyCell value={s} strong className={cn(s < 0 && 'text-(--color-expense)')} />
+                  {n(r.deltaTiyin) ? <DiffCell value={n(r.deltaTiyin)} /> : <Td className="text-(--color-text-faint)">—</Td>}
+                  <Td className="whitespace-nowrap">
+                    {share(maxB)} → <b className={cn(maxS >= 0.3 ? 'text-(--color-expense)' : 'text-heading')}>{share(maxS)}</b>
+                  </Td>
+                  <Td className="whitespace-nowrap">{be.length ? `+${(Math.max(...be) * 100).toFixed(1).replace('.', ',')}%` : '—'}</Td>
+                </Tr>
+              );
+            })}
+          </tbody>
+        </RTable>
+        <TableNote>
+          Hududlar: davr natijasi (so&apos;mda), zarar ehtimoli (eng yuqori oy: asos → stsenariy) va zararsizlik uchun kerakli tarif. Kulrang qatorlar — stsenariy tegmagan hududlar.
+        </TableNote>
+      </ReportCard>
+      <ReportCard title="Qanday hisoblanadi">
+        <NotesList notes={d.method} />
+      </ReportCard>
     </>
   );
 }

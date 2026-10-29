@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/components/report/report-extra-b';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
@@ -55,30 +56,39 @@ export function RegionalDemoPanel() {
   return (
     <>
       {info.exists ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-card) border-2 border-dashed border-amber-300 bg-amber-50 px-5 py-3">
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#f5d9a8] bg-[#fff8ec] px-5 py-4 shadow-card">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-amber-900">
-              Katta demo yoqilgan: {info.months} oy ({info.from} – {info.to}), {info.incomes.toLocaleString('ru-RU')} daromad, {info.expenses.toLocaleString('ru-RU')} xarajat, {info.employees} xodim
+            <h3 className="flex items-center gap-2.5 text-base font-bold text-heading">
+              <span className="h-5 w-1 rounded-full bg-[#d97706]" aria-hidden />
+              Katta demo yoqilgan
+              <StatusBadge tone="amber">[DEMO]</StatusBadge>
+            </h3>
+            <p className="mt-1.5 text-sm font-semibold text-[#b45309]">
+              Davr: {info.months} oy ({info.from} – {info.to}), {info.incomes.toLocaleString('ru-RU')} daromad, {info.expenses.toLocaleString('ru-RU')} xarajat, {info.employees} xodim
             </p>
-            <p className="text-xs text-amber-800">
+            <p className="mt-0.5 text-xs leading-relaxed text-(--color-text-muted)">
               Hamma bo&apos;limlar (Hududchi, Daromadlar, Xarajatlar, Xodimlar, modellar) shu ma&apos;lumot bilan ishlaydi. Belgisi — «[DEMO]». Sinab bo&apos;lgach o&apos;chiring: haqiqiy yozuvlarga tegilmaydi.
             </p>
           </div>
           <Button variant="danger" size="sm" onClick={() => setAsk('remove')}>
             Demoni o&apos;chirish
           </Button>
-        </div>
+        </section>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-card) border border-dashed border-(--color-line) bg-white px-5 py-3">
-          <p className="min-w-0 flex-1 text-sm text-(--color-text-muted)">
-            Modellarning to&apos;liq quvvatini ko&apos;rish uchun katta demo: {WHAT}
-          </p>
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white px-5 py-4 shadow-card">
+          <div className="min-w-0 flex-1">
+            <h3 className="flex items-center gap-2.5 text-base font-bold text-heading">
+              <span className="h-5 w-1 rounded-full bg-brand-600" aria-hidden />
+              Katta demo
+            </h3>
+            <p className="mt-1.5 text-xs leading-relaxed text-(--color-text-muted)">Modellarning to&apos;liq quvvatini ko&apos;rish uchun katta demo: {WHAT}</p>
+          </div>
           <Button variant="secondary" size="sm" onClick={() => setAsk('create')}>
             Katta demo qo&apos;shish
           </Button>
-        </div>
+        </section>
       )}
-      {error && ask !== 'force' && <p className="rounded-(--radius-control) bg-(--color-expense-soft) px-3 py-2 text-sm text-(--color-expense)">{error}</p>}
+      {error && ask !== 'force' && <p className="rounded-2xl bg-[#fdecec] px-4 py-2.5 text-sm font-medium text-[#c22f34] shadow-card">{error}</p>}
       <ConfirmDialog
         open={ask !== null}
         danger={ask === 'remove' || ask === 'force'}

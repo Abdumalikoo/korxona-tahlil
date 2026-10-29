@@ -1,7 +1,9 @@
 'use client';
 
+import { FilterBar, MoneyCell, NameCell, PillTabs, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr, sum } from '@/components/report/report';
+import { NotesList, StatusBadge } from '@/components/report/report-extra-b';
+import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Drawer } from '@/components/ui/drawer';
 import { ErrorState, LoadingState } from '@/components/ui/states';
@@ -9,15 +11,14 @@ import { Toast } from '@/components/ui/toast';
 import { FIELD } from '@/features/purchases/bits';
 import { MonthPicker } from '@/features/regional-desk/bits';
 import { compact } from '@/features/structure/api';
-import { KpiStrip, PanelHeader, SmallButton } from '@/features/structure/parts';
+import { SmallButton } from '@/features/structure/parts';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { usePeriod } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
-import { useEffect, useMemo, useState } from 'react';
-import { type Overhead, type RangeMode, type RuleList, type RuleUnit, reApi, share } from './api';
-import { RangeBar } from './performance-view';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type Overhead, RANGE_OPTIONS, type RangeMode, type RuleList, type RuleUnit, reApi, share } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Katta modellar › Markaz xarajati (F): Markaz bo'limlari xarajatini hududlarga taqsimlash.
@@ -25,16 +26,27 @@ import { RangeBar } from './performance-view';
 // Qoidalarni faqat administrator o'zgartiradi; qolganlar ko'radi.
 // ═══════════════════════════════════════════════════════════
 
-const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)';
-const ROLE_CLS: Record<string, string> = {
-  SUPPORT: 'bg-brand-100 text-brand-800',
-  REVENUE: 'bg-emerald-100 text-emerald-800',
-  CORPORATE: 'bg-slate-200 text-slate-700',
+const ROLE_TONE: Record<string, 'blue' | 'green' | 'muted'> = {
+  SUPPORT: 'blue',
+  REVENUE: 'green',
+  CORPORATE: 'muted',
 };
 const ROLE_SHORT: Record<string, string> = { SUPPORT: 'Yordamchi', REVENUE: 'Daromad keltiruvchi', CORPORATE: 'Umumkorporativ' };
 const SENS_SHORT: Record<string, string> = { HEADCOUNT: 'Xodim', FTE: 'Stavka', PAYROLL_RECORDS: 'Ish haqi yoz.', REVENUE: 'Daromad', TRANSACTIONS: 'Hujjat', EQUAL: 'Teng' };
+/** Kichik tugma — hisobot kartasi sarlavhasida (Hammasini ochish kabi) */
+const HEAD_BTN = 'rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50';
 
 type Toaster = (t: { message: string; tone?: 'success' | 'error' }) => void;
+
+/** Summa katakchasi: 0 bo'lsa — «—» */
+function MoneyOrDash({ tiyin, className, children }: { tiyin: string; className?: string; children?: ReactNode }) {
+  return (
+    <Td className={cn('whitespace-nowrap', className)}>
+      {BigInt(tiyin) ? sum(tiyin) : <span className="text-(--color-text-faint)">—</span>}
+      {children}
+    </Td>
+  );
+}
 
 export function OverheadView() {
   const { month } = usePeriod();
@@ -50,90 +62,97 @@ export function OverheadView() {
   const reload = () => setTick((t) => t + 1);
 
   const header = (
-    <PanelHeader
-      title="Markaz xarajati"
-      description={d ? `${d.range.label} · Markaz bo'limlari xarajati hududlarga qanday bo'linadi` : "Markaz bo'limlari xarajati hududlarga qanday bo'linadi"}
-      actions={<RangeBar mode={mode} onMode={setMode} />}
-    />
+    <FilterBar actions={<p className="text-xs text-(--color-text-muted)">{d ? `${d.range.label} · ` : ''}Markaz bo&apos;limlari xarajati hududlarga qanday bo&apos;linadi</p>}>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-(--color-text-muted)">Davr</span>
+        <PillTabs value={mode} onChange={setMode} options={RANGE_OPTIONS} />
+      </div>
+    </FilterBar>
   );
   const toastEl = toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} duration={toast.tone === 'error' ? 6000 : 3000} />;
 
-  if (res.error) return <div className="space-y-4">{header}<Card><ErrorState message={res.error} onRetry={res.reload} /></Card></div>;
-  if (!d) return <div className="space-y-4">{header}<Card><LoadingState label="Hisoblanmoqda" /></Card></div>;
+  if (res.error || !d) return <div className="space-y-4">{header}<LoadingCard label="Hisoblanmoqda" error={res.error} onRetry={res.reload} /></div>;
 
   const total = BigInt(d.totals.totalExpenseTiyin);
   const allocated = BigInt(d.totals.allocatedTiyin);
   const ruleUnit = (key: string) => rules.data?.units.find((u) => u.key === key) ?? null;
+  const retainedText = d.totals.retainedByReason.length ? d.totals.retainedByReason.map((r) => `${r.label.split(' — ')[0]}: ${compact(r.amountTiyin)}`).join(' · ') : '—';
 
   return (
     <div className="space-y-4">
       {header}
-      <KpiStrip
+      <StatTiles
         items={[
-          { label: 'Markaz xarajati', value: `${compact(d.totals.centralExpenseTiyin)} so'm`, sub: BigInt(d.totals.unassignedExpenseTiyin) ? `+ biriktirilmagan ${compact(d.totals.unassignedExpenseTiyin)}` : `Markaz daromadi ${compact(d.totals.centralIncomeTiyin)}` },
-          { label: 'Hududlarga taqsimlandi', value: `${compact(d.totals.allocatedTiyin)} so'm`, sub: `Jami xarajatning ${share(total ? Number(allocated) / Number(total) : null)} qismi` },
           {
-            label: 'Markazda qoldi',
-            value: `${compact(d.totals.retainedTiyin)} so'm`,
-            sub: d.totals.retainedByReason.length ? d.totals.retainedByReason.map((r) => `${r.label.split(' — ')[0]}: ${compact(r.amountTiyin)}`).join(' · ') : '—',
+            label: 'Markaz xarajati',
+            value: Number(d.totals.centralExpenseTiyin),
+            tone: 'blue',
+            note: BigInt(d.totals.unassignedExpenseTiyin) ? `+ biriktirilmagan ${compact(d.totals.unassignedExpenseTiyin)}` : `Markaz daromadi ${compact(d.totals.centralIncomeTiyin)}`,
           },
+          { label: 'Hududlarga taqsimlandi', value: Number(d.totals.allocatedTiyin), tone: 'green', note: `Jami xarajatning ${share(total ? Number(allocated) / Number(total) : null)} qismi` },
+          { label: 'Markazda qoldi', value: Number(d.totals.retainedTiyin), tone: 'orange', note: retainedText },
           {
             label: 'Tekshiruv',
-            value: d.reconciliation.ok ? '✓ Mos' : '✗ Farq bor',
-            valueClass: d.reconciliation.ok ? 'text-(--color-income)' : 'text-(--color-expense)',
-            sub: d.reconciliation.ok ? 'Taqsimlangan + qolgan = xarajat (tiyingacha)' : `Farq ${compact(d.reconciliation.diffTiyin)}`,
+            value: 0,
+            text: d.reconciliation.ok ? '✓ Mos' : '✗ Farq bor',
+            tone: d.reconciliation.ok ? 'green' : 'red',
+            note: d.reconciliation.ok ? 'Taqsimlangan + qolgan = xarajat (tiyingacha)' : `Farq ${compact(d.reconciliation.diffTiyin)}`,
           },
         ]}
       />
 
       {d.warnings.length > 0 && (
-        <Card className="border-l-4 border-l-amber-400">
+        <div className="rounded-2xl border-l-4 border-l-amber-400 bg-white shadow-card">
           <ul className="space-y-1.5 px-5 py-3 text-sm text-amber-900">
             {d.warnings.map((w) => (
               <li key={w}>• {w}</li>
             ))}
           </ul>
-        </Card>
+        </div>
       )}
 
       {/* Birliklar: rol, drayver, xarajat, taqsimlangan, qolgan */}
-      <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-(--color-line) px-5 py-3">
-          <div>
-            <h3 className="text-sm font-bold text-heading">Markaz bo&apos;limlari</h3>
-            <p className="text-xs text-(--color-text-muted)">Rol: yordamchi — hududlarga bo&apos;linadi; daromad keltiruvchi va umumkorporativ — Markazda qoladi</p>
-          </div>
-          {isAdmin && rules.data && rules.data.units.some((u) => !u.history.length && u.suggestion) && (
+      <ReportCard
+        title="Markaz bo'limlari"
+        badge={d.range.label}
+        actions={
+          isAdmin && rules.data && rules.data.units.some((u) => !u.history.length && u.suggestion) ? (
             <AcceptAll period={d.range.from} onDone={(n) => { setToast({ message: `${n} ta qoida tavsiya bo'yicha qo'shildi` }); reload(); }} onError={(e) => setToast({ message: e, tone: 'error' })} />
-          )}
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-sm">
-            <thead className="bg-(--color-surface-muted) text-left">
+          ) : undefined
+        }
+      >
+        {d.units.length ? (
+          <RTable minWidth={980}>
+            <thead>
               <tr>
-                <th className={TH}>Birlik</th>
-                <th className={TH}>Qoida</th>
-                <th className={cn(TH, 'text-right')}>Xarajat</th>
-                <th className={cn(TH, 'text-right')}>Taqsimlandi</th>
-                <th className={cn(TH, 'text-right')}>Markazda qoldi</th>
-                <th className={TH} />
+                <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+                <Th className={cn(STICKY_NAME, 'z-[2] min-w-44 text-left')}>Birlik</Th>
+                <Th className="text-left">Qoida</Th>
+                <Th>Xarajat</Th>
+                <Th>Taqsimlandi</Th>
+                <Th>Markazda qoldi</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
-              {d.units.map((u) => {
+              {d.units.map((u, i) => {
                 const ru = ruleUnit(u.key);
                 return (
-                  <tr key={u.key} className={cn('border-t border-(--color-line) align-top', u.kind === 'unassigned' && 'bg-amber-50/50')}>
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-heading">{u.name}</div>
-                      {BigInt(u.incomeTiyin) !== 0n && <div className="text-[11px] text-(--color-text-muted)">O&apos;z daromadi: {compact(u.incomeTiyin)}</div>}
-                    </td>
-                    <td className="px-3 py-2">
+                  <Tr key={u.key} className={cn('align-top', u.kind === 'unassigned' && '[&>td]:bg-amber-50')}>
+                    <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                    <NameCell className="font-medium text-heading" sub={BigInt(u.incomeTiyin) !== 0n ? `O'z daromadi: ${compact(u.incomeTiyin)}` : undefined}>
+                      {u.name}
+                    </NameCell>
+                    <Td className="text-left">
                       {u.role ? (
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold', ROLE_CLS[u.role])}>{ROLE_SHORT[u.role] ?? u.role}</span>
+                          <StatusBadge tone={ROLE_TONE[u.role] ?? 'muted'}>{ROLE_SHORT[u.role] ?? u.role}</StatusBadge>
                           {u.driverLabel && <span className="text-xs text-(--color-text-muted)">{u.driverLabel}</span>}
-                          {u.ruleChanged && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="Davr ichida qoida o'zgargan — har oy o'z qoidasi bilan">davrda o&apos;zgargan</span>}
+                          {u.ruleChanged && (
+                            <span title="Davr ichida qoida o'zgargan — har oy o'z qoidasi bilan">
+                              <StatusBadge tone="amber">davrda o&apos;zgargan</StatusBadge>
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs font-medium text-amber-700">Qoida yo&apos;q</span>
@@ -144,51 +163,43 @@ export function OverheadView() {
                           {u.suggestion.driverLabel ? `, ${u.suggestion.driverLabel}` : ''} — {u.suggestion.reason}
                         </div>
                       )}
-                    </td>
-                    <td className="money px-3 py-2 text-right">{compact(u.expenseTiyin)}</td>
-                    <td className="money px-3 py-2 text-right font-semibold text-brand-700">{BigInt(u.allocatedTiyin) ? compact(u.allocatedTiyin) : '—'}</td>
-                    <td className="money px-3 py-2 text-right">
-                      {BigInt(u.retainedTiyin) ? compact(u.retainedTiyin) : '—'}
+                    </Td>
+                    <MoneyCell value={Number(u.expenseTiyin)} />
+                    <MoneyOrDash tiyin={u.allocatedTiyin} className="font-semibold text-brand-700" />
+                    <MoneyOrDash tiyin={u.retainedTiyin}>
                       {u.retained.map((r) => (
                         <div key={r.reason} className="text-[11px] text-(--color-text-muted)">{r.label.split(' — ')[0]}</div>
                       ))}
-                    </td>
-                    <td className="px-3 py-2 text-right">
+                    </MoneyOrDash>
+                    <Td>
                       <div className="flex justify-end gap-1.5">
                         {u.driver === 'MANUAL' && (
                           <SmallButton onClick={() => setManual({ unitKey: u.key, name: u.name })}>Qiymatlar</SmallButton>
                         )}
                         {isAdmin && ru && <SmallButton onClick={() => setEditing(ru)}>Qoida</SmallButton>}
                       </div>
-                    </td>
-                  </tr>
+                    </Td>
+                  </Tr>
                 );
               })}
-              {!d.units.length && (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-sm text-(--color-text-muted)">Bu davrda Markaz xarajati yozuvlari yo&apos;q</td>
-                </tr>
-              )}
             </tbody>
-          </table>
-        </div>
-      </Card>
+          </RTable>
+        ) : (
+          <EmptyNote>Bu davrda Markaz xarajati yozuvlari yo&apos;q</EmptyNote>
+        )}
+        <TableNote>
+          Rol: yordamchi — hududlarga bo&apos;linadi; daromad keltiruvchi va umumkorporativ — Markazda qoladi. Summalar — so&apos;mda.
+          {d.totals.retainedByReason.length > 0 && <> Markazda qoldi: {retainedText}.</>}
+        </TableNote>
+      </ReportCard>
 
       <RegionAllocation d={d} />
 
       {isAdmin && rules.data && <RulesCard data={rules.data} onEdit={setEditing} />}
 
-      <Card>
-        <div className="px-5 py-4">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">Qanday hisoblanadi</h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-            {d.method.map((m) => (
-              <li key={m}>{m}</li>
-            ))}
-            <li>{d.reconciliation.formula}.</li>
-          </ul>
-        </div>
-      </Card>
+      <ReportCard title="Qanday hisoblanadi">
+        <NotesList notes={[...d.method, `${d.reconciliation.formula}.`]} />
+      </ReportCard>
 
       {editing && rules.data && (
         <RuleDrawer
@@ -224,52 +235,49 @@ function RegionAllocation({ d }: { d: Overhead }) {
   );
   if (BigInt(d.totals.allocatedTiyin) === 0n) {
     return (
-      <Card>
-        <p className="px-5 py-4 text-sm text-(--color-text-muted)">Hali hududlarga hech narsa taqsimlanmadi — bo&apos;limlar uchun qoida belgilang (yordamchi + drayver).</p>
-      </Card>
+      <ReportCard title="Hududlar ulushi va drayverga sezgirlik">
+        <EmptyNote>Hali hududlarga hech narsa taqsimlanmadi — bo&apos;limlar uchun qoida belgilang (yordamchi + drayver).</EmptyNote>
+      </ReportCard>
     );
   }
   return (
-    <Card className="overflow-hidden">
-      <div className="border-b border-(--color-line) px-5 py-3">
-        <h3 className="text-sm font-bold text-heading">Hududlar ulushi va drayverga sezgirlik</h3>
-        <p className="text-xs text-(--color-text-muted)">
-          O&apos;ngdagi ustunlar — xuddi shu {compact(d.totals.allocatedTiyin)} so&apos;mni boshqa drayver bilan bo&apos;lsak, hududga qancha tushardi. Farq katta bo&apos;lsa — natija drayver tanloviga sezgir.
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-sm">
-          <thead className="bg-(--color-surface-muted) text-left">
-            <tr>
-              <th className={TH}>Hudud</th>
-              <th className={cn(TH, 'text-right')}>Taqsimlandi</th>
-              <th className={cn(TH, 'text-right')}>Ulush</th>
-              {sens.map((s) => (
-                <th key={s.driver} className={cn(TH, 'text-right')} title={s.label}>
-                  {SENS_SHORT[s.driver] ?? s.driver}
-                </th>
-              ))}
-              <th className={cn(TH, 'text-right')} title="(eng ko'p − eng kam) ÷ hozirgi">Tebranish</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.code} className="border-t border-(--color-line)">
-                <td className="px-3 py-2 font-medium text-heading">{r.name}</td>
-                <td className="money px-3 py-2 text-right font-semibold">{compact(r.allocatedTiyin)}</td>
-                <td className="money px-3 py-2 text-right">{share(r.share)}</td>
-                {r.alts.map((v, i) => (
-                  <td key={sens[i]!.driver} className={cn('money px-3 py-2 text-right text-(--color-text-muted)', v === r.max && r.max !== r.min && 'text-(--color-expense)', v === r.min && r.max !== r.min && 'text-(--color-income)')}>
-                    {compact(String(v))}
-                  </td>
-                ))}
-                <td className={cn('money px-3 py-2 text-right font-semibold', r.spread !== null && r.spread > 0.5 ? 'text-(--color-expense)' : 'text-heading')}>{share(r.spread)}</td>
-              </tr>
+    <ReportCard title="Hududlar ulushi va drayverga sezgirlik" badge={`${compact(d.totals.allocatedTiyin)} so'm`}>
+      <RTable minWidth={900}>
+        <thead>
+          <tr>
+            <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+            <Th className={cn(STICKY_NAME, 'z-[2] min-w-40 text-left')}>Hudud</Th>
+            <Th>Taqsimlandi</Th>
+            <Th>Ulush</Th>
+            {sens.map((s) => (
+              <Th key={s.driver} title={s.label}>
+                {SENS_SHORT[s.driver] ?? s.driver}
+              </Th>
             ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+            <Th title="(eng ko'p − eng kam) ÷ hozirgi">Tebranish</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <Tr key={r.code}>
+              <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+              <NameCell className="font-medium text-heading">{r.name}</NameCell>
+              <MoneyCell value={Number(r.allocatedTiyin)} strong />
+              <Td>{share(r.share)}</Td>
+              {r.alts.map((v, j) => (
+                <Td key={sens[j]!.driver} className={cn('whitespace-nowrap text-(--color-text-muted)', v === r.max && r.max !== r.min && 'text-(--color-expense)', v === r.min && r.max !== r.min && 'text-(--color-income)')}>
+                  {sum(v)}
+                </Td>
+              ))}
+              <Td className={cn('font-semibold', r.spread !== null && r.spread > 0.5 ? 'text-(--color-expense)' : 'text-heading')}>{share(r.spread)}</Td>
+            </Tr>
+          ))}
+        </tbody>
+      </RTable>
+      <TableNote>
+        O&apos;ngdagi ustunlar — xuddi shu {compact(d.totals.allocatedTiyin)} so&apos;mni boshqa drayver bilan bo&apos;lsak, hududga qancha tushardi. Farq katta bo&apos;lsa — natija drayver tanloviga sezgir.
+      </TableNote>
+    </ReportCard>
   );
 }
 
@@ -312,68 +320,67 @@ function AcceptAll({ period, onDone, onError }: { period: string; onDone: (n: nu
 function RulesCard({ data, onEdit }: { data: RuleList; onEdit: (u: RuleUnit) => void }) {
   const [open, setOpen] = useState(false);
   return (
-    <Card className="overflow-hidden">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between px-5 py-3 text-left">
-        <div>
-          <h3 className="text-sm font-bold text-heading">Taqsimlash qoidalari (barcha bo&apos;limlar)</h3>
-          <p className="text-xs text-(--color-text-muted)">
-            {data.units.filter((u) => u.current).length} / {data.units.length} birlikda qoida bor · tarix saqlanadi
-          </p>
-        </div>
-        <span className="text-sm text-brand-700">{open ? 'Yopish' : 'Ochish'}</span>
-      </button>
+    <ReportCard
+      title="Taqsimlash qoidalari (barcha bo'limlar)"
+      badge={`${data.units.filter((u) => u.current).length} / ${data.units.length} birlikda qoida bor · tarix saqlanadi`}
+      actions={
+        <button type="button" onClick={() => setOpen((o) => !o)} className={HEAD_BTN}>
+          {open ? 'Yopish' : 'Ochish'}
+        </button>
+      }
+    >
       {open && (
-        <div className="overflow-x-auto border-t border-(--color-line)">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="bg-(--color-surface-muted) text-left">
-              <tr>
-                <th className={TH}>Birlik</th>
-                <th className={TH}>Amaldagi qoida</th>
-                <th className={TH}>Tarix</th>
-                <th className={TH} />
-              </tr>
-            </thead>
-            <tbody>
-              {data.units.map((u) => (
-                <tr key={u.key} className="border-t border-(--color-line) align-top">
-                  <td className="px-3 py-2 font-medium text-heading">{u.name}</td>
-                  <td className="px-3 py-2">
-                    {u.current ? (
-                      <>
-                        <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold', ROLE_CLS[u.current.role])}>{ROLE_SHORT[u.current.role]}</span>
-                        {u.current.driverLabel && <span className="ml-1.5 text-xs">{u.current.driverLabel}</span>}
-                        <div className="text-[11px] text-(--color-text-muted)">{u.current.validFrom} dan{u.current.createdBy ? ` · ${u.current.createdBy}` : ''}</div>
-                      </>
-                    ) : (
-                      <span className="text-xs text-amber-700">yo&apos;q</span>
-                    )}
-                    {u.upcoming.map((r) => (
-                      <div key={r.id} className="mt-1 text-[11px] text-sky-800">
-                        Kelgusi: {r.validFrom} dan — {ROLE_SHORT[r.role]}
-                        {r.driverLabel ? `, ${r.driverLabel}` : ''}
-                      </div>
-                    ))}
-                  </td>
-                  <td className="px-3 py-2 text-[11px] text-(--color-text-muted)">
-                    {u.history.length > 1
-                      ? u.history.slice(0, 4).map((r) => (
-                          <div key={r.id}>
-                            {r.validFrom}: {ROLE_SHORT[r.role]}
-                            {r.driverLabel ? `, ${r.driverLabel}` : ''}
-                          </div>
-                        ))
-                      : '—'}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <SmallButton onClick={() => onEdit(u)}>O&apos;zgartirish</SmallButton>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RTable minWidth={760}>
+          <thead>
+            <tr>
+              <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+              <Th className={cn(STICKY_NAME, 'z-[2] min-w-44 text-left')}>Birlik</Th>
+              <Th className="text-left">Amaldagi qoida</Th>
+              <Th className="text-left">Tarix</Th>
+              <Th />
+            </tr>
+          </thead>
+          <tbody>
+            {data.units.map((u, i) => (
+              <Tr key={u.key} className="align-top">
+                <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                <NameCell className="font-medium text-heading">{u.name}</NameCell>
+                <Td className="text-left">
+                  {u.current ? (
+                    <>
+                      <StatusBadge tone={ROLE_TONE[u.current.role] ?? 'muted'}>{ROLE_SHORT[u.current.role]}</StatusBadge>
+                      {u.current.driverLabel && <span className="ml-1.5 text-xs">{u.current.driverLabel}</span>}
+                      <div className="text-[11px] text-(--color-text-muted)">{u.current.validFrom} dan{u.current.createdBy ? ` · ${u.current.createdBy}` : ''}</div>
+                    </>
+                  ) : (
+                    <span className="text-xs text-amber-700">yo&apos;q</span>
+                  )}
+                  {u.upcoming.map((r) => (
+                    <div key={r.id} className="mt-1 text-[11px] text-sky-800">
+                      Kelgusi: {r.validFrom} dan — {ROLE_SHORT[r.role]}
+                      {r.driverLabel ? `, ${r.driverLabel}` : ''}
+                    </div>
+                  ))}
+                </Td>
+                <Td className="text-left text-[11px] text-(--color-text-muted)">
+                  {u.history.length > 1
+                    ? u.history.slice(0, 4).map((r) => (
+                        <div key={r.id}>
+                          {r.validFrom}: {ROLE_SHORT[r.role]}
+                          {r.driverLabel ? `, ${r.driverLabel}` : ''}
+                        </div>
+                      ))
+                    : '—'}
+                </Td>
+                <Td className="text-right">
+                  <SmallButton onClick={() => onEdit(u)}>O&apos;zgartirish</SmallButton>
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </RTable>
       )}
-    </Card>
+    </ReportCard>
   );
 }
 
@@ -540,22 +547,33 @@ function ManualDrawer({ unitKey, name, initialPeriod, canEdit, onClose, onSaved,
         ) : data.error ? (
           <ErrorState message={data.error} onRetry={data.reload} />
         ) : (
-          <table className="w-full text-sm">
-            <tbody>
-              {data.data?.regions.map((r) => {
-                const v = Number((vals[r.code] ?? '').replace(',', '.')) || 0;
-                return (
-                  <tr key={r.code} className="border-t border-(--color-line)">
-                    <td className="py-1.5">{r.name}</td>
-                    <td className="w-32 py-1">
-                      <input value={vals[r.code] ?? ''} disabled={!canEdit} inputMode="decimal" onChange={(e) => setVals((s) => ({ ...s, [r.code]: e.target.value }))} className={cn(FIELD, 'h-9 text-right')} placeholder="0" />
-                    </td>
-                    <td className="w-16 py-1.5 text-right text-xs text-(--color-text-muted)">{total ? share(v / total) : ''}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="-mx-4">
+            <RTable minWidth={0}>
+              <thead>
+                <tr>
+                  <Th className="w-10">№</Th>
+                  <Th className="text-left">Hudud</Th>
+                  <Th className="w-32">Qiymat</Th>
+                  <Th className="w-16">Ulush</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.data?.regions.map((r, i) => {
+                  const v = Number((vals[r.code] ?? '').replace(',', '.')) || 0;
+                  return (
+                    <Tr key={r.code}>
+                      <Td className="text-(--color-text-faint)">{i + 1}</Td>
+                      <NameCell sticky={false}>{r.name}</NameCell>
+                      <Td className="py-1">
+                        <input value={vals[r.code] ?? ''} disabled={!canEdit} inputMode="decimal" onChange={(e) => setVals((s) => ({ ...s, [r.code]: e.target.value }))} className={cn(FIELD, 'h-9 text-right')} placeholder="0" />
+                      </Td>
+                      <Td className="text-xs text-(--color-text-muted)">{total ? share(v / total) : ''}</Td>
+                    </Tr>
+                  );
+                })}
+              </tbody>
+            </RTable>
+          </div>
         )}
       </div>
     </Drawer>

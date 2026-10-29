@@ -1,14 +1,15 @@
 'use client';
 
+import { ExcelButton, FilterBar, NameCell, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr, sum, type StatTile, type TileTone } from '@/components/report/report';
+import { NotesList, StatusBadge } from '@/components/report/report-extra-b';
+import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Drawer } from '@/components/ui/drawer';
-import { ErrorState, LoadingState } from '@/components/ui/states';
+import { LoadingState } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
 import { FIELD } from '@/features/purchases/bits';
 import { MonthPicker } from '@/features/regional-desk/bits';
 import { compact } from '@/features/structure/api';
-import { KpiStrip, PanelHeader, SmallButton } from '@/features/structure/parts';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
@@ -24,11 +25,10 @@ import { type KpiCell, type KpiList, kpiApi, share } from './api';
 // Yozish — faqat administrator; kuzatuvchi ko'radi.
 // ═══════════════════════════════════════════════════════════
 
-const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)';
-const STATUS: Record<string, { label: string; cls: string }> = {
-  DRAFT: { label: 'Qoralama', cls: 'bg-slate-100 text-slate-700' },
-  PROPOSED: { label: 'Taklif etilgan', cls: 'bg-sky-100 text-sky-800' },
-  APPROVED: { label: 'Tasdiqlangan', cls: 'bg-emerald-100 text-emerald-800' },
+const STATUS: Record<string, { label: string; tone: 'muted' | 'blue' | 'green' }> = {
+  DRAFT: { label: 'Qoralama', tone: 'muted' },
+  PROPOSED: { label: 'Taklif etilgan', tone: 'blue' },
+  APPROVED: { label: 'Tasdiqlangan', tone: 'green' },
 };
 const STATE: Record<string, { label: string; cls: string }> = {
   met: { label: 'Bajarildi', cls: 'text-(--color-income)' },
@@ -44,6 +44,15 @@ function somToTiyin(raw: string): string | null {
   return String(Math.round(Number(s) * 100));
 }
 const tiyinToSom = (t: string | null) => (t === null ? '' : (Number(t) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 }));
+
+/** Summa katakchasi: yo'q bo'lsa — «—» */
+function MoneyOrDash({ tiyin, className, title }: { tiyin: string | null; className?: string; title?: string }) {
+  return (
+    <Td className={cn('whitespace-nowrap', className)} title={title}>
+      {tiyin ? sum(tiyin) : <span className="text-(--color-text-faint)">—</span>}
+    </Td>
+  );
+}
 
 export function KpiView() {
   const { isAdmin } = useAuth();
@@ -74,70 +83,66 @@ export function KpiView() {
   };
 
   const header = (
-    <PanelHeader
-      title="KPI"
-      description="Hududlar uchun oylik maqsadlar: model taklifi → taklif → tasdiq → fakt"
+    <FilterBar
       actions={
-        <div className="flex flex-wrap items-center gap-2">
-          <MonthPicker value={period} onChange={setPeriod} />
-          {isAdmin && (
-            <>
-              <Button variant="secondary" loading={busy === 'gen'} onClick={() => void run('gen')}>
-                Takliflarni hisoblash
+        isAdmin ? (
+          <>
+            <Button variant="secondary" loading={busy === 'gen'} onClick={() => void run('gen')}>
+              Takliflarni hisoblash
+            </Button>
+            {d && d.counts.PROPOSED > 0 && (
+              <Button loading={busy === 'all'} onClick={() => void run('all')}>
+                Taklif etilganlarni tasdiqlash ({d.counts.PROPOSED})
               </Button>
-              {d && d.counts.PROPOSED > 0 && (
-                <Button loading={busy === 'all'} onClick={() => void run('all')}>
-                  Taklif etilganlarni tasdiqlash ({d.counts.PROPOSED})
-                </Button>
-              )}
-            </>
-          )}
-        </div>
+            )}
+          </>
+        ) : undefined
       }
     >
-      {d && (
-        <p className="text-xs text-(--color-text-muted)">
-          {d.label}: {d.timing === 'past' ? `o'tgan oy${d.closed ? ', yopilgan' : ', hali yopilmagan'} — fakt bilan bajarilish` : d.timing === 'running' ? 'joriy oy — fakt hali to\'liq emas' : 'kelgusi oy'}
-        </p>
-      )}
-    </PanelHeader>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-(--color-text-muted)">Oy</span>
+        <MonthPicker value={period} onChange={setPeriod} />
+      </div>
+      <div className="pb-1 text-xs text-(--color-text-muted)">
+        <p>Hududlar uchun oylik maqsadlar: model taklifi → taklif → tasdiq → fakt</p>
+        {d && (
+          <p>
+            {d.label}: {d.timing === 'past' ? `o'tgan oy${d.closed ? ', yopilgan' : ', hali yopilmagan'} — fakt bilan bajarilish` : d.timing === 'running' ? 'joriy oy — fakt hali to\'liq emas, oy tugagach baholanadi' : 'kelgusi oy'}
+          </p>
+        )}
+      </div>
+    </FilterBar>
   );
-  if (res.error) return <div className="space-y-4">{header}<Card><ErrorState message={res.error} onRetry={res.reload} /></Card></div>;
-  if (!d) return <div className="space-y-4">{header}<Card><LoadingState /></Card></div>;
+  if (res.error || !d) return <div className="space-y-4">{header}<LoadingCard label="Yuklanmoqda" error={res.error} onRetry={res.reload} /></div>;
   const empty = d.counts.missing === d.regions.length * d.metrics.length;
   const tot = (m: string) => d.totals.find((t) => t.metric === m)!;
+  const metricTone: Record<string, TileTone> = { REVENUE: 'green', EXPENSE: 'red', RESULT: 'purple' };
 
   return (
     <div className="space-y-4">
       {header}
-      <KpiStrip
+      <StatTiles
         items={[
-          { label: 'Holat', value: `${d.counts.APPROVED} / ${d.regions.length * d.metrics.length}`, sub: `tasdiqlangan · taklif ${d.counts.PROPOSED} · qoralama ${d.counts.DRAFT}${d.counts.missing ? ` · yo'q ${d.counts.missing}` : ''}` },
-          ...(['REVENUE', 'EXPENSE', 'RESULT'] as const).map((m) => {
+          { label: 'Holat', value: 0, text: `${d.counts.APPROVED} / ${d.regions.length * d.metrics.length}`, tone: 'blue', note: `tasdiqlangan · taklif ${d.counts.PROPOSED} · qoralama ${d.counts.DRAFT}${d.counts.missing ? ` · yo'q ${d.counts.missing}` : ''}` },
+          ...(['REVENUE', 'EXPENSE', 'RESULT'] as const).map((m): StatTile => {
             const t = tot(m);
             return {
               label: t.label,
-              value: t.regions ? `${compact(t.actualTiyin)} / ${compact(t.approvedTiyin)}` : '—',
-              // joriy oyda fakt — hozircha yozilgani
-              valueClass: t.achievement !== null && d.timing === 'past' ? (t.achievement >= 1 ? 'text-(--color-income)' : t.achievement >= 0.95 ? 'text-amber-700' : 'text-(--color-expense)') : 'text-heading',
-              sub: !t.regions ? "tasdiqlangan maqsad yo'q" : d.timing === 'past' ? `fakt / maqsad · bajarilish ${share(t.achievement)} (${t.regions} hudud)` : `hozircha yozilgan / maqsad (${t.regions} hudud) — oy tugagach baholanadi`,
+              value: 0,
+              text: t.regions ? `${compact(t.actualTiyin)} / ${compact(t.approvedTiyin)}` : '—',
+              // joriy oyda fakt — hozircha yozilgani; o'tgan oyda — bajarilish rangi
+              tone: t.achievement !== null && d.timing === 'past' ? (t.achievement >= 1 ? 'green' : t.achievement >= 0.95 ? 'orange' : 'red') : metricTone[m],
+              note: !t.regions ? "tasdiqlangan maqsad yo'q" : d.timing === 'past' ? `fakt / maqsad · bajarilish ${share(t.achievement)} (${t.regions} hudud)` : `hozircha yozilgan / maqsad (${t.regions} hudud)`,
             };
           }),
         ]}
       />
-      {empty ? (
-        <Card>
-          <div className="px-5 py-8 text-center text-sm text-(--color-text-muted)">
-            {d.label} uchun KPI hali yo&apos;q.{isAdmin ? ' «Takliflarni hisoblash» tugmasini bosing — model salohiyat, prognoz va reja asosida taklif beradi.' : ''}
-          </div>
-        </Card>
-      ) : (
-        <Card className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-(--color-line) px-5 py-2.5">
-            <p className="text-xs text-(--color-text-muted)">
-              {d.timing === 'past' ? `Bajarilish: daromad va natija — fakt ÷ maqsad; xarajat — maqsad ÷ fakt.` : 'Qatorni bosing — qiymat kiritish, tasdiqlash va tarix'}
-            </p>
-            <SmallButton
+      <ReportCard
+        title="Hududlar KPI"
+        badge={d.label}
+        actions={
+          !empty ? (
+            <ExcelButton
               onClick={() =>
                 downloadCsv(
                   `KPI-${d.period}.csv`,
@@ -148,70 +153,74 @@ export function KpiView() {
                   [],
                 )
               }
-            >
-              CSV
-            </SmallButton>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
-              <thead className="bg-(--color-surface-muted) text-left">
+            />
+          ) : undefined
+        }
+      >
+        {empty ? (
+          <EmptyNote>
+            {d.label} uchun KPI hali yo&apos;q.{isAdmin ? ' «Takliflarni hisoblash» tugmasini bosing — model salohiyat, prognoz va reja asosida taklif beradi.' : ''}
+          </EmptyNote>
+        ) : (
+          <>
+            <RTable minWidth={980}>
+              <thead>
                 <tr>
-                  <th className={TH}>Ko&apos;rsatkich</th>
-                  <th className={cn(TH, 'text-right')}>Model taklifi</th>
-                  <th className={cn(TH, 'text-right')}>Taklif etilgan</th>
-                  <th className={cn(TH, 'text-right')}>Tasdiqlangan</th>
-                  <th className={TH}>Holat</th>
-                  <th className={cn(TH, 'text-right')}>Fakt</th>
-                  <th className={cn(TH, 'text-right')}>Bajarilish</th>
+                  <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+                  <Th className={cn(STICKY_NAME, 'z-[2] min-w-44 text-left')}>Hudud / ko&apos;rsatkich</Th>
+                  <Th>Model taklifi</Th>
+                  <Th>Taklif etilgan</Th>
+                  <Th>Tasdiqlangan</Th>
+                  <Th>Holat</Th>
+                  <Th>Fakt</Th>
+                  <Th>Bajarilish</Th>
                 </tr>
               </thead>
               <tbody>
-                {d.regions.map((r) => (
+                {d.regions.map((r, i) => (
                   <Fragment key={r.code}>
-                    <tr className="bg-brand-50/60">
-                      <td colSpan={7} className="px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-brand-700">
-                        {r.name}
-                      </td>
-                    </tr>
+                    <Tr muted>
+                      <Td className={cn(STICKY_NO, 'font-semibold text-(--color-text-faint)')}>{i + 1}</Td>
+                      <NameCell className="font-bold text-heading">{r.name}</NameCell>
+                      <Td colSpan={6} />
+                    </Tr>
                     {r.metrics.map((c) => (
-                      <tr key={c.metric} onClick={() => c.id && setEdit({ cell: c, region: r.name })} className={cn('border-t border-(--color-line)', c.id && 'cursor-pointer hover:bg-brand-50/40')}>
-                        <td className="px-3 py-1.5 pl-6">
+                      <Tr key={c.metric} onClick={c.id ? () => setEdit({ cell: c, region: r.name }) : undefined}>
+                        <Td className={STICKY_NO} />
+                        <NameCell className="pl-5">
                           {c.label}
                           <span className="ml-1 text-[10px] text-(--color-text-faint)">{c.up ? '≥' : '≤'}</span>
-                        </td>
-                        <td className="money px-3 py-1.5 text-right text-(--color-text-muted)">{c.suggestedTiyin ? compact(c.suggestedTiyin) : '—'}</td>
-                        <td className="money px-3 py-1.5 text-right">{c.proposedTiyin ? compact(c.proposedTiyin) : '—'}</td>
-                        <td className="money px-3 py-1.5 text-right font-semibold">{c.approvedTiyin ? compact(c.approvedTiyin) : '—'}</td>
-                        <td className="px-3 py-1.5">
-                          {c.status ? <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold', STATUS[c.status]!.cls)}>{STATUS[c.status]!.label}</span> : <span className="text-xs text-(--color-text-faint)">yo&apos;q</span>}
+                        </NameCell>
+                        <MoneyOrDash tiyin={c.suggestedTiyin} className="text-(--color-text-muted)" />
+                        <MoneyOrDash tiyin={c.proposedTiyin} />
+                        <MoneyOrDash tiyin={c.approvedTiyin} className="font-semibold" />
+                        <Td>
+                          {c.status ? <StatusBadge tone={STATUS[c.status]!.tone}>{STATUS[c.status]!.label}</StatusBadge> : <span className="text-xs text-(--color-text-faint)">yo&apos;q</span>}
                           {c.history > 1 && <span className="ml-1.5 text-[10px] text-(--color-text-muted)">{c.history} qadam</span>}
-                        </td>
-                        <td className={cn('money px-3 py-1.5 text-right', n(c.actualTiyin) < 0 && 'text-(--color-expense)', d.timing === 'running' && 'text-(--color-text-muted)')} title={d.timing === 'running' ? 'Hozircha yozilgan (oy tugamagan)' : undefined}>
-                          {c.actualTiyin === null ? '—' : compact(c.actualTiyin)}
-                        </td>
-                        <td className={cn('money px-3 py-1.5 text-right font-semibold', STATE[c.state]!.cls)}>
+                        </Td>
+                        <Td className={cn('whitespace-nowrap', n(c.actualTiyin) < 0 && 'text-(--color-expense)', d.timing === 'running' && 'text-(--color-text-muted)')} title={d.timing === 'running' ? 'Hozircha yozilgan (oy tugamagan)' : undefined}>
+                          {c.actualTiyin === null ? <span className="text-(--color-text-faint)">—</span> : sum(c.actualTiyin)}
+                        </Td>
+                        <Td className={cn('whitespace-nowrap font-semibold', STATE[c.state]!.cls)}>
                           {c.achievement !== null ? share(c.achievement) : c.state !== 'none' ? '' : '—'}
                           {c.state !== 'none' && <div className="text-[10px] font-normal">{STATE[c.state]!.label}</div>}
-                        </td>
-                      </tr>
+                        </Td>
+                      </Tr>
                     ))}
                   </Fragment>
                 ))}
               </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-      <Card>
-        <div className="px-5 py-4">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)">Qanday hisoblanadi</h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-            {d.method.map((m) => (
-              <li key={m}>{m}</li>
-            ))}
-          </ul>
-        </div>
-      </Card>
+            </RTable>
+            <TableNote>
+              {d.timing === 'past' ? `Bajarilish: daromad va natija — fakt ÷ maqsad; xarajat — maqsad ÷ fakt.` : 'Qatorni bosing — qiymat kiritish, tasdiqlash va tarix'}
+              {' '}Summalar — so&apos;mda.
+            </TableNote>
+          </>
+        )}
+      </ReportCard>
+      <ReportCard title="Qanday hisoblanadi">
+        <NotesList notes={d.method} />
+      </ReportCard>
       {edit && <KpiDrawer d={d} cell={edit.cell} region={edit.region} canEdit={isAdmin} onClose={() => setEdit(null)} onDone={(m) => { setToast({ message: m }); setEdit(null); reload(); }} onError={(m) => setToast({ message: m, tone: 'error' })} />}
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} duration={toast.tone === 'error' ? 6000 : 3000} />}
     </div>
