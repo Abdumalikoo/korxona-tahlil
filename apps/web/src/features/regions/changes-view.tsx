@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ActionButton,
   changeOf,
   DiffCell,
   ExcelButton,
@@ -107,7 +108,7 @@ export function ChangesView({ to }: { to: string }) {
 
   return (
     <div className="space-y-4">
-      <FilterBar actions={data.hasCurrent ? <ExcelButton onClick={exportCsv} /> : undefined}>
+      <FilterBar>
         <Field label="Oy">
           <SelectBox
             value={data.period}
@@ -117,9 +118,6 @@ export function ChangesView({ to }: { to: string }) {
               setUnit(null);
             }}
           />
-        </Field>
-        <Field label="Xodim">
-          <SearchInput value={query} onChange={setQuery} placeholder="F.I.Sh, JShShIR…" />
         </Field>
         <p className="pb-2.5 text-xs text-(--color-text-muted)">{prevLabel}ga nisbatan · ish haqi vedomostlari, xodimlar reestri va hudud tarixidan</p>
       </FilterBar>
@@ -137,9 +135,7 @@ export function ChangesView({ to }: { to: string }) {
             badge={`${prevLabel} → ${curLabel}`}
             actions={
               unit ? (
-                <button type="button" onClick={() => setUnit(null)} className="rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
-                  Hammasi
-                </button>
+                <ActionButton onClick={() => setUnit(null)}>Hammasi</ActionButton>
               ) : undefined
             }
           >
@@ -230,7 +226,16 @@ export function ChangesView({ to }: { to: string }) {
             ]}
           />
 
-          <ReportCard title={`Xodimlar${unitName ? ` · ${unitName}` : ''} — ${people.length} ta`} badge={`${prevLabel} → ${curLabel}`}>
+          <ReportCard
+            title={`Xodimlar${unitName ? ` · ${unitName}` : ''} — ${people.length} ta`}
+            badge={`${prevLabel} → ${curLabel}`}
+            actions={
+              <>
+                <SearchInput value={query} onChange={setQuery} placeholder="F.I.Sh, JShShIR…" />
+                <ExcelButton onClick={exportCsv} />
+              </>
+            }
+          >
             {!data.hasPrevious ? (
               <EmptyNote>{prevLabel} uchun ish haqi yuklanmagan — taqqoslab bo&apos;lmaydi.</EmptyNote>
             ) : people.length === 0 ? (

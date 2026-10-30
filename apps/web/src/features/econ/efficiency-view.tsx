@@ -92,7 +92,6 @@ export function EfficiencyView({ showModelsLink = false }: { showModelsLink?: bo
               Katta modellar →
             </Link>
           )}
-          {data && units.length > 0 && <ExcelButton onClick={exportCsv} />}
         </>
       }
     >
@@ -159,7 +158,7 @@ export function EfficiencyView({ showModelsLink = false }: { showModelsLink?: bo
 
       {filters}
 
-      <ReportCard title="Hududlar samaradorligi (oylik o'rtacha)" badge={`${period} · resurslar: ${data.inputs.join(', ').toLowerCase()}`}>
+      <ReportCard title="Hududlar samaradorligi (oylik o'rtacha)" badge={`${period} · resurslar: ${data.inputs.join(', ').toLowerCase()}`} actions={units.length > 0 ? <ExcelButton onClick={exportCsv} /> : undefined}>
         <RTable minWidth={1120}>
           <thead>
             <tr>
@@ -289,7 +288,7 @@ export function BreakevenView() {
     );
 
   const filters = (
-    <FilterBar actions={data && data.units.length > 0 ? <ExcelButton onClick={exportCsv} label="CSV yuklab olish" /> : undefined}>
+    <FilterBar>
       <Field label="Davr">
         <SelectBox value={win} options={WINDOWS.filter((w) => w.value !== '3')} onChange={setWin} />
       </Field>
@@ -360,78 +359,7 @@ export function BreakevenView() {
 
       {filters}
 
-      {data.notes.length > 0 && (
-        <ReportCard title="Zararsizlik xulosasi">
-          <NotesList notes={data.notes} />
-        </ReportCard>
-      )}
-
-      <div className="grid gap-4 xl:grid-cols-5">
-        <ReportCard
-          className="xl:col-span-3"
-          title={`Zararsizlik grafigi — ${unit?.name ?? ''}`}
-          badge="Qaysi daromad darajasida xarajat qoplanadi?"
-          actions={
-            <SelectBox
-              value={unit?.key ?? 'all'}
-              onChange={setSelected}
-              options={data.units.filter((u) => u.kind !== 'center').map((u) => ({ value: u.key, label: u.name }))}
-              className="h-9 min-w-36"
-            />
-          }
-        >
-          <div className="px-5 pb-3">
-            {unit && unit.status !== 'na' ? (
-              <>
-                <BreakevenChart unit={unit} />
-                <p className="mt-2 text-sm leading-relaxed">{unit.text}</p>
-              </>
-            ) : (
-              <p className="text-sm text-(--color-text-muted)">{unit?.text}</p>
-            )}
-          </div>
-          <TableNote>
-            Yashil chiziq — daromad, qizil — xarajat (doimiy qism + daromadga bog&apos;liq qism). Kesishgan joy — zararsizlik nuqtasi: undan o&apos;ngda foyda (yashil soha), chapda zarar. Nuqtalar — haqiqiy oylar. Ko&apos;k
-            uzuq chiziq — o&apos;rtacha oylik daromad.
-          </TableNote>
-        </ReportCard>
-        <ReportCard className="xl:col-span-2" title="Markaz xarajatini kim qoplaydi" badge="Markaz">
-          <div className="space-y-3 px-5 pb-5 text-sm">
-            {data.center ? (
-              <>
-                <p>
-                  Markazning o&apos;z daromadi yo&apos;q: uning oylik sof xarajati (<b>{compact(data.center.netExpenseTiyin)}</b>) hududlar foydasidan qoplanishi kerak.
-                </p>
-                <div className="rounded-xl border border-(--color-line) bg-[#fafbfe] px-4 py-3">
-                  <div className="flex justify-between text-xs text-(--color-text-muted)">
-                    <span>Hududlarning oylik foydasi</span>
-                    <span className="font-semibold tabular-nums text-(--color-text)">{compact(data.center.regionsProfitTiyin)}</span>
-                  </div>
-                  <div className="relative mt-1.5 h-3 rounded-full bg-(--color-surface-sunken)">
-                    <div
-                      className={cn('h-full rounded-full', (data.center.coverage ?? 0) >= 1 ? 'bg-(--color-income)' : 'bg-(--color-expense)')}
-                      style={{ width: `${Math.min(100, Math.max(0, ((data.center.coverage ?? 0) / Math.max(1, data.center.coverage ?? 1)) * 100))}%` }}
-                    />
-                    <span
-                      className="absolute inset-y-[-3px] w-0.5 bg-(--color-text)"
-                      style={{ left: `${Math.min(100, (1 / Math.max(1, data.center.coverage ?? 1)) * 100)}%` }}
-                      title="Markaz xarajati"
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-(--color-text-muted)">
-                    Qora chiziq — Markaz xarajati. {data.center.coverage != null && data.center.coverage >= 1 ? "Hududlar foydasi uni to'liq qoplaydi." : 'Hududlar foydasi yetmayapti.'}
-                  </p>
-                </div>
-                {center && <p className="text-xs text-(--color-text-muted)">{center.text}</p>}
-              </>
-            ) : (
-              <p className="text-(--color-text-muted)">Markaz ma&apos;lumoti yo&apos;q.</p>
-            )}
-          </div>
-        </ReportCard>
-      </div>
-
-      <ReportCard title="Hududlar bo'yicha zararsizlik (oylik)" badge={periodText(data.periodFrom, data.periodTo, data.months)}>
+      <ReportCard title="Hududlar bo'yicha zararsizlik (oylik)" badge={periodText(data.periodFrom, data.periodTo, data.months)} actions={data.units.length > 0 ? <ExcelButton onClick={exportCsv} /> : undefined}>
         <RTable minWidth={960}>
           <thead>
             <tr>
@@ -477,6 +405,76 @@ export function BreakevenView() {
           daromad tushishiga juda sezgir). «doimiy» belgisi — xarajat daromad bilan birga o&apos;zgarmagan, hammasi doimiy deb olingan. Qatorni bosing — grafik shu hududga o&apos;tadi.
         </TableNote>
       </ReportCard>
+
+      {data.notes.length > 0 && (
+        <ReportCard title="Zararsizlik xulosasi">
+          <NotesList notes={data.notes} />
+        </ReportCard>
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ReportCard
+          title={`Zararsizlik grafigi — ${unit?.name ?? ''}`}
+          badge="Qaysi daromad darajasida xarajat qoplanadi?"
+          actions={
+            <SelectBox
+              value={unit?.key ?? 'all'}
+              onChange={setSelected}
+              options={data.units.filter((u) => u.kind !== 'center').map((u) => ({ value: u.key, label: u.name }))}
+              className="h-9 min-w-36"
+            />
+          }
+        >
+          <div className="px-5 pb-3">
+            {unit && unit.status !== 'na' ? (
+              <>
+                <BreakevenChart unit={unit} />
+                <p className="mt-2 text-sm leading-relaxed">{unit.text}</p>
+              </>
+            ) : (
+              <p className="text-sm text-(--color-text-muted)">{unit?.text}</p>
+            )}
+          </div>
+          <TableNote>
+            Yashil chiziq — daromad, qizil — xarajat (doimiy qism + daromadga bog&apos;liq qism). Kesishgan joy — zararsizlik nuqtasi: undan o&apos;ngda foyda (yashil soha), chapda zarar. Nuqtalar — haqiqiy oylar. Ko&apos;k
+            uzuq chiziq — o&apos;rtacha oylik daromad.
+          </TableNote>
+        </ReportCard>
+        <ReportCard title="Markaz xarajatini kim qoplaydi" badge="Markaz">
+          <div className="space-y-3 px-5 pb-5 text-sm">
+            {data.center ? (
+              <>
+                <p>
+                  Markazning o&apos;z daromadi yo&apos;q: uning oylik sof xarajati (<b>{compact(data.center.netExpenseTiyin)}</b>) hududlar foydasidan qoplanishi kerak.
+                </p>
+                <div className="rounded-xl border border-(--color-line) bg-[#fafbfe] px-4 py-3">
+                  <div className="flex justify-between text-xs text-(--color-text-muted)">
+                    <span>Hududlarning oylik foydasi</span>
+                    <span className="font-semibold tabular-nums text-(--color-text)">{compact(data.center.regionsProfitTiyin)}</span>
+                  </div>
+                  <div className="relative mt-1.5 h-3 rounded-full bg-(--color-surface-sunken)">
+                    <div
+                      className={cn('h-full rounded-full', (data.center.coverage ?? 0) >= 1 ? 'bg-(--color-income)' : 'bg-(--color-expense)')}
+                      style={{ width: `${Math.min(100, Math.max(0, ((data.center.coverage ?? 0) / Math.max(1, data.center.coverage ?? 1)) * 100))}%` }}
+                    />
+                    <span
+                      className="absolute inset-y-[-3px] w-0.5 bg-(--color-text)"
+                      style={{ left: `${Math.min(100, (1 / Math.max(1, data.center.coverage ?? 1)) * 100)}%` }}
+                      title="Markaz xarajati"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-(--color-text-muted)">
+                    Qora chiziq — Markaz xarajati. {data.center.coverage != null && data.center.coverage >= 1 ? "Hududlar foydasi uni to'liq qoplaydi." : 'Hududlar foydasi yetmayapti.'}
+                  </p>
+                </div>
+                {center && <p className="text-xs text-(--color-text-muted)">{center.text}</p>}
+              </>
+            ) : (
+              <p className="text-(--color-text-muted)">Markaz ma&apos;lumoti yo&apos;q.</p>
+            )}
+          </div>
+        </ReportCard>
+      </div>
     </div>
   );
 }

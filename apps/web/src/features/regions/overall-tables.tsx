@@ -1,12 +1,11 @@
 'use client';
 
-import { Card } from '@/components/ui/card';
+import { ExcelButton, PillTabs, ReportCard, TableNote } from '@/components/report/report';
 import { compact, num, TONE } from '@/features/structure/api';
-import { Segmented, SmallButton } from '@/features/structure/parts';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { KIND_ORDER, type UnitStats } from './api';
 
 // ═══════════════════════════════════════════════════════════
@@ -19,38 +18,14 @@ const TH = 'px-2.5 py-2.5 text-xs font-bold text-heading whitespace-nowrap';
 
 export type Fmt = 'full' | 'short';
 
+const FMT_OPTIONS: { value: Fmt; label: string }[] = [
+  { value: 'full', label: "To'liq summa" },
+  { value: 'short', label: 'Qisqa (mln)' },
+];
+
 export function money(tiyin: number, fmt: Fmt): string {
   if (Math.round(tiyin / 100) === 0) return '';
   return fmt === 'full' ? num(tiyin) : compact(tiyin);
-}
-
-export function FmtToggle({ value, onChange }: { value: Fmt; onChange: (v: Fmt) => void }) {
-  return (
-    <Segmented
-      size="sm"
-      value={value}
-      onChange={onChange}
-      options={[
-        { value: 'full', label: "To'liq summa" },
-        { value: 'short', label: 'Qisqa (mln)' },
-      ]}
-    />
-  );
-}
-
-function Head({ title, hint, children }: { title: string; hint?: ReactNode; children?: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-4">
-      <div className="min-w-0">
-        <h3 className="flex items-center gap-2.5 text-base font-bold text-heading">
-          <span className="h-5 w-1 rounded-full bg-brand-600" aria-hidden />
-          {title}
-        </h3>
-        {hint && <p className="mt-0.5 text-xs text-(--color-text-muted)">{hint}</p>}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">{children}</div>
-    </div>
-  );
 }
 
 const kindOrder = (s: UnitStats) => KIND_ORDER[s.unit.kind];
@@ -97,23 +72,26 @@ export function MonthsTable({ units, months, range, onOpen }: { units: UnitStats
     );
 
   return (
-    <Card className="overflow-hidden rounded-2xl">
-      <Head title="Oylar bo'yicha: Markaz va hududlar" hint="Har bir birlikning har oydagi ko'rsatkichi. Qalin ustunlar — tanlangan davr oylari; kataklar rangi — kattaligiga qarab">
-        <Segmented
-          size="sm"
-          value={metric}
-          onChange={setMetric}
-          options={[
-            { value: 'profit', label: 'Natija' },
-            { value: 'income', label: 'Daromad' },
-            { value: 'expense', label: 'Xarajat' },
-          ]}
-        />
-        <FmtToggle value={fmt} onChange={setFmt} />
-        <SmallButton onClick={exportCsv}>CSV</SmallButton>
-      </Head>
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse whitespace-nowrap text-[12.5px]" style={{ minWidth: 220 + months.length * (fmt === 'full' ? 118 : 78) + 140 }}>
+    <ReportCard
+      title="Oylar bo'yicha: Markaz va hududlar"
+      actions={
+        <>
+          <PillTabs
+            value={metric}
+            onChange={setMetric}
+            options={[
+              { value: 'profit', label: 'Natija' },
+              { value: 'income', label: 'Daromad' },
+              { value: 'expense', label: 'Xarajat' },
+            ]}
+          />
+          <PillTabs value={fmt} onChange={setFmt} options={FMT_OPTIONS} />
+          <ExcelButton onClick={exportCsv} />
+        </>
+      }
+    >
+      <div className="overflow-x-auto px-4 pb-4">
+        <table className="w-full border-collapse whitespace-nowrap border border-(--color-line) text-[12.5px]" style={{ minWidth: 220 + months.length * (fmt === 'full' ? 118 : 78) + 140 }}>
           <thead>
             <tr className="border-y border-(--color-line) bg-[#f3f6fd]">
               <th className={cn(TH, 'sticky left-0 z-10 bg-[#f3f6fd] text-left')}>Birlik</th>
@@ -161,9 +139,10 @@ export function MonthsTable({ units, months, range, onOpen }: { units: UnitStats
           </tfoot>
         </table>
       </div>
-      <p className="border-t border-(--color-line) px-5 py-2 text-[11px] text-(--color-text-faint)">
-        «Jami» — jadvaldagi hamma oylar yig&apos;indisi ({formatPeriod(months[0] ?? '')} — {formatPeriod(months[months.length - 1] ?? '')}); tanlangan davr jamisi yuqoridagi jadvallarda.
-      </p>
-    </Card>
+      <TableNote>
+        Har bir birlikning har oydagi ko&apos;rsatkichi. Qalin ustunlar — tanlangan davr oylari; kataklar rangi — kattaligiga qarab. «Jami» — jadvaldagi hamma oylar yig&apos;indisi (
+        {formatPeriod(months[0] ?? '')} — {formatPeriod(months[months.length - 1] ?? '')}); tanlangan davr jamisi yuqoridagi jadvallarda.
+      </TableNote>
+    </ReportCard>
   );
 }

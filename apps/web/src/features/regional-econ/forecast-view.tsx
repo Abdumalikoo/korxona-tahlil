@@ -231,16 +231,16 @@ export function RegionalForecastView() {
   return (
     <div className="space-y-4">
       {header}
-      {d.notes.length > 0 && (
-        <ReportCard title="Diqqat" className="border-l-4 border-l-amber-400">
-          <NotesList notes={d.notes} />
-        </ReportCard>
-      )}
       {view === 'overview' && <Overview d={d} sel={sel} onSelect={setRegion} />}
       {view === 'revenue' && <RevenueView d={d} sel={sel} onSelect={setRegion} />}
       {view === 'payroll' && <PayrollView d={d} sel={sel} onSelect={setRegion} month={month} h={Number(h)} />}
       {view === 'opex' && <OpexView d={d} sel={sel} />}
       {view === 'runs' && <RunsView d={d} month={month} h={Number(h)} />}
+      {d.notes.length > 0 && (
+        <ReportCard title="Diqqat" className="border-l-4 border-l-amber-400">
+          <NotesList notes={d.notes} />
+        </ReportCard>
+      )}
       {view !== 'runs' && (
         <ReportCard title="Qanday hisoblanadi">
           <NotesList notes={d.method} />
@@ -289,19 +289,6 @@ function Overview({ d, sel, onSelect }: SelProps) {
           { label: 'Natija · davr jami', value: bandSum(scope.result), signed: true, tone: 'cyan', note: `${d.periodLabels[0]} – ${d.periodLabels[d.periodLabels.length - 1]}` },
         ]}
       />
-      <ReportCard title={`${sel ? sel.name : 'Barcha hududlar'}: daromad va xarajat`} badge="xarajat = ish haqi + xarajat">
-        <div className="px-4 pb-4">
-          <FcChart
-            history={d.history}
-            periods={d.periods}
-            series={[
-              { name: 'Daromad', color: TONE.income, history: scope.rh, forecast: scope.revenue },
-              { name: 'Ish haqi + xarajat', color: TONE.expense, history: scope.ch, forecast: cost },
-            ]}
-          />
-        </div>
-      </ReportCard>
-      <InsightsCard items={insights} />
       <ReportCard title="Hududlar bo'yicha prognoz" badge={`Keyingi oy (${d.periodLabels[0]}) va butun davr`} actions={<ExcelButton onClick={exportCsv} />}>
         <RTable minWidth={1080}>
           <thead>
@@ -359,6 +346,19 @@ function Overview({ d, sel, onSelect }: SelProps) {
         </RTable>
         <TableNote>Qatorni bosing — hudud tanlanadi (yuqoridagi kartalar va grafik shu hududga o&apos;tadi). Natija ostida — 80% ishonch oralig&apos;i; foiz — {d.lastLabel} faktiga nisbatan.</TableNote>
       </ReportCard>
+      <InsightsCard items={insights} />
+      <ReportCard title={`${sel ? sel.name : 'Barcha hududlar'}: daromad va xarajat`} badge="xarajat = ish haqi + xarajat">
+        <div className="px-4 pb-4">
+          <FcChart
+            history={d.history}
+            periods={d.periods}
+            series={[
+              { name: 'Daromad', color: TONE.income, history: scope.rh, forecast: scope.revenue },
+              { name: 'Ish haqi + xarajat', color: TONE.expense, history: scope.ch, forecast: cost },
+            ]}
+          />
+        </div>
+      </ReportCard>
     </>
   );
 }
@@ -412,11 +412,6 @@ function RevenueView({ d, sel, onSelect }: SelProps) {
   }
   return (
     <>
-      <ReportCard title={`${sel.name}: daromad`}>
-        <div className="px-4 pb-4">
-          <FcChart history={d.history} periods={d.periods} series={[{ name: 'Daromad', color: TONE.income, history: sel.revenue.history.map((x) => n(x.valueTiyin)), forecast: sel.revenue.forecast }]} height={240} />
-        </div>
-      </ReportCard>
       <ReportCard title="Xizmatlar bo'yicha" badge={`${sel.revenue.services.length} ta`}>
         <RTable minWidth={1000}>
           <thead>
@@ -465,6 +460,11 @@ function RevenueView({ d, sel, onSelect }: SelProps) {
           </tbody>
         </RTable>
         <TableNote>Aniqlik — o&apos;tmishda 1 oy oldinga aytilganda o&apos;rtacha xato; ▲ — oddiy usuldan (o&apos;tgan oy takrorlanadi) yaxshi. Katakcha ustiga borganda — 80% oraliq.</TableNote>
+      </ReportCard>
+      <ReportCard title={`${sel.name}: daromad`}>
+        <div className="px-4 pb-4">
+          <FcChart history={d.history} periods={d.periods} series={[{ name: 'Daromad', color: TONE.income, history: sel.revenue.history.map((x) => n(x.valueTiyin)), forecast: sel.revenue.forecast }]} height={240} />
+        </div>
       </ReportCard>
     </>
   );

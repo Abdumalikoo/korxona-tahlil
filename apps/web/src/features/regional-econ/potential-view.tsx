@@ -118,8 +118,8 @@ export function PotentialView() {
         ]}
       />
       {header}
-      <Insights items={sel ? d.insights.filter((i) => i.regionCode === sel.code || i.regionCode === null) : d.insights} />
       {sel ? <RegionServices d={d} r={sel} /> : <RegionTable d={d} onSelect={setRegion} />}
+      <Insights items={sel ? d.insights.filter((i) => i.regionCode === sel.code || i.regionCode === null) : d.insights} />
       <ReportCard title="Qanday hisoblanadi">
         <NotesList notes={d.method} />
       </ReportCard>

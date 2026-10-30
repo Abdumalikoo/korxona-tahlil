@@ -19,13 +19,13 @@ type Tab = 'forecast' | 'factors' | 'scenario' | 'data';
 const ALL_TABS: Tab[] = ['forecast', 'factors', 'scenario', 'data'];
 
 /**
- * Hududlarga tegishli modellar (panel, hudud natijasi, Markaz xarajati, prognoz, salohiyat, KPI, stsenariy, DEA, zararsizlik)
+ * Hududlarga tegishli modellar (panel, hudud natijasi, prognoz, salohiyat, KPI, stsenariy, DEA, zararsizlik)
  * Solishtirma › Hududlar sahifasiga ko'chirildi — eski havolalar (?tab=…) o'sha yerga yo'naltiriladi.
  */
 const MOVED: Record<string, string> = {
   panel: 'panel',
   regions: 'perf',
-  overhead: 'overhead',
+  overhead: 'perf',
   rforecast: 'rforecast',
   potential: 'potential',
   kpi: 'kpi',

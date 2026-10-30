@@ -2,6 +2,7 @@
 
 import type { DateRange } from '@/components/shared/date-range-picker';
 import {
+  ActionButton,
   changeOf,
   DiffCell,
   ExcelButton,
@@ -90,9 +91,9 @@ export function DrillBreadcrumb({ items }: { items: Crumb[] }) {
   return (
     <nav className="flex flex-wrap items-center gap-2 rounded-2xl bg-white px-4 py-2.5 shadow-card" aria-label="Yo'lak">
       {back && (
-        <button type="button" onClick={back.onClick} className="mr-1 inline-flex items-center gap-1 rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+        <ActionButton onClick={back.onClick!} className="mr-1">
           ← Orqaga
-        </button>
+        </ActionButton>
       )}
       {items.map((item, i) => {
         const last = i === items.length - 1;

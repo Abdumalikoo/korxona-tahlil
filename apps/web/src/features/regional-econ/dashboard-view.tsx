@@ -67,7 +67,7 @@ export function DashboardView() {
   return (
     <div className="space-y-4">
       <StatTiles items={tiles} />
-      <FilterBar actions={<ExcelButton onClick={exportCsv} />}>
+      <FilterBar>
         <Field label="Holat">
           <SelectBox
             value={filter}
@@ -81,14 +81,14 @@ export function DashboardView() {
           />
         </Field>
       </FilterBar>
-      <Story d={d} />
-      <ReportCard title="Hududlar paneli: barcha hudud modellari" badge={`${d.lastLabel} yakuni · keyingi oy: ${d.nextLabel}`}>
+      <ReportCard title="Hududlar paneli: barcha hudud modellari" badge={`${d.lastLabel} yakuni · keyingi oy: ${d.nextLabel}`} actions={<ExcelButton onClick={exportCsv} />}>
         <ScoreTable d={d} filter={filter} sel={sel} onSel={setSel} />
         <TableNote>
           Qatorni bosing — «Nega o&apos;zgardi?» (oldingi oydan joriy oyga omillar). Korxona natijasi: {sum(t.companyResultTiyin)} so&apos;m; hududlar operatsion natijasi (Markaz ulushisiz): {sum(t.resultTiyin)} so&apos;m; keyingi oy daromad salohiyati: {sum(t.potentialTiyin)} so&apos;m.
         </TableNote>
       </ReportCard>
       {sel !== null && <ExplainPanel code={sel} period={d.lastActual} />}
+      <Story d={d} />
       <ReportCard title="Qanday hisoblanadi">
         <NotesList notes={d.method} />
       </ReportCard>

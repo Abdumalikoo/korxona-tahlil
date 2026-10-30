@@ -120,7 +120,6 @@ export function KpiView() {
 
   return (
     <div className="space-y-4">
-      {header}
       <StatTiles
         items={[
           { label: 'Holat', value: 0, text: `${d.counts.APPROVED} / ${d.regions.length * d.metrics.length}`, tone: 'blue', note: `tasdiqlangan · taklif ${d.counts.PROPOSED} · qoralama ${d.counts.DRAFT}${d.counts.missing ? ` · yo'q ${d.counts.missing}` : ''}` },
@@ -137,6 +136,7 @@ export function KpiView() {
           }),
         ]}
       />
+      {header}
       <ReportCard
         title="Hududlar KPI"
         badge={d.label}

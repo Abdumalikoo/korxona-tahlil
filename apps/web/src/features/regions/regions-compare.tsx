@@ -4,11 +4,10 @@ import type { DateRange } from '@/components/shared/date-range-picker';
 import { Card } from '@/components/ui/card';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import {
+  ActionButton,
   changeOf,
   DiffCell,
   ExcelButton,
-  Field,
-  FilterBar,
   GroupTh,
   MoneyCell,
   NameCell,
@@ -27,7 +26,6 @@ import {
   Tr,
 } from '@/components/report/report';
 import { type CompareMode, type SectionFilter } from '@/features/structure/api';
-import { SmallButton } from '@/features/structure/parts';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatDate } from '@/lib/format';
 import { calcChange, calcResult, calcSum, moneyText, Q, type Calc } from '@/lib/calc';
@@ -338,9 +336,9 @@ export function RegionsCompare({ range, center = false }: { range: DateRange; ce
               onDistrict={(row) => go({ r: drillRegion, d: row.id, dn: row.name })}
               extraActions={
                 data && cardStats ? (
-                  <SmallButton className="h-10 rounded-lg border-brand-300 px-4 text-sm font-semibold text-brand-700 hover:bg-brand-50" onClick={() => setCardOpen(true)} title="Xizmat turlari, xarajat tarkibi va Munosabatga belgilash">
+                  <ActionButton onClick={() => setCardOpen(true)} title="Xizmat turlari, xarajat tarkibi va Munosabatga belgilash">
                     Viloyat kartasi
-                  </SmallButton>
+                  </ActionButton>
                 ) : null
               }
             />
@@ -520,15 +518,6 @@ function Body({ data, loading, onDrill }: { data: RegionsResult; loading: boolea
         ]}
       />
 
-      <FilterBar actions={<ExcelButton onClick={exportCsv} />}>
-        <Field label="Tartib">
-          <SelectBox value={sort} options={SORT_OPTIONS} onChange={setSort} />
-        </Field>
-        <Field label="Hudud">
-          <SearchInput value={query} onChange={setQuery} placeholder="Hudud nomi…" />
-        </Field>
-      </FilterBar>
-
       <PillTabs
         value={view}
         onChange={setView}
@@ -541,7 +530,17 @@ function Body({ data, loading, onDrill }: { data: RegionsResult; loading: boolea
 
       {view === 'table' ? (
         <DrillProvider range={{ from: data.range.from, to: data.range.to }}>
-        <ReportCard title="Hududlar kesimida daromad va xarajat" badge={cmpOn ? `Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}` : period}>
+        <ReportCard
+          title="Hududlar kesimida daromad va xarajat"
+          badge={cmpOn ? `Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}` : period}
+          actions={
+            <>
+              <SelectBox value={sort} options={SORT_OPTIONS} onChange={setSort} />
+              <SearchInput value={query} onChange={setQuery} placeholder="Hudud nomi…" />
+              <ExcelButton onClick={exportCsv} />
+            </>
+          }
+        >
           <CmpContext.Provider value={{ on: cmpOn, income: t.income, expense: t.expense }}>
           <RTable minWidth={cmpOn ? 1060 : 860}>
             <thead>

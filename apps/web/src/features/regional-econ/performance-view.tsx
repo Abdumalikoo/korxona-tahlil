@@ -127,7 +127,7 @@ export function PerformanceView() {
 
   // Filtrlar qatori — yuklanayotganda ham ko'rinadi (davrni almashtirish mumkin bo'lsin)
   const filters = (
-    <FilterBar actions={d ? <ExcelButton onClick={exportCsv} /> : undefined}>
+    <FilterBar>
       <Field label="Davr">
         <RangeBar mode={mode} onMode={setMode} />
       </Field>
@@ -169,9 +169,7 @@ export function PerformanceView() {
       {d.openPeriods.length > 0 && (
         <p className="rounded-2xl bg-[#fff3df] px-4 py-2.5 text-xs font-medium text-[#b45309]">Yopilmagan oy(lar) bor — Hududchi oyni yopgach raqamlar qat&apos;iylashadi.</p>
       )}
-      <InsightList items={d.insights} />
-
-      <ReportCard title="Hudud natijasi: o'z xarajati va Markaz ulushini qoplash" badge={`${d.range.label} · taqqoslash: ${d.range.prevLabel}`}>
+      <ReportCard title="Hudud natijasi: o'z xarajati va Markaz ulushini qoplash" badge={`${d.range.label} · taqqoslash: ${d.range.prevLabel}`} actions={<ExcelButton onClick={exportCsv} />}>
         <RTable minWidth={1320}>
           <thead>
             <tr>
@@ -303,6 +301,8 @@ export function PerformanceView() {
       </ReportCard>
 
       {sel && <RegionBreakdown row={sel} prevLabel={d.range.prevLabel} />}
+
+      <InsightList items={d.insights} />
 
       <ReportCard title="Qanday hisoblanadi">
         <NotesList notes={[...d.method, `${d.reconciliation.formula}.`]} />

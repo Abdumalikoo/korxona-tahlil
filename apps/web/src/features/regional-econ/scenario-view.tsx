@@ -179,11 +179,6 @@ function Results({ d }: { d: ScenarioResult }) {
   const rows = [...d.regions].sort((a, b) => n(a.deltaTiyin) - n(b.deltaTiyin));
   return (
     <>
-      {d.narrative.length > 0 && (
-        <ReportCard title="Stsenariy natijasi">
-          <NotesList notes={d.narrative} />
-        </ReportCard>
-      )}
       <StatTiles
         items={(['revenue', 'payroll', 'opex', 'result'] as const).map((k) => {
           const v = delta(k);
@@ -198,11 +193,6 @@ function Results({ d }: { d: ScenarioResult }) {
           };
         })}
       />
-      <ReportCard title="Natija oylar bo'yicha: asos va stsenariy" badge={`${d.horizon} oy`}>
-        <div className="px-4 pb-4">
-          <Bars d={d} />
-        </div>
-      </ReportCard>
       <ReportCard
         title="Hududlar bo'yicha stsenariy"
         badge={`${d.horizon} oy · eng ko'p yutqazgan hudud tepada`}
@@ -258,6 +248,16 @@ function Results({ d }: { d: ScenarioResult }) {
         <TableNote>
           Hududlar: davr natijasi (so&apos;mda), zarar ehtimoli (eng yuqori oy: asos → stsenariy) va zararsizlik uchun kerakli tarif. Kulrang qatorlar — stsenariy tegmagan hududlar.
         </TableNote>
+      </ReportCard>
+      {d.narrative.length > 0 && (
+        <ReportCard title="Stsenariy natijasi">
+          <NotesList notes={d.narrative} />
+        </ReportCard>
+      )}
+      <ReportCard title="Natija oylar bo'yicha: asos va stsenariy" badge={`${d.horizon} oy`}>
+        <div className="px-4 pb-4">
+          <Bars d={d} />
+        </div>
       </ReportCard>
       <ReportCard title="Qanday hisoblanadi">
         <NotesList notes={d.method} />
