@@ -12,6 +12,7 @@ import { covers, placementAt, readPlacements } from '../../common/placements/pla
 import type { UnitMove } from '../unit-payroll/unit-payroll.service';
 import { isNdflWorkbook, parseNdfl, type NdflResult } from './ndfl.parser';
 import { CENTRAL_REGION } from '../../common/segments/segments';
+import { approvedBayram } from '../acc-23106/acc23106.bayram-ids';
 
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
 const TASHKENT_OFFSET_HOURS = 5;
@@ -916,8 +917,35 @@ export class PayrollService {
    *    Hududlar bo'limi siyosatidagi «ish haqi qismlari» — «IHQ_<kod>» moddasi (tanlangan bo'lim hisobiga);
    *    «Hududda qoladi» deb belgilangani — ajratilmaydi.
    *  • Markaz xodimi: Markaz bo'limi siyosatidagi «ish haqi qismlari» — «IHQ_<kod>».
+   *  • Hudud xodimlari ish haqi tarkibida yo'q — ularning bayram puli 23106 ko'chirmasidan (faqat tasdiqlangan oylar,
+   *    tarkibda bayrami yo'q xodimlar uchun; siyosat bo'yicha bayram hududda qolsa — ajratilmaydi).
    */
-  async componentShares(period: string): Promise<{ region: Map<string, CenterParts>; center: Map<string, CenterParts>; qomita: Map<string, CenterParts>; coverage: Map<string, string[]>; tarkib: boolean }> {
+  async componentShares(period: string): Promise<{ region: Map<string, CenterParts>; center: Map<string, CenterParts>; qomita: Map<string, CenterParts>; coverage: Map<string, string[]>; tarkib: boolean; bayram23106: Set<string> }> {
+    const out = { ...(await this.tarkibShares(period)), bayram23106: new Set<string>() };
+    const approved = await approvedBayram(this.prisma, period);
+    if (!approved.size) return out;
+    const policy = await readPolicy(this.prisma);
+    const rule = (policy.unitPayroll.REGION ?? {}).BAYRAM;
+    const code = rule ? (rule === 'REGION' ? null : payrollPartCategory('BAYRAM')) : policy.payrollComponents.includes('BAYRAM') ? payrollCenterCategory('BAYRAM') : null;
+    if (!code) return out;
+    if (rule) {
+      const comp = await this.prisma.salaryComponent.findUnique({ where: { code: 'BAYRAM' }, select: { code: true, name: true, sign: true } });
+      if (!comp) return out;
+      await ensurePayrollPartCategories(this.prisma, [comp]);
+    }
+    for (const [pinfl, amount] of approved) {
+      const parts = out.region.get(pinfl) ?? new Map<string, bigint>();
+      // Tarkibda shu xodimga bayram bor — tarkib ustun (ikki marta sanalmaydi)
+      if (parts.has(code)) continue;
+      parts.set(code, amount);
+      out.region.set(pinfl, parts);
+      out.bayram23106.add(pinfl);
+    }
+    return out;
+  }
+
+  /** Ish haqi tarkibidan ajratiladigan qismlar (componentShares'ning tarkib qismi) */
+  private async tarkibShares(period: string): Promise<{ region: Map<string, CenterParts>; center: Map<string, CenterParts>; qomita: Map<string, CenterParts>; coverage: Map<string, string[]>; tarkib: boolean }> {
     const [policy, qomitaConfig] = await Promise.all([readPolicy(this.prisma), readQomita(this.prisma)]);
     // Qo'mita: bo'lim → qoplanadigan komponentlar (xodim bo'limi qayta guruhlashda aniqlanadi)
     const coverage = qomitaCoverage(qomitaConfig);
@@ -1078,7 +1106,7 @@ export class PayrollService {
         (group) => group.totalTiyin > 0n,
       );
       // Markaz hisobidagi qism: hudud × modda
-      const centerRows = new Map<string, { regionCode: number; regionName: string; categoryCode: string; amount: bigint; count: number }>();
+      const centerRows = new Map<string, { regionCode: number; regionName: string; categoryCode: string; amount: bigint; count: number; from23106: number }>();
       // Qo'mita hisobidagi qism: bo'lim × modda («QMT_<kod>», yo'nalish QOMITA)
       const qomitaRows = new Map<string, { departmentId: string; departmentName: string; categoryCode: string; amount: bigint; count: number }>();
       for (const i of items) {
@@ -1099,9 +1127,10 @@ export class PayrollService {
             continue;
           }
           const key = `${i.group.regionCode}|${code}`;
-          const row = centerRows.get(key) ?? { regionCode: i.group.regionCode, regionName: i.employee.region.name, categoryCode: code, amount: 0n, count: 0 };
+          const row = centerRows.get(key) ?? { regionCode: i.group.regionCode, regionName: i.employee.region.name, categoryCode: code, amount: 0n, count: 0, from23106: 0 };
           row.amount += amount;
           row.count += 1;
+          if (shares.bayram23106.has(i.entry.employeePinfl)) row.from23106 += 1;
           centerRows.set(key, row);
         }
       }
@@ -1183,7 +1212,7 @@ export class PayrollService {
                   categoryCode: row.categoryCode,
                   departmentId: null,
                   regionCode: row.regionCode,
-                  description: `${categoryLabels.get(row.categoryCode) ?? row.categoryCode} \u2014 ${row.regionName} xodimlari (${row.count} xodim) \u00b7 ish haqi tarkibidan ajratilgan (siyosat bo'yicha)`.slice(0, 500),
+                  description: `${categoryLabels.get(row.categoryCode) ?? row.categoryCode} \u2014 ${row.regionName} xodimlari (${row.count} xodim) \u00b7 ${row.from23106 === row.count ? "23106 ko'chirmasidan ajratilgan (tasdiqlangan)" : row.from23106 ? "ish haqi tarkibi va 23106 ko'chirmasidan ajratilgan" : "ish haqi tarkibidan ajratilgan (siyosat bo'yicha)"}`.slice(0, 500),
                   paymentMethod: 'BANK' as const,
                   paymentStatus: 'PAID' as const,
                   source: 'PAYROLL' as const,

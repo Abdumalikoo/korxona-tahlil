@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
+import { Acc23106BayramService } from './acc23106.bayram.service';
 import { Acc23106SafarService } from './acc23106.safar.service';
 import { Acc23106Service } from './acc23106.service';
 import { SourceArchiveService } from '../source-archive/source-archive.service';
@@ -19,6 +20,7 @@ export class Acc23106Controller {
   constructor(
     private readonly service: Acc23106Service,
     private readonly safar: Acc23106SafarService,
+    private readonly bayram: Acc23106BayramService,
     private readonly archive: SourceArchiveService,
   ) {}
 
@@ -148,5 +150,30 @@ export class Acc23106Controller {
   @HttpCode(HttpStatus.OK)
   async safarCancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return { data: await this.safar.cancel(id, userId) };
+  }
+
+  // ═══════════ Hudud xodimlari bayram pullari — Markaz hisobiga ═══════════
+
+  /** Ko'rib chiqish (hech narsa o'zgarmaydi): hisoblangan oy → viloyat → tuman → xodim (?from=YYYY-MM&to=YYYY-MM) */
+  @Personal()
+  @Get('bayram')
+  async bayramView(@Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.bayram.view(from, to) };
+  }
+
+  /** Tasdiqlash: tanlangan oylarda hudud xodimlarining bayram puli hudud ish haqidan Markaz hisobiga o'tadi */
+  @Roles(UserRole.ADMIN)
+  @Post('bayram/confirm')
+  @HttpCode(HttpStatus.OK)
+  async bayramConfirm(@Body() body: { periods?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.bayram.confirm(body, userId) };
+  }
+
+  /** Tasdiqni bekor qilish — bayram puli hudud ish haqiga qaytadi */
+  @Roles(UserRole.ADMIN)
+  @Post('bayram/posts/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async bayramCancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.bayram.cancel(id, userId) };
   }
 }

@@ -250,6 +250,72 @@ export const safarApi = {
   cancel: (id: string) => api.post<ApiResponse<{ success: true; expenses: number }>>(`/acc-23106/safar/posts/${encodeURIComponent(id)}/cancel`),
 };
 
+/** Hudud xodimi × hisoblangan oy: 23106 dagi bayram to'lovlari va ish haqidan ajratiladigan qism */
+export interface BayramEmployee {
+  pinfl: string;
+  fullName: string;
+  period: string;
+  payments: { docDate: string; docNo: string; amountTiyin: string; posted: boolean }[];
+  amountTiyin: string;
+  /** Shu oy ish haqidagi to'liq summa (null — shu oy ish haqida yo'q, ajratilmaydi) */
+  fullTiyin: string | null;
+  /** Ish haqidan ajratiladigan (ish haqidan oshmaydi) */
+  movableTiyin: string;
+  posted: boolean;
+}
+
+export interface BayramDistrict {
+  districtId: string | null;
+  name: string;
+  count: number;
+  totalTiyin: string;
+  movableTiyin: string;
+  employees: BayramEmployee[];
+}
+
+export interface BayramRegion {
+  regionCode: number;
+  name: string;
+  count: number;
+  people: number;
+  totalTiyin: string;
+  movableTiyin: string;
+  districts: BayramDistrict[];
+}
+
+export interface BayramMonth {
+  period: string;
+  label: string;
+  count: number;
+  people: number;
+  totalTiyin: string;
+  movableTiyin: string;
+  notInPayroll: number;
+  centerCount: number;
+  centerTiyin: string;
+  otherCount: number;
+  otherTiyin: string;
+  posted: { id: string; createdAt: string; createdBy: string; count: number; totalTiyin: string } | null;
+  /** Tasdiqdan keyin ko'chirma yoki xodim joyi o'zgargan — qayta tasdiqlash kerak */
+  changed: boolean;
+}
+
+export interface BayramView {
+  from: string;
+  to: string;
+  policy: { routed: boolean; text: string };
+  months: BayramMonth[];
+  regions: BayramRegion[];
+  excluded: { fullName: string; period: string; docDate: string; amountTiyin: string; reason: string }[];
+  summary: { count: number; people: number; totalTiyin: string; movableTiyin: string; postedTiyin: string; notInPayroll: number; centerCount: number; centerTiyin: string; otherCount: number; otherTiyin: string };
+}
+
+export const bayramApi = {
+  view: (from: string, to: string) => api.get<ApiResponse<BayramView>>('/acc-23106/bayram', { params: { from, to } }),
+  confirm: (periods: string[]) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string; movedTiyin: string; routed: boolean }>>('/acc-23106/bayram/confirm', { periods }),
+  cancel: (id: string) => api.post<ApiResponse<{ success: true; period: string }>>(`/acc-23106/bayram/posts/${encodeURIComponent(id)}/cancel`),
+};
+
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
 function authHeaders(): Record<string, string> {

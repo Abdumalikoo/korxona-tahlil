@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseBankStatement, parseDate, text } from '../unit-bank/unit-bank.service';
 import { PAYROLL_UNITS, UnitPayrollService } from '../unit-payroll/unit-payroll.service';
+import { Acc23106BayramService } from './acc23106.bayram.service';
 import { Acc23106SafarService } from './acc23106.safar.service';
 import { PayrollFactsService } from '../payroll-facts/payroll-facts.service';
 import { accrualMonth, KIND_LABELS, kindComponents, nameKey, purposeKind, purposeMonth, purposeName, purposeOrder, type PayoutKind } from './acc23106.purpose';
@@ -48,6 +49,7 @@ export class Acc23106Service {
     private readonly audit: AuditService,
     @Optional() private readonly unitPayroll?: UnitPayrollService,
     @Optional() private readonly safar?: Acc23106SafarService,
+    @Optional() private readonly bayram?: Acc23106BayramService,
   ) {}
 
   private async store(): Promise<Store> {
@@ -361,6 +363,8 @@ export class Acc23106Service {
     });
     // Almashtirilgan oylardagi xizmat safari tasdiqlari bekor (eski to'lovlar xarajatda qolmasin) — qayta tasdiqlanadi
     const safarDropped = this.safar ? await this.safar.dropMonths(result.replacedMonths, "ko'chirma almashtirildi", userId) : 0;
+    // Hudud bayram pullari tasdiqlari ham (ish haqi qayta guruhlanadi — bayram hududga qaytadi, qayta tasdiqlanadi)
+    if (this.bayram) await this.bayram.dropPayMonths(result.replacedMonths, "ko'chirma almashtirildi", userId);
     // Yuklash bilan birga — avval saqlangan oylar ham aqlli tahlil bilan yangilanadi (alohida «qayta tahlil» shart emas)
     const reanalyzed = await this.reanalyzeApply(userId, true);
     await this.audit.log({
@@ -454,6 +458,7 @@ export class Acc23106Service {
       let changed = 0;
       let changedTiyin = 0n;
       const leftSafar: string[] = [];
+      const leftBayram: string[] = [];
       for (const m of Object.values(store.months)) {
         m.rows = m.rows.map((r) => {
           const k = classify(r, rs, sorted).kind;
@@ -461,6 +466,7 @@ export class Acc23106Service {
           changed += 1;
           changedTiyin += BigInt(r.debitTiyin);
           if (r.kind === 'SAFAR') leftSafar.push(payoutKey(r));
+          if (r.kind === 'BAYRAM') leftBayram.push(payoutKey(r));
           return { ...r, kind: k };
         });
       }
@@ -468,9 +474,10 @@ export class Acc23106Service {
         const value = store as unknown as object;
         await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
       }
-      return { changed, changedTiyin, leftSafar };
+      return { changed, changedTiyin, leftSafar, leftBayram };
     });
     const safarDropped = this.safar ? await this.safar.dropKeys(out.leftSafar, reason, userId) : 0;
+    if (this.bayram) await this.bayram.dropKeys(out.leftBayram, reason, userId);
     return { changed: out.changed, changedTiyin: out.changedTiyin.toString(), safarDropped };
   }
 
@@ -591,6 +598,7 @@ export class Acc23106Service {
       let changedTiyin = 0n;
       let touched = 0;
       const leftSafar: string[] = [];
+      const leftBayram: string[] = [];
       for (const m of Object.values(store.months)) {
         m.rows = m.rows.map((r) => {
           const auto = smartKind(r.purpose).kind;
@@ -601,6 +609,7 @@ export class Acc23106Service {
             changed += 1;
             changedTiyin += BigInt(r.debitTiyin);
             if (r.kind === 'SAFAR') leftSafar.push(payoutKey(r));
+            if (r.kind === 'BAYRAM') leftBayram.push(payoutKey(r));
           }
           return { ...next, kind: k };
         });
@@ -609,9 +618,10 @@ export class Acc23106Service {
         const value = store as unknown as object;
         await this.prisma.setting.upsert({ where: { key: KEY }, create: { key: KEY, value }, update: { value } });
       }
-      return { changed, changedTiyin, leftSafar };
+      return { changed, changedTiyin, leftSafar, leftBayram };
     });
     const safarDropped = this.safar ? await this.safar.dropKeys(out.leftSafar, 'aqlli qayta tahlil — endi xizmat safari emas', userId) : 0;
+    if (this.bayram) await this.bayram.dropKeys(out.leftBayram, 'aqlli qayta tahlil — endi bayram puli emas', userId);
     if (!quiet || out.changed) await this.audit.log({ userId, action: 'UPDATE', entity: 'acc_23106', entityId: 'reanalyze', summary: `23106 aqlli qayta tahlil qo'llandi: ${out.changed} ta to'lov guruhi o'zgardi (${(Number(out.changedTiyin) / 100).toLocaleString('uz-UZ')} so'm)${safarDropped ? `, ${safarDropped} ta xizmat safari xarajati bekor` : ''}` });
     return { success: true as const, changed: out.changed, changedTiyin: out.changedTiyin.toString(), safarDropped };
   }
@@ -636,6 +646,7 @@ export class Acc23106Service {
       return { removed, fileName: b.fileName };
     });
     const safarDropped = this.safar ? await this.safar.dropMonths(out.removed, "ko'chirma bekor qilindi", userId) : 0;
+    if (this.bayram) await this.bayram.dropPayMonths(out.removed, "ko'chirma bekor qilindi", userId);
     await this.audit.log({ userId, action: 'DELETE', entity: 'acc_23106', entityId: id, summary: `23106 ko'chirmasi bekor qilindi: ${out.fileName} (${out.removed.map(monthLabel).join(', ') || "oylar keyin almashtirilgan"})` });
     return { success: true as const, months: out.removed, safarDropped };
   }
