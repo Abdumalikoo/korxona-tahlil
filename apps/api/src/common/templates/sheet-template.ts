@@ -218,6 +218,11 @@ export function parseWithTemplate(wb: ExcelJS.Workbook, spec: TemplateSpec): Tem
 
 /** Bo'sh shablon: guruhli ikki qatorli sarlavha, kengliklar, «Yo'riqnoma» varag'i */
 export async function buildTemplate(spec: TemplateSpec): Promise<Buffer> {
+  return Buffer.from(await buildTemplateWorkbook(spec).xlsx.writeBuffer());
+}
+
+/** Bo'sh shablon kitobi (to'ldirib berish uchun — masalan, joriy ma'lumot bilan); ma'lumot 5-qatordan */
+export function buildTemplateWorkbook(spec: TemplateSpec): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Korxona tahlil';
   const ws = wb.addWorksheet(spec.title.slice(0, 31));
@@ -264,5 +269,5 @@ export async function buildTemplate(spec: TemplateSpec): Promise<Buffer> {
     help.getCell(k + 1, 1).value = t;
     if (k === 0) help.getCell(1, 1).font = { bold: true, size: 12 };
   });
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  return wb;
 }

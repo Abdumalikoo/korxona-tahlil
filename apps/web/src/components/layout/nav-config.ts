@@ -129,6 +129,7 @@ export const MENU: NavItem[] = [
       { label: 'Bank ko‘chirmasi', href: '/xarajatlar/bank-kochirma', description: "Bankdan olingan ko'chirma tahlili: chiqim va kirim, o'xshash to'lovlar oyma-oy va o'sib boruvchi, turlari (xarajat va daromadga yozilmaydi)" },
       { label: 'Ish haqi solishtirma', href: '/xarajatlar/ish-haqi-solishtirma', description: "FOT − soliq (− kasaba uyushmasi) = 23106: bankdan to'langani hisoblanganiga mosmi — shtat va shartnoma, Markaz va hududlar kesimida", group: 'Ish haqi xarajatlari' },
       { label: 'Ijara', href: '/xarajatlar/ijara', description: "Ijara shartnomalari va to'lovlar" },
+      { label: 'Hudud ijaralari', href: '/xarajatlar/hudud-ijaralari', description: "Hududlar va tumanlar bo'yicha oylik ijara: shablon, yuklash, tekshiruv va tasdiqlash" },
       { label: 'Internet', href: '/xarajatlar/internet', description: "Internet shartnomalari: kimga to'lanadi, qayerga biriktiriladi, oylik to'lovlar" },
       { label: 'Mashinalar', href: '/xarajatlar/mashinalar', description: "Mashina xarajatlari: benzin, moyka, ta'mir yozish va benzin hisobotini (Excel) yuklash", group: 'Mashina xarajatlari' },
       { label: 'Mashinalar hisoboti', href: '/xarajatlar/mashinalar/royxat', description: "Mashinalar guruhlar bo'yicha, haydovchilar, oylik sarf va me'yor", group: 'Mashina xarajatlari' },
