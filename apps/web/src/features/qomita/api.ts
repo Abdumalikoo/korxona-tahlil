@@ -510,6 +510,44 @@ export interface SarfUnitDetail extends SarfUnit {
   employees: { pinfl: string | null; fullName: string; inTarkib: boolean; inVedomost: boolean; paidTiyin: string; coveredTiyin: string; months: Record<string, { paid: string; covered: string }> }[];
 }
 
+// ─────────── 3802 — ikki hisob: 3802 hovuzi va Marksheyder ───────────
+
+export interface HisobMonth {
+  period: string;
+  incomeTiyin: string;
+  spendTiyin: string;
+  /** Yig'ma qoldiq (davr boshidan) */
+  balanceTiyin: string;
+  employees: number;
+  vedomost: 'YES' | 'EXCLUDED' | 'NONE';
+}
+
+export interface HisobSide {
+  months: HisobMonth[];
+  incomeTiyin: string;
+  spendTiyin: string;
+  balanceTiyin: string;
+  sections: { name: string; months: Record<string, string>; totalTiyin: string; employees: number }[];
+  incomes: { id: string; date: string; period: string; amountTiyin: string; label: string; source: string }[];
+}
+
+export interface Hisob3802 {
+  from: string;
+  to: string;
+  months: string[];
+  excluded: string[];
+  vedomostMonths: string[];
+  contract: { year: string; amountTiyin: string; leftTiyin: string } | null;
+  pool: HisobSide;
+  marksheyder: HisobSide;
+}
+
+export const hisobApi = {
+  ledger: (from: string, to: string) => api.get<ApiResponse<Hisob3802>>('/qomita/3802/hisob', { params: { from, to } }),
+  setExcluded: (periods: string[]) => api.put<ApiResponse<{ excluded: string[] }>>('/qomita/3802/hisob/excluded', { periods }),
+  setContract: (year: string, amount: string) => api.put<ApiResponse<{ year: string; amountTiyin: string }>>('/qomita/3802/hisob/contract', { year, amount }),
+};
+
 export const sarfApi = {
   sarf: (from: string, to: string) => api.get<ApiResponse<Sarf>>('/qomita/3802/nazorat/sarf', { params: { from, to } }),
   unit: (unit: string, from: string, to: string) => api.get<ApiResponse<SarfUnitDetail>>(`/qomita/3802/nazorat/sarf/${encodeURIComponent(unit)}`, { params: { from, to } }),

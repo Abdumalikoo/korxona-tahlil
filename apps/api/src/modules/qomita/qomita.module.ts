@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { BankAnalysisModule } from '../bank-analysis/bank-analysis.module';
 import { CashbookModule } from '../cashbook/cashbook.module';
 import { PayrollModule } from '../payroll/payroll.module';
+import { Hisob3802Controller } from './hisob-3802.controller';
+import { Hisob3802Service } from './hisob-3802.service';
 import { Nazorat3802Controller } from './nazorat-3802.controller';
 import { Nazorat3802Service } from './nazorat-3802.service';
 import { QomitaStatementController } from './qomita-statement.controller';
@@ -17,8 +19,8 @@ import { Vedomost3802Service } from './vedomost-3802.service';
 @Module({
   // Kassa (Markaz daromadi): Qo'mita qatorlari Qo'mita mablag'lari bilan bitta pul — yozuv o'zgarsa qayta hisoblanadi
   imports: [PayrollModule, BankAnalysisModule, CashbookModule],
-  controllers: [QomitaController, QomitaStatementController, Shtat3802Controller, Vedomost3802Controller, Nazorat3802Controller],
-  providers: [QomitaService, QomitaStatementService, Shtat3802Service, Vedomost3802Service, Nazorat3802Service],
+  controllers: [QomitaController, QomitaStatementController, Shtat3802Controller, Vedomost3802Controller, Nazorat3802Controller, Hisob3802Controller],
+  providers: [QomitaService, QomitaStatementService, Shtat3802Service, Vedomost3802Service, Nazorat3802Service, Hisob3802Service],
   // Hisobotlar (Bo'limlar bo'yicha) — Qo'mita qoplashi
   exports: [Nazorat3802Service],
 })

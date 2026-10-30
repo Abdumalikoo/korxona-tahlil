@@ -53,8 +53,6 @@ export class Shtat3802Controller {
     return { data: await this.shtat.setSection(body, userId) };
   }
 
-  /** Shu toifaga kimlar kiradi: ?kind&period (ish haqi tarkibi oyi) — xodimlar ro'yxati (shaxsiy ma'lumot) */
-  @Personal()
   /** Yuklangan shtatni o'chirish: ?kind=OLADI | OLMAYDI */
   @Roles(UserRole.ADMIN)
   @Delete()
@@ -62,6 +60,8 @@ export class Shtat3802Controller {
     return { data: await this.shtat.remove(kind, userId) };
   }
 
+  /** Shu toifaga kimlar kiradi: ?kind&period (ish haqi tarkibi oyi) — xodimlar ro'yxati (shaxsiy ma'lumot) */
+  @Personal()
   @Get('members')
   async members(@Query('kind') kind: string, @Query('period') period?: string) {
     return { data: await this.shtat.members(kind, period) };

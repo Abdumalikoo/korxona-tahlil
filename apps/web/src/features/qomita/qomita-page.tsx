@@ -21,6 +21,7 @@ import { Section3802View, SECTIONS_3802, type Section3802 } from './qomita-3802'
 import { QomitaBankCard, QomitaIncomeDrawer } from './qomita-income';
 import { QomitaRemoveDrawer } from './qomita-remove';
 import { SarfSection } from './qomita-sarf';
+import { HisobPanel } from './qomita-hisob';
 import { QomitaSettingsCard } from './qomita-settings';
 import { QomitaStatementCard } from './qomita-statement';
 
@@ -147,6 +148,8 @@ export function Qomita3802Page() {
   const cfg = useAsync(() => qomitaApi.config().then((r) => r.data), []);
   const rep = useAsync(() => (section !== 'QOPLASH' || range.error ? Promise.resolve(null) : qomitaApi.report(range.from, range.to).then((r) => r.data)), [range.from, range.to, range.error, section]);
   const [toast, setToast] = useState<ToastState>(null);
+  /** Eski tafsilot (bo'limlar bo'yicha qoplash, xodimlar) — yopiq */
+  const [detailOpen, setDetailOpen] = useState(false);
   const reloadAll = () => {
     rep.reload();
     cfg.reload();
@@ -163,8 +166,15 @@ export function Qomita3802Page() {
         ) : (
           <>
             <MonthRangeCard range={range} />
-            {/* Qo'mita pullarining sarfi: 3802 hovuzi va xizmat shartnomalari (faqat ko'rsatish) */}
-            {range.error ? null : <SarfSection from={range.from} to={range.to} isAdmin={isAdmin} onToast={setToast} />}
+            {/* Ikki hisob: 3802 hovuzi (hamma bo'limlar) va Marksheyder — kirim, sarf, qoldiq */}
+            {range.error ? null : <HisobPanel from={range.from} to={range.to} isAdmin={isAdmin} onToast={setToast} />}
+            {/* Batafsil: bo'limlar bo'yicha qoplash va xodimlar (eski ko'rinish) — yopiq */}
+            {!range.error && (
+              <button type="button" onClick={() => setDetailOpen((v) => !v)} className="text-sm font-semibold text-brand-700 hover:underline">
+                {detailOpen ? '▾' : '▸'} Batafsil: bo&apos;limlar bo&apos;yicha qoplash va xodimlar
+              </button>
+            )}
+            {range.error || !detailOpen ? null : <SarfSection from={range.from} to={range.to} isAdmin={isAdmin} onToast={setToast} />}
             {/* Qo'lda sozlangan qoplash qoidalari (ixtiyoriy) — sozlangan bo'lsa */}
             {items.length > 0 && rep.data && t && (
               <>

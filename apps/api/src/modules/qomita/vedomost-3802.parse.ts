@@ -140,6 +140,8 @@ export interface VedSection {
   /** Bo'lim qatoridagi jami (bo'lsa) va mosligi */
   fileTotalTiyin: string | null;
   ok: boolean;
+  /** Marksheyder varag'idan (nomida «Маркшейдер/Marksheyder») yoki Marksheyder bo'limi — alohida hisob (3802 hovuzidan emas) */
+  marksheyder?: boolean;
 }
 
 export interface VedSheet {
@@ -167,6 +169,10 @@ const toTiyin = (v: unknown): bigint | null => {
 const FOOTER_RE = /soliq.?servis.*direktor|^bosh hisobchi(\s*v\.?\s*v\.?\s*b\.?)?$/i;
 const TOTAL_RE = /^(жами|jami|итого|всего)(?![\p{L}])/iu;
 const nameKey = (s: string) => norm(s).replace(/ /g, '');
+/** Marksheyder: varaq yoki bo'lim nomida (kirill / lotin) */
+export const MARKSH_RE = /маркшейд|marksheyd|markshеyd/i;
+/** Bo'lim ustuni sarlavhasi (normallashgan, bo'shliqsiz): bo'lim, bo'linma, bolim, otdel, bo'limi */
+const DEPT_RE = /^(bolim|bolinma|bolimi|bolimnomi|otdel|tarkibiybolinma|bolinmanomi)$/;
 
 export function parseVedomostSheet(ws: ExcelJS.Worksheet): VedSheet | null {
   // Sarlavha qatori: A — «F.I.SH»
@@ -185,8 +191,13 @@ export function parseVedomostSheet(ws: ExcelJS.Worksheet): VedSheet | null {
   }
   const columns: VedSheet['columns'] = [];
   let jamiCol = 0;
+  // Bo'lim ustuni (bo'lsa): har qatorda bo'lim nomi — bo'lim sarlavha qatorlari kerak emas
+  let deptCol = 0;
   ws.getRow(hr).eachCell((c, col) => {
-    if (col <= 2 || jamiCol) return;
+    if (col >= 2 && !deptCol && DEPT_RE.test(norm(text(cellValue(c.value))).replace(/ /g, ''))) deptCol = col;
+  });
+  ws.getRow(hr).eachCell((c, col) => {
+    if (col <= 2 || jamiCol || col === deptCol) return;
     const header = text(cellValue(c.value));
     const component = componentOf(header);
     if (!component) return;
@@ -194,7 +205,8 @@ export function parseVedomostSheet(ws: ExcelJS.Worksheet): VedSheet | null {
     if (component === 'JAMI') jamiCol = col;
   });
   const amountCols = columns.filter((c) => c.component !== 'JAMI');
-  if (!amountCols.some((c) => c.component === 'OKLAD')) return null;
+  // Vedomost: «Lavozim maoshi» ustuni yoki (soddalashgan shablon) bo'lim + «Jami» ustuni
+  if (!amountCols.some((c) => c.component === 'OKLAD') && !(deptCol && jamiCol)) return null;
 
   // Oy: varaq nomi (Excel yorlig'i), bo'lmasa — sarlavha
   const warnings: string[] = [];
@@ -230,10 +242,16 @@ export function parseVedomostSheet(ws: ExcelJS.Worksheet): VedSheet | null {
     if (TOTAL_RE.test(a)) continue;
     const bold = Boolean(row.getCell(1).font?.bold);
     const total = jamiCol ? toTiyin(cellValue(row.getCell(jamiCol).value)) : null;
-    const isSection = anyBold ? bold && !b : !b && toTiyin(cellValue(row.getCell(3).value)) !== null;
+    const dept = deptCol ? text(cellValue(row.getCell(deptCol).value)) : '';
+    const isSection = deptCol ? false : anyBold ? bold && !b : !b && toTiyin(cellValue(row.getCell(3).value)) !== null;
     if (isSection) {
       open(a, total);
       continue;
+    }
+    // Bo'lim ustuni bo'lsa — qator o'z bo'limiga (nomi bo'yicha, harf/apostrof farqisiz)
+    if (deptCol && dept) {
+      const key = nameKey(dept);
+      cur = sections.find((x) => nameKey(x.name) === key) ?? open(dept, null);
     }
     const amounts: VedEmployee['amounts'] = {};
     let sum = 0n;
@@ -251,7 +269,7 @@ export function parseVedomostSheet(ws: ExcelJS.Worksheet): VedSheet | null {
         if (typeof v === 'string' && v.trim() && !/^\d/.test(v.trim())) notes.push(v.trim());
       });
     const s: VedSection = cur ?? open('—', null);
-    s.employees.push({ row: r, fullName: a.slice(0, 200), position: b.slice(0, 200), amounts, totalTiyin: (total ?? sum).toString(), note: notes.join('; ').slice(0, 200) });
+    s.employees.push({ row: r, fullName: a.slice(0, 200), position: deptCol === 2 ? '' : b.slice(0, 200), amounts, totalTiyin: (total ?? sum).toString(), note: notes.join('; ').slice(0, 200) });
   }
   const live = sections.filter((s) => s.employees.length);
   for (const s of live) {
@@ -266,12 +284,14 @@ export function parseVedomostSheet(ws: ExcelJS.Worksheet): VedSheet | null {
   }
   const bad = live.filter((s) => !s.ok);
   if (bad.length) warnings.push(`Bo'lim jamisi xodimlar yig'indisiga mos emas: ${bad.map((s) => s.name).slice(0, 5).join(', ')}`);
+  const marksheyder = MARKSH_RE.test(ws.name);
+  for (const x of live) x.marksheyder = marksheyder || MARKSH_RE.test(x.name);
   return {
     sheet: ws.name.trim().slice(0, 80),
     hidden: ws.state !== 'visible',
     period,
     title: title.slice(0, 300),
-    marksheyder: /маркшейдер|marksheyder/i.test(ws.name),
+    marksheyder,
     columns,
     sections: live,
     employees: live.reduce((t, s) => t + s.employees.length, 0),
@@ -334,7 +354,7 @@ export function groupPeriods(sheets: VedSheet[]): VedPeriod[] {
       warnings.push(...s.warnings.map((w) => `«${s.sheet}»: ${w}`));
       if (s.hidden) warnings.push(`«${s.sheet}» — yashirin varaq (olindi: boshqa varaqda bu xodimlar yo'q)`);
     }
-    const sections = usedOrdered.flatMap((s) => s.sections.map((x) => (usedOrdered.length > 1 ? { ...x, name: s.marksheyder && !/маркшейдер|marksheyder/i.test(x.name) ? `${x.name} (Marksheyderlik)` : x.name } : x)));
+    const sections = usedOrdered.flatMap((s) => s.sections.map((x) => ({ ...x, marksheyder: Boolean(s.marksheyder || x.marksheyder), name: usedOrdered.length > 1 && s.marksheyder && !MARKSH_RE.test(x.name) ? `${x.name} (Marksheyderlik)` : x.name })));
     const emp = sections.flatMap((x) => x.employees);
     const part = (c: VedComponent) => emp.reduce((t, e) => t + BigInt(e.amounts[c] ?? '0'), 0n).toString();
     out.push({
@@ -358,7 +378,7 @@ export function parseVedomostWorkbook(wb: ExcelJS.Workbook): { periods: VedPerio
   const unknown: { sheet: string; reason: string }[] = [];
   for (const ws of wb.worksheets) {
     const s = parseVedomostSheet(ws);
-    if (!s) unknown.push({ sheet: ws.name, reason: "Vedomost emas («F.I.SH» va «Lavozim maoshi» ustunlari yo'q)" });
+    if (!s) unknown.push({ sheet: ws.name, reason: "Vedomost emas («F.I.SH» va «Lavozim maoshi» yoki «Bo'lim» + «Jami» ustunlari yo'q)" });
     else if (!s.period) unknown.push({ sheet: s.sheet, reason: 'Oy aniqlanmadi' });
     else if (!s.employees) unknown.push({ sheet: s.sheet, reason: "Xodim qatorlari yo'q" });
     else sheets.push(s);
