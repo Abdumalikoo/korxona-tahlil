@@ -106,7 +106,11 @@ export function StatTiles({ items, compareLabel = "O'tgan davrga nisbatan" }: { 
             )}
           >
             <div className="flex items-center gap-2.5">
-              <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', TILE_BG[item.tone ?? 'blue'])}>{item.icon ?? <DefaultIcon />}</span>
+              {(() => {
+                // Hamma bo'limda bir xil: daromad — yashil ↗, xarajat — qizil ↘, foyda/natija — ko'k, rentabellik — binafsha
+                const auto = tileStyle(item.label);
+                return <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', TILE_BG[auto?.tone ?? item.tone ?? 'blue'])}>{auto?.icon ?? item.icon ?? <DefaultIcon />}</span>;
+              })()}
               <p className="min-w-0 truncate text-[13px] font-medium text-(--color-text-muted)">{item.label}</p>
             </div>
             <p className={cn('-mt-1 flex flex-wrap items-baseline gap-x-2 text-lg font-bold leading-tight tabular-nums text-heading', item.signed && item.value < 0 && !item.missing && 'text-(--color-expense)')}>
@@ -138,6 +142,44 @@ export function StatTiles({ items, compareLabel = "O'tgan davrga nisbatan" }: { 
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Karta uslubi nomiga qarab — Hududlar sahifasidagi 4 karta bilan hamma bo'limda bir xil:
+ * daromad — yashil, o'sish belgisi; xarajat — qizil, pasayish belgisi; foyda / zarar / natija — ko'k, ustunlar;
+ * rentabellik — binafsha, qalqon. Boshqa kartalar — o'z rangi va belgisi.
+ */
+function tileStyle(label: string): { tone: TileTone; icon: ReactNode } | null {
+  const l = label.toLowerCase();
+  if (/rentabel/.test(l)) return { tone: 'purple', icon: <TileIconShield /> };
+  if (/foyda|zarar|natija/.test(l)) return { tone: 'blue', icon: <DefaultIcon /> };
+  if (/xarajat/.test(l)) return { tone: 'red', icon: <TileIconDown /> };
+  if (/daromad|tushum/.test(l)) return { tone: 'green', icon: <TileIconUp /> };
+  return null;
+}
+
+function TileIconUp() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 17l6-6 4 4 8-8M15 7h6v6" />
+    </svg>
+  );
+}
+
+function TileIconDown() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 7l6 6 4-4 8 8M15 17h6v-6" />
+    </svg>
+  );
+}
+
+function TileIconShield() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z" />
+    </svg>
   );
 }
 
