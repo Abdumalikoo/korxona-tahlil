@@ -11,6 +11,7 @@ import {
     vatOf,
 } from './leases.shared';
 import {
+    CENTRAL_REGION,
     LEASE_CATEGORY,
     type LeaseKindValue,
     type MonthCloseSummary,
@@ -43,6 +44,8 @@ interface LeaseForAccrual {
   lessorName: string;
   regionCode: number;
   districtId: string | null;
+  /** Tuman nomi — hudud ijarasi xarajatida kontragent sifatida */
+  districtName?: string | null;
   departmentId: string | null;
   vatIncluded: boolean;
 }
@@ -69,12 +72,15 @@ export class LeaseMonthsService {
     return new Map(users.map((u) => [u.id, u.fullName]));
   }
 
-  private leasesWithTerms(leaseIds?: string[]) {
-    return this.prisma.lease.findMany({
+  private async leasesWithTerms(leaseIds?: string[]) {
+    const leases = await this.prisma.lease.findMany({
       where: { deletedAt: null, ...(leaseIds ? { id: { in: leaseIds } } : {}) },
       include: { terms: { select: { validFrom: true, monthlyTiyin: true } } },
       orderBy: [{ regionCode: 'asc' }, { title: 'asc' }],
     });
+    const ids = [...new Set(leases.map((l) => l.districtId).filter((id): id is string => Boolean(id)))];
+    const names = new Map((ids.length ? await this.prisma.district.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []).map((d) => [d.id, d.name]));
+    return leases.map((l) => ({ ...l, districtName: l.districtId ? (names.get(l.districtId) ?? null) : null }));
   }
 
   /**
@@ -323,7 +329,9 @@ export class LeaseMonthsService {
         regionCode: lease.regionCode,
         description: `Ijara: ${lease.title}`,
         documentNo: lease.number,
-        counterparty: lease.lessorName,
+        // Hudud ijarasi — kontragent: tuman nomi (tumansiz bo'lsa — ijara nomi); ijaraga beruvchi (viloyat boshqarmasi) shartnomada qoladi.
+        // Markaz ijarasi — ijaraga beruvchi
+        counterparty: lease.districtName ?? (lease.regionCode !== CENTRAL_REGION ? lease.title : lease.lessorName),
         vatTiyin: lease.vatIncluded ? vatOf(amount) : null,
         source: 'LEASE',
         createdById: userId,
