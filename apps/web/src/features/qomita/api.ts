@@ -542,8 +542,24 @@ export interface Hisob3802 {
   marksheyder: HisobSide;
 }
 
+export interface HisobDetailSection {
+  name: string;
+  totalTiyin: string;
+  employees: { fullName: string; position: string; totalTiyin: string; amounts: Record<string, string>; note: string }[];
+}
+
+export interface HisobMonthDetail {
+  period: string;
+  excluded: boolean;
+  fileName: string | null;
+  pool: HisobDetailSection[];
+  marksheyder: HisobDetailSection[];
+}
+
 export const hisobApi = {
   ledger: (from: string, to: string) => api.get<ApiResponse<Hisob3802>>('/qomita/3802/hisob', { params: { from, to } }),
+  /** Oy tafsiloti: bo'limlar va xodimlar (shaxsiy ma'lumot) */
+  month: (period: string) => api.get<ApiResponse<HisobMonthDetail>>(`/qomita/3802/hisob/month/${period}`),
   setExcluded: (periods: string[]) => api.put<ApiResponse<{ excluded: string[] }>>('/qomita/3802/hisob/excluded', { periods }),
   setContract: (year: string, amount: string) => api.put<ApiResponse<{ year: string; amountTiyin: string }>>('/qomita/3802/hisob/contract', { year, amount }),
 };

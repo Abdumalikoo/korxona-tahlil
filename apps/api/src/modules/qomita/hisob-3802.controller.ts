@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { Hisob3802Service } from './hisob-3802.service';
 
 /** 3802 — Qo'mita pullari: ikki hisob (3802 hovuzi va Marksheyder) — kirim, sarf, qoldiq */
@@ -12,6 +12,13 @@ export class Hisob3802Controller {
   @Get()
   async ledger(@Query('from') from: string, @Query('to') to: string) {
     return { data: await this.hisob.ledger(from, to) };
+  }
+
+  /** Oy tafsiloti: bo'limlar va xodimlar (shaxsiy ma'lumot) */
+  @Personal()
+  @Get('month/:period')
+  async month(@Param('period') period: string) {
+    return { data: await this.hisob.monthDetail(period) };
   }
 
   /** Sarfi hisobga olinmaydigan oylar: { periods: ['2026-07', …] } */

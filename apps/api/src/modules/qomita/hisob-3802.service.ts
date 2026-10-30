@@ -154,6 +154,25 @@ export class Hisob3802Service {
     };
   }
 
+  /**
+   * Bir oy tafsiloti (shaxsiy ma'lumot): shablon bo'limlari va xodimlari — 3802 hovuzi va Marksheyder alohida.
+   * Xodim: F.I.Sh, lavozim, qismlar (oklad, ustama …) va «Jami».
+   */
+  async monthDetail(period: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(period ?? ''))) throw new BadRequestException("Oy noto'g'ri (YYYY-MM)");
+    const v = await this.read<{ sections?: VedSection[]; fileName?: string } | null>(`3802.ved.${period}`, null);
+    const excluded = (await this.excluded()).includes(period);
+    const pick = (m: boolean) =>
+      (v?.sections ?? [])
+        .filter((s) => (s.marksheyder ?? MARKSH_RE.test(s.name)) === m)
+        .map((s) => ({
+          name: s.name.trim(),
+          totalTiyin: s.totalTiyin,
+          employees: s.employees.map((e) => ({ fullName: e.fullName, position: e.position, totalTiyin: e.totalTiyin, amounts: e.amounts, note: e.note })),
+        }));
+    return { period, excluded, fileName: v?.fileName ?? null, pool: pick(false), marksheyder: pick(true) };
+  }
+
   /** Sarfi hisobga olinmaydigan oylar (shablon o'chirilmaydi) */
   async setExcluded(body: { periods?: unknown }, userId: string) {
     const list = Array.isArray(body?.periods) ? [...new Set(body.periods.map(String))].filter((p) => /^\d{4}-(0[1-9]|1[0-2])$/.test(p)).sort() : null;
