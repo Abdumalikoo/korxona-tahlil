@@ -136,6 +136,8 @@ function subOf(s: UnitStats): string {
 
 type View = 'result' | 'months' | 'bridge';
 
+const REGIONS_KEY = '__regions';
+
 export function OverallView({ range }: { range: DateRange }) {
   // Doim: barcha yozuvlar, o'tgan teng davr bilan («Yozuvlar» / «Solishtirish» tanlovlari olib tashlangan)
   const section: SectionFilter = 'ALL';
@@ -184,10 +186,70 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
   const coverage = centerNet > 0 ? (regProfit / centerNet) * 100 : null;
   const label = cap(data.compareLabel);
 
+  const q = query.trim().toLowerCase();
+  const match = (x: UnitStats) => !q || x.unit.name.toLowerCase().includes(q);
+  const shownRegions = activeRegions.filter(match);
+  /** «Hudud» guruhi: bosilganda yoki qidiruv viloyatga mos kelganda ochiq */
+  const regionsOpen = opened.has(REGIONS_KEY) || (q !== '' && shownRegions.length > 0);
+  /** Birlik qatori (bosilsa — joyida ichma-ich daraxt); depth 1 — «Hudud» ichidagi viloyat */
+  const unitRow = (s: UnitStats, depth: number) => {
+    const isOpen = opened.has(s.unit.key);
+    const index = s.unit.kind === 'region' ? activeRegions.indexOf(s) + 1 : null;
+    return (
+    <Fragment key={s.unit.key}>
+      <Tr onClick={() => toggle(s.unit.key)} muted={s.unit.kind !== 'region'} className={cn(isOpen && 'bg-brand-50')}>
+        <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{index ?? ''}</Td>
+        <NameCell
+          before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')} style={{ marginLeft: depth * 18 }}>▸</span>}
+          sub={subOf(s)}
+          className={cn('max-w-64', s.unit.kind === 'center' && 'font-semibold')}
+        >
+          <span id={`unit-${s.unit.key}`} className="scroll-mt-24">
+            {s.unit.name}
+          </span>
+        </NameCell>
+        <ResultCells s={s} title={s.unit.name} compareLabel={label} center={s.unit.kind === 'center'} />
+      </Tr>
+      {isOpen && (
+        <tr>
+          <td colSpan={10} className="border-b border-(--color-line) bg-[#f8f9fc] p-0">
+            <div className="sticky left-0 max-w-[calc(100vw-8rem)] px-4 py-3">
+              <UnitTree s={s} range={data.range} section={data.section} compare={data.compare} fmt="full" />
+              <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--color-text-muted)">
+                <span>
+                  Yozuvlar: daromad <b className="text-heading">{s.unit.incomeCount}</b> ta, xarajat <b className="text-heading">{s.unit.expenseCount}</b> ta
+                </span>
+                {s.activeMonths > 0 && (
+                  <span>
+                    Oxirgi 12 oyda zararli oylar: <b className={s.lossMonths ? 'text-(--color-expense)' : 'text-heading'}>{s.lossMonths}</b> / {s.activeMonths}
+                  </span>
+                )}
+                {s.unit.kind === 'unassigned' ? (
+                  <button type="button" onClick={() => setUnOpen(true)} className="ml-auto font-semibold text-brand-700 hover:underline">
+                    Yozuvlarni ochish ↗
+                  </button>
+                ) : (
+                  <Link href={pageOf(s)} className="ml-auto font-semibold text-brand-700 hover:underline">
+                    Alohida sahifada ochish ↗
+                  </Link>
+                )}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </Fragment>
+    );
+  };
+
   /** Boshqa yorliqdan birlikni bosish — natija jadvalida ochib, unga o'tish */
   const open = (s: UnitStats) => {
     setView('result');
-    setOpened((o) => new Set(o).add(s.unit.key));
+    setOpened((o) => {
+      const x = new Set(o).add(s.unit.key);
+      if (s.unit.kind === 'region') x.add(REGIONS_KEY);
+      return x;
+    });
     setTimeout(() => document.getElementById(`unit-${s.unit.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   };
 
@@ -261,7 +323,7 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
             <>
               <SearchInput value={query} onChange={setQuery} placeholder="Birlik qidirish…" />
               <ExcelButton onClick={exportCsv} />
-              <ToggleAllButton open={opened.size > 0} onClick={() => setOpened(opened.size ? new Set() : new Set(units.map((s) => s.unit.key)))} />
+              <ToggleAllButton open={opened.size > 0} onClick={() => setOpened(opened.size ? new Set() : new Set([REGIONS_KEY, ...units.map((s) => s.unit.key)]))} />
             </>
           }
         >
@@ -291,60 +353,30 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
             </thead>
             <tbody>
               <ResultTotal label="Korxona jami" sub="Markaz + hududlar + yo'nalishlar" t={total} compareLabel={label} />
-              <ResultTotal label={`Hududlar jami · ${activeRegions.length} ta`} sub="faqat hududlar" t={reg} compareLabel={label} light />
-              {units.filter((s) => !query.trim() || s.unit.name.toLowerCase().includes(query.trim().toLowerCase())).map((s) => {
-                const isOpen = opened.has(s.unit.key);
-                const index = s.unit.kind === 'region' ? activeRegions.indexOf(s) + 1 : null;
-                return (
-                  <Fragment key={s.unit.key}>
-                    <Tr onClick={() => toggle(s.unit.key)} muted={s.unit.kind !== 'region'} className={cn(isOpen && 'bg-brand-50')}>
-                      <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{index ?? ''}</Td>
-                      <NameCell
-                        before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')}>▸</span>}
-                        sub={subOf(s)}
-                        className={cn('max-w-64', s.unit.kind === 'center' && 'font-semibold')}
-                      >
-                        <span id={`unit-${s.unit.key}`} className="scroll-mt-24">
-                          {s.unit.name}
-                        </span>
-                      </NameCell>
-                      <ResultCells s={s} title={s.unit.name} compareLabel={label} center={s.unit.kind === 'center'} />
-                    </Tr>
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={10} className="border-b border-(--color-line) bg-[#f8f9fc] p-0">
-                          <div className="sticky left-0 max-w-[calc(100vw-8rem)] px-4 py-3">
-                            <UnitTree s={s} range={data.range} section={data.section} compare={data.compare} fmt="full" />
-                            <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--color-text-muted)">
-                              <span>
-                                Yozuvlar: daromad <b className="text-heading">{s.unit.incomeCount}</b> ta, xarajat <b className="text-heading">{s.unit.expenseCount}</b> ta
-                              </span>
-                              {s.activeMonths > 0 && (
-                                <span>
-                                  Oxirgi 12 oyda zararli oylar: <b className={s.lossMonths ? 'text-(--color-expense)' : 'text-heading'}>{s.lossMonths}</b> / {s.activeMonths}
-                                </span>
-                              )}
-                              {s.unit.kind === 'unassigned' ? (
-                                <button type="button" onClick={() => setUnOpen(true)} className="ml-auto font-semibold text-brand-700 hover:underline">
-                                  Yozuvlarni ochish ↗
-                                </button>
-                              ) : (
-                                <Link href={pageOf(s)} className="ml-auto font-semibold text-brand-700 hover:underline">
-                                  Alohida sahifada ochish ↗
-                                </Link>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
+              {center && match(center) && unitRow(center, 0)}
+              {/* Hudud — bitta qator; bosilsa viloyatlar ochiladi */}
+              {activeRegions.length > 0 && (shownRegions.length > 0 || !q) && (
+                <Tr onClick={() => toggle(REGIONS_KEY)} className={cn('bg-[#f1f5fe] font-semibold', regionsOpen && 'bg-brand-50')}>
+                  <Td className={STICKY_NO} />
+                  <NameCell
+                    before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', regionsOpen && 'rotate-90')}>▸</span>}
+                    sub={`${activeRegions.length} viloyat · ${count(reg.headcount)} xodim · bosing — viloyatlar`}
+                    className="font-semibold text-heading"
+                  >
+                    <span id="unit-regions" className="scroll-mt-24">
+                      Hudud
+                    </span>
+                  </NameCell>
+                  <ResultCells s={reg} title="Hudud" compareLabel={label} />
+                </Tr>
+              )}
+              {regionsOpen && shownRegions.map((x) => unitRow(x, 1))}
+              {[...segments, ...(unassigned ? [unassigned] : [])].filter(match).map((x) => unitRow(x, 0))}
             </tbody>
           </RTable>
           <TableNote>
-            Qatorni bosing — joyida kengayadi: tumanlar, bo&apos;limlar, tuzilmalar, xodimlar, oylar va yozuvlargacha. Markaz rentabelligi ko&apos;rsatilmaydi — u asosan xizmat
+            Tartib: Markaz → Hudud (bosing — viloyatlar) → yo&apos;nalishlar. Qatorni bosing — joyida kengayadi: tumanlar, bo&apos;limlar, tuzilmalar, xodimlar, oylar va
+            yozuvlargacha. Markaz rentabelligi ko&apos;rsatilmaydi — u asosan xizmat
             ko&apos;rsatadi, xarajatini hududlar foydasi qoplaydi.
           </TableNote>
         </ReportCard>

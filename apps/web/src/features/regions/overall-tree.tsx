@@ -40,7 +40,7 @@ export interface TNode {
   records?: { kind: 'income' | 'expense'; f: DrillTarget['f']; title: string };
 }
 
-interface Ctx {
+export interface Ctx {
   range: DateRange;
   section: SectionFilter;
   compare: CompareMode;
@@ -56,6 +56,8 @@ function parts(prefix: string, list: (UnitPart | MoneyPart)[], side: 'income' | 
       label: p.label,
       [side]: n(p.amountTiyin),
       [side === 'income' ? 'prevIncome' : 'prevExpense']: n(p.previousTiyin),
+      // Daromad qismi → yozuvlar (birlik va xizmat bo'yicha; Markaz bo'limi — dep bilan)
+      ...(vehicles && side === 'income' ? { records: { kind: 'income' as const, f: { unit: vehicles.unit.startsWith('dep:') ? 'center' : vehicles.unit, ...(vehicles.unit.startsWith('dep:') ? { dep: vehicles.unit.slice(4) } : {}), cats: [p.key] }, title: p.label } } : {}),
       ...(vehicles && side === 'expense' && p.key === 'VEHICLE' ? { load: () => vehicleNodes(`${prefix}:${p.key}`, vehicles.unit, vehicles.c) } : {}),
       ...(vehicles && side === 'expense' && p.key === 'SAFAR' ? { load: () => safarNodes(`${prefix}:${p.key}`, vehicles.unit, vehicles.c) } : {}),
       ...(vehicles && side === 'expense' && partOpens(vehicles.unit, p.key) ? { load: () => partNodes(`${prefix}:${p.key}`, vehicles.unit, p.key, vehicles.c) } : {}),
@@ -63,7 +65,7 @@ function parts(prefix: string, list: (UnitPart | MoneyPart)[], side: 'income' | 
 }
 
 /** Boshqa moddalar ichi — ichma-ich: guruh → moddalar → kontragent / joy (kalitli qator yana ochiladi) */
-async function partNodes(prefix: string, unit: string, key: string, c: Ctx): Promise<TNode[]> {
+export async function partNodes(prefix: string, unit: string, key: string, c: Ctx): Promise<TNode[]> {
   const d = (await partDetailApi.detail({ unit, key, range: c.range, compare: c.compare, section: c.section })).data;
   return d.items.map((v, i) => {
     const id = `${prefix}:p:${v.key ?? i}`;
@@ -179,7 +181,7 @@ function regionTree(s: UnitStats, c: Ctx): TNode[] {
       }));
     }),
     // Viloyat bo'yicha tarkib — shu davr (oy) statistikasidan: oylar ustunida o'sha oyning summasi (jami takrorlanmaydi)
-    group(`r${code}:inc`, "Daromad tarkibi (viloyat bo'yicha)", async () => parts(`r${code}:inc`, (await unitAt(s.unit.key, c))?.unit.incomeParts ?? [], 'income'), { records: { kind: 'income', f: { unit: s.unit.key }, title: `${s.unit.name} › Daromad` } }),
+    group(`r${code}:inc`, "Daromad tarkibi (viloyat bo'yicha)", async () => parts(`r${code}:inc`, (await unitAt(s.unit.key, c))?.unit.incomeParts ?? [], 'income', { unit: s.unit.key, c }), { records: { kind: 'income', f: { unit: s.unit.key }, title: `${s.unit.name} › Daromad` } }),
     group(`r${code}:exp`, "Xarajat tarkibi (viloyat bo'yicha, barcha tumanlar)", async () => parts(`r${code}:exp`, (await unitAt(s.unit.key, c))?.unit.expenseParts ?? [], 'expense', { unit: `r:${code}`, c })),
   ];
 }
@@ -203,7 +205,7 @@ function centerTree(s: UnitStats, c: Ctx): TNode[] {
           const x = (await centerDrillApi.department(d.id, c.range, c.section, c.compare)).data;
           const p = `c:dep:${d.id}`;
           return [
-            group(`${p}:i`, 'Daromad tarkibi', parts(`${p}:i`, x.incomeParts, 'income')),
+            group(`${p}:i`, 'Daromad tarkibi', parts(`${p}:i`, x.incomeParts, 'income', { unit: `dep:${d.id}`, c })),
             group(`${p}:x`, 'Xarajat tarkibi', parts(`${p}:x`, x.expenseParts, 'expense', { unit: d.unassigned ? 'cnd' : `dep:${d.id}`, c })),
             group(`${p}:e`, `Xodimlar · ${x.employees.length}`, [
               ...x.employees.map((e) => employeeNode(p, e, c)),
@@ -223,7 +225,7 @@ function centerTree(s: UnitStats, c: Ctx): TNode[] {
         },
       })),
     ),
-    group('c:inc', 'Daromad manbalari', async () => parts('c:inc', (await data()).incomeParts, 'income'), { records: { kind: 'income', f: { unit: 'center' }, title: 'Markaz › Daromad' } }),
+    group('c:inc', 'Daromad manbalari', async () => parts('c:inc', (await data()).incomeParts, 'income', { unit: 'center', c }), { records: { kind: 'income', f: { unit: 'center' }, title: 'Markaz › Daromad' } }),
     group('c:own', "O'z xarajati", async () => parts('c:own', (await data()).ownParts, 'expense', { unit: 'center', c })),
     group('c:reg', 'Hududlar uchun to‘langan (siyosat bo‘yicha)', async () => {
       const d = await data();

@@ -164,8 +164,9 @@ export default function DashboardPage() {
                 badge={cmpOn ? `Joriy: ${period} · o'tgan teng davr: ${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)}` : period}
               >
                 <StructureDrill
-                  key={view}
+                  key={`${view}|${range.from}|${range.to}`}
                   units={data.units}
+                  range={range}
                   kind={view}
                   cmpOn={cmpOn}
                   info={
@@ -181,7 +182,9 @@ export default function DashboardPage() {
                   }
                 />
                 <TableNote>
-                  Qatorni bosing — ichiga ochiladi: Markaz va yo&apos;nalishlar — {view === 'income' ? 'xizmatlar' : 'moddalar'} bo&apos;yicha; Hudud — viloyatlar, viloyat — {view === 'income' ? 'xizmatlari' : 'moddalari'}. Hudud qatoridagi tugma — «{view === 'income' ? 'Xizmat turlari' : 'Moddalar'} bo&apos;yicha» (har biri — viloyatlar kesimida).
+                  Qatorni bosing — ichma-ich oxirigacha ochiladi: Markaz → bo&apos;limlar → tarkib va xodimlar → oylar; Hudud → viloyatlar → tumanlar →
+                  {view === 'income' ? ' xizmatlar' : ' moddalar va xodimlar → oylar'}; modda → kontragent → yozuvlar; yo&apos;nalishlar → tuzilmalar → oylar. «yozuvlar» — shu summani tashkil
+                  qilgan hujjatlar. Hudud ostidagi tugma — «{view === 'income' ? 'Xizmat turlari' : 'Moddalar'} bo&apos;yicha» (har biri — viloyatlar kesimida).
                 </TableNote>
               </ReportCard>
             </div>
