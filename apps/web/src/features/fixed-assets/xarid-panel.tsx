@@ -208,8 +208,8 @@ function Registry({ d, isAdmin, onChanged, onError, actions, meta }: { d: XaridV
   const exportCsv = () =>
     downloadCsv(
       `asosiy-vositalar-xarid-${new Date().toISOString().slice(0, 10)}`,
-      ['Qator', 'Tovar (ish, xizmat)', 'Turi (filtr)', 'Sababi', 'Holat', 'Tuzilma', 'Birlik', "Bo'lim", 'Talabnoma', 'Asoslash', 'Soni', "1 dona, so'm", "Jami, so'm", 'Taxminiy', 'Xarid usuli', 'Platforma', 'Shartnoma', 'Shartnoma sanasi', 'Schyot-faktura', 'Faktura sanasi', 'Ogohlantirish'],
-      rows.map((r) => [r.row, r.name, kindLabel(r.kind), r.reason, STATUS_LABEL[r.status], r.structure ?? '', unitLabel(r.unit), r.reqDept ?? '', r.reqNo ?? '', r.purpose ?? '', r.qty ?? '', r.unitPriceTiyin ? csvSom(r.unitPriceTiyin) : '', r.totalTiyin ? csvSom(r.totalTiyin) : '', r.estimated ? 'ha' : '', r.method ?? '', r.platform ?? '', r.contractNo ?? '', r.contractDate ?? '', r.invoiceNo ?? '', r.invoiceDate ?? '', r.warnings.join('; ')]),
+      ['Qator', 'Tovar (ish, xizmat)', 'Turi (filtr)', 'Sababi', 'Holat', 'Tuzilma', 'Birlik', "Bo'lim", 'Talabnoma', 'Asoslash', 'Soni', "1 dona, so'm", "Jami (shartnoma), so'm", "Bozor taxminiy, so'm", 'Xarid usuli', 'Platforma', 'Shartnoma', 'Shartnoma sanasi', 'Schyot-faktura', 'Faktura sanasi', 'Ogohlantirish'],
+      rows.map((r) => [r.row, r.name, kindLabel(r.kind), r.reason, STATUS_LABEL[r.status], r.structure ?? '', unitLabel(r.unit), r.reqDept ?? '', r.reqNo ?? '', r.purpose ?? '', r.qty ?? '', r.unitPriceTiyin ? csvSom(r.unitPriceTiyin) : '', r.totalTiyin ? csvSom(r.totalTiyin) : '', r.estimateTiyin ? csvSom(r.estimateTiyin) : '', r.method ?? '', r.platform ?? '', r.contractNo ?? '', r.contractDate ?? '', r.invoiceNo ?? '', r.invoiceDate ?? '', r.warnings.join('; ')]),
     );
 
   return (
@@ -311,8 +311,8 @@ function Registry({ d, isAdmin, onChanged, onError, actions, meta }: { d: XaridV
                   <Td className="whitespace-nowrap">{r.qty === null ? '' : `${r.qty.toLocaleString('ru')} ${r.measure ?? ''}`}</Td>
                   <MoneyCell value={n(r.unitPriceTiyin)} className="text-(--color-text-muted)" />
                   <Td className="whitespace-nowrap text-right">
-                    {r.totalTiyin ? sum(r.totalTiyin) : ''}
-                    {r.estimated && <span className="block text-[10px] text-amber-700">taxminiy</span>}
+                    {r.totalTiyin ? sum(r.totalTiyin) : <span className="text-(--color-text-faint)">—</span>}
+                    {!r.totalTiyin && r.estimateTiyin && <span className="block text-[10px] text-(--color-text-muted)" title="Bozor taxminiy qiymati — jamiga qo'shilmaydi">taxminiy {sum(r.estimateTiyin)}</span>}
                   </Td>
                   <Td className="text-left text-xs">
                     {r.method}
@@ -346,8 +346,8 @@ function Registry({ d, isAdmin, onChanged, onError, actions, meta }: { d: XaridV
         )}
         <TableNote>
           Turi — aniqlab oluvchi filtr (sababi ostida): xizmat → sovg&apos;a (asoslashda «эсдалик», «совға») → poligrafiya → sarf materiali → uzoq ishlatiladigan buyum (1
-          dona ≥ chegara — asosiy vosita, aks holda kam baholi). {isAdmin && "Turni ro'yxatdan o'zgartirish mumkin — qayta yuklanganda saqlanadi. "}Jami — shartnoma
-          summasi (bo&apos;lmasa — bozor taxminiy qiymati). Faylning «Жами» va imzo qatorlari o&apos;qilmaydi; mas&apos;ul xodim ustuni saqlanmaydi. Bu bosqichda Markaz
+          dona ≥ chegara — asosiy vosita, aks holda kam baholi). {isAdmin && "Turni ro'yxatdan o'zgartirish mumkin — qayta yuklanganda saqlanadi. "}Jami — faqat
+          «Шартнома / жами сумма» ustuni (haqiqiy qiymat); shartnomasiz qatorlarda bozor taxminiy qiymati kulrangda ko&apos;rsatiladi, jamiga qo&apos;shilmaydi. Faylning «Жами» va imzo qatorlari o&apos;qilmaydi; mas&apos;ul xodim ustuni saqlanmaydi. Bu bosqichda Markaz
           xarajati va asosiy vositalar ro&apos;yxatiga ta&apos;sir qilmaydi.
         </TableNote>
       </ReportCard>

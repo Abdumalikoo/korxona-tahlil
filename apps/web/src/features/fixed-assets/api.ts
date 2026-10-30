@@ -272,9 +272,10 @@ export interface XaridRow {
   measure: string | null;
   qty: number | null;
   unitPriceTiyin: string | null;
+  /** Haqiqiy qiymat — faqat «Шартнома / жами сумма» (AB) ustuni; shartnoma yo'q — null */
   totalTiyin: string | null;
-  /** Shartnoma yo'q — bozor taxminiy qiymati */
-  estimated: boolean;
+  /** Bozor taxminiy qiymati (shartnoma yo'q bo'lsa) — ma'lumot uchun, jamiga qo'shilmaydi */
+  estimateTiyin: string | null;
   method: string | null;
   platform: string | null;
   platformUrl: string | null;

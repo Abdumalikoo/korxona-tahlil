@@ -86,7 +86,7 @@ const ROWS = [
   a = amountsOf({ contractQty: 2, contractPrice: 1, contractTotal: 680000 });
   assert.strictEqual(a.unitPrice, 340000);
   a = amountsOf({ mktQty: 5, mktPrice: 1000, mktTotal: 5000 });
-  assert.deepStrictEqual([a.total, a.estimated], [5000, true], 'shartnoma yo‘q — taxminiy');
+  assert.deepStrictEqual([a.total, a.estimate, a.unitPrice], [null, 5000, 1000], 'shartnoma (AB) yo‘q — summa yo‘q; taxminiy alohida');
 
   // ── O'qish: varaq va sarlavha topiladi; jami, imzo va raqamlar qatori tashlanadi ──
   const wb = book(ROWS);
@@ -129,6 +129,9 @@ const ROWS = [
   assert.deepStrictEqual([asset.count, asset.totalTiyin, asset.all], [2, String(52e6 * 100), 3], 'rad etilgan — bajarilganlar jamisiga kirmaydi');
   assert.ok(an.rows.find((r) => r.name === 'Ручка').warnings.some((w) => w.includes('schyot-faktura')));
   assert.ok(an.rows.find((r) => r.name === 'Ручка').warnings.some((w) => w.includes('sana emas')), '«режада» — sana emas');
+  // Jami — faqat «Шартнома / жами сумма»: shartnomasiz (rad etilgan, rejada) qatorlar summasi yo'q — hamma qatorlar jamisi ham AB yig'indisi
+  assert.strictEqual(an.rows.filter((r) => r.totalTiyin !== null).reduce((s, r) => s + BigInt(r.totalTiyin), 0n).toString(), an.summary.doneTotalTiyin);
+  assert.ok(an.rows.filter((r) => r.status !== 'DONE').every((r) => r.totalTiyin === null));
   assert.deepStrictEqual(an.summary.byUnit.map((x) => x.key).sort(), ['CENTER', 'FERMER', 'MARKSHEYDER', 'TAX_FREE']);
   assert.ok(!JSON.stringify(an).includes('Т.Синов'), "mas'ul xodim ismi natijada yo'q");
 

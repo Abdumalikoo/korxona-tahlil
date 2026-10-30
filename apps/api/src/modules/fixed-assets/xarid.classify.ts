@@ -13,8 +13,8 @@ import { translit } from '../leases/leases.match';
 //   5. Uzoq ishlatiladigan buyum (konditsioner, mebel, texnika, kamera, qurilma …):
 //        1 dona narxi ≥ chegara (standart 5 mln so'm) → ASOSIY VOSITA, aks holda → kam baholi buyum
 //   6. Nomdan aniqlanmadi — tovar: narx ≥ chegara → asosiy vosita, aks holda sarf materiali (sababi bilan)
-// Holat — «Изоҳ»: бажарилди / Отказ / ижрода; bo'sh — rejada. Summa — shartnoma jami summasi (bo'lmasa — bozor
-// taxminiy qiymati, «taxminiy» belgisi bilan). «Soni × 1 lik ≠ jami» va boshqa xatolar — ogohlantirish.
+// Holat — «Изоҳ»: бажарилди / Отказ / ижрода; bo'sh — rejada. Summa — faqat «Шартнома / жами сумма» (haqiqiy qiymat);
+// bozor taxminiy qiymati — alohida ma'lumot, jamiga qo'shilmaydi. «Soni × 1 lik ≠ jami» va boshqa xatolar — ogohlantirish.
 // «Маъсул ҳодим» ustuni o'qilmaydi (shaxsiy ma'lumot).
 // ═══════════════════════════════════════════════════════════
 
@@ -57,7 +57,7 @@ export const XARID_SPEC: TemplateSpec = {
   help: [
     "• Sarlavha — ikki qator (guruh va ustun): «Талабнома берди / рақами», «Шартнома / жами сумма» … — nomlar kirill yoki lotinda bo'lishi mumkin.",
     "• Har qator — bitta tovar, ish yoki xizmat. «Тури»: товар, хизмат yoki эхтиёж.",
-    "• Summa — «Шартнома / жами сумма» (so'mda). Shartnoma bo'lmasa — «Бозор тахминий қиймати / умумий» taxminiy ko'rsatiladi.",
+    "• Summa — faqat «Шартнома / жами сумма» ustuni (haqiqiy qiymat, so'mda). «Бозор тахминий қиймати» — faqat ma'lumot uchun, jamiga qo'shilmaydi.",
     "• «Изоҳ»: бажарилди, Отказ, ижрода; bo'sh — rejada.",
     "• Sanalar: 26.08.2026 yoki Excel sanasi. «Жами» va imzo qatorlari o'qilmaydi.",
     "• Mas'ul xodim ustuni bo'lsa — saqlanmaydi.",
@@ -150,7 +150,8 @@ export function statusOf(note: unknown, hasContract: boolean): XaridStatus {
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** Miqdor, 1 dona narxi va summa: shartnoma ustunlari tekshiriladi, xatolar — ogohlantirish bilan to'g'rilanadi */
-export function amountsOf(v: Record<string, string | number | null>): { qty: number | null; unitPrice: number | null; total: number | null; estimated: boolean; warnings: string[] } {
+/** Summa — faqat «Шартнома / жами сумма» (AB) ustunidan (haqiqiy qiymat). Bozor taxminiy qiymati — alohida, jamiga qo'shilmaydi */
+export function amountsOf(v: Record<string, string | number | null>): { qty: number | null; unitPrice: number | null; total: number | null; estimate: number | null; warnings: string[] } {
   const warnings: string[] = [];
   const cTotal = n(v.contractTotal);
   if (cTotal && cTotal > 0) {
@@ -173,12 +174,13 @@ export function amountsOf(v: Record<string, string | number | null>): { qty: num
       }
     }
     if (!unit && qty) unit = cTotal / qty;
-    return { qty, unitPrice: unit, total: cTotal, estimated: false, warnings };
+    return { qty, unitPrice: unit, total: cTotal, estimate: null, warnings };
   }
   const mTotal = n(v.mktTotal);
   const mQty = n(v.mktQty) ?? n(v.qty);
   const mPrice = n(v.mktPrice) ?? (mTotal && mQty ? mTotal / mQty : null);
-  return { qty: n(v.qty) ?? mQty, unitPrice: mPrice && mPrice > 0 ? mPrice : null, total: mTotal && mTotal > 0 ? mTotal : null, estimated: Boolean(mTotal && mTotal > 0), warnings };
+  // Shartnoma yo'q — summa yo'q (null); 1 dona narxi (turini aniqlash uchun) va taxminiy qiymat — bozor narxidan
+  return { qty: n(v.qty) ?? mQty, unitPrice: mPrice && mPrice > 0 ? mPrice : null, total: null, estimate: mTotal && mTotal > 0 ? mTotal : null, warnings };
 }
 
 /** Turi aniqlash: tur va sababi */

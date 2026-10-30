@@ -104,7 +104,7 @@ export class XaridService {
       const override = rule.overrides[r.key] ?? null;
       const warnings = [...r.warnings, ...a.warnings];
       if (status === 'DONE' && !v.invoiceNo) warnings.push("Bajarilgan, lekin schyot-faktura raqami yo'q");
-      if (status === 'DONE' && a.estimated) warnings.push("Bajarilgan, lekin shartnoma summasi yo'q — taxminiy qiymat");
+      if (status === 'DONE' && a.total === null) warnings.push("Bajarilgan, lekin «Шартнома / жами сумма» bo'sh — summa hisobga olinmadi");
       const platformText = txt(v.platform);
       return {
         key: r.key,
@@ -121,7 +121,8 @@ export class XaridService {
         qty: a.qty,
         unitPriceTiyin: tiyin(a.unitPrice),
         totalTiyin: tiyin(a.total),
-        estimated: a.estimated,
+        /** Bozor taxminiy qiymati (shartnoma bo'lmasa) — jamiga qo'shilmaydi */
+        estimateTiyin: tiyin(a.estimate),
         method: methodOf(v.method),
         platform: platformOf(platformText),
         platformUrl: platformText && /^https?:\/\//i.test(platformText.trim()) ? platformText.trim() : null,
