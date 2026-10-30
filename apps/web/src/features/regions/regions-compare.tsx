@@ -305,7 +305,8 @@ export function RegionsCompare({ range, center = false }: { range: DateRange; ce
     <div className="space-y-4">
       {drillRegion !== null ? (
         <>
-          <DrillBreadcrumb items={crumbs} />
+          {/* Yo'l — faqat ichkariga kirilganda (bitta «Markaz» yozuvi tepada ortiqcha oq qator bo'lib turmasin) */}
+          {crumbs.length > 1 && <DrillBreadcrumb items={crumbs} />}
           {drillDistrict && drillEmployee ? (
             // Xodim uchun — yil boshidan (yoki tanlangan sanadan, qaysi biri oldin bo'lsa) oylar ko'rinadi
             <EmployeeDrill pinfl={drillEmployee} range={{ from: [range.from, `${range.to.slice(0, 4)}-01-01`].sort()[0]!, to: range.to }} noPlan={isCenter} />
