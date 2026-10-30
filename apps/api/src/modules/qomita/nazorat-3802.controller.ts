@@ -45,7 +45,7 @@ export class Nazorat3802Controller {
     return { data: await this.nz.setConfig(body, userId) };
   }
 
-  /** Qo'mita pullarining sarfi: 3802 hovuzi va xizmat shartnomalari (ismsiz) */
+  /** Qo'mita pullarining sarfi: 3802 va xizmat shartnomalari (ismsiz) */
   @Get('sarf')
   async sarf(@Query('from') from: string, @Query('to') to: string) {
     return { data: await this.nz.sarf(from, to) };

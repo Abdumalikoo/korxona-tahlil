@@ -3,7 +3,7 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser, Personal, Roles } from '../../common/decorators';
 import { Hisob3802Service } from './hisob-3802.service';
 
-/** 3802 — Qo'mita pullari: ikki hisob (3802 hovuzi va Marksheyder) — kirim, sarf, qoldiq */
+/** 3802 — Qo'mita pullari: ikki hisob (3802 va Marksheyder) — kirim, sarf, qoldiq */
 @Controller('qomita/3802/hisob')
 export class Hisob3802Controller {
   constructor(private readonly hisob: Hisob3802Service) {}

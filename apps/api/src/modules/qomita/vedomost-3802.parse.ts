@@ -140,7 +140,7 @@ export interface VedSection {
   /** Bo'lim qatoridagi jami (bo'lsa) va mosligi */
   fileTotalTiyin: string | null;
   ok: boolean;
-  /** Marksheyder varag'idan (nomida «Маркшейдер/Marksheyder») yoki Marksheyder bo'limi — alohida hisob (3802 hovuzidan emas) */
+  /** Marksheyder varag'idan (nomida «Маркшейдер/Marksheyder») yoki Marksheyder bo'limi — alohida hisob (3802 dan emas) */
   marksheyder?: boolean;
 }
 

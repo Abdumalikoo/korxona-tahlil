@@ -12,8 +12,8 @@ import { hisobApi, type Hisob3802, type HisobMonthDetail, type HisobSide } from 
 
 // ═══════════════════════════════════════════════════════════
 // 3802 › Qoplash va qoldiq — Qo'mita pullari: IKKI HISOB, ichma-ich:
-//   Hisob (3802 hovuzi / Marksheyder) → Oy → Kelgan pullar (har to'lov) | Sarf → Bo'lim → Xodim.
-//   • 3802 hovuzi — «Call markaz» deb kelgan pul (2026/1 shartnoma): butun 3802 tizimidagi hamma bo'limlar xodimlariniki.
+//   Hisob (3802 / Marksheyder) → Oy → Kelgan pullar (har to'lov) | Sarf → Bo'lim → Xodim.
+//   • 3802 — «Call markaz» deb kelgan pul (2026/1 shartnoma): butun 3802 tizimidagi hamma bo'limlar xodimlariniki.
 //     Sarf — oylik «3802 dan olingan pullar» shablonining asosiy varag'i («Jami»).
 //   • Marksheyder — «Marksheyder uchun» kelgan pul (2026/2 shartnoma). Sarf — shablonning Marksheyder varag'i.
 //   Har qatorda: kelgan, sarflangan, qoldiq (oy qatorida — davr boshidan yig'ma). Xodimlar — oy ochilganda yuklanadi.
@@ -23,7 +23,7 @@ type ToastFn = (t: { message: string; tone: 'success' | 'error' } | null) => voi
 type SideKey = 'pool' | 'marksheyder';
 const n = (s: string) => Number(s);
 const SIDE_LABEL: Record<SideKey, { title: string; sub: string }> = {
-  pool: { title: '3802 hovuzi', sub: "«Call markaz» deb kelgan pul — hamma bo'limlar xodimlariniki" },
+  pool: { title: '3802', sub: "«Call markaz» deb kelgan pul — hamma bo'limlar xodimlariniki" },
   marksheyder: { title: 'Marksheyder', sub: "«Marksheyder uchun» kelgan pul — Marksheyder varag'i sarfi" },
 };
 
@@ -186,9 +186,16 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
       for (const sec of exSecs) {
         const sid = `${sk}:${p}:out:${sec.name}`;
         if (!line(sid, sec.name, 3, { out: n(sec.totalTiyin) }, { openKey: sid, sub: `${sec.employees.length} xodim`, muted: excl })) continue;
-        sec.employees.forEach((e, i) =>
-          line(`${sid}:${i}`, e.fullName, 4, { out: n(e.totalTiyin) }, { sub: [e.position, e.note].filter(Boolean).join(' · ') || undefined, muted: excl }),
-        );
+        sec.employees.forEach((e, i) => {
+          const eid = `${sid}:${i}`;
+          // Xodim → nimaga qancha: shablondagi qismlar (oklad, ustama, mukofot, ta'til …)
+          const parts = (ready?.components ?? []).filter((c) => e.amounts[c.code] && e.amounts[c.code] !== '0');
+          if (!line(eid, e.fullName, 4, { out: n(e.totalTiyin) }, { openKey: parts.length || e.note ? eid : undefined, sub: e.position || undefined, muted: excl })) return;
+          for (const c of parts) line(`${eid}:${c.code}`, c.label, 5, { out: n(e.amounts[c.code]!) }, { muted: excl });
+          const rest = n(e.totalTiyin) - parts.reduce((t, c) => t + n(e.amounts[c.code]!), 0);
+          if (parts.length && Math.abs(rest) >= 100) line(`${eid}:rest`, 'Jami ustunidagi farq (qismlarga ajratilmagan)', 5, { out: rest }, { muted: excl });
+          if (e.note) line(`${eid}:note`, <span className="text-(--color-text-muted)">Izoh: {e.note}</span>, 5, {}, { muted: excl });
+        });
       }
     }
   }
@@ -198,9 +205,9 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
       <StatTiles
         compareLabel="Avval"
         items={[
-          { label: '3802 hovuzi — kelgan', value: n(pool.incomeTiyin), tone: 'green', note: d.contract ? `shartnoma ${d.contract.year}: ${sum(n(d.contract.amountTiyin))} so'm` : "«Call markaz» deb kelgan pul" },
-          { label: '3802 hovuzi — sarflangan', value: n(pool.spendTiyin), tone: 'red', note: `hamma bo'limlar · ${pool.sections.length} bo'lim` },
-          { label: n(pool.balanceTiyin) >= 0 ? '3802 hovuzi — qoldiq' : '3802 hovuzi — yetishmaydi', value: n(pool.balanceTiyin), signed: true, tone: 'blue', note: d.contract ? `shartnomadan sarfdan keyin: ${sum(n(d.contract.leftTiyin))}` : 'kelgan − sarflangan' },
+          { label: '3802 — kelgan', value: n(pool.incomeTiyin), tone: 'green', note: d.contract ? `shartnoma ${d.contract.year}: ${sum(n(d.contract.amountTiyin))} so'm` : "«Call markaz» deb kelgan pul" },
+          { label: '3802 — sarflangan', value: n(pool.spendTiyin), tone: 'red', note: `hamma bo'limlar · ${pool.sections.length} bo'lim` },
+          { label: n(pool.balanceTiyin) >= 0 ? '3802 — qoldiq' : '3802 — yetishmaydi', value: n(pool.balanceTiyin), signed: true, tone: 'blue', note: d.contract ? `shartnomadan sarfdan keyin: ${sum(n(d.contract.leftTiyin))}` : 'kelgan − sarflangan' },
           { label: 'Marksheyder — kelgan', value: n(mar.incomeTiyin), tone: 'green', note: "«Marksheyder uchun» kelgan pul" },
           { label: 'Marksheyder — sarflangan', value: n(mar.spendTiyin), tone: 'red', note: "shablonning Marksheyder varag'i" },
           { label: n(mar.balanceTiyin) >= 0 ? 'Marksheyder — qoldiq' : 'Marksheyder — yetishmaydi', value: n(mar.balanceTiyin), signed: true, tone: 'purple', note: 'kelgan − sarflangan' },
@@ -230,7 +237,7 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
           <thead>
             <tr>
               <Th className={cn(STICKY_NO, 'z-[2]')} />
-              <Th className={cn(STICKY_NAME, 'z-[2] min-w-80 text-left')}>Hisob → oy → kelgan / sarf → bo&apos;lim → xodim</Th>
+              <Th className={cn(STICKY_NAME, 'z-[2] min-w-80 text-left')}>Hisob → oy → kelgan / sarf → bo&apos;lim → xodim → nimaga qancha</Th>
               <Th>Kelgan</Th>
               <Th>Sarflangan</Th>
               <Th>Qoldiq</Th>
@@ -241,8 +248,8 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
         </RTable>
         <TableNote>
           Qatorni bosing — ichi ochiladi. Kelgan — Qo&apos;mita mablag&apos;lari (kassa 1.11 / 1.14 / 1.15 va yuklangan fayl — bitta pul, ikki marta sanalmaydi):
-          «Call markaz» deb kelgani — 3802 hovuzi (butun tizimdagi hamma bo&apos;limlar), «Marksheyder» deb kelgani — Marksheyder. Sarf — oylik «3802 dan olingan
-          pullar» shablonining «Jami» ustuni: Marksheyder varag&apos;i — Marksheyderga, qolgani — hovuzga.
+          «Call markaz» deb kelgani — 3802 (butun tizimdagi hamma bo&apos;limlar), «Marksheyder» deb kelgani — Marksheyder. Sarf — oylik «3802 dan olingan
+          pullar» shablonining «Jami» ustuni: Marksheyder varag&apos;i — Marksheyderga, qolgani — 3802 ga.
           {d.contract && ` ${d.contract.year}-yil shartnoma: ${sum(n(d.contract.amountTiyin))} so'm — sarfdan keyin ${n(d.contract.leftTiyin) >= 0 ? `qoladi ${sum(n(d.contract.leftTiyin))}` : `oshib ketgan ${sum(-n(d.contract.leftTiyin))}`} so'm.`}
           {d.excluded.length > 0 && ` Sarfi hisobga olinmagan oylar: ${d.excluded.map(formatPeriod).join(', ')} (shablon saqlangan, belgini bosib qaytarish mumkin).`}
         </TableNote>
@@ -255,7 +262,7 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
             value={matrix}
             onChange={setMatrix}
             options={[
-              { value: 'pool', label: '3802 hovuzi' },
+              { value: 'pool', label: '3802' },
               { value: 'marksheyder', label: 'Marksheyder' },
             ]}
           />

@@ -510,7 +510,7 @@ export interface SarfUnitDetail extends SarfUnit {
   employees: { pinfl: string | null; fullName: string; inTarkib: boolean; inVedomost: boolean; paidTiyin: string; coveredTiyin: string; months: Record<string, { paid: string; covered: string }> }[];
 }
 
-// ─────────── 3802 — ikki hisob: 3802 hovuzi va Marksheyder ───────────
+// ─────────── 3802 — ikki hisob: 3802 va Marksheyder ───────────
 
 export interface HisobMonth {
   period: string;
@@ -552,6 +552,8 @@ export interface HisobMonthDetail {
   period: string;
   excluded: boolean;
   fileName: string | null;
+  /** To'lov qismlari nomlari (oklad, ustama, mukofot …) */
+  components: { code: string; label: string }[];
   pool: HisobDetailSection[];
   marksheyder: HisobDetailSection[];
 }

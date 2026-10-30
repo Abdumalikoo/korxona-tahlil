@@ -240,7 +240,7 @@ export class Nazorat3802Service {
   // ═══════════ Qo'mita pullarining sarfi ═══════════
   // Ikki oqim:
   //  • 3802 HOVUZI — vedomostdagi xodimlari bor bo'limlar (Oklad + 40% yoki to'liq, Nazorat zanjiri 4-halqasi qoidasi):
-  //    bo'limga kelgan 3802 puli («3802 Call Markaz») hamma bo'limlar qoplashi bilan birga solishtiriladi (hovuz qoldig'i);
+  //    bo'limga kelgan 3802 puli («3802 Call Markaz») hamma bo'limlar qoplashi bilan birga solishtiriladi (3802 qoldig'i);
   //  • XIZMAT SHARTNOMASI — pul kelgan, lekin 3802 qoplashi yo'q bo'lim (masalan, Marksheyder): kelgan pul bo'limning (va shu
   //    nomdagi yo'nalishning) to'liq sarfi bilan — moddalar bo'yicha.
   // Xodimlar: tarkib bo'yicha hisoblangan ish haqi va 3802 qoplaydigan qismi oyma-oy.
@@ -315,7 +315,7 @@ export class Nazorat3802Service {
     });
     return {
       key: unit,
-      /** POOL — 3802 hovuzi a'zosi; CONTRACT — xizmat shartnomasi (to'liq sarf bilan); UNASSIGNED — bo'lim ko'rsatilmagan ajratma */
+      /** POOL — 3802 a'zosi; CONTRACT — xizmat shartnomasi (to'liq sarf bilan); UNASSIGNED — bo'lim ko'rsatilmagan ajratma */
       kind: unit === '-' ? ('UNASSIGNED' as const) : sum(covered) > 0n ? ('POOL' as const) : ('CONTRACT' as const),
       departmentId: unit === '-' ? null : unit,
       label: unit === '-' ? "Bo'lim ko'rsatilmagan ajratma" : (x.depName.get(unit) ?? "Bo'lim (o'chirilgan)"),
@@ -333,7 +333,7 @@ export class Nazorat3802Service {
     };
   }
 
-  /** Ikki oqim bo'yicha sarf (ismsiz): 3802 hovuzi va xizmat shartnomalari */
+  /** Ikki oqim bo'yicha sarf (ismsiz): 3802 va xizmat shartnomalari */
   async sarf(from: string, to: string) {
     const x = await this.sarfData(from, to);
     const units = x.units.map((u) => this.sarfUnitOf(x, u));
@@ -341,7 +341,7 @@ export class Nazorat3802Service {
     const contracts = units.filter((u) => u.kind === 'CONTRACT').sort((a, b) => (BigInt(b.incomeTiyin) > BigInt(a.incomeTiyin) ? 1 : -1));
     const unassigned = units.find((u) => u.kind === 'UNASSIGNED') ?? null;
     const T = (l: typeof units, f: (u: (typeof units)[number]) => string) => l.reduce((s, u) => s + BigInt(f(u)), 0n);
-    // Hovuz oyma-oy: kelgan (hovuz bo'limlariga) va qoplanishi kerak (hamma hovuz bo'limlari)
+    // 3802 oyma-oy: kelgan (3802 bo'limlariga) va qoplanishi kerak (hamma 3802 bo'limlari)
     let ci = 0n;
     let cc = 0n;
     const poolMonths = x.months.map((p) => {

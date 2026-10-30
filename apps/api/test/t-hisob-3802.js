@@ -79,6 +79,7 @@ const sec = (name, people, extra = {}) => ({ name, employees: people.map((t, i) 
   assert.deepStrictEqual(md.pool.map((s) => [s.name, s.employees.length]), [['Markaziy apparat', 2], ['"Call-Markazi" bo\'limi', 1]]);
   assert.deepStrictEqual(md.marksheyder.map((s) => s.employees[0].totalTiyin), [String(som(80))]);
   assert.strictEqual((await svc.monthDetail('2026-07')).excluded, true);
+  assert.ok(md.components.some((c) => c.code === 'OKLAD' && /Oklad/.test(c.label)), 'qismlar nomi — xodim ichida «nimaga qancha»');
   await assert.rejects(() => svc.monthDetail('2026-13'), /Oy/);
 
   await svc.setContract({ year: '2026', amount: '7 500 000 000' }, 'u1');

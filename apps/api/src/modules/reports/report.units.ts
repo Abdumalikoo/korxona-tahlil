@@ -144,7 +144,7 @@ export class UnitsReport {
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true } }),
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
     ]);
-    // 3802 hovuzi a'zosi (masalan, Call markaz): Qo'mita puli hamma bo'limlar qoplashi uchun — bo'lim «o'z daromadi» emas,
+    // 3802 a'zosi (masalan, Call markaz): Qo'mita puli hamma bo'limlar qoplashi uchun — bo'lim «o'z daromadi» emas,
     // faqat «Qo'mita qoplashi»da ko'rsatiladi. Xizmat shartnomasida (Marksheyder) — haqiqiy daromad bo'lib qoladi.
     const qomita = await this.qomita(s, from, to);
     const poolMoney = qomita?.pool ?? false;
@@ -201,7 +201,7 @@ export class UnitsReport {
           items: [
             `Davr: ${periodLabel(from)} — ${periodLabel(to)} (${months.length} oy).`,
             s.kind === 'DEPT'
-              ? `Markaz bo'limi yozuvlari${s.segment ? ` va «${segmentLabel(s.segment)}» yo'nalishi yozuvlari` : ''}${qCodes.length ? (poolMoney ? "; Qo'mitadan kelgan 3802 puli bo'lim daromadiga qo'shilmaydi (hovuz hamma bo'limlar uchun) — «Qo'mita qoplashi» bo'limida" : "; Qo'mitadan shu bo'lim uchun kelgan pul — daromad sifatida") : ''}.`
+              ? `Markaz bo'limi yozuvlari${s.segment ? ` va «${segmentLabel(s.segment)}» yo'nalishi yozuvlari` : ''}${qCodes.length ? (poolMoney ? "; Qo'mitadan kelgan 3802 puli bo'lim daromadiga qo'shilmaydi (3802 puli hamma bo'limlar uchun) — «Qo'mita qoplashi» bo'limida" : "; Qo'mitadan shu bo'lim uchun kelgan pul — daromad sifatida") : ''}.`
               : s.kind === 'REGION'
                 ? `Hudud yozuvlari${s.district ? ' (faqat shu tuman)' : ''}.`
                 : `«${s.name}» yo'nalishi yozuvlari.`,
@@ -535,9 +535,9 @@ export class UnitsReport {
       : [];
     return {
       pool,
-      kindText: pool ? '3802 hovuzi: Oklad + 40%' : "xizmat shartnomasi: to'liq sarf",
+      kindText: pool ? '3802: Oklad + 40%' : "xizmat shartnomasi: to'liq sarf",
       intro: pool
-        ? "3802 hovuzi: bo'limga kelgan 3802 puli va shu bo'lim xodimlarining qoplanadigan qismi (vedomost va shtat qoidasi bo'yicha). Hovuz umumiy — boshqa bo'limlar qoplashi 3802 › Qoplash va qoldiqda."
+        ? "3802: bo'limga kelgan 3802 puli va shu bo'lim xodimlarining qoplanadigan qismi (vedomost va shtat qoidasi bo'yicha). 3802 puli umumiy — boshqa bo'limlar qoplashi 3802 › Qoplash va qoldiqda."
         : "Xizmat shartnomasi: Qo'mitadan kelgan pul va bo'limning to'liq sarfi (bo'lim va shu nomdagi yo'nalish xarajatlari).",
       columns: pool ? ["Qo'mitadan kelgan", '3802 qoplaydigan'] : ["Qo'mitadan kelgan", "Bo'lim sarfi"],
       rows,

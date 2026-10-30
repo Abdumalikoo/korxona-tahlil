@@ -4,16 +4,16 @@ import { monthsBetween } from '../../common/period';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QOMITA_INCOME_PREFIX, QOMITA_SEGMENT } from './qomita.util';
-import { MARKSH_RE, type VedSection } from './vedomost-3802.parse';
+import { MARKSH_RE, VED_COMPONENT_LABEL, type VedSection } from './vedomost-3802.parse';
 
 // ═══════════════════════════════════════════════════════════
 // 3802 — Qo'mita pullari: IKKI HISOB.
-//   • 3802 hovuzi — «Call markaz» deb kelgan pul (2026/1 shartnoma, kassa 1.11): butun 3802 tizimidagi hamma bo'limlar
+//   • 3802 — «Call markaz» deb kelgan pul (2026/1 shartnoma, kassa 1.11): butun 3802 tizimidagi hamma bo'limlar
 //     xodimlariniki (faqat Call markazniki emas). Sarf — oylik «3802 dan olingan pullar» shablonining asosiy varag'i («Jami»).
 //   • Marksheyder — «Marksheyder uchun» deb kelgan pul (2026/2 shartnoma, kassa 1.14 / 1.15). Sarf — shablonning
 //     Marksheyder varag'i (nomida «Маркшейдер/Marksheyder» va oy) yoki Marksheyder bo'limi.
 //   Kirim — Daromadlar jadvalidagi Qo'mita yozuvlari (segment QOMITA): moddasi nomida «Marksheyder» bo'lsa — Marksheyder,
-//   qolgani — 3802 hovuzi. Kassa va yuklangan fayl ikki marta sanalmaydi (Markaz daromadlari › kassa ↔ Qo'mita).
+//   qolgani — 3802. Kassa va yuklangan fayl ikki marta sanalmaydi (Markaz daromadlari › kassa ↔ Qo'mita).
 //   Sozlamalar (migratsiyasiz): 3802.hisob.contract — yil → shartnoma summasi (tiyin); 3802.hisob.excluded — sarfi
 //   hisobga olinmaydigan oylar (shablon o'chirilmaydi, qaytarish mumkin).
 // ═══════════════════════════════════════════════════════════
@@ -155,7 +155,7 @@ export class Hisob3802Service {
   }
 
   /**
-   * Bir oy tafsiloti (shaxsiy ma'lumot): shablon bo'limlari va xodimlari — 3802 hovuzi va Marksheyder alohida.
+   * Bir oy tafsiloti (shaxsiy ma'lumot): shablon bo'limlari va xodimlari — 3802 va Marksheyder alohida.
    * Xodim: F.I.Sh, lavozim, qismlar (oklad, ustama …) va «Jami».
    */
   async monthDetail(period: string) {
@@ -170,7 +170,9 @@ export class Hisob3802Service {
           totalTiyin: s.totalTiyin,
           employees: s.employees.map((e) => ({ fullName: e.fullName, position: e.position, totalTiyin: e.totalTiyin, amounts: e.amounts, note: e.note })),
         }));
-    return { period, excluded, fileName: v?.fileName ?? null, pool: pick(false), marksheyder: pick(true) };
+    // Qismlar nomi (oklad, ustama, mukofot …) — xodim ichida «nimaga qancha»
+    const components = Object.entries(VED_COMPONENT_LABEL).map(([code, label]) => ({ code, label }));
+    return { period, excluded, fileName: v?.fileName ?? null, components, pool: pick(false), marksheyder: pick(true) };
   }
 
   /** Sarfi hisobga olinmaydigan oylar (shablon o'chirilmaydi) */

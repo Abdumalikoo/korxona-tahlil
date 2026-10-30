@@ -14,7 +14,7 @@ import { qomitaApi, sarfApi, type SarfUnit } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // 3802 › Qoplash va qoldiq — Qo'mita pullarining sarfi (faqat ko'rsatish; umumiy xarajatga ta'sir qilmaydi):
-//  • 3802 hovuzi — «3802 Call Markaz» bo'lib kelgan pul va vedomostdagi hamma bo'limlar qoplashi (Oklad + 40% yoki to'liq);
+//  • 3802 — «3802 Call Markaz» bo'lib kelgan pul va vedomostdagi hamma bo'limlar qoplashi (Oklad + 40% yoki to'liq);
 //  • Xizmat shartnomalari — pul kelgan, 3802 qoplashi yo'q bo'lim (Marksheyder): kelgan va bo'limning to'liq sarfi.
 // Bo'limni bosing — kelgan pullar (tasdiqlash, o'chirish), moddalar va xodimlar (tarkib bo'yicha hisoblangan, 3802 qismi).
 // ═══════════════════════════════════════════════════════════
@@ -55,9 +55,9 @@ export function SarfSection({ from, to, isAdmin, onToast }: { from: string; to: 
         </p>
       )}
 
-      {/* 3802 hovuzi */}
+      {/* 3802 */}
       <Card className="overflow-hidden">
-        <CardHeader title="3802 hovuzi" description="Kelgan 3802 puli va vedomostdagi hamma bo'limlar qoplashi — oyma-oy, yig'ma qoldiq bilan. Bo'limni bosing — xodimlar." />
+        <CardHeader title="3802" description="Kelgan 3802 puli va vedomostdagi hamma bo'limlar qoplashi — oyma-oy, yig'ma qoldiq bilan. Bo'limni bosing — xodimlar." />
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-(--color-surface-muted) text-[10.5px] tracking-wide text-(--color-text-muted) uppercase">
@@ -146,7 +146,7 @@ export function SarfSection({ from, to, isAdmin, onToast }: { from: string; to: 
   );
 }
 
-/** Bo'lim qatori (hovuzda — qoplanishi kerak, shartnomada — kelgan / sarf / qoldiq) va ochilganda — tafsilot */
+/** Bo'lim qatori (3802 da — qoplanishi kerak, shartnomada — kelgan / sarf / qoldiq) va ochilganda — tafsilot */
 function UnitRows({ u, months, mode, open, onToggle, from, to, isAdmin, onToast, onChanged }: { u: SarfUnit; months: string[]; mode: 'POOL' | 'CONTRACT'; open: boolean; onToggle: () => void; from: string; to: string; isAdmin: boolean; onToast: ToastFn; onChanged: () => void }) {
   const head = (
     <td className="sticky left-0 border-t border-(--color-line) bg-white px-3 py-1.5 text-left">

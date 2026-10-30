@@ -166,7 +166,7 @@ export function Qomita3802Page() {
         ) : (
           <>
             <MonthRangeCard range={range} />
-            {/* Ikki hisob: 3802 hovuzi (hamma bo'limlar) va Marksheyder — kirim, sarf, qoldiq */}
+            {/* Ikki hisob: 3802 (hamma bo'limlar) va Marksheyder — kirim, sarf, qoldiq */}
             {range.error ? null : <HisobPanel from={range.from} to={range.to} isAdmin={isAdmin} onToast={setToast} />}
             {/* Batafsil: bo'limlar bo'yicha qoplash va xodimlar (eski ko'rinish) — yopiq */}
             {!range.error && (
