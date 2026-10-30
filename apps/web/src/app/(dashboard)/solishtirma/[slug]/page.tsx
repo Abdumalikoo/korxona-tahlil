@@ -30,7 +30,7 @@ export default function SolishtirmaSegmentPage() {
         ) : (
           <Card className="p-6 text-sm text-(--color-text-muted)">
             Bunday bo&apos;lim yo&apos;q.{' '}
-            <Link href="/solishtirma/umumiy" className="font-semibold text-brand-700 hover:underline">
+            <Link href="/" className="font-semibold text-brand-700 hover:underline">
               Solishtirmaga qaytish
             </Link>
           </Card>

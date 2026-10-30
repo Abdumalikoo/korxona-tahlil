@@ -77,7 +77,7 @@ export const INTROS: Record<string, PageIntro> = {
     from: "Xodimlar_Tarixi va Xodim_Xizmatlari (yuklangan), Xodimlar bo'limi",
     how: "Taqsimlanmagan summani «Xodimga biriktirish» bilan o'tkazing; hudud yig'indisi o'zgarmaydi.",
   },
-  '/solishtirma/umumiy': {
+  '/tahlil/korxona': {
     what: 'Korxona bir qarashda: daromad, xarajat, natija va rentabellik; daromad va xarajat tarkibi — Markaz, Hudud, yo‘nalishlar — ichma-ich oxirigacha.',
     from: BOTH_SRC,
     how: "Daromad, Xarajat yoki Natija kartochkasini bosing — tahlil jadvallari ochiladi; «Daromad tarkibi» / «Xarajat tarkibi» qatorlarini bosib ichiga kiring.",

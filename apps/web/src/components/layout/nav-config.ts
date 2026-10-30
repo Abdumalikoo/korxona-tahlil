@@ -71,15 +71,19 @@ export const MENU: NavItem[] = [
   {
     label: 'Bosh sahifa',
     href: '/',
-    match: ['/tahlil'],
+    match: ['/solishtirma'],
     icon: NavHome,
-    description: 'Daromad, xarajat va tahlil bir qarashda',
+    description: "Solishtirma: Markaz, hududlar va yo'nalishlar (Tax free …) yonma-yon — daromad, xarajat, natija",
     pages: [
-      { label: 'Bosh sahifa', href: '/', description: 'Markaz, Hudud va yo‘nalishlar birga: daromad, xarajat, natija va u qanday shakllanishi' },
-      { label: 'Daromad', href: '/tahlil/daromad', description: 'Daromad tahlili: xizmatlar, mijozlar, hududlar' },
-      { label: 'Xarajat', href: '/tahlil/xarajat', description: 'Xarajat tahlili: moddalar, kontragentlar, hududlar' },
-      { label: "Qo'mita pullari sarfi", href: '/tahlil/qomita', description: "3802 va Marksheyder: kelgan pul, sarf va qoldiq — oy, bo'lim, xodim" },
-      { label: 'Tahlil', href: '/tahlil/umumiy', description: "Chuqur tahlil: dinamika, o'zgarish sabablari, barqarorlik, xodim samaradorligi, xulosalar" },
+      { label: 'Umumiy', href: '/', description: 'Markaz, Hudud va yo‘nalishlar birga: korxona daromadi, xarajati, natijasi va u qanday shakllanishi' },
+      { label: 'Hududlar', href: '/solishtirma', description: 'Viloyatlar → tumanlar → xodimlar: daromad, xarajat, natija; Markazni qoplash; hududlar modellari (prognoz, salohiyat, KPI, DEA …)' },
+      { label: 'Markaz', href: '/solishtirma/markaz', description: "Markaz → bo'limlar → xodimlar: daromad manbalari, o'z xarajati, hududlar uchun to'langan" },
+      { label: 'Tax free', href: '/solishtirma/tax-free', description: "Tax free: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
+      { label: 'Marksheyder', href: '/solishtirma/marksheyder', description: "Marksheyder: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
+      { label: "Fermer xo'jaligi", href: '/solishtirma/fermer', description: "Fermer xo'jaligi: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
+      { label: 'Buxgalteriya xizmatlari', href: '/solishtirma/buxgalteriya', description: "Buxgalteriya xizmatlari: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
+      { label: "Qo'mita pullarining sarfi", href: '/solishtirma/qomita', description: "Qo'mita pullaridan qilingan sarflar: Xarajatlar siyosati bo'yicha boshqa bo'limlardan o'tganlari" },
+      { label: "O'zgarishlar", href: '/solishtirma/ozgarishlar', description: "Oy bo'yicha xodimlar: oylik hisoblanganlar, ishga olingan, bo'shagan, ishlamagan, ko'chgan" },
     ],
   },
   {
@@ -223,19 +227,16 @@ export const MENU: NavItem[] = [
   },
   {
     label: 'Solishtirma',
-    href: '/solishtirma',
+    href: '/tahlil/korxona',
+    match: ['/tahlil'],
     icon: NavCompare,
-    description: "Hududlar, Markaz va yo'nalishlar (Tax free …) yonma-yon",
+    description: 'Korxona bir qarashda, daromad, xarajat va tahlil',
     pages: [
-      { label: 'Umumiy', href: '/solishtirma/umumiy', description: 'Korxona bir qarashda: daromad, xarajat, natija; daromad va xarajat tarkibi ichma-ich (Markaz, Hudud, yo‘nalishlar)' },
-      { label: 'Hududlar', href: '/solishtirma', description: 'Viloyatlar → tumanlar → xodimlar: daromad, xarajat, natija; Markazni qoplash; hududlar modellari (prognoz, salohiyat, KPI, DEA …)' },
-      { label: 'Markaz', href: '/solishtirma/markaz', description: "Markaz → bo'limlar → xodimlar: daromad manbalari, o'z xarajati, hududlar uchun to'langan" },
-      { label: 'Tax free', href: '/solishtirma/tax-free', description: "Tax free: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
-      { label: 'Marksheyder', href: '/solishtirma/marksheyder', description: "Marksheyder: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
-      { label: "Fermer xo'jaligi", href: '/solishtirma/fermer', description: "Fermer xo'jaligi: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
-      { label: 'Buxgalteriya xizmatlari', href: '/solishtirma/buxgalteriya', description: "Buxgalteriya xizmatlari: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },
-      { label: "Qo'mita pullarining sarfi", href: '/solishtirma/qomita', description: "Qo'mita pullaridan qilingan sarflar: Xarajatlar siyosati bo'yicha boshqa bo'limlardan o'tganlari" },
-      { label: "O'zgarishlar", href: '/solishtirma/ozgarishlar', description: "Oy bo'yicha xodimlar: oylik hisoblanganlar, ishga olingan, bo'shagan, ishlamagan, ko'chgan" },
+      { label: 'Korxona bir qarashda', href: '/tahlil/korxona', description: 'Daromad, xarajat, natija va rentabellik; daromad va xarajat tarkibi ichma-ich' },
+      { label: 'Daromad', href: '/tahlil/daromad', description: 'Daromad tahlili: xizmatlar, mijozlar, hududlar' },
+      { label: 'Xarajat', href: '/tahlil/xarajat', description: 'Xarajat tahlili: moddalar, kontragentlar, hududlar' },
+      { label: "Qo'mita pullari sarfi", href: '/tahlil/qomita', description: "3802 va Marksheyder: kelgan pul, sarf va qoldiq — oy, bo'lim, xodim" },
+      { label: 'Tahlil', href: '/tahlil/umumiy', description: "Chuqur tahlil: dinamika, o'zgarish sabablari, barqarorlik, xodim samaradorligi, xulosalar" },
     ],
   },
   {
@@ -568,7 +569,7 @@ const byHref = (href: string): NavItem => MENU.find((m) => m.href === href)!;
 
 /**
  * Chap menyu (umumiy hudud — administrator va kuzatuvchi):
- *   Bosh sahifa (▾ Daromad, Xarajat, Tahlil, Solishtirma)
+ *   Bosh sahifa (▾ Hududlar, Markaz, yo'nalishlar, O'zgarishlar, Solishtirma — korxona bir qarashda, daromad, xarajat, tahlil)
  *   Umumiy manba (▾ Tez kiritish, Daromadlar, Xarajatlar, 3802 — Qo'mita qoplashi, Modellar, Rollar → har rol o'z nomi bilan, Xodimlar)
  *   Hisobotlar
  *   Boshqaruv (▾ Topshiriqlar, Munosabat, Nazorat, Sozlamalar)
@@ -580,13 +581,17 @@ export const SIDEBAR: SideEntry[] = [
     label: 'Bosh sahifa',
     href: '/',
     icon: NavHome,
-    description: 'Daromad, xarajat, tahlil va solishtirma',
+    description: "Solishtirma: Markaz, hududlar va yo'nalishlar yonma-yon; korxona bir qarashda, daromad, xarajat, tahlil",
     children: [
-      { label: 'Daromad', href: '/tahlil/daromad' },
-      { label: 'Xarajat', href: '/tahlil/xarajat' },
-      { label: "Qo'mita pullari sarfi", href: '/tahlil/qomita' },
-      { label: 'Tahlil', href: '/tahlil/umumiy' },
-      { label: 'Solishtirma', href: '/solishtirma', match: ['/solishtirma'], description: "Hududlar, Markaz va yo'nalishlar (Tax free …) yonma-yon" },
+      { label: 'Hududlar', href: '/solishtirma' },
+      { label: 'Markaz', href: '/solishtirma/markaz' },
+      { label: 'Tax free', href: '/solishtirma/tax-free' },
+      { label: 'Marksheyder', href: '/solishtirma/marksheyder' },
+      { label: "Fermer xo'jaligi", href: '/solishtirma/fermer' },
+      { label: 'Buxgalteriya xizmatlari', href: '/solishtirma/buxgalteriya' },
+      { label: "Qo'mita pullarining sarfi", href: '/solishtirma/qomita' },
+      { label: "O'zgarishlar", href: '/solishtirma/ozgarishlar' },
+      { label: 'Solishtirma', href: '/tahlil/korxona', match: ['/tahlil'], description: 'Korxona bir qarashda, daromad, xarajat, tahlil' },
     ],
   },
   {
