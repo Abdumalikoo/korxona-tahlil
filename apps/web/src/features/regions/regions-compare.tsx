@@ -26,7 +26,7 @@ import {
   Th,
   Tr,
 } from '@/components/report/report';
-import { COMPARE_OPTIONS, SECTION_OPTIONS, type CompareMode, type SectionFilter } from '@/features/structure/api';
+import { type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { SmallButton } from '@/features/structure/parts';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatDate } from '@/lib/format';
@@ -248,8 +248,9 @@ function TotalRow({ label, rows, compareLabel }: { label: string; rows: UnitStat
  * center — Solishtirma › Markaz paneli: to'g'ridan-to'g'ri Markaz ichkarisi (bo'limlar → xodimlar)
  */
 export function RegionsCompare({ range, center = false }: { range: DateRange; center?: boolean }) {
-  const [section, setSection] = useState<SectionFilter>('ALL');
-  const [compare, setCompare] = useState<CompareMode>('prev');
+  // Doim: barcha yozuvlar, o'tgan teng davr bilan («Yozuvlar» / «Solishtirish» tanlovlari olib tashlangan)
+  const section: SectionFilter = 'ALL';
+  const compare: CompareMode = 'prev';
   const [cardOpen, setCardOpen] = useState(false);
   const result = useAsync(() => regionsApi.compare(range, section, compare).then((r) => r.data), [range.from, range.to, section, compare]);
   const data = result.data;
@@ -356,29 +357,13 @@ export function RegionsCompare({ range, center = false }: { range: DateRange; ce
           <LoadingState label="Hududlar hisoblanmoqda" />
         </Card>
       ) : (
-        <Body data={data} loading={result.loading} onDrill={openRegion} section={section} onSection={setSection} compare={compare} onCompare={setCompare} />
+        <Body data={data} loading={result.loading} onDrill={openRegion} />
       )}
     </div>
   );
 }
 
-function Body({
-  data,
-  loading,
-  onDrill,
-  section,
-  onSection,
-  compare,
-  onCompare,
-}: {
-  data: RegionsResult;
-  loading: boolean;
-  onDrill: (code: number) => void;
-  section: SectionFilter;
-  onSection: (value: SectionFilter) => void;
-  compare: CompareMode;
-  onCompare: (value: CompareMode) => void;
-}) {
+function Body({ data, loading, onDrill }: { data: RegionsResult; loading: boolean; onDrill: (code: number) => void }) {
   const router = useRouter();
   const brief = useBrief();
   const params = useSearchParams();
@@ -537,12 +522,6 @@ function Body({
       />
 
       <FilterBar actions={<ExcelButton onClick={exportCsv} />}>
-        <Field label="Yozuvlar">
-          <SelectBox value={section} options={SECTION_OPTIONS} onChange={onSection} />
-        </Field>
-        <Field label="Solishtirish">
-          <SelectBox value={compare} options={COMPARE_OPTIONS} onChange={onCompare} />
-        </Field>
         <Field label="Tartib">
           <SelectBox value={sort} options={SORT_OPTIONS} onChange={setSort} />
         </Field>

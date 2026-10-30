@@ -23,7 +23,7 @@ import {
   type StatTile,
 } from '@/components/report/report';
 import type { VehicleQuery } from './api';
-import { count, DiscussBar, EmptyNote, LoadingCard, MarkMoneyCell, PartsTable, ShareCell } from '@/components/report/report-extra-c';
+import { count, EmptyNote, LoadingCard, MarkMoneyCell, PartsTable, ShareCell } from '@/components/report/report-extra-c';
 import { CalcValue } from '@/components/ui/calc';
 import type { CompareMode, SectionFilter } from '@/features/structure/api';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
@@ -35,9 +35,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { centerDrillApi, type CenterDetailResult, type DepartmentDetailResult, type DepartmentRow } from './drill-api';
 import { PinflText } from './pinfl-text';
-import { DiscussMenu } from '@/features/reactions/discuss';
 import { Mark } from '@/features/reactions/mark';
-import { centerMark, centerPartMark, compactMarks, departmentMark, departmentPartMark, employeeMark } from '@/features/reactions/marks';
+import { centerPartMark, departmentMark, departmentPartMark, employeeMark } from '@/features/reactions/marks';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Markaz — hududlar kabi ichkariga kirish (reja/tushum yo'q):
@@ -133,16 +132,6 @@ function CenterBody({ data, coverage, onDepartment, vehicles }: { data: CenterDe
       }),
     );
 
-  const discussItems = compactMarks([
-    centerMark(data.center.name, 'RESULT', data.section),
-    centerMark(data.center.name, 'EXPENSE', data.section),
-    centerMark(data.center.name, 'INCOME', data.section),
-    ...data.departments.map((d) => departmentMark(d.id, d.name, 'EXPENSE', data.section)),
-    ...data.incomeParts.map((p) => centerPartMark('INCOME', p, data.section)),
-    ...data.ownParts.map((p) => centerPartMark('EXPENSE', p, data.section)),
-    ...data.regionalParts.map((p) => centerPartMark('EXPENSE', p, data.section, true)),
-  ]);
-
   const tiles: StatTile[] = [
     {
       label: 'Markaz daromadi',
@@ -201,10 +190,6 @@ function CenterBody({ data, coverage, onDepartment, vehicles }: { data: CenterDe
 
   return (
     <div className="space-y-4">
-      <DiscussBar action={<DiscussMenu items={discussItems} />}>
-        <b className="text-heading">{data.center.name}</b> — natijasi, xarajati, daromadi, istalgan bo&apos;lim, daromad manbai yoki xarajat moddasini Munosabatga belgilash mumkin.
-      </DiscussBar>
-
       <StatTiles items={tiles} compareLabel="Avval" />
 
       <PillTabs value={view} onChange={setView} options={views} />
@@ -538,22 +523,6 @@ function DepartmentBody({ data, onEmployee, vehicles }: { data: DepartmentDetail
 
   return (
     <div className="space-y-4">
-      {!data.department.unassigned && (
-        <DiscussBar
-          action={
-            <DiscussMenu
-              items={compactMarks([
-                departmentMark(data.department.id, data.department.name, 'EXPENSE', data.section),
-                ...data.expenseParts.map((p) => departmentPartMark(data.department.id, data.department.name, p, data.section)),
-                ...data.employees.map((e) => employeeMark(e.pinfl, e.fullName, 'EXPENSE', 'Solishtirma › Markaz xodimi')),
-              ])}
-            />
-          }
-        >
-          <b className="text-heading">{data.department.name}</b> — bo&apos;lim xarajati, istalgan moddasi yoki xodimi ish haqini Munosabatga belgilash mumkin.
-        </DiscussBar>
-      )}
-
       <StatTiles items={tiles} compareLabel="Avval" />
 
       <PillTabs value={view} onChange={setView} options={views} />

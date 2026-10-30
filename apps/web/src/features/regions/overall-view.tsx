@@ -5,16 +5,14 @@ import {
   changeOf,
   DiffCell,
   ExcelButton,
-  Field,
-  FilterBar,
   GroupTh,
   MoneyCell,
   NameCell,
   PctBadge,
   PillTabs,
+  SearchInput,
   ReportCard,
   RTable,
-  SelectBox,
   StatTiles,
   STICKY_NAME,
   STICKY_NO,
@@ -25,7 +23,7 @@ import {
   type StatTile,
 } from '@/components/report/report';
 import { count, LoadingCard } from '@/components/report/report-extra-c';
-import { COMPARE_OPTIONS, SECTION_OPTIONS, type CompareMode, type SectionFilter } from '@/features/structure/api';
+import { type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { calcChange, calcResult, calcSum, moneyText, Q } from '@/lib/calc';
 import { formatDate } from '@/lib/format';
@@ -139,36 +137,25 @@ function subOf(s: UnitStats): string {
 type View = 'result' | 'months' | 'bridge';
 
 export function OverallView({ range }: { range: DateRange }) {
-  const [section, setSection] = useState<SectionFilter>('ALL');
-  const [compare, setCompare] = useState<CompareMode>('prev');
+  // Doim: barcha yozuvlar, o'tgan teng davr bilan («Yozuvlar» / «Solishtirish» tanlovlari olib tashlangan)
+  const section: SectionFilter = 'ALL';
+  const compare: CompareMode = 'prev';
   const result = useAsync(() => regionsApi.compare(range, section, compare).then((r) => r.data), [range.from, range.to, section, compare]);
   const data = result.data;
 
   if (!data) return <LoadingCard label="Korxona bo'yicha hisoblanmoqda" error={result.error} onRetry={result.reload} />;
   return (
     <DrillProvider range={{ from: data.range.from, to: data.range.to }}>
-      <Body data={data} loading={result.loading} section={section} onSection={setSection} compare={compare} onCompare={setCompare} />
+      <Body data={data} loading={result.loading} />
     </DrillProvider>
   );
 }
 
-function Body({
-  data,
-  loading,
-  section,
-  onSection,
-  compare,
-  onCompare,
-}: {
-  data: RegionsResult;
-  loading: boolean;
-  section: SectionFilter;
-  onSection: (v: SectionFilter) => void;
-  compare: CompareMode;
-  onCompare: (v: CompareMode) => void;
-}) {
+function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
   const router = useRouter();
   const [view, setView] = useState<View>('result');
+  /** Natija jadvalida birlik qidirish */
+  const [query, setQuery] = useState('');
   const [unOpen, setUnOpen] = useState(false);
   /** Natija jadvalida ochilgan birliklar — qator joyida kengayadi */
   const [opened, setOpened] = useState<Set<string>>(new Set());
@@ -263,15 +250,6 @@ function Body({
     <div className={cn('space-y-4 transition-opacity', loading && 'opacity-60')}>
       <StatTiles items={tiles} compareLabel="Avval" />
 
-      <FilterBar actions={<ExcelButton onClick={exportCsv} />}>
-        <Field label="Yozuvlar">
-          <SelectBox value={section} options={SECTION_OPTIONS} onChange={onSection} />
-        </Field>
-        <Field label="Solishtirish">
-          <SelectBox value={compare} options={COMPARE_OPTIONS} onChange={onCompare} />
-        </Field>
-      </FilterBar>
-
       <PillTabs value={view} onChange={setView} options={views} />
 
       {view === 'result' && (
@@ -279,9 +257,14 @@ function Body({
           title="Markaz, hududlar va yo'nalishlar: natija"
           badge={`Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}`}
           actions={
-            <button type="button" onClick={() => setOpened(opened.size ? new Set() : new Set(units.map((s) => s.unit.key)))} className="rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
-              {opened.size ? 'Hammasini yopish' : 'Hammasini ochish'}
-            </button>
+            // Markaz va Hududlar kabi: qidirish va Excelga eksport — karta sarlavhasida
+            <>
+              <SearchInput value={query} onChange={setQuery} placeholder="Birlik qidirish…" />
+              <ExcelButton onClick={exportCsv} />
+              <button type="button" onClick={() => setOpened(opened.size ? new Set() : new Set(units.map((s) => s.unit.key)))} className="rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+                {opened.size ? 'Hammasini yopish' : 'Hammasini ochish'}
+              </button>
+            </>
           }
         >
           <RTable minWidth={1060}>
@@ -311,7 +294,7 @@ function Body({
             <tbody>
               <ResultTotal label="Korxona jami" sub="Markaz + hududlar + yo'nalishlar" t={total} compareLabel={label} />
               <ResultTotal label={`Hududlar jami · ${activeRegions.length} ta`} sub="faqat hududlar" t={reg} compareLabel={label} light />
-              {units.map((s) => {
+              {units.filter((s) => !query.trim() || s.unit.name.toLowerCase().includes(query.trim().toLowerCase())).map((s) => {
                 const isOpen = opened.has(s.unit.key);
                 const index = s.unit.kind === 'region' ? activeRegions.indexOf(s) + 1 : null;
                 return (

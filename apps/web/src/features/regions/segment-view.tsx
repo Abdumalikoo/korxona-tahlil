@@ -3,8 +3,7 @@
 import type { DateRange } from '@/components/shared/date-range-picker';
 import {
   changeOf,
-  Field,
-  FilterBar,
+  ExcelButton,
   MoneyCell,
   NameCell,
   PctBadge,
@@ -12,7 +11,7 @@ import {
   PillTabs,
   ReportCard,
   RTable,
-  SelectBox,
+  SearchInput,
   StatTiles,
   STICKY_NAME,
   STICKY_NO,
@@ -27,7 +26,7 @@ import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
 import { IconArrowRight } from '@/components/ui/icons';
 import { monthLabel } from '@/features/explore/api';
 import { DrillProvider, useDrill } from '@/features/explore/drill';
-import { COMPARE_OPTIONS, SECTION_OPTIONS, type CompareMode, type SectionFilter } from '@/features/structure/api';
+import { type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { unitByCode, type EntryUnit } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
@@ -35,7 +34,8 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { segmentApi, type DrillNode, type SegFlow, type SegmentView } from './segment-api';
-import { SarfSection } from '@/features/qomita/qomita-sarf';
+import { HisobPanel } from '@/features/qomita/qomita-hisob';
+import { SegmentSides } from './segment-sides';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Tax free / Marksheyder / Fermer xo'jaligi / Buxgalteriya xizmatlari / Qo'mita —
@@ -47,24 +47,17 @@ import { SarfSection } from '@/features/qomita/qomita-sarf';
 const n = (s: string) => Number(s);
 const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
-type View = 'income' | 'expense' | 'months' | 'flows' | 'qomita';
+type View = 'both' | 'income' | 'expense' | 'months' | 'flows' | 'qomita';
 
 export function SegmentSolishtirma({ unit, range }: { unit: EntryUnit; range: DateRange }) {
-  const [section, setSection] = useState<SectionFilter>('ALL');
-  const [compare, setCompare] = useState<CompareMode>('prev');
+  // Doim: barcha yozuvlar, o'tgan teng davr bilan («Yozuvlar» / «Solishtirish» tanlovlari olib tashlangan)
+  const section: SectionFilter = 'ALL';
+  const compare: CompareMode = 'prev';
   const res = useAsync(() => segmentApi.view(unit.code, range, section, compare).then((r) => r.data), [unit.code, range.from, range.to, section, compare]);
 
   return (
     <DrillProvider range={{ from: range.from, to: range.to }}>
       <div className="space-y-4">
-        <FilterBar>
-          <Field label="Yozuvlar">
-            <SelectBox value={section} options={SECTION_OPTIONS} onChange={setSection} />
-          </Field>
-          <Field label="Solishtirish">
-            <SelectBox value={compare} options={COMPARE_OPTIONS} onChange={setCompare} />
-          </Field>
-        </FilterBar>
         {!res.data ? <LoadingCard label="Hisoblanmoqda" error={res.error} onRetry={res.reload} /> : <Body d={res.data} unit={unit} range={range} />}
       </div>
     </DrillProvider>
@@ -84,7 +77,7 @@ function Body({ d, unit, range }: { d: SegmentView; unit: EntryUnit; range: Date
   const result = n(t.resultTiyin);
   const empty = !income && !expense && !n(t.previousIncomeTiyin) && !n(t.previousExpenseTiyin);
   const isQomita = unit.code === 'QOMITA';
-  const [view, setView] = useState<View>(isQomita && empty ? 'qomita' : 'income');
+  const [view, setView] = useState<View>('both');
   const policyHref = `/xarajatlar/bolim/${unit.slug}/siyosat`;
   const hasFlows = d.incoming.length > 0 || d.outgoing.length > 0;
   const pctText = (v: number | null) => (v === null ? '' : `${(v * 100).toFixed(1).replace('.', ',')}%`);
@@ -103,13 +96,15 @@ function Body({ d, unit, range }: { d: SegmentView; unit: EntryUnit; range: Date
     },
   ];
 
-  // Markaz bo'limi tartibida: daromad manbalari → xarajat tarkibi → oylar; so'ng siyosat oqimlari, Qo'mitada — 3802 sarfi
+  // Avval — daromad va xarajat yonma-yon; so'ng Markaz bo'limi tartibida: daromad manbalari → xarajat tarkibi → oylar;
+  // siyosat oqimlari, Qo'mitada — Qo'mita pullari sarfi (3802 va Marksheyder)
   const views: { value: View; label: string }[] = [
+    { value: 'both', label: 'Daromad va xarajat' },
     { value: 'income', label: 'Daromad manbalari' },
     { value: 'expense', label: 'Xarajat tarkibi' },
     { value: 'months', label: 'Oylar kesimida' },
     ...(hasFlows ? [{ value: 'flows' as const, label: 'Siyosat oqimlari' }] : []),
-    ...(isQomita ? [{ value: 'qomita' as const, label: "Qo'mita pullari sarfi (3802)" }] : []),
+    ...(isQomita ? [{ value: 'qomita' as const, label: "Qo'mita pullari sarfi (3802 va Marksheyder)" }] : []),
   ];
 
   return (
@@ -129,6 +124,8 @@ function Body({ d, unit, range }: { d: SegmentView; unit: EntryUnit; range: Date
       ) : (
         <>
           <PillTabs value={view} onChange={setView} options={views} />
+
+          {view === 'both' && <SegmentSides d={d} isQomita={isQomita} />}
 
           {view === 'expense' && (
             <TreeCard
@@ -173,9 +170,9 @@ function Body({ d, unit, range }: { d: SegmentView; unit: EntryUnit; range: Date
           )}
           {view === 'months' && <MonthsCard d={d} />}
           {view === 'qomita' && (
-            // 3802 bo'yicha: bo'limlarga kelgan Qo'mita puli, qoplangani, sarfi va qoldig'i (oyma-oy); bo'lim ichida — xodimlar.
+            // Qo'mita pullari: 3802 va Marksheyder — kelgan → sarflangan → qoldiq, ichma-ich (Bosh sahifa › Qo'mita pullari sarfi bilan bir xil).
             // Solishtirmada faqat ko'rish: o'zgartirish — «3802 — Qo'mita qoplashi» sahifasida
-            <SarfSection from={range.from.slice(0, 7)} to={range.to.slice(0, 7)} isAdmin={false} onToast={() => undefined} />
+            <HisobPanel from={range.from.slice(0, 7)} to={range.to.slice(0, 7)} isAdmin={false} onToast={() => undefined} />
           )}
         </>
       )}
@@ -258,13 +255,7 @@ function MonthsCard({ d }: { d: SegmentView }) {
     <ReportCard
       title={`${d.label}: so'nggi ${d.months.length} oy`}
       badge="Daromad, xarajat va natija oyma-oy"
-      actions={
-        rows.length ? (
-          <button type="button" onClick={exportCsv} className="inline-flex h-9 items-center rounded-lg bg-[#1e9e55] px-3 text-xs font-semibold text-white hover:bg-[#178a49]">
-            Excelga eksport
-          </button>
-        ) : undefined
-      }
+      actions={rows.length ? <ExcelButton onClick={exportCsv} /> : undefined}
     >
       {rows.length === 0 ? (
         <EmptyNote>Ma&apos;lumot yo&apos;q</EmptyNote>
@@ -346,6 +337,22 @@ function TreeCard({
   const { open } = useDrill();
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const [byMonth, setByMonth] = useState(false);
+  // Qidirish (nomi yoki ichidagi qatorlar nomi bo'yicha) va Excelga eksport — Markaz va Hududlar kabi
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const hit = (nd: DrillNode): boolean => nd.label.toLowerCase().includes(q) || (nd.children ?? []).some(hit);
+  const shown = q ? nodes.filter(hit) : nodes;
+  const exportCsv = () => {
+    const out: (string | number)[][] = [];
+    const flat = (list: DrillNode[], depth: number) => {
+      for (const nd of list) {
+        out.push([`${'  '.repeat(depth)}${nd.label}`, csvSom(n(nd.previousTiyin)), csvSom(n(nd.amountTiyin)), ...months.map((_, i) => csvSom(n(nd.values[i] ?? '0')))]);
+        flat(nd.children ?? [], depth + 1);
+      }
+    };
+    flat(shown, 0);
+    downloadCsv(`solishtirma-${root}`.replace(/[^\p{L}\p{N}._-]+/gu, '_'), ['Nomi', `${compareLabel}, so'm`, "Joriy davr, so'm", ...months.map((m) => `${monthLabel(m)}, so'm`)], out);
+  };
   const toggle = (id: string) =>
     setOpened((s) => {
       const x = new Set(s);
@@ -465,7 +472,7 @@ function TreeCard({
           );
     }
   };
-  walk(nodes, 0, '', []);
+  walk(shown, 0, '', []);
   const allIds = (list: DrillNode[], parentId: string): string[] => list.flatMap((nd) => [`${parentId}/${nd.key}`, ...allIds(nd.children ?? [], `${parentId}/${nd.key}`)]);
 
   return (
@@ -474,6 +481,8 @@ function TreeCard({
       badge={badge}
       actions={
         <>
+          <SearchInput value={query} onChange={setQuery} placeholder="Qidirish…" />
+          <ExcelButton onClick={exportCsv} />
           <button type="button" onClick={() => setOpened(opened.size ? new Set() : new Set(allIds(nodes, '')))} className="rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
             {opened.size ? 'Hammasini yopish' : 'Hammasini ochish'}
           </button>
