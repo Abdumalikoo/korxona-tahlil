@@ -16,7 +16,6 @@ import { HrSheetsModule } from './modules/hr-sheets/hr-sheets.module';
 import { SourceChatModule } from './modules/source-chat/chat.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { CleanupModule } from './modules/cleanup/cleanup.module';
-import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
@@ -94,7 +93,6 @@ import { RateLimitGuard } from './common/security/rate-limit';
     PayrollSolishtirmaModule,
     UnitEntriesModule,
     ScheduleModule.forRoot(),
-    DashboardModule,
     CleanupModule,
     AuditModule,
     ResultsModule,

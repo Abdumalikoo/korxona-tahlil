@@ -2,7 +2,6 @@ import { PrismaClient, CostBehavior, CostScope, UserRole } from '@prisma/client'
 import { EXPENSE_CATEGORIES } from '@korxona/shared';
 import bcrypt from 'bcryptjs';
 import { REGIONS, DEPARTMENTS, INCOME_SERVICES } from './regions-data';
-import { REGIONS, DEPARTMENTS, INCOME_SERVICES } from './regions-data';
 import {
   CENTRAL_STAFF,
   CENTRAL_STAFF_2,

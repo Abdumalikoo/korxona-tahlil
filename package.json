@@ -19,7 +19,6 @@
     "db:studio": "pnpm --filter @korxona/db studio",
     "db:seed": "pnpm --filter @korxona/db seed",
     "typecheck": "pnpm -r typecheck",
-    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yaml}\"",
     "clean": "pnpm -r exec rimraf dist .next node_modules",
     "stop": "powershell -Command \"Get-NetTCPConnection -LocalPort 3000,3001 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\"",
     "e2e": "playwright test -c e2e/playwright.config.ts"

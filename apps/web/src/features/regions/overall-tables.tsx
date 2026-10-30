@@ -1,18 +1,16 @@
 'use client';
 
 import { Card } from '@/components/ui/card';
-import { compact, num, pct, TONE } from '@/features/structure/api';
+import { compact, num, TONE } from '@/features/structure/api';
 import { Segmented, SmallButton } from '@/features/structure/parts';
-import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
+import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useState, type ReactNode } from 'react';
-import { KIND_ORDER, type UnitPart, type UnitStats } from './api';
+import { KIND_ORDER, type UnitStats } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Umumiy — aniq jadvallar (grafiklar sahifa oxirida):
-//   • UnitDetail       — umumiy jadvalda qator ochilsa: daromad va xarajat tarkibi (joriy / o'tgan / o'zgarish / ulush)
-//   • CompareTable     — har bir birlik: daromad, xarajat, natija, rentabellik, xodimlar — joriy va o'tgan davr
 //   • MonthsTable      — birliklar × oylar: daromad / xarajat / natija
 // Hamma summalar to'liq (so'm) — «qisqa» tugmasi bilan mln/mlrd ko'rinishiga o'tadi.
 // ═══════════════════════════════════════════════════════════
@@ -24,26 +22,6 @@ export type Fmt = 'full' | 'short';
 export function money(tiyin: number, fmt: Fmt): string {
   if (Math.round(tiyin / 100) === 0) return '';
   return fmt === 'full' ? num(tiyin) : compact(tiyin);
-}
-
-function change(cur: number, prev: number): number | null {
-  if (!prev) return null;
-  return ((cur - prev) / Math.abs(prev)) * 100;
-}
-
-/** O'zgarish: % va summa farqi; up — o'sish yaxshimi */
-function Delta({ cur, prev, up = true, className }: { cur: number; prev: number; up?: boolean; className?: string }) {
-  const c = change(cur, prev);
-  const diff = cur - prev;
-  const good = c === null || Math.abs(c) < 0.05 ? null : c > 0 === up;
-  return (
-    <td className={cn('px-2.5 py-2 text-right tabular-nums', className)}>
-      <span className={cn('block text-xs font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>
-        {c === null ? '' : pct(c, true)}
-      </span>
-      {Math.round(diff / 100) !== 0 && <span className="block text-[10.5px] text-(--color-text-faint)">{`${diff > 0 ? '+' : '−'}${compact(Math.abs(diff))}`}</span>}
-    </td>
-  );
 }
 
 export function FmtToggle({ value, onChange }: { value: Fmt; onChange: (v: Fmt) => void }) {
@@ -76,230 +54,6 @@ function Head({ title, hint, children }: { title: string; hint?: ReactNode; chil
 }
 
 const kindOrder = (s: UnitStats) => KIND_ORDER[s.unit.kind];
-
-// ───────────────────────── Qator ichi: tarkib ─────────────────────────
-
-function PartsTable({ title, parts, total, up, fmt }: { title: string; parts: UnitPart[]; total: number; up: boolean; fmt: Fmt }) {
-  const list = [...parts].filter((p) => Number(p.amountTiyin) !== 0 || Number(p.previousTiyin) !== 0).sort((a, b) => Number(b.amountTiyin) - Number(a.amountTiyin));
-  const prevTotal = list.reduce((a, p) => a + Number(p.previousTiyin), 0);
-  return (
-    <div className="min-w-0 flex-1">
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-(--color-text-muted)">{title}</p>
-      {list.length ? (
-        <table className="w-full text-xs">
-          <thead className="text-[10px] uppercase tracking-wide text-(--color-text-faint)">
-            <tr>
-              <th className="py-1 text-left font-semibold">Modda</th>
-              <th className="py-1 text-right font-semibold">Joriy</th>
-              <th className="py-1 text-right font-semibold">Ulush</th>
-              <th className="py-1 text-right font-semibold">O&apos;tgan</th>
-              <th className="py-1 text-right font-semibold">O&apos;zgarish</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((p) => {
-              const v = Number(p.amountTiyin);
-              const pv = Number(p.previousTiyin);
-              return (
-                <tr key={p.key} className="border-t border-(--color-line)/70">
-                  <td className="max-w-[16rem] truncate py-1 pr-2 text-heading" title={p.label}>
-                    {p.label}
-                  </td>
-                  <td className="py-1 pl-2 text-right font-medium tabular-nums text-heading">{money(v, fmt)}</td>
-                  <td className="py-1 pl-2 text-right tabular-nums text-(--color-text-muted)">{pct(total ? (v / total) * 100 : null)}</td>
-                  <td className="py-1 pl-2 text-right tabular-nums text-(--color-text-muted)">{money(pv, fmt)}</td>
-                  <Delta cur={v} prev={pv} up={up} className="py-1 pl-2 pr-0" />
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr className="border-t-2 border-(--color-line) font-semibold text-heading">
-              <td className="py-1">Jami</td>
-              <td className="py-1 text-right tabular-nums">{money(total, fmt)}</td>
-              <td className="py-1 text-right tabular-nums">100%</td>
-              <td className="py-1 text-right tabular-nums">{money(prevTotal, fmt)}</td>
-              <td />
-            </tr>
-          </tfoot>
-        </table>
-      ) : (
-        <p className="text-xs text-(--color-text-faint)">Tarkib yo&apos;q</p>
-      )}
-    </div>
-  );
-}
-
-/** Umumiy jadvalda qator ochilganda — o'sha birlikning daromad va xarajat tarkibi */
-export function UnitDetail({ s, fmt, onOpen }: { s: UnitStats; fmt: Fmt; onOpen: () => void }) {
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-6 xl:flex-row">
-        <PartsTable title="Daromad tarkibi" parts={s.unit.incomeParts} total={s.income} up fmt={fmt} />
-        <PartsTable title="Xarajat tarkibi" parts={s.unit.expenseParts} total={s.expense} up={false} fmt={fmt} />
-      </div>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--color-text-muted)">
-        <span>
-          Yozuvlar: daromad <b className="text-heading">{s.unit.incomeCount}</b> ta, xarajat <b className="text-heading">{s.unit.expenseCount}</b> ta
-        </span>
-        {s.unit.headcount > 0 && (
-          <span>
-            Xodim boshiga: daromad <b className="text-heading">{compact(s.incomePerHead ?? 0)}</b>, xarajat <b className="text-heading">{compact(s.expensePerHead ?? 0)}</b>
-          </span>
-        )}
-        {s.activeMonths > 0 && (
-          <span>
-            Oxirgi 12 oyda zararli oylar: <b className={s.lossMonths ? 'text-(--color-expense)' : 'text-heading'}>{s.lossMonths}</b> / {s.activeMonths}
-          </span>
-        )}
-        <button type="button" onClick={onOpen} className="ml-auto font-semibold text-brand-700 hover:underline">
-          {s.unit.kind === 'center' ? 'Markaz sahifasini ochish ›' : s.unit.kind === 'unassigned' ? "Biriktirilmagan yozuvlarni ko'rish ›" : s.unit.kind === 'segment' ? "Bo'lim sahifasini ochish ›" : 'Hudud sahifasini ochish ›'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ───────────────────────── Taqqoslash jadvali ─────────────────────────
-
-export function CompareTable({ units, compareLabel, onOpen }: { units: UnitStats[]; compareLabel: string; onOpen: (s: UnitStats) => void }) {
-  const [fmt, setFmt] = useState<Fmt>('full');
-  const list = [...units].sort((a, b) => kindOrder(a) - kindOrder(b) || b.profit - a.profit);
-  const regions = list.filter((s) => s.unit.kind === 'region');
-  type Tot = { income: number; previousIncome: number; expense: number; previousExpense: number; headcount: number; previousHeadcount: number };
-  const tot = (rows: UnitStats[]): Tot =>
-    rows.reduce((a, s) => ({ income: a.income + s.income, previousIncome: a.previousIncome + s.previousIncome, expense: a.expense + s.expense, previousExpense: a.previousExpense + s.previousExpense, headcount: a.headcount + s.unit.headcount, previousHeadcount: a.previousHeadcount + s.unit.previousHeadcount }), {
-      income: 0,
-      previousIncome: 0,
-      expense: 0,
-      previousExpense: 0,
-      headcount: 0,
-      previousHeadcount: 0,
-    });
-  const margin = (i: number, e: number) => (i > 0 ? ((i - e) / i) * 100 : null);
-
-  const cells = (t: Tot, strong: boolean, isCenter = false) => {
-    const p = t.income - t.expense;
-    const pp = t.previousIncome - t.previousExpense;
-    const m = margin(t.income, t.expense);
-    const mp = margin(t.previousIncome, t.previousExpense);
-    return (
-      <>
-        <td className={cn('border-l border-(--color-line) px-2.5 py-2 text-right tabular-nums', strong ? 'font-bold text-heading' : 'font-medium text-heading')}>{money(t.income, fmt)}</td>
-        <td className="px-2.5 py-2 text-right tabular-nums text-(--color-text-muted)">{money(t.previousIncome, fmt)}</td>
-        <Delta cur={t.income} prev={t.previousIncome} />
-        <td className={cn('border-l border-(--color-line) px-2.5 py-2 text-right tabular-nums', strong ? 'font-bold text-heading' : 'font-medium text-heading')}>{money(t.expense, fmt)}</td>
-        <td className="px-2.5 py-2 text-right tabular-nums text-(--color-text-muted)">{money(t.previousExpense, fmt)}</td>
-        <Delta cur={t.expense} prev={t.previousExpense} up={false} />
-        <td className={cn('border-l border-(--color-line) px-2.5 py-2 text-right font-semibold tabular-nums')} style={{ color: p >= 0 ? TONE.income : TONE.expense }}>
-          {money(p, fmt)}
-        </td>
-        <td className="px-2.5 py-2 text-right tabular-nums text-(--color-text-muted)">{money(pp, fmt)}</td>
-        <Delta cur={p} prev={pp} />
-        <td className="border-l border-(--color-line) px-2.5 py-2 text-right tabular-nums">{isCenter ? <span className="text-(--color-text-faint)"></span> : pct(m)}</td>
-        <td className={cn('px-2.5 py-2 text-right text-xs tabular-nums', m !== null && mp !== null && m - mp > 0 ? 'text-(--color-income)' : m !== null && mp !== null && m - mp < 0 ? 'text-(--color-expense)' : 'text-(--color-text-faint)')}>
-          {isCenter || m === null || mp === null ? '' : `${m - mp > 0 ? '+' : m - mp < 0 ? '−' : ''}${Math.abs(m - mp).toFixed(1).replace('.', ',')} p.p.`}
-        </td>
-        <td className="border-l border-(--color-line) px-2.5 py-2 text-right tabular-nums">
-          {t.headcount || ''}
-          {t.previousHeadcount !== t.headcount && t.previousHeadcount > 0 && <span className="block text-[10.5px] text-(--color-text-faint)">o&apos;tgan {t.previousHeadcount}</span>}
-        </td>
-      </>
-    );
-  };
-
-  const exportCsv = () => {
-    const row = (name: string, t: Tot) => {
-      const p = t.income - t.expense;
-      const pp = t.previousIncome - t.previousExpense;
-      return [name, csvSom(t.income), csvSom(t.previousIncome), csvPct(change(t.income, t.previousIncome)), csvSom(t.expense), csvSom(t.previousExpense), csvPct(change(t.expense, t.previousExpense)), csvSom(p), csvSom(pp), csvPct(margin(t.income, t.expense)), csvPct(margin(t.previousIncome, t.previousExpense)), t.headcount, t.previousHeadcount];
-    };
-    downloadCsv(
-      'umumiy-taqqoslash.csv',
-      ['Birlik', "Daromad (so'm)", `Daromad — ${compareLabel}`, 'Daromad o‘zgarishi %', "Xarajat (so'm)", `Xarajat — ${compareLabel}`, 'Xarajat o‘zgarishi %', "Natija (so'm)", `Natija — ${compareLabel}`, 'Rentabellik %', `Rentabellik — ${compareLabel} %`, 'Xodimlar', `Xodimlar — ${compareLabel}`],
-      [...list.map((s) => row(s.unit.name, tot([s]))), row('Hududlar jami', tot(regions)), row('Korxona jami', tot(list))],
-    );
-  };
-
-  return (
-    <Card className="overflow-hidden rounded-2xl">
-      <Head title="Taqqoslash: joriy davr va o'tgan davr" hint={`Har bir birlik uchun: joriy, ${compareLabel} va o'zgarish (% va summa). Qatorni bosing — umumiy jadvalda o'sha birlik to'liq ochiladi`}>
-        <FmtToggle value={fmt} onChange={setFmt} />
-        <SmallButton onClick={exportCsv}>CSV</SmallButton>
-      </Head>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1400px] border-collapse whitespace-nowrap text-[13px]">
-          <thead>
-            <tr className="border-t border-(--color-line) bg-[#f3f6fd] text-center">
-              <th className={TH} />
-              <th colSpan={3} className={cn(TH, 'border-l border-(--color-line) text-center')}>
-                Daromad
-              </th>
-              <th colSpan={3} className={cn(TH, 'border-l border-(--color-line) text-center')}>
-                Xarajat
-              </th>
-              <th colSpan={3} className={cn(TH, 'border-l border-(--color-line) text-center')}>
-                Natija
-              </th>
-              <th colSpan={2} className={cn(TH, 'border-l border-(--color-line) text-center')}>
-                Rentabellik
-              </th>
-              <th className={cn(TH, 'border-l border-(--color-line) text-center')}>Xodim</th>
-            </tr>
-            <tr className="border-y border-(--color-line) bg-[#f3f6fd]">
-              <th className={cn(TH, 'sticky left-0 z-10 bg-[#f3f6fd] text-left')}>Birlik</th>
-              {[0, 1, 2].map((i) => (
-                <FragmentHead key={i} />
-              ))}
-              <th className={cn(TH, 'border-l border-(--color-line) text-right')}>Joriy</th>
-              <th className={cn(TH, 'text-right')}>O&apos;zgarish</th>
-              <th className={cn(TH, 'border-l border-(--color-line) text-right')}>Soni</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((s) => {
-              const isCenter = s.unit.kind === 'center';
-              return (
-                <tr key={s.unit.key} onClick={() => onOpen(s)} className={cn('cursor-pointer border-b border-(--color-line) hover:bg-(--color-surface-muted)', isCenter && 'bg-[#f6f4fc]')}>
-                  <td className={cn('sticky left-0 z-[1] px-2.5 py-2 font-medium', isCenter ? 'bg-[#f6f4fc]' : 'bg-white')}>
-                    {s.unit.name}
-                    {s.unit.kind === 'unassigned' && <span className="block text-[10.5px] text-(--color-text-faint)">hududi ko&apos;rsatilmagan</span>}
-                    {s.unit.kind === 'segment' && <span className="block text-[10.5px] text-(--color-text-faint)">yo&apos;nalish</span>}
-                  </td>
-                  {cells(tot([s]), false, isCenter)}
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr className="border-b border-(--color-line) bg-[#eaf0fd]">
-              <td className="sticky left-0 z-[1] bg-[#eaf0fd] px-2.5 py-2.5 font-semibold">
-                Hududlar jami <span className="block text-[10.5px] font-normal text-(--color-text-faint)">{regions.length} ta hudud</span>
-              </td>
-              {cells(tot(regions), true)}
-            </tr>
-            <tr className="border-t-2 border-t-(--color-text-faint) bg-[#eef2f8]">
-              <td className="sticky left-0 z-[1] bg-[#eef2f8] px-2.5 py-2.5 font-bold text-heading">
-                Korxona jami <span className="block text-[10.5px] font-normal text-(--color-text-faint)">Markaz + hududlar</span>
-              </td>
-              {cells(tot(list), true)}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-function FragmentHead() {
-  return (
-    <>
-      <th className={cn(TH, 'border-l border-(--color-line) text-right')}>Joriy</th>
-      <th className={cn(TH, 'text-right')}>O&apos;tgan</th>
-      <th className={cn(TH, 'text-right')}>O&apos;zgarish</th>
-    </>
-  );
-}
 
 // ───────────────────────── Oylar jadvali ─────────────────────────
 
