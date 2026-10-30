@@ -12,7 +12,7 @@ import {
   MoneyCell,
   NameCell,
   PctBadge,
-  PctInline,
+  PctCell,
   PillTabs,
   ReportCard,
   RTable,
@@ -177,8 +177,6 @@ function RegionBody({ data, onDistrict, extraActions }: { data: RegionDistrictsR
   const prevIncome = Number(t.previousIncomeTiyin);
   const prevExpense = Number(t.previousExpenseTiyin);
   const prevQuantity = data.districts.reduce((s, d) => s + d.previousQuantity, 0);
-  const label = cap(data.compareLabel);
-
   const real = data.districts.filter((d) => !d.unassigned);
   const unassigned = data.districts.find((d) => d.unassigned) ?? null;
   const heads = real.reduce((s, d) => s + d.headcount, 0);
@@ -303,7 +301,7 @@ function RegionBody({ data, onDistrict, extraActions }: { data: RegionDistrictsR
       </FilterBar>
 
       <ReportCard title={`${data.region.name}: tumanlar kesimida`} badge={`Joriy: ${periodText(data.range)} · ${data.compareLabel}: ${periodText(data.previousRange)}`}>
-        <RTable minWidth={1260}>
+        <RTable minWidth={1060}>
           <thead>
             <tr>
               <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>
@@ -312,41 +310,38 @@ function RegionBody({ data, onDistrict, extraActions }: { data: RegionDistrictsR
               <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>
                 Tuman
               </Th>
-              <GroupTh span={3}>Daromad</GroupTh>
-              <Th rowSpan={2}>Xizmatlar soni</Th>
-              <GroupTh span={3}>Xarajat</GroupTh>
+              <GroupTh span={2}>Daromad</GroupTh>
+              <GroupTh span={2}>Xarajat</GroupTh>
+              <GroupTh span={2}>Natija</GroupTh>
               <Th rowSpan={2} title="Tumanning o'z ijtimoiy solig'i — ish haqidan 12% (xarajat ichida)">Ijtimoiy soliq</Th>
               <Th rowSpan={2} title="Tumanning o'z QQS i — haqiqatda tushgan puldan 12% (xarajat ichida)">QQS 12%</Th>
-              <Th rowSpan={2}>Natija</Th>
             </tr>
             <tr>
-              <Th className="first:border-l">{label}</Th>
-              <Th>Joriy davr</Th>
-              <Th>Farqi, foizda</Th>
-              <Th>{label}</Th>
-              <Th>Joriy davr</Th>
-              <Th>Farqi, foizda</Th>
+              <Th className="first:border-l">Summa</Th>
+              <Th title="Viloyat jami daromadiga nisbatan">Ulushi</Th>
+              <Th>Summa</Th>
+              <Th title="Viloyat jami xarajatiga nisbatan">Ulushi</Th>
+              <Th>Foyda</Th>
+              <Th>Rentabellik</Th>
             </tr>
           </thead>
           <tbody>
             <Tr total>
               <Td className={STICKY_NO} />
               <NameCell sub={`${count(heads)} xodim`}>Jami {data.region.name}</NameCell>
-              <MoneyCell value={prevIncome} />
               <MoneyCell value={income} calc={calcSum('Jami daromad', data.districts.map((d) => Q.money(d.name, d.incomeTiyin)))} />
-              <DiffCell value={income - prevIncome} pct={changeOf(income, prevIncome)} calc={calcChange("Viloyat daromadi: o'zgarish", Q.money('Joriy davr', income), Q.money(label, prevIncome), { growthGood: true })} />
-              <CountCell value={t.quantity} calc={calcSum('Jami xizmatlar', data.districts.map((d) => Q.count(d.name, d.quantity)), { kind: 'count' })} />
-              <MoneyCell value={prevExpense} />
+              <PctCell value={income ? 100 : null} plain className="font-normal text-(--color-text-muted)" />
               <MoneyCell value={expense} calc={calcSum('Jami xarajat', data.districts.map((d) => Q.money(d.name, d.expenseTiyin)))} />
-              <DiffCell value={expense - prevExpense} pct={changeOf(expense, prevExpense)} growthGood={false} calc={calcChange("Viloyat xarajati: o'zgarish", Q.money('Joriy davr', expense), Q.money(label, prevExpense), { growthGood: false })} />
+              <PctCell value={expense ? 100 : null} plain className="font-normal text-(--color-text-muted)" />
+              <MoneyCell value={income - expense} strong signedColor calc={calcResult(income, expense, { title: `Natija: ${data.region.name}` })} />
+              <PctCell value={income > 0 ? ((income - expense) / income) * 100 : null} plain />
               <MoneyCell value={data.districts.reduce((sum, d) => sum + Number(d.socialTaxTiyin ?? 0), 0)} calc={calcSum('Ijtimoiy soliq', data.districts.map((d) => Q.money(d.name, d.socialTaxTiyin ?? '0')))} />
               <MoneyCell value={data.districts.reduce((sum, d) => sum + Number(d.vatTiyin ?? 0), 0)} calc={calcSum('QQS 12%', data.districts.map((d) => Q.money(d.name, d.vatTiyin ?? '0')))} />
-              <MoneyCell value={income - expense} strong signedColor calc={calcResult(income, expense, { title: `Natija: ${data.region.name}` })} />
             </Tr>
             {rows.map((d, i) => (
-              <DistrictTr key={d.id} d={d} index={i + 1} section={data.section} compareLabel={label} onOpen={() => onDistrict(d)} />
+              <DistrictTr key={d.id} d={d} index={i + 1} section={data.section} base={{ income, expense }} onOpen={() => onDistrict(d)} />
             ))}
-            {unassigned && <DistrictTr d={unassigned} index={null} section={data.section} compareLabel={label} onOpen={() => onDistrict(unassigned)} />}
+            {unassigned && <DistrictTr d={unassigned} index={null} section={data.section} base={{ income, expense }} onOpen={() => onDistrict(unassigned)} />}
           </tbody>
         </RTable>
         <TableNote>
@@ -359,11 +354,10 @@ function RegionBody({ data, onDistrict, extraActions }: { data: RegionDistrictsR
   );
 }
 
-function DistrictTr({ d, index, section, compareLabel, onOpen }: { d: DistrictRow; index: number | null; section: SectionFilter; compareLabel: string; onOpen: () => void }) {
+/** Tuman qatori: Daromad (summa, ulushi) · Xarajat (summa, ulushi) · Natija (foyda, rentabellik) · Ijtimoiy soliq · QQS */
+function DistrictTr({ d, index, section, base, onOpen }: { d: DistrictRow; index: number | null; section: SectionFilter; /** Ulush asosi — viloyat jami */ base: { income: number; expense: number }; onOpen: () => void }) {
   const income = Number(d.incomeTiyin);
   const expense = Number(d.expenseTiyin);
-  const prevIncome = Number(d.previousIncomeTiyin);
-  const prevExpense = Number(d.previousExpenseTiyin);
   const sub = [d.headcount ? `${d.headcount} xodim` : null, d.topServices[0] ? `asosan: ${d.topServices.map((s) => s.label).join(', ')}` : null].filter(Boolean).join(' · ');
   return (
     <Tr onClick={onOpen} muted={d.unassigned}>
@@ -371,23 +365,18 @@ function DistrictTr({ d, index, section, compareLabel, onOpen }: { d: DistrictRo
       <NameCell drill sub={sub || undefined} before={<Mark item={districtMark(d.id, d.name, 'RESULT', section)} />} className={cn('max-w-64', d.unassigned && 'italic')}>
         {d.name}
       </NameCell>
-      <MoneyCell value={prevIncome} />
       <MarkMoneyCell value={income} mark={districtMark(d.id, d.name, 'INCOME', section)} />
-      <DiffCell value={income - prevIncome} pct={changeOf(income, prevIncome)} calc={calcChange(`${d.name} daromadi: o'zgarish`, Q.money('Joriy davr', income), Q.money(compareLabel, prevIncome), { growthGood: true })} />
-      <Td className="whitespace-nowrap">
-        {d.quantity ? count(d.quantity) : <span className="text-(--color-text-faint)"></span>}
-        {(d.quantity || d.previousQuantity) > 0 && <PctInline value={changeOf(d.quantity, d.previousQuantity)} />}
-      </Td>
-      <MoneyCell value={prevExpense} />
+      <PctCell value={base.income > 0 ? (income / base.income) * 100 : null} plain className="font-normal text-(--color-text-muted)" />
       <MarkMoneyCell
         value={expense}
         mark={districtMark(d.id, d.name, 'EXPENSE', section)}
         calc={calcSum(`${d.name} xarajati`, [Q.money('Ish haqi', d.payrollTiyin, 'Tumanda ishlagan xodimlar'), Q.money('Ijara', d.leaseTiyin, 'Tumandagi ijara shartnomalari'), Q.money('Boshqa', d.otherTiyin, "Tuman ko'rsatilgan xarajatlar")])}
       />
-      <DiffCell value={expense - prevExpense} pct={changeOf(expense, prevExpense)} growthGood={false} calc={calcChange(`${d.name} xarajati: o'zgarish`, Q.money('Joriy davr', expense), Q.money(compareLabel, prevExpense), { growthGood: false })} />
+      <PctCell value={base.expense > 0 ? (expense / base.expense) * 100 : null} plain className="font-normal text-(--color-text-muted)" />
+      <MoneyCell value={Number(d.resultTiyin)} strong signedColor calc={calcResult(income, expense, { title: `Natija: ${d.name}` })} />
+      <PctCell value={income > 0 ? (Number(d.resultTiyin) / income) * 100 : null} plain />
       <MoneyCell value={Number(d.socialTaxTiyin ?? 0)} className="text-(--color-text-muted)" />
       <MoneyCell value={Number(d.vatTiyin ?? 0)} className="text-(--color-text-muted)" />
-      <MoneyCell value={Number(d.resultTiyin)} strong signedColor calc={calcResult(income, expense, { title: `Natija: ${d.name}` })} />
     </Tr>
   );
 }

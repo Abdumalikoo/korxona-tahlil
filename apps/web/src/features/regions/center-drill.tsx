@@ -9,6 +9,7 @@ import {
   MoneyCell,
   NameCell,
   PctBadge,
+  PctCell,
   PillTabs,
   ReportCard,
   RTable,
@@ -25,10 +26,9 @@ import {
 } from '@/components/report/report';
 import type { VehicleQuery } from './api';
 import { count, EmptyNote, LoadingCard, MarkMoneyCell, PartsTable, ShareCell } from '@/components/report/report-extra-c';
-import { CalcValue } from '@/components/ui/calc';
 import type { CompareMode, SectionFilter } from '@/features/structure/api';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
-import { calcChange, calcDivide, calcResult, calcShare, calcSum, Q } from '@/lib/calc';
+import { calcDivide, calcResult, calcShare, calcSum, Q } from '@/lib/calc';
 import { formatDate, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn, cap } from '@/lib/utils';
@@ -86,7 +86,6 @@ function CenterBody({ data, coverage, onDepartment, vehicles }: { data: CenterDe
   const [view, setView] = useState<CenterView>('departments');
   const [query, setQuery] = useState('');
   const t = data.totals;
-  const label = cap(data.compareLabel);
   const income = Number(t.incomeTiyin);
   const own = Number(t.ownExpenseTiyin);
   const regional = Number(t.regionalExpenseTiyin);
@@ -186,7 +185,6 @@ function CenterBody({ data, coverage, onDepartment, vehicles }: { data: CenterDe
     { value: 'months', label: 'Oylar kesimida' },
   ];
 
-  const prevOwn = Number(t.previousOwnExpenseTiyin);
 
   return (
     <div className="space-y-4">
@@ -205,7 +203,7 @@ function CenterBody({ data, coverage, onDepartment, vehicles }: { data: CenterDe
             </>
           }
         >
-          <RTable minWidth={1060}>
+          <RTable minWidth={900}>
             <thead>
               <tr>
                 <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>
@@ -214,63 +212,60 @@ function CenterBody({ data, coverage, onDepartment, vehicles }: { data: CenterDe
                 <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>
                   Bo&apos;lim
                 </Th>
-                <Th rowSpan={2}>Xodim</Th>
-                <GroupTh span={3}>Xarajat</GroupTh>
-                <GroupTh span={2}>Shundan</GroupTh>
-                <Th rowSpan={2}>Bir xodimga</Th>
-                <Th rowSpan={2}>Daromad</Th>
+                <GroupTh span={2}>Daromad</GroupTh>
+                <GroupTh span={2}>Xarajat</GroupTh>
+                <GroupTh span={2}>Natija</GroupTh>
               </tr>
               <tr>
-                <Th className="first:border-l">{label}</Th>
-                <Th>Joriy davr</Th>
-                <Th>Farqi, foizda</Th>
-                <Th>Ish haqi</Th>
-                <Th>Boshqa</Th>
+                <Th className="first:border-l">Summa</Th>
+                <Th title="Markaz bo'limlari jami daromadiga nisbatan">Ulushi</Th>
+                <Th>Summa</Th>
+                <Th title="Markaz o'z xarajati jamiga nisbatan">Ulushi</Th>
+                <Th>Foyda</Th>
+                <Th>Rentabellik</Th>
               </tr>
             </thead>
             <tbody>
-              <Tr total>
-                <Td className={STICKY_NO} />
-                <NameCell>O&apos;z xarajati jami</NameCell>
-                <Td>{count(t.headcount)}</Td>
-                <MoneyCell value={prevOwn} />
-                <MoneyCell value={own} calc={calcSum("O'z xarajati", data.departments.map((d) => Q.money(d.name, d.expenseTiyin)))} />
-                <DiffCell value={own - prevOwn} pct={changeOf(own, prevOwn)} growthGood={false} />
-                <MoneyCell value={Number(t.payrollTiyin)} />
-                <MoneyCell value={own - Number(t.payrollTiyin)} />
-                <MoneyCell value={t.headcount > 0 ? own / t.headcount : 0} />
-                <MoneyCell value={data.departments.reduce((s, d) => s + Number(d.incomeTiyin), 0)} />
-              </Tr>
+              {(() => {
+                const inc = data.departments.reduce((s, d) => s + Number(d.incomeTiyin), 0);
+                return (
+                  <Tr total>
+                    <Td className={STICKY_NO} />
+                    <NameCell sub={`${count(t.headcount)} xodim · ish haqi ${somText(Number(t.payrollTiyin))}`}>O&apos;z xarajati jami</NameCell>
+                    <MoneyCell value={inc} calc={calcSum('Daromad', data.departments.map((d) => Q.money(d.name, d.incomeTiyin)))} />
+                    <PctCell value={inc ? 100 : null} plain className="font-normal text-(--color-text-muted)" />
+                    <MoneyCell value={own} calc={calcSum("O'z xarajati", data.departments.map((d) => Q.money(d.name, d.expenseTiyin)))} />
+                    <PctCell value={own ? 100 : null} plain className="font-normal text-(--color-text-muted)" />
+                    <MoneyCell value={inc - own} strong signedColor calc={calcResult(inc, own, { title: "Natija: Markaz bo'limlari" })} />
+                    <PctCell value={inc > 0 ? ((inc - own) / inc) * 100 : null} plain />
+                  </Tr>
+                );
+              })()}
               {rows.map((d, i) => {
                 const exp = Number(d.expenseTiyin);
-                const prev = Number(d.previousExpenseTiyin);
+                const inc = Number(d.incomeTiyin);
+                const incBase = data.departments.reduce((s, x) => s + Number(x.incomeTiyin), 0);
+                const sub = [d.headcount ? `${count(d.headcount)} xodim` : '', d.topParts.length ? `asosan: ${d.topParts.map((p) => p.label).join(', ')}` : ''].filter(Boolean).join(' · ');
                 return (
                   <Tr key={d.id} onClick={() => onDepartment(d)} muted={d.unassigned}>
                     <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{d.unassigned ? '' : i + 1}</Td>
                     <NameCell
                       drill
                       before={<Mark item={departmentMark(d.id, d.name, 'EXPENSE', data.section)} />}
-                      sub={d.topParts.length ? `asosan: ${d.topParts.map((p) => p.label).join(', ')}` : undefined}
+                      sub={sub || undefined}
                       className={cn('max-w-72', d.unassigned && 'italic')}
                     >
                       {d.name}
                     </NameCell>
-                    <Td>{d.headcount ? count(d.headcount) : <span className="text-(--color-text-faint)"></span>}</Td>
-                    <MoneyCell value={prev} />
-                    <MoneyCell value={exp} strong />
-                    <DiffCell value={exp - prev} pct={changeOf(exp, prev)} growthGood={false} calc={calcChange(`${d.name} xarajati`, Q.money('Joriy davr', exp), Q.money(label, prev), { growthGood: false })} />
-                    <MoneyCell value={Number(d.payrollTiyin)} />
-                    <MoneyCell value={Number(d.otherTiyin)} />
-                    <Td className="whitespace-nowrap">
-                      {d.perHeadTiyin ? (
-                        <CalcValue calc={calcDivide(`${d.name}: bir xodimga xarajat`, Q.money('Xarajat', d.expenseTiyin), { label: 'Xodimlar', value: d.headcount, kind: 'ratio' }, 'money', { formulaId: 'perHead' })} className="no-underline">
-                          {somText(Number(d.perHeadTiyin)).replace(" so'm", '')}
-                        </CalcValue>
-                      ) : (
-                        ''
-                      )}
-                    </Td>
-                    <MoneyCell value={Number(d.incomeTiyin)} className="text-(--color-income)" />
+                    <MoneyCell value={inc} className="text-(--color-income)" />
+                    <PctCell value={incBase > 0 ? (inc / incBase) * 100 : null} plain className="font-normal text-(--color-text-muted)" />
+                    <MoneyCell
+                      value={exp}
+                      calc={calcSum(`${d.name} xarajati`, [Q.money('Ish haqi', d.payrollTiyin), Q.money('Boshqa', d.otherTiyin)])}
+                    />
+                    <PctCell value={own > 0 ? (exp / own) * 100 : null} plain className="font-normal text-(--color-text-muted)" />
+                    <MoneyCell value={inc - exp} strong signedColor calc={calcResult(inc, exp, { title: `Natija: ${d.name}` })} />
+                    <PctCell value={inc > 0 ? ((inc - exp) / inc) * 100 : null} plain />
                   </Tr>
                 );
               })}

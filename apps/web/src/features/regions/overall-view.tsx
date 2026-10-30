@@ -3,12 +3,12 @@
 import type { DateRange } from '@/components/shared/date-range-picker';
 import {
   changeOf,
-  DiffCell,
   ExcelButton,
   GroupTh,
   MoneyCell,
   NameCell,
   PctBadge,
+  PctCell,
   PillTabs,
   ToggleAllButton,
   SearchInput,
@@ -26,13 +26,13 @@ import {
 import { count, LoadingCard } from '@/components/report/report-extra-c';
 import { type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
-import { calcChange, calcResult, calcSum, moneyText, Q } from '@/lib/calc';
+import { calcResult, calcSum, moneyText, Q } from '@/lib/calc';
 import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn, cap } from '@/lib/utils';
 import { unitByCode } from '@/lib/segments';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 import { KIND_LABEL, regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { MonthsTable } from './overall-tables';
@@ -327,7 +327,8 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
             </>
           }
         >
-          <RTable minWidth={1060}>
+          <ShareBase.Provider value={{ income: total.income, expense: total.expense }}>
+          <RTable minWidth={900}>
             <thead>
               <tr>
                 <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>
@@ -336,18 +337,16 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
                 <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>
                   Birlik
                 </Th>
-                <GroupTh span={3}>Daromad</GroupTh>
-                <GroupTh span={3}>Xarajat</GroupTh>
+                <GroupTh span={2}>Daromad</GroupTh>
+                <GroupTh span={2}>Xarajat</GroupTh>
                 <GroupTh span={2}>Natija</GroupTh>
               </tr>
               <tr>
-                <Th className="first:border-l">{label}</Th>
-                <Th>Joriy davr</Th>
-                <Th>Farqi, foizda</Th>
-                <Th>{label}</Th>
-                <Th>Joriy davr</Th>
-                <Th>Farqi, foizda</Th>
-                <Th>Natija</Th>
+                <Th className="first:border-l">Summa</Th>
+                <Th title="Korxona jami daromadiga nisbatan">Ulushi</Th>
+                <Th>Summa</Th>
+                <Th title="Korxona jami xarajatiga nisbatan">Ulushi</Th>
+                <Th>Foyda</Th>
                 <Th>Rentabellik</Th>
               </tr>
             </thead>
@@ -374,6 +373,7 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
               {[...segments, ...(unassigned ? [unassigned] : [])].filter(match).map((x) => unitRow(x, 0))}
             </tbody>
           </RTable>
+          </ShareBase.Provider>
           <TableNote>
             Tartib: Markaz → Hudud (bosing — viloyatlar) → yo&apos;nalishlar. Qatorni bosing — joyida kengayadi: tumanlar, bo&apos;limlar, tuzilmalar, xodimlar, oylar va
             yozuvlargacha. Markaz rentabelligi ko&apos;rsatilmaydi — u asosan xizmat
@@ -393,16 +393,19 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
 
 // ─────────── Natija jadvali katakchalari ───────────
 
-function ResultCells({ s, title, compareLabel, center = false }: { s: Totals | UnitStats; title: string; compareLabel: string; center?: boolean }) {
+/** Ulush asosi — korxona jami (jadval bo'ylab bitta) */
+const ShareBase = createContext<{ income: number; expense: number }>({ income: 0, expense: 0 });
+
+/** 6 ta raqamli ustun: Daromad (summa, ulushi) · Xarajat (summa, ulushi) · Natija (foyda, rentabellik) */
+function ResultCells({ s, title, center = false }: { s: Totals | UnitStats; title: string; compareLabel?: string; center?: boolean }) {
+  const base = useContext(ShareBase);
   const p = s.income - s.expense;
   return (
     <>
-      <MoneyCell value={s.previousIncome} />
       <MoneyCell value={s.income} />
-      <DiffCell value={s.income - s.previousIncome} pct={changeOf(s.income, s.previousIncome)} calc={calcChange(`${title}: daromad`, Q.money('Joriy davr', s.income), Q.money(compareLabel, s.previousIncome), { growthGood: true })} />
-      <MoneyCell value={s.previousExpense} />
+      <PctCell value={base.income > 0 ? (s.income / base.income) * 100 : null} plain className="font-normal text-(--color-text-muted)" />
       <MoneyCell value={s.expense} />
-      <DiffCell value={s.expense - s.previousExpense} pct={changeOf(s.expense, s.previousExpense)} growthGood={false} calc={calcChange(`${title}: xarajat`, Q.money('Joriy davr', s.expense), Q.money(compareLabel, s.previousExpense), { growthGood: false })} />
+      <PctCell value={base.expense > 0 ? (s.expense / base.expense) * 100 : null} plain className="font-normal text-(--color-text-muted)" />
       <MoneyCell value={p} strong signedColor calc={calcResult(s.income, s.expense, { title: `Natija: ${title}` })} />
       <Td>{center ? <span className="text-(--color-text-faint)"></span> : <PctBadge value={s.income > 0 ? (p / s.income) * 100 : null} plain />}</Td>
     </>

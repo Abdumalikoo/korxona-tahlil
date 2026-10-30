@@ -420,7 +420,8 @@ function Body({ data, loading, onDrill }: { data: RegionsResult; loading: boolea
   const t = r;
   const winners = activeRegions.filter((s) => s.profit > 0).length;
   /** Oldingi davrda ma'lumot bormi (yo'q bo'lsa — solishtirish ustunlari o'rniga ulush) */
-  const cmpOn = t.previousIncome !== 0 || t.previousExpense !== 0;
+  // Hamma jadvallar bir xil ko'rinishda: Daromad (summa, ulushi) · Xarajat (summa, ulushi) · Natija (foyda, rentabellik)
+  const cmpOn = false;
 
   const exportCsv = () =>
     downloadCsv(
