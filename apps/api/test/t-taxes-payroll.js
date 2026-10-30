@@ -20,6 +20,10 @@ const { TaxesService } = require('../dist/modules/taxes/taxes.service');
   pe('71000000000001', 1_000_000_00);
   pe('71000000000002', 500_000_00);
   pe('71000000000003', 300_000_00);
+  // Ish haqi xarajati (qayta guruhlash yozgani): Markaz bo'limi va hudud — soliq asosi shu (ko'rinadigan ish haqi bilan bir xil)
+  const pay = (id, amount, categoryCode, regionCode, departmentId, extra = {}) => T.expense.push({ id, period: '2026-09', date: new Date('2026-09-30T00:00:00Z'), amountTiyin: BigInt(amount), categoryCode, regionCode, departmentId, segment: null, source: 'PAYROLL', deletedAt: null, ...extra });
+  pay('x1', 1_000_000_00, 'PAYROLL_BASE', 0, 'd1');
+  pay('x2', 800_000_00, 'PAYROLL_BASE', 5, null);
   const svc = new TaxesService(db.client, new AuditService(db.client));
   const m = await svc.month('2026-09');
   const pt = m.payrollTaxes;
@@ -40,6 +44,16 @@ const { TaxesService } = require('../dist/modules/taxes/taxes.service');
   assert.strictEqual(await svc.removeQqsApril(), true);
   assert.strictEqual(await svc.removeQqsApril(), false, 'bir marta');
   const qqs = (await svc.types()).find((t) => t.code === 'QQS');
+  // Hudud xodimining ish haqidan Markaz hisobiga o'tgan qismi (bayram) — soliq ham Markazda; yo'nalish ish haqi — yo'nalishda
+  T.expense.find((e) => e.id === 'x2').amountTiyin = 700_000_00n;
+  pay('x3', 100_000_00, 'HM_BAYRAM', 5, null);
+  T.expense.push({ id: 'x4', period: '2026-09', date: new Date('2026-09-30T00:00:00Z'), amountTiyin: 200_000_00n, categoryCode: 'PAYROLL_BASE', regionCode: null, departmentId: null, segment: 'TAX_FREE', source: 'IMPORT', deletedAt: null });
+  await svc.syncPeriod('2026-09');
+  const soc = (pred) => T.expense.filter((e) => e.categoryCode === 'SOLIQ_IJTIMOIY' && !e.deletedAt && pred(e)).reduce((t, e) => t + e.amountTiyin, 0n);
+  assert.strictEqual(soc((e) => e.regionCode === 5), 8_400_000n, 'hudud: 12% × 700 ming (qolgani)');
+  assert.strictEqual(soc((e) => e.regionCode === 0 && !e.departmentId), 1_200_000n, 'Markaz: 12% × 100 ming (bayram)');
+  assert.strictEqual(soc((e) => e.segment === 'TAX_FREE'), 2_400_000n, 'Tax free: 12% × 200 ming');
+  assert.strictEqual(soc(() => true), 24_000_000n, 'jami — hamma ish haqining 12% i');
   assert.ok(!qqs.incomeRate && !(qqs.incomePeriods ?? []).length, 'QQS — qo‘lda');
   await svc.syncAll();
   assert.ok(!T.expense.some((e) => e.categoryCode === 'SOLIQ_QQS' && e.documentNo === 'TAX-AUTO'), "avtomatik QQS yozuvi o'chdi");

@@ -184,12 +184,15 @@ function employeeNode(prefix: string, e: { pinfl: string; fullName: string; posi
           n(m.planTiyin) ? `reja ${compact(n(m.planTiyin))}` : '',
           n(m.factTiyin) ? `fakt ${compact(n(m.factTiyin))}` : '',
           n(m.planTiyin) && n(m.factTiyin) ? `bajarilish ${pct((n(m.factTiyin) / n(m.planTiyin)) * 100)}` : '',
+          n(m.salaryTiyin) ? `ijtimoiy soliq 12% ${compact(Math.round(n(m.salaryTiyin) * 0.12))} (alohida)` : '',
           n(m.factTiyin) ? `QQS 12% ${compact(Math.round(n(m.factTiyin) * 0.12))}` : '',
         ]
           .filter(Boolean)
           .join(' · '),
         expense: n(m.salaryTiyin),
         income: n(m.factTiyin) || null,
+        // Ish haqi to'liq; ichiga kirilganda — daromad solig'i 12% (ichida) va qo'lga (sof)
+        ...(n(m.salaryTiyin) ? { children: payrollSplit(`${prefix}:e:${e.pinfl}:${m.period}`, n(m.salaryTiyin), 0).children } : {}),
       }));
     },
   };

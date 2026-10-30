@@ -293,42 +293,42 @@ export class TaxesService implements OnApplicationBootstrap {
 
   // ═══════════ Avtomatik (ish haqidan foiz) ═══════════
 
-  /** Oy ish haqi fondi: birlik (hudud / Markaz bo'limi) → to'liq ish haqi */
+  /**
+   * Oy ish haqi fondi (ijtimoiy soliq asosi): birlik → ish haqi. Asos — xarajatda yozilgan ish haqining o'zi, ya'ni har
+   * birlikda (hudud, Markaz bo'limi, yo'nalish) ko'rinadigan «Ish haqi» bilan aynan bir xil — soliq har joyda shu ish haqining
+   * 12% i (foydalanuvchi qoidasi):
+   *  • umumiy vedomost ish haqi (PAYROLL_BASE) — yozilgan joyida (hudud / Markaz bo'limi);
+   *  • ish haqidan Markaz hisobiga ajratilgan qism (bayram, choraklik …: HM_, IHQ_) — Markazda (ish haqi o'sha yerda);
+   *  • Qo'mita hisobidagi qism (QMT_) — Qo'mita yo'nalishida;
+   *  • yo'nalishlarga (Tax free, Marksheyder …) o'tkazilgan ish haqi — o'sha yo'nalishda.
+   */
   private async payrollBase(period: string): Promise<Map<string, { regionCode: number | null; departmentId: string | null; segment?: string | null; base: bigint }>> {
     const out = new Map<string, { regionCode: number | null; departmentId: string | null; segment?: string | null; base: bigint }>();
-    // Yo'nalishlar (Tax free, Marksheyder …) ish haqi — umumiy vedomostdan o'tkazilgani ham: ijtimoiy soliq hamma ish haqidan
-    // 12% (foydalanuvchi qoidasi), soliq o'sha yo'nalish hisobiga
-    const segs = await this.prisma.expense.groupBy({ by: ['segment'], where: { period, deletedAt: null, source: 'IMPORT', categoryCode: 'PAYROLL_BASE', segment: { not: null } }, _sum: { amountTiyin: true } });
-    for (const g of segs) {
-      const b = g._sum.amountTiyin ?? 0n;
-      if (g.segment && b > 0n) out.set(`s:${g.segment}`, { regionCode: null, departmentId: null, segment: g.segment, base: b });
-    }
-    const entries = await this.prisma.payrollEntry.findMany({
-      where: { period, deletedAt: null, batch: { status: 'COMMITTED' } },
-      select: { employeePinfl: true, baseTiyin: true, bonusTiyin: true, totalTiyin: true },
-    });
-    if (!entries.length) return out;
-    const pins = [...new Set(entries.map((e) => e.employeePinfl))];
-    const [employees, locations] = await Promise.all([
-      this.prisma.employee.findMany({ where: { pinfl: { in: pins } }, select: { pinfl: true, regionCode: true, departmentId: true } }),
-      this.prisma.employeeLocation.findMany({ where: { period, employeePinfl: { in: pins } }, select: { employeePinfl: true, regionCode: true } }),
-    ]);
-    const emp = new Map(employees.map((e) => [e.pinfl, e]));
-    const loc = new Map(locations.map((l) => [l.employeePinfl, l.regionCode]));
-    // Shu oy joy o'zgarishlari (ish haqi tarkibi bo'yicha yoki bo'lim sahifasidan) — ish haqi xarajati qayerga
-    // yozilgan bo'lsa, soliq ham o'sha yerga (ish haqi bilan bir xil qoida)
-    const fixes = (((await this.prisma.setting.findUnique({ where: { key: `salary.composition.place.${period}` } }).catch(() => null))?.value as { fixes?: Record<string, { unit?: string; departmentId?: string | null; regionCode?: number | null }> } | null)?.fixes ?? {});
-    for (const e of entries) {
-      const full = e.baseTiyin === 0n ? e.totalTiyin + e.bonusTiyin : e.baseTiyin;
-      if (full <= 0n) continue;
-      const fx = fixes[e.employeePinfl];
-      const fixedRegion = fx?.unit === 'REGION' && typeof fx.regionCode === 'number' && fx.regionCode > 0 ? fx.regionCode : fx?.unit === 'CENTER' ? CENTRAL : null;
-      const regionCode = fixedRegion ?? loc.get(e.employeePinfl) ?? emp.get(e.employeePinfl)?.regionCode ?? CENTRAL;
-      const departmentId = regionCode === CENTRAL ? ((fx?.unit === 'CENTER' ? fx.departmentId : null) ?? emp.get(e.employeePinfl)?.departmentId ?? null) : null;
-      const key = unitKey(regionCode, departmentId);
-      const u = out.get(key) ?? { regionCode, departmentId, base: 0n };
-      u.base += full;
+    const add = (key: string, place: { regionCode: number | null; departmentId: string | null; segment?: string | null }, v: bigint) => {
+      if (v <= 0n) return;
+      const u = out.get(key) ?? { ...place, base: 0n };
+      u.base += v;
       out.set(key, u);
+    };
+    const rows = await this.prisma.expense.groupBy({
+      by: ['source', 'categoryCode', 'regionCode', 'departmentId', 'segment'],
+      where: { period, deletedAt: null, OR: [{ source: 'PAYROLL' }, { source: 'IMPORT', categoryCode: 'PAYROLL_BASE', segment: { not: null } }] },
+      _sum: { amountTiyin: true },
+    });
+    for (const g of rows) {
+      const v = g._sum.amountTiyin ?? 0n;
+      if (g.segment) {
+        add(`s:${g.segment}`, { regionCode: null, departmentId: null, segment: g.segment }, v);
+        continue;
+      }
+      if (g.categoryCode !== 'PAYROLL_BASE') {
+        // Ish haqidan Markaz hisobiga ajratilgan qism — ish haqi Markazda, soliq ham Markazda
+        add('center', { regionCode: CENTRAL, departmentId: null }, v);
+        continue;
+      }
+      const regionCode = g.regionCode ?? CENTRAL;
+      const departmentId = regionCode === CENTRAL ? g.departmentId : null;
+      add(unitKey(regionCode, departmentId), { regionCode, departmentId }, v);
     }
     return out;
   }

@@ -827,6 +827,8 @@ export function MonthsTable({ months, income, expense }: { months: string[]; inc
 const VAT_RATE = 0.12;
 /** Ijtimoiy soliq — ish haqidan 12% (Soliqlarda avtomatik yoziladi) */
 const SOCIAL_RATE = 0.12;
+/** Daromad solig'i (JShDS) — ish haqi ichida 12% (xodimdan ushlanadi, alohida xarajat emas) */
+const JSHDS_RATE = 0.12;
 
 export function EmployeeDrill({ pinfl, range, noPlan = false }: { pinfl: string; range: DateRange; noPlan?: boolean }) {
   const result = useAsync(() => drillApi.employee(pinfl, range).then((r) => r.data), [pinfl, range.from, range.to]);
@@ -923,6 +925,9 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
                 <Th className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>Oy</Th>
                 <Th className="text-left">Qayerda ishlagan</Th>
                 <Th>Ish haqi</Th>
+                <Th title="Ish haqi ichida — xodimdan ushlanadi (alohida xarajat emas)">shundan: daromad solig&apos;i 12%</Th>
+                <Th>shundan: qo&apos;lga (sof)</Th>
+                <Th title="Ish beruvchi to'laydi — ish haqidan 12% (alohida xarajat)">Ijtimoiy soliq 12%</Th>
                 {!noPlan && (
                   <>
                     <Th>Reja</Th>
@@ -940,6 +945,9 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
                 <NameCell>Jami</NameCell>
                 <Td />
                 <MoneyCell value={Number(t.salaryTiyin)} calc={calcSum('Jami ish haqi', data.months.map((m) => Q.money(formatPeriod(m.period), m.salaryTiyin)))} />
+                <MoneyCell value={Math.round(Number(t.salaryTiyin) * JSHDS_RATE)} className="text-(--color-text-muted)" />
+                <MoneyCell value={Number(t.salaryTiyin) - Math.round(Number(t.salaryTiyin) * JSHDS_RATE)} className="text-(--color-text-muted)" />
+                <MoneyCell value={Math.round(Number(t.salaryTiyin) * SOCIAL_RATE)} />
                 {!noPlan && (
                   <>
                     <MoneyCell value={plan} />
@@ -956,6 +964,9 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
                   <NameCell>{formatPeriod(m.period)}</NameCell>
                   <Td className="text-left text-(--color-text-muted)">{(m.placeLabel ?? (m.districtName ? `${m.regionName}, ${m.districtName}` : m.regionName))}</Td>
                   <MoneyCell value={Number(m.salaryTiyin)} className="text-(--color-expense)" />
+                  <MoneyCell value={Math.round(Number(m.salaryTiyin) * JSHDS_RATE)} className="text-(--color-text-muted)" />
+                  <MoneyCell value={Number(m.salaryTiyin) - Math.round(Number(m.salaryTiyin) * JSHDS_RATE)} className="text-(--color-text-muted)" />
+                  <MoneyCell value={Math.round(Number(m.salaryTiyin) * SOCIAL_RATE)} />
                   {!noPlan && (
                     <>
                       <MoneyCell value={Number(m.planTiyin)} />

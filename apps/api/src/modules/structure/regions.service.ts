@@ -354,6 +354,8 @@ export class RegionsService {
           addPart(acc.expenseParts, 'PAYROLL', 'Ish haqi', row.amountTiyin, isCurrent, isPrevious);
         } else if (row.source === 'LEASE') addPart(acc.expenseParts, 'LEASE', 'Ijara', row.amountTiyin, isCurrent, isPrevious);
         else if (row.source === 'VEHICLE') addPart(acc.expenseParts, 'VEHICLE', 'Mashina xarajatlari', row.amountTiyin, isCurrent, isPrevious);
+        // Soliqlar — o'z moddasi bo'yicha alohida (Ijtimoiy soliq — ish haqidan 12%, QQS — daromaddan 12%)
+        else if (row.source === 'TAX') addPart(acc.expenseParts, `c:${row.categoryCode}`, categoryLabel.get(row.categoryCode) ?? row.categoryCode, row.amountTiyin, isCurrent, isPrevious);
         else {
           const top = categoryParent.get(row.categoryCode) ?? row.categoryCode;
           addPart(acc.expenseParts, `c:${top}`, categoryLabel.get(top) ?? top, row.amountTiyin, isCurrent, isPrevious);

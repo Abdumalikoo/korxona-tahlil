@@ -367,6 +367,10 @@ export class CenterService {
       } else if (safarIds.has(row.id)) {
         key = SAFAR_PART.key;
         label = SAFAR_PART.label;
+      } else if (row.source === 'TAX') {
+        // Soliqlar — o'z moddasi bo'yicha alohida (Ijtimoiy soliq — ish haqidan 12%; boshqalari)
+        key = `c:${row.categoryCode}`;
+        label = categoryLabel.get(row.categoryCode) ?? row.categoryCode;
       } else {
         const top = categoryParent.get(row.categoryCode) ?? row.categoryCode;
         key = `c:${top}`;
