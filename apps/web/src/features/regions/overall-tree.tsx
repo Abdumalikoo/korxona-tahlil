@@ -2,7 +2,7 @@
 
 import type { DateRange } from '@/components/shared/date-range-picker';
 import { IconChevronRight, IconSpinner } from '@/components/ui/icons';
-import { useDrill, type DrillTarget } from '@/features/explore/drill';
+import { type DrillTarget } from '@/features/explore/drill';
 import { compact, pct, som, type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -449,7 +449,6 @@ const CELL = 'border-b border-l border-(--color-line) px-2 py-1.5 text-right tex
  * ochilgan har daraja ham oylar bo'yicha yuklanadi.
  */
 export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; range: DateRange; section: SectionFilter; compare: CompareMode; fmt: Fmt }) {
-  const { open: openRecords } = useDrill();
   const [roots] = useState(() => unitTree(s, { range, section, compare }));
   const [months] = useState(() => {
     const list = monthsOf(range);
@@ -629,19 +628,6 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
                 <span className={cn('block leading-snug', nd.group ? 'text-[11px] font-bold uppercase tracking-wide text-brand-700' : 'text-heading')}>{nd.label}</span>
                 {nd.sub && <span className="block truncate text-[10.5px] text-(--color-text-faint)">{nd.sub}</span>}
               </span>
-              {nd.records && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openRecords({ ...nd.records!, expected: nd.records!.kind === 'income' ? (nd.income ?? undefined) : (nd.expense ?? undefined) });
-                  }}
-                  className="ml-1 shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-medium text-brand-700 hover:bg-brand-50 hover:underline"
-                  title="Shu summani tashkil qilgan yozuvlar"
-                >
-                  yozuvlar
-                </button>
-              )}
             </span>
           </td>
           <td className={CELL} title={has(nd.income) ? som(nd.income) : undefined}>

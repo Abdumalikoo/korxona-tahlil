@@ -3,7 +3,7 @@
 import { DiffCell, changeOf, MoneyCell, NameCell, PctCell, RTable, STICKY_NAME, STICKY_NO, Td, Th, Tr } from '@/components/report/report';
 import { IconSpinner } from '@/components/ui/icons';
 import type { DateRange } from '@/components/shared/date-range-picker';
-import { DrillProvider, useDrill } from '@/features/explore/drill';
+import { DrillProvider } from '@/features/explore/drill';
 import { partOpens, statsOf, type RegionUnit } from '@/features/regions/api';
 import { partNodes, unitTree, type Ctx, type TNode } from '@/features/regions/overall-tree';
 import { SEGMENTS } from '@/lib/segments';
@@ -66,7 +66,6 @@ export function StructureDrill(props: { units: RegionUnit[]; kind: Kind; cmpOn: 
 }
 
 function Tree({ units, kind, cmpOn, info, range }: { units: RegionUnit[]; kind: Kind; cmpOn: boolean; info?: DrillInfoRow | null; range: DateRange }) {
-  const { open: openRecords } = useDrill();
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [loaded, setLoaded] = useState<Map<string, TNode[]>>(new Map());
   const [loading, setLoading] = useState<Set<string>>(new Set());
@@ -198,19 +197,6 @@ function Tree({ units, kind, cmpOn, info, range }: { units: RegionUnit[]; kind: 
           >
             <span className="flex flex-wrap items-center gap-2">
               {nd.label}
-              {nd.records && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openRecords({ ...nd.records!, expected: cur ?? undefined });
-                  }}
-                  className="rounded px-1.5 py-0.5 text-[10.5px] font-medium normal-case tracking-normal text-brand-700 hover:bg-brand-50 hover:underline"
-                  title="Shu summani tashkil qilgan yozuvlar"
-                >
-                  yozuvlar
-                </button>
-              )}
             </span>
           </NameCell>
           {cmpOn && (prev === null ? <Td /> : <MoneyCell value={prev} />)}
