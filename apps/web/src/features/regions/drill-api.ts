@@ -188,7 +188,8 @@ export interface CenterDetailResult extends DrillBase {
   incomeParts: MoneyPart[];
   ownParts: MoneyPart[];
   regionalParts: MoneyPart[];
-  regionalBy: { regionCode: number | null; name: string; amountTiyin: string }[];
+  /** Hududlar uchun — kimga: hudud → modda → oy (joriy davr) */
+  regionalBy: { regionCode: number | null; name: string; amountTiyin: string; parts: { key: string; label: string; amountTiyin: string; months: { period: string; amountTiyin: string }[] }[] }[];
   departments: DepartmentRow[];
   trend: { income: string[]; own: string[]; regional: string[]; assets?: string[] };
   notes: string[];

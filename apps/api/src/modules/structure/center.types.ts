@@ -60,7 +60,8 @@ export interface CenterDetailResult extends DrillBase {
   /** Hududlar uchun to'langan moddalar */
   regionalParts: MoneyPart[];
   /** Hududlar uchun to'langan — qaysi hudud uchun */
-  regionalBy: { regionCode: number | null; name: string; amountTiyin: string }[];
+  /** Hududlar uchun — kimga: hudud → modda → oy (joriy davr) */
+  regionalBy: { regionCode: number | null; name: string; amountTiyin: string; parts: { key: string; label: string; amountTiyin: string; months: { period: string; amountTiyin: string }[] }[] }[];
   /** Bo'limlar + (bo'lsa) «Bo'limga biriktirilmagan»; yig'indisi = o'z xarajati */
   departments: DepartmentRow[];
   /** 12 oy: daromad, o'z xarajati, hududlar uchun */

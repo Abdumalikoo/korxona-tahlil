@@ -14,6 +14,7 @@ import {
   RTable,
   SearchInput,
   StatTiles,
+  ToggleAllButton,
   STICKY_NAME,
   STICKY_NO,
   TableNote,
@@ -323,42 +324,7 @@ function CenterBody({ data, coverage, onDepartment, vehicles }: { data: CenterDe
         </>
       )}
 
-      {view === 'regional' && (
-        <ReportCard title="Hududlar uchun — kimga" badge="Markaz hisobidan to'langan moddalar qaysi hudud uchun">
-          {data.regionalBy.length === 0 ? (
-            <EmptyNote>Bu davrda yo&apos;q</EmptyNote>
-          ) : (
-            <RTable minWidth={560}>
-              <thead>
-                <tr>
-                  <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
-                  <Th className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>Hudud</Th>
-                  <Th>Summasi</Th>
-                  <Th>Ulushi</Th>
-                </tr>
-              </thead>
-              <tbody>
-                <Tr total>
-                  <Td className={STICKY_NO} />
-                  <NameCell>Jami hududlar uchun</NameCell>
-                  <MoneyCell value={regional} calc={calcSum("Hududlar uchun to'langan", data.regionalBy.map((r) => Q.money(r.name, r.amountTiyin)))} />
-                  <Td>
-                    <PctBadge value={100} plain />
-                  </Td>
-                </Tr>
-                {data.regionalBy.map((r, i) => (
-                  <Tr key={String(r.regionCode)}>
-                    <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
-                    <NameCell>{r.name}</NameCell>
-                    <MoneyCell value={Number(r.amountTiyin)} />
-                    <ShareCell part={Number(r.amountTiyin)} total={regional} calc={calcShare(`${r.name} ulushi`, Q.money(r.name, r.amountTiyin), Q.money('Hududlar uchun jami', regional))} />
-                  </Tr>
-                ))}
-              </tbody>
-            </RTable>
-          )}
-        </ReportCard>
-      )}
+      {view === 'regional' && <RegionalByTable data={data} total={regional} />}
 
       {view === 'months' && (
         <ReportCard title={`Markaz: oxirgi ${data.months.length} oy`} badge="Daromad va xarajat oyma-oy" actions={<ExcelButton onClick={exportMonths} />}>
@@ -633,5 +599,147 @@ function DepartmentBody({ data, onEmployee, vehicles }: { data: DepartmentDetail
         </ReportCard>
       )}
     </div>
+  );
+}
+
+// ─────────── Hududlar uchun — kimga: hudud → modda → oy ───────────
+
+/**
+ * Markaz hisobidan (Xarajatlar siyosati bo'yicha) to'langan xarajatlar — qaysi hudud uchun.
+ * Hudud bosilsa — moddalar (bayram, mukofot, xizmat safari …), modda bosilsa — oyma-oy.
+ */
+function RegionalByTable({ data, total }: { data: CenterDetailResult; total: number }) {
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const toggle = (k: string) =>
+    setOpen((x) => {
+      const nx = new Set(x);
+      if (nx.has(k)) nx.delete(k);
+      else nx.add(k);
+      return nx;
+    });
+  const rkey = (r: CenterDetailResult['regionalBy'][number]) => String(r.regionCode);
+  // Qidiruv — hudud yoki modda nomi bo'yicha (modda topilsa — hudud ochiq ko'rinadi)
+  const rows = data.regionalBy
+    .map((r) => ({ r, parts: !q || r.name.toLowerCase().includes(q) ? r.parts : r.parts.filter((p) => p.label.toLowerCase().includes(q)) }))
+    .filter((x) => !q || x.parts.length > 0 || x.r.name.toLowerCase().includes(q));
+  const allKeys = () => {
+    const keys = new Set<string>();
+    for (const { r, parts } of rows) {
+      keys.add(rkey(r));
+      for (const p of parts) keys.add(`${rkey(r)}|${p.key}`);
+    }
+    return keys;
+  };
+  const exportCsv = () =>
+    downloadCsv(
+      `markaz-hududlar-uchun-${data.range.from}_${data.range.to}`,
+      ['Hudud', 'Modda', 'Oy', "Summa, so'm", 'Ulushi, %'],
+      [
+        ...data.regionalBy.flatMap((r) => [
+          [r.name, '', '', csvSom(Number(r.amountTiyin)), csvPct(total > 0 ? (Number(r.amountTiyin) / total) * 100 : null)],
+          ...r.parts.flatMap((p) => [
+            [r.name, p.label, '', csvSom(Number(p.amountTiyin)), csvPct(Number(r.amountTiyin) > 0 ? (Number(p.amountTiyin) / Number(r.amountTiyin)) * 100 : null)],
+            ...p.months.map((m) => [r.name, p.label, formatPeriod(m.period), csvSom(Number(m.amountTiyin)), '']),
+          ]),
+        ]),
+        ['Jami hududlar uchun', '', '', csvSom(total), '100'],
+      ],
+    );
+  const chevron = (isOpen: boolean, can: boolean, depth: number) => (
+    <span className="flex shrink-0 items-center" style={{ paddingLeft: depth * 18 }}>
+      <span className={cn('inline-block w-3.5 text-center text-(--color-text-faint)', !can && 'invisible')}>{isOpen ? '▾' : '▸'}</span>
+    </span>
+  );
+
+  return (
+    <ReportCard
+      title="Hududlar uchun — kimga"
+      badge="Markaz hisobidan to'langan moddalar qaysi hudud uchun"
+      actions={
+        data.regionalBy.length > 0 ? (
+          <>
+            <SearchInput value={query} onChange={setQuery} placeholder="Hudud yoki modda…" />
+            <ExcelButton onClick={exportCsv} />
+            <ToggleAllButton open={open.size > 0} onClick={() => setOpen(open.size ? new Set() : allKeys())} />
+          </>
+        ) : undefined
+      }
+    >
+      {data.regionalBy.length === 0 ? (
+        <EmptyNote>Bu davrda yo&apos;q</EmptyNote>
+      ) : (
+        <>
+          <RTable minWidth={620}>
+            <thead>
+              <tr>
+                <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+                <Th className={cn(STICKY_NAME, 'z-[2] min-w-56 text-left')}>Hudud → modda → oy</Th>
+                <Th>Summasi</Th>
+                <Th>Ulushi</Th>
+              </tr>
+            </thead>
+            <tbody>
+              <Tr total>
+                <Td className={STICKY_NO} />
+                <NameCell>Jami hududlar uchun</NameCell>
+                <MoneyCell value={total} calc={calcSum("Hududlar uchun to'langan", data.regionalBy.map((r) => Q.money(r.name, r.amountTiyin)))} />
+                <Td>
+                  <PctBadge value={100} plain />
+                </Td>
+              </Tr>
+              {rows.flatMap(({ r, parts }, i) => {
+                const k = rkey(r);
+                const rOpen = open.has(k) || (q !== '' && parts.length > 0 && !r.name.toLowerCase().includes(q));
+                const amount = Number(r.amountTiyin);
+                const out = [
+                  <Tr key={k} onClick={parts.length ? () => toggle(k) : undefined}>
+                    <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                    <NameCell before={chevron(rOpen, parts.length > 0, 0)} sub={parts.length ? `${r.parts.length} ta modda` : undefined}>
+                      {r.name}
+                    </NameCell>
+                    <MoneyCell value={amount} calc={calcSum(r.name, r.parts.map((p) => Q.money(p.label, p.amountTiyin)))} />
+                    <ShareCell part={amount} total={total} calc={calcShare(`${r.name} ulushi`, Q.money(r.name, r.amountTiyin), Q.money('Hududlar uchun jami', total))} />
+                  </Tr>,
+                ];
+                if (!rOpen) return out;
+                for (const p of parts) {
+                  const pk = `${k}|${p.key}`;
+                  const pOpen = open.has(pk);
+                  out.push(
+                    <Tr key={pk} onClick={p.months.length ? () => toggle(pk) : undefined} className="bg-(--color-surface-muted)/40">
+                      <Td className={STICKY_NO} />
+                      <NameCell before={chevron(pOpen, p.months.length > 0, 1)} sub={p.months.length > 1 ? `${p.months.length} oy` : p.months[0] ? formatPeriod(p.months[0].period) : undefined}>
+                        {p.label}
+                      </NameCell>
+                      <MoneyCell value={Number(p.amountTiyin)} />
+                      <ShareCell part={Number(p.amountTiyin)} total={amount} calc={calcShare(`${p.label}: ${r.name} ichidagi ulushi`, Q.money(p.label, p.amountTiyin), Q.money(r.name, r.amountTiyin))} />
+                    </Tr>,
+                  );
+                  if (pOpen)
+                    for (const m of p.months)
+                      out.push(
+                        <Tr key={`${pk}|${m.period}`} className="bg-(--color-surface-muted)/70">
+                          <Td className={STICKY_NO} />
+                          <NameCell before={chevron(false, false, 2)} className="font-normal text-(--color-text-muted)">
+                            {formatPeriod(m.period)}
+                          </NameCell>
+                          <MoneyCell value={Number(m.amountTiyin)} className="text-(--color-text-muted)" />
+                          <Td />
+                        </Tr>,
+                      );
+                }
+                return out;
+              })}
+            </tbody>
+          </RTable>
+          <TableNote>
+            Qatorni bosing — ichi ochiladi: hudud → moddalar (bayram, mukofot, xizmat safari …) → oyma-oy. Bu xarajatlar Xarajatlar siyosati bo&apos;yicha hudud xarajatidan
+            chiqarilib, Markaz hisobiga yozilgan («Xarajat tarkibi» › 1b). Hudud — yozuvda ko&apos;rsatilgan hudud; ulush — hudud qatorida jamiga, modda qatorida shu hududga nisbatan.
+          </TableNote>
+        </>
+      )}
+    </ReportCard>
   );
 }

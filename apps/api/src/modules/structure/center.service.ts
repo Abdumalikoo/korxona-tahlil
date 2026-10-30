@@ -89,6 +89,8 @@ interface Collected {
   ownParts: Map<string, Part>;
   regionalParts: Map<string, Part>;
   regionalBy: Map<number | null, bigint>;
+  /** Hudud → modda → oy (joriy davr): «Hududlar uchun — kimga» ichma-ich ochilishi uchun */
+  regionalByParts: Map<number | null, Map<string, { label: string; amount: bigint; months: Map<string, bigint> }>>;
   regionName: Map<number, string>;
   trend: { income: bigint[]; own: bigint[]; regional: bigint[]; assets: bigint[] };
   /** inCenter — davr oxirida Markazda (joylashuv davri bo'yicha hududga o'tgan bo'lsa — yo'q: bo'lim ro'yxatiga chiqmaydi) */
@@ -243,6 +245,7 @@ export class CenterService {
       ownParts: new Map(),
       regionalParts: new Map(),
       regionalBy: new Map(),
+      regionalByParts: new Map(),
       regionName,
       trend: { income: months.map(() => 0n), own: months.map(() => 0n), regional: months.map(() => 0n), assets: months.map(() => 0n) },
       employees: new Map(),
@@ -298,6 +301,15 @@ export class CenterService {
         if (isCurrent) {
           c.regional += row.amountTiyin;
           c.regionalBy.set(beneficiary, (c.regionalBy.get(beneficiary) ?? 0n) + row.amountTiyin);
+          // Ichma-ich: hudud → modda (1b dagi kalitlar bilan bir xil) → oy
+          const [pk, pl] = safarIds.has(row.id) ? [SAFAR_PART.key, SAFAR_PART.label] : [row.categoryCode, categoryLabel.get(row.categoryCode) ?? row.categoryCode];
+          const byPart = c.regionalByParts.get(beneficiary) ?? new Map();
+          const part = byPart.get(pk) ?? { label: pl, amount: 0n, months: new Map<string, bigint>() };
+          part.amount += row.amountTiyin;
+          const mo = monthOf(row.date);
+          part.months.set(mo, (part.months.get(mo) ?? 0n) + row.amountTiyin);
+          byPart.set(pk, part);
+          c.regionalByParts.set(beneficiary, byPart);
         }
         if (isPrevious) c.previousRegional += row.amountTiyin;
         if (isCurrent || isPrevious) {
@@ -498,7 +510,12 @@ export class CenterService {
     if (none && none.expense > 0n) notes.push(`${fmt(none.expense)} xarajat bo'limga biriktirilmagan — Xarajatlarda bo'limini ko'rsating.`);
 
     const regionalBy = [...c.regionalBy.entries()]
-      .map(([code, amount]) => ({ regionCode: code, name: code === null ? 'Hudud ko\'rsatilmagan' : (c.regionName.get(code) ?? `Hudud ${code}`), amountTiyin: amount.toString() }))
+      .map(([code, amount]) => ({ regionCode: code, name: code === null ? 'Hudud ko\'rsatilmagan' : (c.regionName.get(code) ?? `Hudud ${code}`), amountTiyin: amount.toString(),
+        parts: [...(c.regionalByParts.get(code) ?? new Map<string, { label: string; amount: bigint; months: Map<string, bigint> }>()).entries()]
+          .filter(([, p]) => p.amount !== 0n)
+          .sort((a, b) => (b[1].amount > a[1].amount ? 1 : b[1].amount < a[1].amount ? -1 : 0))
+          .map(([key, p]) => ({ key, label: p.label, amountTiyin: p.amount.toString(), months: [...p.months.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([period, v]) => ({ period, amountTiyin: v.toString() })) })),
+      }))
       .sort((a, b) => Number(BigInt(b.amountTiyin) - BigInt(a.amountTiyin)));
 
     return {
