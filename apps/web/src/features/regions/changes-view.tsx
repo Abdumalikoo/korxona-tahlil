@@ -5,8 +5,6 @@ import {
   changeOf,
   DiffCell,
   ExcelButton,
-  Field,
-  FilterBar,
   GroupTh,
   MoneyCell,
   NameCell,
@@ -14,7 +12,6 @@ import {
   ReportCard,
   RTable,
   SearchInput,
-  SelectBox,
   StatTiles,
   STICKY_NAME,
   STICKY_NO,
@@ -37,7 +34,7 @@ import { PinflText } from './pinfl-text';
 // Solishtirma › O'zgarishlar: bu oy nechta xodimga oylik hisoblandi (hududlar / Markaz),
 // o'tgan oyga nisbatan — ishga olindi, qaytdi, bo'shatildi, ishlamadi, ko'chdi, oyligi keskin o'zgardi.
 // Manba — ish haqi vedomostlari, xodimlar reestri (ishga kirgan / bo'shagan sana) va hudud tarixi.
-// Yagona hisobot uslubida: kartalar → filtr → hududlar jadvali → xodimlar jadvali.
+// Oy — yuqoridagi asosiy «Davr» panelidan. Yagona hisobot uslubida: kartalar → hududlar jadvali → xodimlar jadvali.
 // ═══════════════════════════════════════════════════════════
 
 const KIND: Record<ChangeKind, { label: string; hint: string; cls: string; sign: string }> = {
@@ -52,15 +49,18 @@ const KIND: Record<ChangeKind, { label: string; hint: string; cls: string; sign:
 };
 const ORDER: ChangeKind[] = ['hired', 'hiredUnpaid', 'returned', 'fired', 'idle', 'moved', 'up', 'down'];
 
+/** Oy — yuqoridagi asosiy «Davr» panelidan (davr oxiri: o'sha oy yoki undan oldingi oxirgi ish haqi oyi) */
 export function ChangesView({ to }: { to: string }) {
-  const [month, setMonth] = useState<string | null>(null);
-  const res = useAsync(() => changesApi.month(month ? { month } : { to }).then((r) => r.data), [month, to]);
+  const res = useAsync(() => changesApi.month({ to }).then((r) => r.data), [to]);
   const [kind, setKind] = useState<ChangeKind | 'all'>('all');
-  const [unit, setUnit] = useState<string | null>(null);
+  // Tanlangan hudud — shu oy uchun; «Davr» o'zgarsa, filtr o'z-o'zidan bekor bo'ladi
+  const [unitSel, setUnitSel] = useState<{ period: string; key: string } | null>(null);
   const [query, setQuery] = useState('');
   const data = res.data;
 
   if (!data) return <LoadingCard label="O'zgarishlar yuklanmoqda" error={res.error} onRetry={res.reload} />;
+  const unit = unitSel?.period === data.period ? unitSel.key : null;
+  const setUnit = (key: string | null) => setUnitSel(key ? { period: data.period, key } : null);
 
   const q = query.trim().toLowerCase();
   const people = data.people.filter(
@@ -69,7 +69,6 @@ export function ChangesView({ to }: { to: string }) {
   const t = data.totals;
   const prevLabel = formatPeriod(data.previousPeriod);
   const curLabel = formatPeriod(data.period);
-  const periods = [...new Set([data.period, ...data.periods])].sort().reverse();
 
   const exportCsv = () =>
     downloadCsv(
@@ -108,23 +107,9 @@ export function ChangesView({ to }: { to: string }) {
 
   return (
     <div className="space-y-4">
-      <FilterBar>
-        <Field label="Oy">
-          <SelectBox
-            value={data.period}
-            options={periods.map((p) => ({ value: p, label: formatPeriod(p) }))}
-            onChange={(v) => {
-              setMonth(v);
-              setUnit(null);
-            }}
-          />
-        </Field>
-        <p className="pb-2.5 text-xs text-(--color-text-muted)">{prevLabel}ga nisbatan · ish haqi vedomostlari, xodimlar reestri va hudud tarixidan</p>
-      </FilterBar>
-
       {!data.hasCurrent ? (
         <div className="rounded-2xl bg-white px-5 py-8 text-center text-sm text-(--color-text-muted) shadow-card">
-          {curLabel} uchun ish haqi vedomosti yuklanmagan — oyni tanlang yoki Xarajatlar › Ish haqidan yuklang.
+          {curLabel} uchun ish haqi vedomosti yuklanmagan — yuqoridagi «Davr»dan boshqa oyni tanlang yoki Xarajatlar › Ish haqidan yuklang.
         </div>
       ) : (
         <>
@@ -200,7 +185,9 @@ export function ChangesView({ to }: { to: string }) {
                 ))}
               </tbody>
             </RTable>
-            <TableNote>Qatorni bosing — pastdagi xodimlar ro&apos;yxati shu hudud bo&apos;yicha.</TableNote>
+            <TableNote>
+              Qatorni bosing — pastdagi xodimlar ro&apos;yxati shu hudud bo&apos;yicha. {curLabel} — yuqoridagi «Davr» oxiri; {prevLabel}ga nisbatan. Manba — ish haqi vedomostlari, xodimlar reestri va hudud tarixi.
+            </TableNote>
           </ReportCard>
 
           {data.notes.length > 0 && (
