@@ -347,6 +347,35 @@ export class Acc23106BayramService {
     return { success: true as const, period: p.period };
   }
 
+  /**
+   * O'chirish: tanlangan tasdiqlar (ids) yoki hammasi (all) saqlangan joydan butunlay olib tashlanadi va o'sha oylar
+   * ish haqi qayta guruhlanadi — bayram pullari hudud ish haqiga qaytadi. Ko'chirmaning o'zi (23106) o'zgarmaydi.
+   */
+  async remove(body: { ids?: unknown; all?: unknown }, userId: string) {
+    const all = body?.all === true;
+    const ids = Array.isArray(body?.ids) ? new Set(body.ids.map((x) => String(x).slice(0, 64))) : new Set<string>();
+    if (!all && !ids.size) throw new BadRequestException("O'chirish uchun tasdiqni tanlang");
+    const removed = await runExclusive(`setting:${BAYRAM_STORE_KEY}`, async () => {
+      const store = await this.store();
+      const hit = store.posts.filter((p) => all || ids.has(p.id));
+      if (!hit.length) throw new NotFoundException('Tasdiq topilmadi');
+      store.posts = store.posts.filter((p) => !hit.includes(p));
+      await this.save(store);
+      return hit;
+    });
+    // Faol bo'lgan tasdiqlar oylari — ish haqi qayta guruhlanadi (bayram hududga qaytadi)
+    const periods = [...new Set(removed.filter((p) => p.status === 'POSTED').map((p) => p.period))].sort();
+    for (const p of periods) await this.payroll.regroup(p);
+    await this.audit.log({
+      userId,
+      action: 'DELETE',
+      entity: 'acc_23106_bayram',
+      entityId: all ? 'all' : removed.map((p) => p.id).join(',').slice(0, 190),
+      summary: `23106 hudud bayram pullari tasdiqlari o'chirildi: ${removed.length} ta${periods.length ? ` (${periods.map(monthLabel).join(', ')} — bayram hudud ish haqiga qaytdi)` : ''}`,
+    });
+    return { success: true as const, removed: removed.length, periods };
+  }
+
   /** Ko'chirma oylari almashtirilsa yoki bekor qilinsa — shu oylardagi to'lovlar kirgan tasdiqlar bekor */
   async dropPayMonths(months: string[], reason: string, userId: string): Promise<number> {
     if (!months.length) return 0;

@@ -107,6 +107,24 @@ const bayram = (who) => `10.03.2026 даги 00015-son буйрукка асос
   assert.strictEqual(live().reduce((s, e) => s + e.amountTiyin, 0n), TOTAL);
   assert.strictEqual(by('HM_BAYRAM').length, 2);
 
+  // ── O'chirish: tasdiq butunlay olib tashlanadi, bayram hududga qaytadi; qayta tasdiqlash mumkin ──
+  const bstore = () => T.setting.find((s) => s.key === 'acc23106.bayram').value;
+  await assert.rejects(bs.remove({}, 'adm'), /tanlang/);
+  await assert.rejects(bs.remove({ ids: ['yoq'] }, 'adm'), /topilmadi/);
+  const del = await bs.remove({ ids: [v.months[0].posted.id] }, 'adm');
+  assert.deepStrictEqual([del.removed, del.periods], [1, ['2026-03']]);
+  assert.deepStrictEqual(by('HM_BAYRAM'), [], "o'chirildi — hududga qaytdi");
+  assert.strictEqual(sig(), before, 'avvalgi holat');
+  assert.ok(!bstore().posts.some((p) => p.status === 'POSTED'), "faol tasdiq yo'q");
+  assert.strictEqual((await bs.view('2026-03', '2026-03')).months[0].posted, null);
+  await bs.confirm({ periods: ['2026-03'] }, 'adm');
+  assert.strictEqual(by('HM_BAYRAM').length, 2, 'qayta tasdiqlandi');
+  const delAll = await bs.remove({ all: true }, 'adm');
+  assert.deepStrictEqual(delAll.periods, ['2026-03']);
+  assert.strictEqual(bstore().posts.length, 0, "hammasi o'chirildi (tarix bilan)");
+  assert.strictEqual(sig(), before);
+  await bs.confirm({ periods: ['2026-03'] }, 'adm');
+
   // ── Turi o'zgarsa (endi bayram emas) — tasdiq bekor, bayram hududga qaytadi ──
   const k1 = (await svc.view('2026-03', '2026-03')).rows.find((r) => r.pinfl === P.R1 && r.kind === 'BAYRAM').key;
   await svc.setOverride({ keys: [k1], kind: 'MUKOFOT' }, 'adm');

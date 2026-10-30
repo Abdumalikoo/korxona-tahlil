@@ -176,4 +176,12 @@ export class Acc23106Controller {
   async bayramCancel(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return { data: await this.bayram.cancel(id, userId) };
   }
+
+  /** O'chirish: tanlangan tasdiqlar ({ ids }) yoki hammasi ({ all: true }) — butunlay olib tashlanadi, bayram hududga qaytadi */
+  @Roles(UserRole.ADMIN)
+  @Post('bayram/delete')
+  @HttpCode(HttpStatus.OK)
+  async bayramDelete(@Body() body: { ids?: unknown; all?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.bayram.remove(body, userId) };
+  }
 }

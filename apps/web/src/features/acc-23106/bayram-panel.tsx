@@ -22,7 +22,7 @@ import { bayramApi, type BayramEmployee, type BayramMonth } from './api';
 // ayiriladi va Markaz hisobiga «Bayram pullari» bo'lib yoziladi (viloyat saqlanadi). Bekor qilish — hududga qaytadi.
 // ═══════════════════════════════════════════════════════════
 
-type Ask = { kind: 'confirm'; months: BayramMonth[] } | { kind: 'cancel'; month: BayramMonth } | null;
+type Ask = { kind: 'confirm'; months: BayramMonth[] } | { kind: 'delete'; months: BayramMonth[]; all: boolean } | null;
 
 const sumT = (list: { movableTiyin?: string; totalTiyin?: string; amountTiyin?: string }[], f: 'movableTiyin' | 'totalTiyin' | 'amountTiyin') => list.reduce((s, x) => s + BigInt(x[f] ?? '0'), 0n).toString();
 
@@ -60,12 +60,12 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
         const r = (await bayramApi.confirm(ask.months.map((m) => m.period))).data;
         onToast({ message: `Tasdiqlandi: ${r.count} ta to'lov · Markaz hisobiga o'tdi ${formatTiyin(r.movedTiyin)} so'm${r.routed ? '' : ' (siyosat bo\'yicha bayram hududda qoladi — ajratilmadi)'}`, tone: 'success' });
       } else {
-        await bayramApi.cancel(ask.month.posted!.id);
-        onToast({ message: `${formatPeriod(ask.month.period)}: tasdiq bekor qilindi — bayram pullari hudud ish haqiga qaytdi`, tone: 'success' });
+        const r = (await bayramApi.remove(ask.all ? { all: true } : { ids: ask.months.map((m) => m.posted!.id) })).data;
+        onToast({ message: `O'chirildi: ${r.periods.length ? r.periods.map(formatPeriod).join(', ') : `${r.removed} ta tasdiq`} — bayram pullari hudud ish haqiga qaytdi`, tone: 'success' });
       }
       data.reload();
     } catch (err) {
-      onToast({ message: errorMessage(err, ask.kind === 'confirm' ? 'Tasdiqlashda xatolik' : 'Bekor qilishda xatolik'), tone: 'error' });
+      onToast({ message: errorMessage(err, ask.kind === 'confirm' ? 'Tasdiqlashda xatolik' : "O'chirishda xatolik"), tone: 'error' });
     } finally {
       setBusy(false);
       setAsk(null);
@@ -84,6 +84,7 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
   }
   const s = v.summary;
   const pending = v.months.filter((m) => m.count > 0 && (!m.posted || m.changed));
+  const postedMonths = v.months.filter((m) => m.posted);
   const askTotal = ask?.kind === 'confirm' ? sumT(ask.months, 'movableTiyin') : '0';
 
   return (
@@ -169,8 +170,8 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
                           </Button>
                         )}
                         {m.posted && (
-                          <Button size="sm" variant="ghost" className="text-(--color-text-muted) hover:text-(--color-expense)" onClick={() => setAsk({ kind: 'cancel', month: m })}>
-                            Bekor qilish
+                          <Button size="sm" variant="ghost" className="text-(--color-expense) hover:bg-(--color-expense-soft)" onClick={() => setAsk({ kind: 'delete', months: [m], all: false })}>
+                            O&apos;chirish
                           </Button>
                         )}
                       </td>
@@ -179,12 +180,21 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
                 ))}
               </tbody>
             </table>
-            {isAdmin && pending.length > 1 && (
+            {isAdmin && (pending.length > 1 || postedMonths.length > 0) && (
               <div className="flex flex-wrap items-center gap-3 border-t border-(--color-line) bg-(--color-surface-muted) px-3 py-2.5">
-                <span className="ml-auto text-sm text-(--color-text-muted)">
-                  Tasdiqlanmagan: <b className="text-heading">{pending.length}</b> oy · <span className="money font-semibold text-heading">{formatTiyin(sumT(pending, 'movableTiyin'))}</span> so&apos;m
-                </span>
-                <Button onClick={() => setAsk({ kind: 'confirm', months: pending })}>Hammasini tasdiqlash</Button>
+                {postedMonths.length > 0 && (
+                  <Button variant="ghost" className="text-(--color-expense) hover:bg-(--color-expense-soft)" onClick={() => setAsk({ kind: 'delete', months: postedMonths, all: true })}>
+                    Tasdiqlanganlarning hammasini o&apos;chirish ({postedMonths.length} oy)
+                  </Button>
+                )}
+                {pending.length > 1 && (
+                  <>
+                    <span className="ml-auto text-sm text-(--color-text-muted)">
+                      Tasdiqlanmagan: <b className="text-heading">{pending.length}</b> oy · <span className="money font-semibold text-heading">{formatTiyin(sumT(pending, 'movableTiyin'))}</span> so&apos;m
+                    </span>
+                    <Button onClick={() => setAsk({ kind: 'confirm', months: pending })}>Hammasini tasdiqlash</Button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -309,16 +319,16 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
 
       <ConfirmDialog
         open={ask !== null}
-        title={ask?.kind === 'cancel' ? 'Tasdiqni bekor qilish' : 'Hudud bayram pullarini tasdiqlash'}
+        title={ask?.kind === 'delete' ? (ask.all ? "Hamma tasdiqlarni o'chirish" : "Tasdiqni o'chirish") : 'Hudud bayram pullarini tasdiqlash'}
         message={
-          ask?.kind === 'cancel'
-            ? `${formatPeriod(ask.month.period)}: ${ask.month.posted?.count ?? 0} ta bayram to'lovi Markaz hisobidan olinadi va hudud ish haqiga qaytadi (shu oy ish haqi qayta guruhlanadi).`
+          ask?.kind === 'delete'
+            ? `${ask.months.map((m) => formatPeriod(m.period)).join(', ')}: tasdiq butunlay o'chiriladi — ${ask.months.reduce((n, m) => n + (m.posted?.count ?? 0), 0)} ta bayram to'lovi Markaz hisobidan olinadi va hudud ish haqiga qaytadi (o'sha oylar ish haqi qayta guruhlanadi). 23106 ko'chirmasi o'zgarmaydi — keyin qayta tasdiqlash mumkin.`
             : ask?.kind === 'confirm'
-              ? `${ask.months.map((m) => formatPeriod(m.period)).join(', ')}: ${ask.months.reduce((n, m) => n + m.count, 0)} ta to'lov — ${formatTiyin(askTotal)} so'm hudud ish haqidan ayiriladi va Markaz hisobiga «Bayram pullari» bo'lib yoziladi (viloyat saqlanadi, korxona jami o'zgarmaydi). Keyin bekor qilish mumkin.`
+              ? `${ask.months.map((m) => formatPeriod(m.period)).join(', ')}: ${ask.months.reduce((n, m) => n + m.count, 0)} ta to'lov — ${formatTiyin(askTotal)} so'm hudud ish haqidan ayiriladi va Markaz hisobiga «Bayram pullari» bo'lib yoziladi (viloyat saqlanadi, korxona jami o'zgarmaydi). Keyin «O'chirish» bilan qaytarish mumkin.`
               : ''
         }
-        confirmLabel={ask?.kind === 'cancel' ? 'Bekor qilish' : 'Tasdiqlash'}
-        danger={ask?.kind === 'cancel'}
+        confirmLabel={ask?.kind === 'delete' ? "O'chirish" : 'Tasdiqlash'}
+        danger={ask?.kind === 'delete'}
         loading={busy}
         onConfirm={() => void run()}
         onCancel={() => setAsk(null)}

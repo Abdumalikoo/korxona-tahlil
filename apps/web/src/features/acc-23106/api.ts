@@ -314,6 +314,8 @@ export const bayramApi = {
   view: (from: string, to: string) => api.get<ApiResponse<BayramView>>('/acc-23106/bayram', { params: { from, to } }),
   confirm: (periods: string[]) => api.post<ApiResponse<{ success: true; count: number; totalTiyin: string; movedTiyin: string; routed: boolean }>>('/acc-23106/bayram/confirm', { periods }),
   cancel: (id: string) => api.post<ApiResponse<{ success: true; period: string }>>(`/acc-23106/bayram/posts/${encodeURIComponent(id)}/cancel`),
+  /** O'chirish: tanlangan tasdiqlar yoki hammasi — bayram hudud ish haqiga qaytadi */
+  remove: (body: { ids: string[] } | { all: true }) => api.post<ApiResponse<{ success: true; removed: number; periods: string[] }>>('/acc-23106/bayram/delete', body),
 };
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
