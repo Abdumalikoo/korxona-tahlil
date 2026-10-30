@@ -44,6 +44,7 @@ import { UNASSIGNED_KEY } from './drill-api';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { RegionCard } from './region-card';
 import { CenterCoverView } from './center-cover-view';
+import { ExtrasOverlay } from './extras-overlay';
 import { isRegionModelTab, REGION_MODEL_TABS, RegionModel, type RegionModelTab } from './region-models';
 import { useBrief } from '@/lib/view-mode';
 
@@ -476,6 +477,12 @@ function Body({ data, loading, onDrill }: { data: RegionsResult; loading: boolea
 
   const period = `${formatDate(data.range.from)} — ${formatDate(data.range.to)}`;
   const previousPeriod = `${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)}`;
+  /** Qo'shimchalar (butun ekranli oynada): Markazni qoplash, Hududlar paneli va boshqa hudud modellari */
+  const extras: { value: Exclude<View, 'table'>; label: string; hint: string }[] = [
+    ...(center && activeRegions.length > 0 ? [{ value: 'cover' as const, label: 'Markazni qoplash', hint: 'Hududlar foydasi Markazning sof xarajatini qanchalik qoplaydi — har hudud ulushi' }] : []),
+    ...(brief ? [] : REGION_MODEL_TABS),
+  ];
+  const extra = view === 'table' ? null : (extras.find((x) => x.value === view) ?? null);
 
   return (
     <div className={cn('space-y-4 transition-opacity', loading && 'opacity-60')}>
@@ -518,99 +525,107 @@ function Body({ data, loading, onDrill }: { data: RegionsResult; loading: boolea
         ]}
       />
 
-      <PillTabs
-        value={view}
-        onChange={setView}
-        options={[
-          { value: 'table', label: 'Hududlar kesimida', hint: 'Har hudud: daromad, xarajat va natija — joriy va oldingi davr' },
-          ...(center && activeRegions.length > 0 ? [{ value: 'cover' as const, label: 'Markazni qoplash', hint: 'Hududlar foydasi Markazning sof xarajatini qanchalik qoplaydi — har hudud ulushi' }] : []),
-          ...(brief ? [] : REGION_MODEL_TABS),
-        ]}
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <PillTabs value="table" onChange={() => setView('table')} options={[{ value: 'table', label: 'Hududlar kesimida', hint: 'Har hudud: daromad, xarajat va natija — joriy va oldingi davr' }]} />
+        {extras.length > 0 && (
+          <ActionButton onClick={() => setView(extras[0]!.value)} title={`Qo'shimchalar: ${extras.map((x) => x.label).join(', ')}`}>
+            <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <path d="M17.5 14v7M14 17.5h7" />
+            </svg>
+            Qo&apos;shimchalar
+            <span className="rounded-full bg-(--color-surface-muted) px-2 py-0.5 text-xs font-semibold text-(--color-text-muted)">{extras.length}</span>
+          </ActionButton>
+        )}
+      </div>
 
-      {view === 'table' ? (
-        <DrillProvider range={{ from: data.range.from, to: data.range.to }}>
-        <ReportCard
-          title="Hududlar kesimida daromad va xarajat"
-          badge={cmpOn ? `Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}` : period}
-          actions={
-            <>
-              <SelectBox value={sort} options={SORT_OPTIONS} onChange={setSort} />
-              <SearchInput value={query} onChange={setQuery} placeholder="Hudud nomi…" />
-              <ExcelButton onClick={exportCsv} />
-            </>
-          }
-        >
-          <CmpContext.Provider value={{ on: cmpOn, income: t.income, expense: t.expense }}>
-          <RTable minWidth={cmpOn ? 1060 : 860}>
-            <thead>
+      <DrillProvider range={{ from: data.range.from, to: data.range.to }}>
+      <ReportCard
+        title="Hududlar kesimida daromad va xarajat"
+        badge={cmpOn ? `Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}` : period}
+        actions={
+          <>
+            <SelectBox value={sort} options={SORT_OPTIONS} onChange={setSort} />
+            <SearchInput value={query} onChange={setQuery} placeholder="Hudud nomi…" />
+            <ExcelButton onClick={exportCsv} />
+          </>
+        }
+      >
+        <CmpContext.Provider value={{ on: cmpOn, income: t.income, expense: t.expense }}>
+        <RTable minWidth={cmpOn ? 1060 : 860}>
+          <thead>
+            <tr>
+              <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+              <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>Hudud</Th>
+              <GroupTh span={cmpOn ? 3 : 2}>Daromad</GroupTh>
+              <GroupTh span={cmpOn ? 3 : 2}>Xarajat</GroupTh>
+              <GroupTh span={2}>Natija</GroupTh>
+            </tr>
+            {cmpOn ? (
               <tr>
-                <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>№</Th>
-                <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-36 text-left')}>Hudud</Th>
-                <GroupTh span={cmpOn ? 3 : 2}>Daromad</GroupTh>
-                <GroupTh span={cmpOn ? 3 : 2}>Xarajat</GroupTh>
-                <GroupTh span={2}>Natija</GroupTh>
+                <Th className="first:border-l">{cap(data.compareLabel)}</Th>
+                <Th>Joriy davr</Th>
+                <Th>Farqi, foizda</Th>
+                <Th>{cap(data.compareLabel)}</Th>
+                <Th>Joriy davr</Th>
+                <Th>Farqi, foizda</Th>
+                <Th>Foyda</Th>
+                <Th>Rentabellik</Th>
               </tr>
-              {cmpOn ? (
-                <tr>
-                  <Th className="first:border-l">{cap(data.compareLabel)}</Th>
-                  <Th>Joriy davr</Th>
-                  <Th>Farqi, foizda</Th>
-                  <Th>{cap(data.compareLabel)}</Th>
-                  <Th>Joriy davr</Th>
-                  <Th>Farqi, foizda</Th>
-                  <Th>Foyda</Th>
-                  <Th>Rentabellik</Th>
-                </tr>
-              ) : (
-                <tr>
-                  <Th className="first:border-l">Summa</Th>
-                  <Th title="Korxona jami daromadiga nisbatan">Ulushi</Th>
-                  <Th>Summa</Th>
-                  <Th title="Korxona jami xarajatiga nisbatan">Ulushi</Th>
-                  <Th>Foyda</Th>
-                  <Th>Rentabellik</Th>
-                </tr>
-              )}
-            </thead>
-            <tbody>
-              <TotalRow label={`Hududlar bo'yicha · ${regions.length} ta`} rows={regions} compareLabel={data.compareLabel} />
-              {sorted.map((s) => (
-                <UnitRow
-                  key={s.unit.key}
-                  s={s}
-                  index={sorted.indexOf(s) + 1}
-                  open={expanded.has(s.unit.key)}
-                  onToggle={toggle}
-                  onOpen={open}
-                  section={data.section}
-                  compareLabel={data.compareLabel}
-                  range={data.range}
-                  compare={data.compare}
-                />
-              ))}
-            </tbody>
-          </RTable>
-          </CmpContext.Provider>
-          <TableNote>
-            {!cmpOn && (
-              <>
-                {cap(data.compareLabel)} ({previousPeriod}) uchun ma&apos;lumot yo&apos;q — solishtirish o&apos;rniga ulush ko&apos;rsatildi (hududlar jamiga nisbatan).{' '}
-              </>
+            ) : (
+              <tr>
+                <Th className="first:border-l">Summa</Th>
+                <Th title="Korxona jami daromadiga nisbatan">Ulushi</Th>
+                <Th>Summa</Th>
+                <Th title="Korxona jami xarajatiga nisbatan">Ulushi</Th>
+                <Th>Foyda</Th>
+                <Th>Rentabellik</Th>
+              </tr>
             )}
-            Qatorni bosing — tagida ochiladi (tumanlar, xarajat tarkibi, mashinalar …); ikki marta bosing — ichiga kirasiz. Ma&apos;lumot Daromadlar, Xarajatlar va Xodimlar bo&apos;limlaridan olinadi. Rentabellik — foyda ÷ daromad. Markaz, yo&apos;nalishlar va korxona natijasi — «Umumiy» sahifasida; Markazni qoplash — shu yerdagi yorliqda.
-            Raqamni bosing — qanday hisoblangani ko&apos;rinadi.
-          </TableNote>
-        </ReportCard>
-        </DrillProvider>
-      ) : (
-        view === 'cover' ? (
-          <ReportCard title="Markazni qoplash: har bir hudud ulushi" badge={period}>
-            <CenterCoverView regions={activeRegions} center={center} onOpen={open} range={data.range} section={data.section} compare={data.compare} />
-          </ReportCard>
-        ) : (
-          <RegionModel tab={view} />
-        )
+          </thead>
+          <tbody>
+            <TotalRow label={`Hududlar bo'yicha · ${regions.length} ta`} rows={regions} compareLabel={data.compareLabel} />
+            {sorted.map((s) => (
+              <UnitRow
+                key={s.unit.key}
+                s={s}
+                index={sorted.indexOf(s) + 1}
+                open={expanded.has(s.unit.key)}
+                onToggle={toggle}
+                onOpen={open}
+                section={data.section}
+                compareLabel={data.compareLabel}
+                range={data.range}
+                compare={data.compare}
+              />
+            ))}
+          </tbody>
+        </RTable>
+        </CmpContext.Provider>
+        <TableNote>
+          {!cmpOn && (
+            <>
+              {cap(data.compareLabel)} ({previousPeriod}) uchun ma&apos;lumot yo&apos;q — solishtirish o&apos;rniga ulush ko&apos;rsatildi (hududlar jamiga nisbatan).{' '}
+            </>
+          )}
+          Qatorni bosing — tagida ochiladi (tumanlar, xarajat tarkibi, mashinalar …); ikki marta bosing — ichiga kirasiz. Ma&apos;lumot Daromadlar, Xarajatlar va Xodimlar bo&apos;limlaridan olinadi. Rentabellik — foyda ÷ daromad. Markaz, yo&apos;nalishlar va korxona natijasi — «Umumiy» sahifasida; Markazni qoplash va hudud modellari — «Qo&apos;shimchalar»da.
+          Raqamni bosing — qanday hisoblangani ko&apos;rinadi.
+        </TableNote>
+      </ReportCard>
+      </DrillProvider>
+
+      {extra && (
+        <ExtrasOverlay title="Hududlar · qo'shimchalar" badge={period} value={extra.value} options={extras} onChange={setView} onClose={() => setView('table')}>
+          {extra.value === 'cover' ? (
+            <ReportCard title="Markazni qoplash: har bir hudud ulushi" badge={period}>
+              <CenterCoverView regions={activeRegions} center={center} onOpen={open} range={data.range} section={data.section} compare={data.compare} />
+            </ReportCard>
+          ) : (
+            <RegionModel tab={extra.value} />
+          )}
+        </ExtrasOverlay>
       )}
 
       <RegionCard data={data} stats={openKey ? (all.find((s) => s.unit.key === openKey) ?? null) : null} regions={activeRegions} onClose={() => setOpenKey(null)} />
