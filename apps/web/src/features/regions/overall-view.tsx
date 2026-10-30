@@ -10,6 +10,7 @@ import {
   NameCell,
   PctBadge,
   PillTabs,
+  ToggleAllButton,
   SearchInput,
   ReportCard,
   RTable,
@@ -260,9 +261,7 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
             <>
               <SearchInput value={query} onChange={setQuery} placeholder="Birlik qidirish…" />
               <ExcelButton onClick={exportCsv} />
-              <button type="button" onClick={() => setOpened(opened.size ? new Set() : new Set(units.map((s) => s.unit.key)))} className="rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
-                {opened.size ? 'Hammasini yopish' : 'Hammasini ochish'}
-              </button>
+              <ToggleAllButton open={opened.size > 0} onClick={() => setOpened(opened.size ? new Set() : new Set(units.map((s) => s.unit.key)))} />
             </>
           }
         >

@@ -11,6 +11,7 @@ import { partDetailApi, partOpens, regionsApi, safarCostsApi, vehicleCostsApi, t
 import { centerDrillApi, drillApi, type MoneyPart } from './drill-api';
 import { money, type Fmt } from './overall-tables';
 import { segmentApi, type DrillNode } from './segment-api';
+import { ToggleAllButton } from '@/components/report/report';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Umumiy — qator bosilganda JOYIDA kengayadigan to'liq daraxt (boshqa sahifaga o'tmaydi).
@@ -607,12 +608,9 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
         <span className="text-[11px] text-(--color-text-faint)">
           {months.length ? 'oylar: daromad va xarajat bo‘lsa — natija, aks holda — summa' : 'qatorni bosing — ochiladi; «yozuvlar» — o‘sha summa yozuvlari'}
         </span>
-        <button type="button" onClick={() => void expandAll()} disabled={busyAll} className="ml-auto rounded-lg border border-(--color-line-strong) px-2.5 py-1 text-xs font-semibold text-heading hover:bg-brand-50 disabled:opacity-60">
-          {busyAll ? 'Ochilmoqda…' : 'Hammasini ochish'}
-        </button>
-        <button type="button" onClick={() => setOpened(new Set())} className="rounded-lg border border-(--color-line-strong) px-2.5 py-1 text-xs font-semibold text-heading hover:bg-brand-50">
-          Yopish
-        </button>
+        <span className="ml-auto">
+          <ToggleAllButton open={opened.size > 0} busy={busyAll} onClick={() => (opened.size ? setOpened(new Set()) : void expandAll())} />
+        </span>
       </div>
       <div className="max-h-[38rem] overflow-auto">
         <table className="w-full border-separate border-spacing-0 text-[13px]" style={{ minWidth: 640 + months.length * 110 }}>

@@ -1,8 +1,7 @@
 'use client';
 
-import { ExcelButton, MoneyCell, NameCell, PctCell, PillTabs, ReportCard, RTable, SearchInput, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr, sum } from '@/components/report/report';
+import { ExcelButton, MoneyCell, NameCell, PctCell, PillTabs, ReportCard, RTable, SearchInput, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, ToggleAllButton, Tr, sum } from '@/components/report/report';
 import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
-import { Button } from '@/components/ui/button';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -107,8 +106,9 @@ function Body({ d, loading }: { d: Compare3802; loading: boolean }) {
       for (const [i, e] of sec.list.entries()) {
         const neg = e.companyTiyin !== null && n(e.companyTiyin) < 0;
         const subE = e.fullTiyin === null ? `to'liq oyligi topilmadi (${HOW[e.how]}) — faqat Qo'mita qismi ko'rsatilgan` : `${e.position ? `${e.position} · ` : ''}oylik — ${SOURCE[e.source!]}${neg ? " · Qo'mita qismi to'liq oylikdan ko'p — tarkib yoki shablonni tekshiring" : ''}`;
-        line(
-          `${k}|${i}`,
+        const ek = `${k}|${i}`;
+        const eOpen = line(
+          ek,
           e.fullName,
           2,
           e.fullTiyin === null ? (
@@ -126,8 +126,25 @@ function Body({ d, loading }: { d: Compare3802; loading: boolean }) {
               <PctCell value={share(n(e.qomitaTiyin), n(e.fullTiyin))} plain className="font-normal text-(--color-text-muted)" />
             </>
           ),
-          { sub: subE, tone: e.fullTiyin === null || neg ? 'text-amber-800' : undefined },
+          { sub: subE, tone: e.fullTiyin === null || neg ? 'text-amber-800' : undefined, openKey: e.parts.length ? ek : undefined },
         );
+        // Xodim qismlari: nimaga qancha — to'liq oylikda, Qo'mita qoplagani, korxona to'lagani
+        if (eOpen)
+          for (const p of e.parts) {
+            const pNeg = p.companyTiyin !== null && n(p.companyTiyin) < 0;
+            line(
+              `${ek}|${p.key}`,
+              p.label,
+              3,
+              <>
+                {p.fullTiyin === null ? <Td className="text-xs text-(--color-text-faint)">—</Td> : <MoneyCell value={n(p.fullTiyin)} className="text-(--color-text-muted)" />}
+                {n(p.qomitaTiyin) ? <MoneyCell value={n(p.qomitaTiyin)} className="text-(--color-income)" /> : <Td className="text-xs text-(--color-text-faint)">—</Td>}
+                {p.companyTiyin === null ? <Td className="text-xs text-(--color-text-faint)">—</Td> : <MoneyCell value={n(p.companyTiyin)} className={pNeg ? 'text-red-700' : 'text-(--color-expense)'} />}
+                {p.fullTiyin === null || !n(p.qomitaTiyin) ? <Td /> : <PctCell value={share(n(p.qomitaTiyin), n(p.fullTiyin))} plain className="font-normal text-(--color-text-muted)" />}
+              </>,
+              { sub: p.fullTiyin === null ? "to'liq oylikda bu qism alohida ko'rinmaydi — faqat Qo'mita qoplagani" : n(p.qomitaTiyin) ? undefined : "Qo'mita qoplamagan — to'liq korxona hisobidan", tone: 'text-(--color-text-muted) font-normal' },
+            );
+          }
       }
     }
   }
@@ -168,12 +185,7 @@ function Body({ d, loading }: { d: Compare3802; loading: boolean }) {
           <>
             <SearchInput value={query} onChange={setQuery} placeholder="Xodim qidirish…" />
             <ExcelButton onClick={exportCsv} />
-            <Button size="sm" variant="secondary" onClick={expandAll}>
-              Hammasini ochish
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setOpen(new Set())}>
-              Yopish
-            </Button>
+            <ToggleAllButton open={open.size > 0} onClick={() => (open.size ? setOpen(new Set()) : expandAll())} />
           </>
         }
       >
@@ -202,7 +214,8 @@ function Body({ d, loading }: { d: Compare3802; loading: boolean }) {
           <EmptyNote>Bu davrda shablon bo&apos;yicha Qo&apos;mita olgan xodim yo&apos;q</EmptyNote>
         )}
         <TableNote>
-          Qatorni bosing — ichi ochiladi. To&apos;liq oylik — ish haqi tarkibi bo&apos;yicha hisoblangan oylik (hudud xodimlari tarkibda bo&apos;lmaydi — xodimlar reestri va
+          Qatorni bosing — ichi ochiladi; xodimni bossangiz — oylik qismlari (oklad, ustama, ta&apos;til, ovqat…): har birining qanchasini Qo&apos;mita, qanchasini korxona
+          to&apos;lagani. To&apos;liq oylik — ish haqi tarkibi bo&apos;yicha hisoblangan oylik (hudud xodimlari tarkibda bo&apos;lmaydi — xodimlar reestri va
           shu oy ish haqi vedomosti); Qo&apos;mita qoplagani — oylik «3802 dan olingan pullar» shablonining «Jami» ustuni; korxona to&apos;lagani = to&apos;liq oylik −
           Qo&apos;mita qoplagani. Ism bo&apos;yicha topilmagan xodimlar jamiga kirmaydi (ular «Oyligi topilmagan»da) — 3802 › Nazorat zanjiri › Tarkib bog&apos;lanishida
           qo&apos;lda bog&apos;lash mumkin.

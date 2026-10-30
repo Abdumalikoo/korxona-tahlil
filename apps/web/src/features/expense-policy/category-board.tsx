@@ -8,6 +8,7 @@ import { SEGMENTS, segmentLabel } from '@/lib/segments';
 import { cn } from '@/lib/utils';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { CategoryAmount, PolicyCategory, PolicyData } from './api';
+import { ToggleAllButton } from '@/components/report/report';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar siyosati › Moddalar: har bir xarajat moddasi KIM HISOBIDAN.
@@ -412,13 +413,8 @@ export function CategoryBoard({
             <IconSearch className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-(--color-text-faint)" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Modda qidirish" className="h-8 w-52 rounded-(--radius-control) border border-(--color-line) pr-2 pl-7 text-sm" />
           </label>
-          <button
-            type="button"
-            onClick={() => setClosed(closed.size ? new Set() : new Set(cats.filter((c) => (children.get(c.code) ?? []).length).map((c) => c.code)))}
-            className="h-8 rounded-(--radius-control) border border-(--color-line) px-2.5 text-xs font-medium text-heading hover:bg-brand-50"
-          >
-            {closed.size ? 'Hammasini ochish' : 'Hammasini yopish'}
-          </button>
+          {/* closed — yopiq guruhlar: bo'sh bo'lsa hammasi ochiq */}
+          <ToggleAllButton open={closed.size === 0} onClick={() => setClosed(closed.size ? new Set() : new Set(cats.filter((c) => (children.get(c.code) ?? []).length).map((c) => c.code)))} />
         </div>
       </div>
 

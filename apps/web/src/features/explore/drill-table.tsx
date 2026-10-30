@@ -1,6 +1,6 @@
 'use client';
 
-import { changeOf, DiffCell, ExcelButton, GroupTh, ReportCard, RTable, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { changeOf, DiffCell, ExcelButton, GroupTh, ReportCard, RTable, TableNote, Td, Th, ToggleAllButton, Tr } from '@/components/report/report';
 import { LinkMoneyCell, STICKY_LEFT, TreeNameCell } from '@/components/report/report-extra-a';
 import { cn } from '@/lib/utils';
 import { useMemo, useState, type ReactNode } from 'react';
@@ -48,7 +48,6 @@ interface Props {
 
 const sumVals = (list: XNode[]): Vals => list.reduce((a, n) => ({ cur: a.cur + n.cur, prev: a.prev + n.prev, ly: a.ly + n.ly, count: a.count + n.count }), { cur: 0, prev: 0, ly: 0, count: 0 });
 
-const SMALL_BTN = 'inline-flex h-10 items-center rounded-lg border border-(--color-line-strong) bg-white px-3 text-sm font-medium text-heading hover:bg-brand-50';
 
 export function DrillTable({ nodes, title, description, nameHeader = 'Nomi', root, openDepth = 0, extra = [], total, csv, note, limit, hideLy, actions }: Props) {
   const { open: drill } = useDrill();
@@ -181,13 +180,9 @@ export function DrillTable({ nodes, title, description, nameHeader = 'Nomi', roo
       actions={
         <>
           {actions}
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Qidirish…" data-skip-focus className="h-10 w-44 rounded-lg border border-(--color-line-strong) bg-white px-3 text-sm outline-none placeholder:text-(--color-text-faint) focus:border-brand-500" />
-          {anyChildren && (
-            <button type="button" onClick={() => (expanded.size ? setOpened(new Set()) : expandAll())} className={SMALL_BTN}>
-              {expanded.size ? 'Hammasini yopish' : 'Hammasini ochish'}
-            </button>
-          )}
-          <ExcelButton onClick={exportCsv} label="Excel" />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Qidirish…" data-skip-focus className="h-10 w-60 rounded-lg border border-(--color-line-strong) bg-white px-3 text-sm outline-none placeholder:text-(--color-text-faint) focus:border-brand-500" />
+          <ExcelButton onClick={exportCsv} />
+          {anyChildren && <ToggleAllButton open={expanded.size > 0} onClick={() => (expanded.size ? setOpened(new Set()) : expandAll())} />}
         </>
       }
     >

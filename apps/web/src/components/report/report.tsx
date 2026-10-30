@@ -143,7 +143,11 @@ function DefaultIcon() {
 
 // ─────────── Yorliqlar (tabletka tugmalar) ───────────
 
-export function PillTabs<T extends string>({ value, options, onChange, className }: { value: T; options: { value: T; label: string; hint?: string }[]; onChange: (value: T) => void; className?: string }) {
+/**
+ * Yorliqlar (ko'rinish tanlovi) — hamma bo'limda bir xil: balandligi 40 px (qidiruv, Excel va amal tugmalari bilan bir qatorda).
+ * count — yorliq yonida son (bo'lsa).
+ */
+export function PillTabs<T extends string>({ value, options, onChange, className }: { value: T; options: { value: T; label: string; hint?: string; count?: number }[]; onChange: (value: T) => void; className?: string }) {
   return (
     <div className={cn('flex flex-wrap gap-2', className)} role="tablist">
       {options.map((o) => (
@@ -155,14 +159,41 @@ export function PillTabs<T extends string>({ value, options, onChange, className
           title={o.hint}
           onClick={() => onChange(o.value)}
           className={cn(
-            'whitespace-nowrap rounded-lg border px-4 py-2 text-sm font-semibold transition-colors',
+            'inline-flex h-10 items-center whitespace-nowrap rounded-lg border px-4 text-sm font-semibold transition-colors',
             value === o.value ? 'border-brand-600 bg-brand-600 text-white shadow-pill' : 'border-brand-300 bg-white text-brand-700 hover:bg-brand-50',
           )}
         >
           {o.label}
+          {o.count !== undefined && <span className={cn('ml-1.5 text-xs font-medium', value === o.value ? 'text-white/80' : 'text-(--color-text-faint)')}>{o.count}</span>}
         </button>
       ))}
     </div>
+  );
+}
+
+/** Karta sarlavhasidagi amal tugmasi — hamma bo'limda bir xil (40 px, qidiruv va Excel bilan bir qatorda) */
+export const ACTION_BTN = 'inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-(--color-line-strong) bg-white px-3.5 text-sm font-semibold text-heading transition-colors hover:border-brand-300 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-60';
+
+export function ActionButton({ children, onClick, disabled, title, className }: { children: ReactNode; onClick: () => void; disabled?: boolean; title?: string; className?: string }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} title={title} className={cn(ACTION_BTN, className)}>
+      {children}
+    </button>
+  );
+}
+
+/**
+ * «Hammasini ochish / yopish» — hamma ichma-ich jadvalda bitta tugma, bir xil ko'rinish.
+ * open — hozir biror narsa ochiqmi (ochiq bo'lsa — «yopish»); busy — ochilmoqda (yuklanayotgan bo'lsa).
+ */
+export function ToggleAllButton({ open, onClick, busy }: { open: boolean; onClick: () => void; busy?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} disabled={busy} className={ACTION_BTN} aria-expanded={open}>
+      <svg viewBox="0 0 24 24" className={cn('size-4 transition-transform', open && 'rotate-180')} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+      {busy ? 'Ochilmoqda…' : open ? 'Hammasini yopish' : 'Hammasini ochish'}
+    </button>
   );
 }
 

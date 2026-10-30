@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { useEffect, useMemo, useState } from 'react';
 import { PATTERN_LABEL, PIVOT_LEVEL_LABEL, type BankDir, type BankPattern, type PivotLevel, type PivotNode, type PivotParams } from './api';
 import { useSource } from './source';
+import { ToggleAllButton } from '@/components/report/report';
 
 // ═══════════════════════════════════════════════════════════
 // Hisobot (bank va faktura uchun bir xil): modda › kontragent (nomi, INN) › xizmat (izohi bilan),
@@ -144,9 +145,7 @@ export function PivotReport({ from, to, account, defaultDir, isAdmin, onToast, o
           </label>
           <input value={min} onChange={(e) => setMin(e.target.value.replace(/[^\d\s]/g, ''))} placeholder="Eng kam summa, so'm" className={cn(INPUT, 'w-40')} inputMode="numeric" aria-label="Eng kam summa" />
           <span className="ml-auto flex items-center gap-2">
-            <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => { setAllOpen((x) => !x); setOpen(new Set()); }}>
-              {allOpen ? 'Hammasini yopish' : 'Hammasini ochish'}
-            </button>
+            <ToggleAllButton open={allOpen} onClick={() => { setAllOpen((x) => !x); setOpen(new Set()); }} />
             {filtered > 0 && (
               <button type="button" className="font-medium text-(--color-text-muted) hover:text-heading" onClick={() => { setKinds([]); setCats([]); setPatterns([]); setQ(''); setMin(''); }}>
                 Filtrlarni tozalash ({filtered})

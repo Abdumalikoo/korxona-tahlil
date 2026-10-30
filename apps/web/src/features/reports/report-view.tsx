@@ -9,6 +9,7 @@ import { Mark } from '@/features/reactions/mark';
 import type { ItemFilter, MarkItem } from '@/features/reactions/api';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { forScreen, type Cell, type ColumnFormat, type DocBlock, type DocChart, type DocColumn, type DocFormulas, type DocTable, type ReportDoc, type Tone } from './api';
+import { ToggleAllButton } from '@/components/report/report';
 
 // ═══════════════════════════════════════════════════════════
 // Hisobotni ekranda ko'rsatish — Excel / PowerPoint / PDF bilan aynan bir xil hujjatdan.
@@ -146,14 +147,7 @@ function Table({ block }: { block: DocTable }) {
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           {block.title ? <h4 className="text-sm font-bold text-heading">{block.title}</h4> : <span />}
           {t.tree && (
-            <span className="flex gap-1.5 text-xs">
-              <button type="button" onClick={() => t.expandAll(true)} className="rounded-md border border-(--color-line) px-2 py-0.5 hover:bg-(--color-surface-sunken)">
-                Hammasini ochish
-              </button>
-              <button type="button" onClick={() => t.expandAll(false)} className="rounded-md border border-(--color-line) px-2 py-0.5 hover:bg-(--color-surface-sunken)">
-                Yopish
-              </button>
-            </span>
+            <ToggleAllButton open={t.expanded.size > 0} onClick={() => t.expandAll(t.expanded.size === 0)} />
           )}
         </div>
       )}

@@ -3,7 +3,7 @@
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { ReactNode } from 'react';
-import { ReportCard, RTable, Td, Th, Tr } from '@/components/report/report';
+import { PillTabs, ReportCard, RTable, Td, Th, Tr } from '@/components/report/report';
 import { change, goodUp, pctSigned, short, som, spanText, type Filter, type Kind, type RecordRow, type Span } from './api';
 import { useDrill } from './drill';
 
@@ -99,27 +99,9 @@ export function SectionTitle({ children, hint }: { children: ReactNode; hint?: R
 }
 
 /** Kesim tanlash (jadval ustida) — tabletka tugmalar */
+/** Jadval sarlavhasidagi tanlov — umumiy PillTabs (hamma bo'limda bir xil ko'rinish) */
 export function Switch<T extends string>({ value, options, onChange }: { value: T; options: { value: T; label: string; count?: number }[]; onChange: (v: T) => void }) {
-  return (
-    <div className="flex flex-wrap gap-1.5" role="tablist">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="tab"
-          aria-selected={value === o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            'h-10 whitespace-nowrap rounded-lg border px-3 text-sm font-semibold transition-colors',
-            value === o.value ? 'border-brand-600 bg-brand-600 text-white shadow-pill' : 'border-brand-300 bg-white text-brand-700 hover:bg-brand-50',
-          )}
-        >
-          {o.label}
-          {o.count !== undefined && <span className={cn('ml-1.5 text-xs font-medium', value === o.value ? 'text-white/80' : 'text-(--color-text-faint)')}>{o.count}</span>}
-        </button>
-      ))}
-    </div>
-  );
+  return <PillTabs value={value} options={options} onChange={onChange} />;
 }
 
 /** Davrdagi eng katta yozuvlar */

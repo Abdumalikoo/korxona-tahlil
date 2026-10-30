@@ -1,8 +1,7 @@
 'use client';
 
-import { MoneyCell, NameCell, PillTabs, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr, sum } from '@/components/report/report';
+import { ActionButton, MoneyCell, NameCell, PillTabs, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, ToggleAllButton, Tr, sum } from '@/components/report/report';
 import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
-import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/lib/error-message';
 import { formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
@@ -218,19 +217,11 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
         title="Qo'mita pullari: kelgan → sarflangan → qoldiq"
         badge={`${formatPeriod(d.from)} — ${formatPeriod(d.to)} · oy qatorida qoldiq — davr boshidan yig'ma`}
         actions={
-          <div className="flex gap-2">
-            <Button size="sm" variant="secondary" onClick={expandAll}>
-              Hammasini ochish
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setOpen(new Set())}>
-              Yopish
-            </Button>
-            {isAdmin && d.contract && (
-              <Button size="sm" variant="secondary" onClick={() => void setContract()}>
-                Shartnoma summasi
-              </Button>
-            )}
-          </div>
+          <>
+            {isAdmin && d.contract && <ActionButton onClick={() => void setContract()}>Shartnoma summasi</ActionButton>}
+            {/* Ichki darajalar ochiq bo'lsa — yopish (3802 va Marksheyder qatorlari ochiq qoladi) */}
+            <ToggleAllButton open={[...open].some((k) => k.includes(':'))} onClick={() => ([...open].some((k) => k.includes(':')) ? setOpen(new Set(['pool', 'marksheyder'])) : expandAll())} />
+          </>
         }
       >
         <RTable minWidth={980}>

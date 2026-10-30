@@ -567,6 +567,17 @@ export interface CompareEmployee {
   fullTiyin: string | null;
   qomitaTiyin: string;
   companyTiyin: string | null;
+  /** Qismlar: to'liq oylikdagi qism, undan Qo'mita qoplagani, korxona to'lagani */
+  parts: ComparePart[];
+}
+
+export interface ComparePart {
+  key: string;
+  label: string;
+  /** null — to'liq oylikda bu qism alohida ko'rinmaydi */
+  fullTiyin: string | null;
+  qomitaTiyin: string;
+  companyTiyin: string | null;
 }
 
 export interface CompareSum {

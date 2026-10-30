@@ -101,6 +101,7 @@ const sec = (name, people, extra = {}) => ({ name, employees: people.map((t, i) 
   assert.deepStrictEqual([may.fullTiyin, may.qomitaTiyin, may.companyTiyin, may.unmatched], [String(som(2600)), String(som(700)), String(som(1900)), 0], "to'liq = Qo'mita + korxona");
   const e0 = may.sections.find((s) => s.name === 'Markaziy apparat').list.find((e) => e.fullName.endsWith('0'));
   assert.deepStrictEqual([e0.how, e0.fullTiyin, e0.qomitaTiyin, e0.companyTiyin], ['EXACT', String(som(1000)), String(som(200)), String(som(800))]);
+  assert.deepStrictEqual(e0.parts.map((x) => [x.key, x.fullTiyin, x.qomitaTiyin, x.companyTiyin]), [['__total', String(som(1000)), String(som(200)), String(som(800))]], 'qismlarga ajratilmagan — bitta jami qator');
   const junC = cmp.pool.months.find((m) => m.period === '2026-06');
   assert.deepStrictEqual([junC.tarkib, junC.unmatched, junC.unmatchedQomitaTiyin, junC.fullTiyin], [false, 2, String(som(600)), '0'], 'tarkib yo‘q — to‘liq oylik noma’lum');
   assert.ok(!cmp.pool.months.some((m) => m.period === '2026-07'), 'iyul — hisobga olinmaydi');

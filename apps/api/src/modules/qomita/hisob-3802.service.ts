@@ -22,6 +22,65 @@ export interface CompareEmployee {
   qomitaTiyin: string;
   /** Korxona to'lagani = to'liq − Qo'mita; null — tarkibda topilmadi */
   companyTiyin: string | null;
+  /** Qismlar: nimaga qancha — to'liq oylikda, Qo'mita qoplagani, korxona to'lagani */
+  parts: ComparePart[];
+}
+
+export interface ComparePart {
+  key: string;
+  label: string;
+  /** null — to'liq oylikda bu qism alohida ko'rinmaydi */
+  fullTiyin: string | null;
+  qomitaTiyin: string;
+  companyTiyin: string | null;
+}
+
+/** Shablon qismi → ish haqi tarkibi komponenti (bir xil to'lov) */
+const VED_TO_TARKIB: Record<string, string> = {
+  OKLAD: 'OKLAD',
+  USTAMA_40: 'OKLAD_40',
+  TATIL: 'TATIL',
+  TATIL_KOMP: 'TATIL_KOMP',
+  TATIL_MODDIY: 'MODDIY',
+  KASALLIK: 'KASALLIK',
+  DEKRET: 'DEKRET',
+  OVQAT: 'OVQAT',
+  YOLKIRA: 'TRANSPORT',
+  TUMAN: 'TUMAN_KOEF',
+  MUKOFOT: 'MUKOFOT_OKLAD',
+  MODDIY_RAGBAT: 'FRONT',
+  BOSHQA: 'BOSHQA',
+};
+/** Vedomost (hudud xodimlari) — tarkib yo'q: asosiy / mukofot va ustamalar / ta'til / boshqa */
+const VED_TO_PAYROLL: Record<string, string> = { OKLAD: 'OKLAD', USTAMA_40: '__bonus', MUKOFOT: '__bonus', MODDIY_RAGBAT: '__bonus', OKLAD_USTAMA: '__bonus', TATIL: 'TATIL', TATIL_KOMP: 'TATIL', TATIL_MODDIY: 'TATIL' };
+const PAYROLL_LABEL: Record<string, string> = { OKLAD: 'Asosiy (oklad)', __bonus: 'Mukofot va ustamalar', TATIL: "Ta'til", __other: 'Boshqa', __total: "Jami (qismlarga ajratilmagan)" };
+
+/** Xodim qismlari: to'liq oylik qismi, undan Qo'mita qoplagani, korxona to'lagani (mos qism topilmasa — to'liq «—») */
+function partsOf(fullBy: Map<string, bigint> | null, ved: Record<string, string>, source: 'TARKIB' | 'VEDOMOST' | null, compName: Map<string, string>, qTotal: bigint): ComparePart[] {
+  const map = source === 'VEDOMOST' ? VED_TO_PAYROLL : VED_TO_TARKIB;
+  const lines = new Map<string, { label: string; full: bigint | null; q: bigint }>();
+  for (const [code, v] of fullBy ?? []) lines.set(code, { label: PAYROLL_LABEL[code] ?? compName.get(code) ?? code, full: v, q: 0n });
+  const place = (code: string, label: string, v: bigint) => {
+    const target = map[code] && lines.has(map[code]!) ? map[code]! : lines.has('__total') ? '__total' : source === 'VEDOMOST' && lines.has('__other') ? '__other' : null;
+    if (target) return void (lines.get(target)!.q += v);
+    const x = lines.get(`ved:${code}`) ?? { label, full: null, q: 0n };
+    x.q += v;
+    lines.set(`ved:${code}`, x);
+  };
+  let rest = qTotal;
+  for (const [code, raw] of Object.entries(ved ?? {})) {
+    const v = BigInt(raw || '0');
+    if (!v) continue;
+    place(code, VED_COMPONENT_LABEL[code as keyof typeof VED_COMPONENT_LABEL] ?? code, v);
+    rest -= v;
+  }
+  // Shablonda qismlarga ajratilmagan qoldiq — qismlar yig'indisi doim Qo'mita jamiga teng
+  if (rest !== 0n) place('__rest', "Qismlarga ajratilmagan", rest);
+  const cmp = (a: bigint, b: bigint) => (a < b ? 1 : a > b ? -1 : 0);
+  return [...lines.entries()]
+    .filter(([, x]) => x.full !== 0n || x.q !== 0n)
+    .sort(([, a], [, b]) => cmp(a.q, b.q) || cmp(a.full ?? 0n, b.full ?? 0n))
+    .map(([key, x]) => ({ key, label: x.label, fullTiyin: x.full === null ? null : x.full.toString(), qomitaTiyin: x.q.toString(), companyTiyin: x.full === null ? null : (x.full - x.q).toString() }));
 }
 
 interface CompareSum {
@@ -113,23 +172,40 @@ export class Hisob3802Service {
     if (!this.nz) throw new BadRequestException('3802 nazorat moduli ulanmagan');
     const excluded = new Set(await this.excluded());
     const used = months.filter((p) => !excluded.has(p));
-    const [{ tarkib, links }, ved, registry, payroll] = await Promise.all([
+    const [{ tarkib, links }, ved, registry, payroll, batches, components] = await Promise.all([
       this.nz.tarkibAndLinks(used),
       this.prisma.setting.findMany({ where: { key: { in: used.map((p) => `3802.ved.${p}`) } }, select: { key: true, value: true } }),
       this.prisma.employee.findMany({ select: { pinfl: true, fullName: true } }),
-      this.prisma.payrollEntry.findMany({ where: { period: { in: used }, deletedAt: null }, select: { employeePinfl: true, period: true, totalTiyin: true } }),
+      this.prisma.payrollEntry.findMany({ where: { period: { in: used }, deletedAt: null }, select: { employeePinfl: true, period: true, totalTiyin: true, baseTiyin: true, bonusTiyin: true, vacationTiyin: true } }),
+      this.prisma.salaryCompositionBatch.findMany({ where: { period: { in: used }, cancelledAt: null }, select: { id: true, period: true }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.salaryComponent.findMany({ select: { code: true, name: true, sign: true } }),
     ]);
     const vedBy = new Map(ved.map((v) => [v.key.slice('3802.ved.'.length), v.value as { sections?: VedSection[] } | null]));
     // Zaxira (hudud xodimlari ish haqi tarkibida bo'lmaydi): reestrdan ism bo'yicha — faqat yagona bo'lsa; oylik — shu oy vedomosti
     const byName = new Map<string, string[]>();
     for (const e of registry) byName.set(nameKey(e.fullName), [...(byName.get(nameKey(e.fullName)) ?? []), e.pinfl]);
-    const pay = new Map<string, bigint>();
-    for (const x of payroll) pay.set(`${x.employeePinfl}|${x.period}`, (pay.get(`${x.employeePinfl}|${x.period}`) ?? 0n) + x.totalTiyin);
-    const fallback = (fullName: string, period: string): bigint | null => {
+    const pay = new Map<string, (typeof payroll)[number]>();
+    for (const x of payroll) pay.set(`${x.employeePinfl}|${x.period}`, x);
+    const fallback = (fullName: string, period: string) => {
       const linked = links[nameKey(fullName)];
       const pins = typeof linked === 'string' ? [linked] : (byName.get(nameKey(fullName)) ?? []);
       return pins.length === 1 ? (pay.get(`${pins[0]}|${period}`) ?? null) : null;
     };
+    // To'liq oylik qismlari (ish haqi tarkibi): oyning oxirgi yuklashi → xodim → komponent
+    const latest = new Map<string, string>();
+    for (const b of batches) if (!latest.has(b.period)) latest.set(b.period, b.id);
+    const compRows = latest.size ? await this.prisma.salaryCompositionRow.findMany({ where: { batchId: { in: [...latest.values()] } }, select: { id: true, period: true, employeePinfl: true } }) : [];
+    const items = compRows.length ? await this.prisma.salaryCompositionItem.findMany({ where: { rowId: { in: compRows.map((r) => r.id) } }, select: { rowId: true, componentCode: true, amountTiyin: true } }) : [];
+    const rowKey = new Map(compRows.map((r) => [r.id, `${r.employeePinfl}|${r.period}`]));
+    const sign = new Map(components.map((c) => [c.code, c.sign]));
+    const fullParts = new Map<string, Map<string, bigint>>();
+    for (const it of items) {
+      const k = rowKey.get(it.rowId)!;
+      const m = fullParts.get(k) ?? new Map<string, bigint>();
+      m.set(it.componentCode, (m.get(it.componentCode) ?? 0n) + (sign.get(it.componentCode) === -1 ? -it.amountTiyin : it.amountTiyin));
+      fullParts.set(k, m);
+    }
+    const compName = new Map(components.map((c) => [c.code, c.name]));
 
     const side = (marksheyder: boolean) => {
       const monthsOut = used
@@ -143,9 +219,17 @@ export class Hisob3802Service {
                 const m = matchPerson(e.fullName, rows, links);
                 const q = BigInt(e.totalTiyin);
                 const fb = m.row || m.how === 'CONFIRMED_NONE' ? null : fallback(e.fullName, p);
-                const full = m.row ? m.row.totalTiyin : fb;
-                const source = m.row ? ('TARKIB' as const) : fb !== null ? ('VEDOMOST' as const) : null;
-                return { fullName: e.fullName, position: e.position, how: m.row ? m.how : fb !== null ? ('EXACT' as const) : m.how, source, fullTiyin: full === null ? null : full.toString(), qomitaTiyin: q.toString(), companyTiyin: full === null ? null : (full - q).toString() };
+                const full = m.row ? m.row.totalTiyin : fb ? fb.totalTiyin : null;
+                const source = m.row ? ('TARKIB' as const) : fb ? ('VEDOMOST' as const) : null;
+                // Qismlar: to'liq oylik (tarkib komponentlari yoki vedomost: asosiy / mukofot / ta'til / boshqa) va Qo'mita qismlari (shablon)
+                let fullBy: Map<string, bigint> | null = null;
+                if (m.row) fullBy = fullParts.get(`${m.row.pinfl}|${p}`) ?? new Map([['__total', m.row.totalTiyin]]);
+                else if (fb) {
+                  const rest = fb.totalTiyin - fb.baseTiyin - fb.bonusTiyin - fb.vacationTiyin;
+                  fullBy = new Map(([['OKLAD', fb.baseTiyin], ['__bonus', fb.bonusTiyin], ['TATIL', fb.vacationTiyin], ['__other', rest]] as [string, bigint][]).filter(([, v]) => v !== 0n));
+                }
+                const parts = partsOf(fullBy, e.amounts as Record<string, string>, source, compName, q);
+                return { fullName: e.fullName, position: e.position, how: m.row ? m.how : fb ? ('EXACT' as const) : m.how, source, fullTiyin: full === null ? null : full.toString(), qomitaTiyin: q.toString(), companyTiyin: full === null ? null : (full - q).toString(), parts };
               });
               return { name: s.name.trim(), ...sumOf(employees), list: employees.sort((a, b) => (BigInt(b.qomitaTiyin) > BigInt(a.qomitaTiyin) ? 1 : -1)) };
             })
