@@ -197,12 +197,12 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
     const index = s.unit.kind === 'region' ? activeRegions.indexOf(s) + 1 : null;
     return (
     <Fragment key={s.unit.key}>
-      <Tr onClick={() => toggle(s.unit.key)} muted={s.unit.kind !== 'region'} className={cn(isOpen && 'bg-brand-50')}>
+      <Tr onClick={() => toggle(s.unit.key)} className={cn(isOpen && 'bg-brand-50')}>
         <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{index ?? ''}</Td>
         <NameCell
           before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')} style={{ marginLeft: depth * 18 }}>▸</span>}
           sub={subOf(s)}
-          className={cn('max-w-64', s.unit.kind === 'center' && 'font-semibold')}
+          className="max-w-64 font-semibold text-heading"
         >
           <span id={`unit-${s.unit.key}`} className="scroll-mt-24">
             {s.unit.name}
