@@ -378,16 +378,20 @@ export function MoneyCell({ value, calc, className, strong, signedColor }: { val
 }
 
 /** Farq katakchasi: +1 093 500 (yashil, yaxshilanish) / −334 000 (qizil, zarar); growthGood=false — xarajatda o'sish qizil «−» */
-export function DiffCell({ value, growthGood = true, calc, className, pct }: { value: number; growthGood?: boolean; calc?: Calc | null; className?: string; /** Berilsa — farq yonida foiz (qavsda) */ pct?: number | null }) {
+/**
+ * Farq katakchasi. pct berilsa («Farqi, foizda» ustuni) — asosiy qiymat FOIZ (+/− natijaga ta'siri bo'yicha), summa —
+ * sichqoncha ustida; o'tgan davr 0 bo'lsa (foiz ma'nosiz) — summa. pct berilmasa — summa.
+ */
+export function DiffCell({ value, growthGood = true, calc, className, pct }: { value: number; growthGood?: boolean; calc?: Calc | null; className?: string; /** Berilsa — foizda (summa sichqoncha ustida) */ pct?: number | null }) {
   const rounded = Math.round(value / 100);
   const good = rounded === 0 ? null : rounded > 0 === growthGood;
+  const amount = `${effectSign(good)}${sum(Math.abs(value))}`;
+  const asPct = pct !== undefined && pct !== null && Number.isFinite(pct) && Math.abs(pct) < 1000;
   return (
-    <Td className={cn('whitespace-nowrap font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)', className)}>
+    <Td className={cn('whitespace-nowrap font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)', className)} title={asPct ? `Farqi: ${amount} so'm` : undefined}>
       <CalcValue calc={calc} className="no-underline">
-        {effectSign(good)}
-        {sum(Math.abs(value))}
+        {asPct ? `${effectSign(good)}${Math.abs(pct).toFixed(1).replace('.', ',')}%` : amount}
       </CalcValue>
-      <PctInline value={pct ?? null} growthGood={growthGood} />
     </Td>
   );
 }

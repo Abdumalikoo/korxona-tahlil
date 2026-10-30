@@ -7,7 +7,6 @@ import {
   MoneyCell,
   NameCell,
   PctBadge,
-  PctInline,
   PillTabs,
   ToggleAllButton,
   ReportCard,
@@ -411,9 +410,7 @@ function TreeCard({
                 )}
               </td>
               <td className={cn(CELL, 'whitespace-nowrap font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>
-                {good === null ? '' : good ? '+' : '−'}
-                {sum(Math.abs(diff))}
-                <PctInline value={changeOf(cur, prev)} growthGood={growthGood} />
+                <span title={diff ? `Farqi: ${sum(diff)} so'm` : undefined}>{pctOrSum(cur, prev, growthGood)}</span>
               </td>
               <td className={CELL}>{total ? <PctBadge value={(cur / total) * 100} plain /> : ''}</td>
             </>
@@ -526,9 +523,7 @@ function TreeCard({
                   <td className={cn(CELL, 'whitespace-nowrap')}>{sum(prevTotal)}</td>
                   <td className={cn(CELL, 'whitespace-nowrap')}>{sum(total)}</td>
                   <td className={cn(CELL, 'whitespace-nowrap')}>
-                    {total === prevTotal ? '' : total > prevTotal === growthGood ? '+' : '−'}
-                    {sum(Math.abs(total - prevTotal))}
-                    <PctInline value={changeOf(total, prevTotal)} growthGood={growthGood} />
+                    <span title={total !== prevTotal ? `Farqi: ${sum(total - prevTotal)} so'm` : undefined}>{pctOrSum(total, prevTotal, growthGood)}</span>
                   </td>
                   <td className={CELL}>
                     <PctBadge value={100} plain />
@@ -547,4 +542,13 @@ function TreeCard({
       </TableNote>
     </ReportCard>
   );
+}
+
+/** «Farqi, foizda»: foiz (+/− natijaga ta'siri bo'yicha); o'tgan davr 0 bo'lsa (foiz ma'nosiz) — summa */
+function pctOrSum(cur: number, prev: number, growthGood: boolean): string {
+  const d = cur - prev;
+  if (Math.round(d / 100) === 0) return '';
+  const sign = d > 0 === growthGood ? '+' : '−';
+  const p = changeOf(cur, prev);
+  return p !== null && Number.isFinite(p) && Math.abs(p) < 1000 ? `${sign}${Math.abs(p).toFixed(1).replace('.', ',')}%` : `${sign}${sum(Math.abs(d))}`;
 }

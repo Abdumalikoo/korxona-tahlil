@@ -109,7 +109,7 @@ export function InsightsTab({ range }: { range: DateRange }) {
               <NameCell sticky={false}>{d.profit >= 0 ? 'Sof foyda' : 'Zarar'}</NameCell>
               <MoneyCell value={previousProfit} signedColor />
               <MoneyCell value={d.profit} signedColor />
-              <DiffCell value={d.profit - previousProfit} />
+              <DiffCell value={d.profit - previousProfit} pct={changeOf(d.profit, previousProfit)} />
             </Tr>
             <Tr>
               <NameCell sticky={false} sub="foyda ÷ daromad">
@@ -143,7 +143,7 @@ export function InsightsTab({ range }: { range: DateRange }) {
                   </NameCell>
                   <MoneyCell value={rPrevProfit} signedColor />
                   <MoneyCell value={rProfit} signedColor strong />
-                  <DiffCell value={rProfit - rPrevProfit} />
+                  <DiffCell value={rProfit - rPrevProfit} pct={changeOf(rProfit, rPrevProfit)} />
                 </Tr>
                 {center && (
                   <Tr>

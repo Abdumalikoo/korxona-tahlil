@@ -7,6 +7,6 @@ import { useEffect } from 'react';
 // Eski manzil: «Umumiy» Solishtirma › Umumiy ga ko'chirildi
 export default function Page() {
   const router = useRouter();
-  useEffect(() => router.replace('/solishtirma/umumiy'), [router]);
+  useEffect(() => router.replace('/'), [router]);
   return <LoadingState />;
 }

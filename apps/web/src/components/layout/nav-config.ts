@@ -75,7 +75,7 @@ export const MENU: NavItem[] = [
     icon: NavHome,
     description: 'Daromad, xarajat va tahlil bir qarashda',
     pages: [
-      { label: 'Bosh sahifa', href: '/', description: 'Daromad, xarajat va foyda bir qarashda' },
+      { label: 'Bosh sahifa', href: '/', description: 'Markaz, Hudud va yo‘nalishlar birga: daromad, xarajat, natija va u qanday shakllanishi' },
       { label: 'Daromad', href: '/tahlil/daromad', description: 'Daromad tahlili: xizmatlar, mijozlar, hududlar' },
       { label: 'Xarajat', href: '/tahlil/xarajat', description: 'Xarajat tahlili: moddalar, kontragentlar, hududlar' },
       { label: "Qo'mita pullari sarfi", href: '/tahlil/qomita', description: "3802 va Marksheyder: kelgan pul, sarf va qoldiq — oy, bo'lim, xodim" },
@@ -227,7 +227,7 @@ export const MENU: NavItem[] = [
     icon: NavCompare,
     description: "Hududlar, Markaz va yo'nalishlar (Tax free …) yonma-yon",
     pages: [
-      { label: 'Umumiy', href: '/solishtirma/umumiy', description: "Markaz, hududlar va yo‘nalishlar birga: korxona daromadi, xarajati, natijasi va u qanday shakllanishi" },
+      { label: 'Umumiy', href: '/solishtirma/umumiy', description: 'Korxona bir qarashda: daromad, xarajat, natija; daromad va xarajat tarkibi ichma-ich (Markaz, Hudud, yo‘nalishlar)' },
       { label: 'Hududlar', href: '/solishtirma', description: 'Viloyatlar → tumanlar → xodimlar: daromad, xarajat, natija; Markazni qoplash; hududlar modellari (prognoz, salohiyat, KPI, DEA …)' },
       { label: 'Markaz', href: '/solishtirma/markaz', description: "Markaz → bo'limlar → xodimlar: daromad manbalari, o'z xarajati, hududlar uchun to'langan" },
       { label: 'Tax free', href: '/solishtirma/tax-free', description: "Tax free: daromad manbalari, xarajat tarkibi, natija va siyosat bo'yicha o'tganlar" },

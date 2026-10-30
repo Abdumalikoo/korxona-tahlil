@@ -450,7 +450,7 @@ function PartsTable({ data, d }: { data: FlowResult; d: Derived }) {
           </NameCell>
           <MoneyCell value={previousProfit} signedColor />
           <MoneyCell value={d.profit} signedColor />
-          <DiffCell value={d.profit - previousProfit} />
+          <DiffCell value={d.profit - previousProfit} pct={changeOf(d.profit, previousProfit)} />
           <Td>
             <StatusBadge tone={(data.marginPercent ?? 0) >= 0 ? 'green' : 'red'}>rent. {pctPlain(data.marginPercent)}</StatusBadge>
           </Td>

@@ -18,9 +18,9 @@ const BOTH_SRC = "Daromadlar va Xarajatlar bo'limlaridagi yozuvlar";
 
 export const INTROS: Record<string, PageIntro> = {
   '/': {
-    what: 'Tanlangan davrdagi daromad, xarajat va natija bir qarashda.',
-    from: BOTH_SRC,
-    how: "Daromad, Xarajat yoki Tahlil kartochkasini bosing — ichiga kirib boriladigan jadvallar ochiladi. Davrni yuqoridagi «Davr» tugmasidan o'zgartiring.",
+    what: "Butun korxona bitta ekranda: Markaz, Hudud (bosilsa — viloyatlar) va yo‘nalishlar bir jadvalda — daromad, xarajat, natija, rentabellik, oylar kesimi va natija qanday shakllanishi.",
+    from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
+    how: "Yuqorida korxona jami, so'ng natija ko'prigi va jadval. Qatorni bosing — joyida ichma-ich ochiladi. Davrni yuqoridagi «Davr» tugmasidan o'zgartiring.",
   },
   '/tahlil/daromad': {
     what: 'Daromad qayerdan va qancha keldi: Markaz va hududlar, moddalar, bo‘limlar, mijozlar, oylar; o‘tgan davr va o‘tgan yilga nisbatan.',
@@ -78,9 +78,9 @@ export const INTROS: Record<string, PageIntro> = {
     how: "Taqsimlanmagan summani «Xodimga biriktirish» bilan o'tkazing; hudud yig'indisi o'zgarmaydi.",
   },
   '/solishtirma/umumiy': {
-    what: "Butun korxona bitta ekranda: Markaz, hududlar va yo‘nalishlar bir jadvalda — daromad, xarajat, natija, rentabellik, oylar kesimi va natija qanday shakllanishi. Markazni qoplash — Hududlar sahifasida.",
-    from: `${BOTH_SRC}, Xodimlar bo'limi, Xarajatlar siyosati`,
-    how: "Yuqorida korxona jami (Hududlar | Markaz bo'yicha), so'ng natija ko'prigi va jadval. Qatorni bosing — o'sha hudud yoki Markaz sahifasi ochiladi.",
+    what: 'Korxona bir qarashda: daromad, xarajat, natija va rentabellik; daromad va xarajat tarkibi — Markaz, Hudud, yo‘nalishlar — ichma-ich oxirigacha.',
+    from: BOTH_SRC,
+    how: "Daromad, Xarajat yoki Natija kartochkasini bosing — tahlil jadvallari ochiladi; «Daromad tarkibi» / «Xarajat tarkibi» qatorlarini bosib ichiga kiring.",
   },
   '/xarajatlar/internet': {
     what: "Internet to'lovlari: qaysi shartnomaga qancha to'lanmoqda, kimga va qayerga (Markaz, Markaz bo'limi yoki hudud) biriktiriladi.",
