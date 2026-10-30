@@ -1,10 +1,57 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { runExclusive } from '../../common/locks';
 import { monthsBetween } from '../../common/period';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QOMITA_INCOME_PREFIX, QOMITA_SEGMENT } from './qomita.util';
 import { MARKSH_RE, VED_COMPONENT_LABEL, type VedSection } from './vedomost-3802.parse';
+import { matchPerson, nameKey, type NzTarkibRow } from './nazorat-3802.compute';
+import { Nazorat3802Service } from './nazorat-3802.service';
+
+/** Qo'mita › Solishtirma: xodim — to'liq oylik (ish haqi tarkibi) va undan Qo'mita qoplagani / korxona to'lagani */
+export interface CompareEmployee {
+  fullName: string;
+  position: string;
+  /** Ism bog'lanishi: qo'lda (LINK), to'liq ism, familiya+ism, yaqin yozilish; NONE — tarkibda topilmadi */
+  how: 'LINK' | 'EXACT' | 'FIRST2' | 'FUZZY' | 'NONE' | 'CONFIRMED_NONE';
+  /** To'liq oylik manbai: ish haqi tarkibi; tarkibda yo'q (hudud xodimlari) — reestr (ism bo'yicha yagona) + shu oy vedomosti */
+  source: 'TARKIB' | 'VEDOMOST' | null;
+  /** To'liq hisoblangan oylik (ish haqi tarkibi «Jami»); null — tarkibda topilmadi */
+  fullTiyin: string | null;
+  /** Qo'mita qoplagani (oylik shablon «Jami») */
+  qomitaTiyin: string;
+  /** Korxona to'lagani = to'liq − Qo'mita; null — tarkibda topilmadi */
+  companyTiyin: string | null;
+}
+
+interface CompareSum {
+  fullTiyin: string;
+  qomitaTiyin: string;
+  companyTiyin: string;
+  employees: number;
+  /** Tarkibda topilmagan xodimlar (to'liq oylik noma'lum) va ularning Qo'mita qismi */
+  unmatched: number;
+  unmatchedQomitaTiyin: string;
+}
+
+const sumOf = (list: CompareEmployee[]): CompareSum => {
+  let full = 0n;
+  let q = 0n;
+  let comp = 0n;
+  let un = 0;
+  let unQ = 0n;
+  for (const e of list) {
+    if (e.fullTiyin === null) {
+      un += 1;
+      unQ += BigInt(e.qomitaTiyin);
+      continue;
+    }
+    full += BigInt(e.fullTiyin);
+    q += BigInt(e.qomitaTiyin);
+    comp += BigInt(e.companyTiyin!);
+  }
+  return { fullTiyin: full.toString(), qomitaTiyin: q.toString(), companyTiyin: comp.toString(), employees: list.length, unmatched: un, unmatchedQomitaTiyin: unQ.toString() };
+};
 
 // ═══════════════════════════════════════════════════════════
 // 3802 — Qo'mita pullari: IKKI HISOB.
@@ -51,7 +98,65 @@ export class Hisob3802Service {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly nz?: Nazorat3802Service,
   ) {}
+
+  /**
+   * Qo'mita › Solishtirma (shaxsiy ma'lumot): Qo'mitadan pul oladigan xodimlar (oylik shablon) — har birining to'liq
+   * oyligi (ish haqi tarkibi), shundan Qo'mita qoplagani (shablon «Jami») va korxona to'lagani (ayirma).
+   * Ism → tarkib: 3802 «Nazorat zanjiri» bilan bir xil (qo'lda bog'lash → to'liq ism → familiya+ism → yaqin yozilish).
+   * Sarfi hisobga olinmaydigan oylar — kirmaydi (Umumiy bilan bir xil). Daraxt: hisob → oy → bo'lim → xodim.
+   */
+  async compare(from: string, to: string) {
+    const months = monthsBetween(String(from ?? ''), String(to ?? ''));
+    if (!months.length) throw new BadRequestException("Davr noto'g'ri (YYYY-MM)");
+    if (!this.nz) throw new BadRequestException('3802 nazorat moduli ulanmagan');
+    const excluded = new Set(await this.excluded());
+    const used = months.filter((p) => !excluded.has(p));
+    const [{ tarkib, links }, ved, registry, payroll] = await Promise.all([
+      this.nz.tarkibAndLinks(used),
+      this.prisma.setting.findMany({ where: { key: { in: used.map((p) => `3802.ved.${p}`) } }, select: { key: true, value: true } }),
+      this.prisma.employee.findMany({ select: { pinfl: true, fullName: true } }),
+      this.prisma.payrollEntry.findMany({ where: { period: { in: used }, deletedAt: null }, select: { employeePinfl: true, period: true, totalTiyin: true } }),
+    ]);
+    const vedBy = new Map(ved.map((v) => [v.key.slice('3802.ved.'.length), v.value as { sections?: VedSection[] } | null]));
+    // Zaxira (hudud xodimlari ish haqi tarkibida bo'lmaydi): reestrdan ism bo'yicha — faqat yagona bo'lsa; oylik — shu oy vedomosti
+    const byName = new Map<string, string[]>();
+    for (const e of registry) byName.set(nameKey(e.fullName), [...(byName.get(nameKey(e.fullName)) ?? []), e.pinfl]);
+    const pay = new Map<string, bigint>();
+    for (const x of payroll) pay.set(`${x.employeePinfl}|${x.period}`, (pay.get(`${x.employeePinfl}|${x.period}`) ?? 0n) + x.totalTiyin);
+    const fallback = (fullName: string, period: string): bigint | null => {
+      const linked = links[nameKey(fullName)];
+      const pins = typeof linked === 'string' ? [linked] : (byName.get(nameKey(fullName)) ?? []);
+      return pins.length === 1 ? (pay.get(`${pins[0]}|${period}`) ?? null) : null;
+    };
+
+    const side = (marksheyder: boolean) => {
+      const monthsOut = used
+        .filter((p) => vedBy.get(p)?.sections)
+        .map((p) => {
+          const rows: NzTarkibRow[] = tarkib.get(p) ?? [];
+          const sections = (vedBy.get(p)!.sections ?? [])
+            .filter((s) => (s.marksheyder ?? MARKSH_RE.test(s.name)) === marksheyder)
+            .map((s) => {
+              const employees: CompareEmployee[] = s.employees.map((e) => {
+                const m = matchPerson(e.fullName, rows, links);
+                const q = BigInt(e.totalTiyin);
+                const fb = m.row || m.how === 'CONFIRMED_NONE' ? null : fallback(e.fullName, p);
+                const full = m.row ? m.row.totalTiyin : fb;
+                const source = m.row ? ('TARKIB' as const) : fb !== null ? ('VEDOMOST' as const) : null;
+                return { fullName: e.fullName, position: e.position, how: m.row ? m.how : fb !== null ? ('EXACT' as const) : m.how, source, fullTiyin: full === null ? null : full.toString(), qomitaTiyin: q.toString(), companyTiyin: full === null ? null : (full - q).toString() };
+              });
+              return { name: s.name.trim(), ...sumOf(employees), list: employees.sort((a, b) => (BigInt(b.qomitaTiyin) > BigInt(a.qomitaTiyin) ? 1 : -1)) };
+            })
+            .filter((s) => s.employees > 0);
+          const all = sections.flatMap((s) => s.list);
+          return { period: p, tarkib: rows.length > 0, ...sumOf(all), sections };
+        });
+      return { ...sumOf(monthsOut.flatMap((m) => m.sections.flatMap((s) => s.list))), months: monthsOut };
+    };
+    return { from: months[0]!, to: months[months.length - 1]!, excluded: months.filter((p) => excluded.has(p)), pool: side(false), marksheyder: side(true) };
+  }
 
   private async read<T>(key: string, fallback: T): Promise<T> {
     const v = (await this.prisma.setting.findUnique({ where: { key } }))?.value;

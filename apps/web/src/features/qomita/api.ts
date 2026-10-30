@@ -558,8 +558,42 @@ export interface HisobMonthDetail {
   marksheyder: HisobDetailSection[];
 }
 
+/** Qo'mita › Solishtirma: xodim — to'liq oylik, Qo'mita qoplagani, korxona to'lagani */
+export interface CompareEmployee {
+  fullName: string;
+  position: string;
+  how: 'LINK' | 'EXACT' | 'FIRST2' | 'FUZZY' | 'NONE' | 'CONFIRMED_NONE';
+  source: 'TARKIB' | 'VEDOMOST' | null;
+  fullTiyin: string | null;
+  qomitaTiyin: string;
+  companyTiyin: string | null;
+}
+
+export interface CompareSum {
+  fullTiyin: string;
+  qomitaTiyin: string;
+  companyTiyin: string;
+  employees: number;
+  unmatched: number;
+  unmatchedQomitaTiyin: string;
+}
+
+export interface CompareSide extends CompareSum {
+  months: (CompareSum & { period: string; tarkib: boolean; sections: (CompareSum & { name: string; list: CompareEmployee[] })[] })[];
+}
+
+export interface Compare3802 {
+  from: string;
+  to: string;
+  excluded: string[];
+  pool: CompareSide;
+  marksheyder: CompareSide;
+}
+
 export const hisobApi = {
   ledger: (from: string, to: string) => api.get<ApiResponse<Hisob3802>>('/qomita/3802/hisob', { params: { from, to } }),
+  /** Solishtirma: to'liq oylik va undan Qo'mita / korxona qismi (shaxsiy ma'lumot) */
+  compare: (from: string, to: string) => api.get<ApiResponse<Compare3802>>('/qomita/3802/hisob/compare', { params: { from, to } }),
   /** Oy tafsiloti: bo'limlar va xodimlar (shaxsiy ma'lumot) */
   month: (period: string) => api.get<ApiResponse<HisobMonthDetail>>(`/qomita/3802/hisob/month/${period}`),
   setExcluded: (periods: string[]) => api.put<ApiResponse<{ excluded: string[] }>>('/qomita/3802/hisob/excluded', { periods }),

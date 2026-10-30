@@ -371,6 +371,12 @@ export class Nazorat3802Service {
   }
 
   /** Bitta bo'lim — xodimlar: tarkib bo'yicha hisoblangan ish haqi va 3802 qoplaydigan qismi oyma-oy (shaxsiy ma'lumot) */
+  /** Ish haqi tarkibi (oy → qatorlar) va qo'lda bog'lashlar — boshqa hisoblar (Qo'mita › Solishtirma) uchun */
+  async tarkibAndLinks(periods: string[]): Promise<{ tarkib: Map<string, NzTarkibRow[]>; links: Record<string, string | null> }> {
+    const d = await this.load(periods);
+    return { tarkib: d.tarkib, links: d.links };
+  }
+
   async sarfUnit(unit: string, from: string, to: string) {
     const x = await this.sarfData(from, to);
     if (!x.units.includes(unit)) throw new NotFoundException("Bo'lim Qo'mita sarfida yo'q");

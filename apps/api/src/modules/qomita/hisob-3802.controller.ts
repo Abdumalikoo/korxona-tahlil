@@ -14,6 +14,13 @@ export class Hisob3802Controller {
     return { data: await this.hisob.ledger(from, to) };
   }
 
+  /** Solishtirma: Qo'mitadan pul oladigan xodimlar — to'liq oylik, Qo'mita qoplagani, korxona to'lagani (shaxsiy ma'lumot) */
+  @Personal()
+  @Get('compare')
+  async compare(@Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.hisob.compare(from, to) };
+  }
+
   /** Oy tafsiloti: bo'limlar va xodimlar (shaxsiy ma'lumot) */
   @Personal()
   @Get('month/:period')

@@ -87,6 +87,25 @@ const sec = (name, people, extra = {}) => ({ name, employees: people.map((t, i) 
   assert.strictEqual(d.contract.amountTiyin, String(som(7_500_000_000)));
   await assert.rejects(() => svc.setContract({ year: '26', amount: '1' }, 'u1'), /Yil/);
 
+  // Solishtirma: to'liq oylik (tarkib) → Qo'mita qoplagani (shablon) + korxona to'lagani; iyul — hisobga olinmaydi
+  const row = (pinfl, fullName, total) => ({ pinfl, fullName, okladTiyin: 0n, ustamaTiyin: 0n, totalTiyin: som(total) });
+  const nzStub = {
+    tarkibAndLinks: async (periods) => ({
+      tarkib: new Map(periods.filter((p) => p === '2026-05').map((p) => [p, [row('a0', 'Namuna Markaziy apparat 0', 1000), row('a1', 'Namuna Markaziy apparat 1', 700), row('c0', 'Namuna "Call-Markazi" bo\'limi 0', 900), row('m0', "Namuna MARKSHEYDERLIK XIZMATI BO'LIMI 0", 300)]])),
+      links: {},
+    }),
+  };
+  const cmp = await new Hisob3802Service(db.client, { log: async () => {} }, nzStub).compare('2026-05', '2026-07');
+  assert.deepStrictEqual(cmp.excluded, ['2026-07']);
+  const may = cmp.pool.months.find((m) => m.period === '2026-05');
+  assert.deepStrictEqual([may.fullTiyin, may.qomitaTiyin, may.companyTiyin, may.unmatched], [String(som(2600)), String(som(700)), String(som(1900)), 0], "to'liq = Qo'mita + korxona");
+  const e0 = may.sections.find((s) => s.name === 'Markaziy apparat').list.find((e) => e.fullName.endsWith('0'));
+  assert.deepStrictEqual([e0.how, e0.fullTiyin, e0.qomitaTiyin, e0.companyTiyin], ['EXACT', String(som(1000)), String(som(200)), String(som(800))]);
+  const junC = cmp.pool.months.find((m) => m.period === '2026-06');
+  assert.deepStrictEqual([junC.tarkib, junC.unmatched, junC.unmatchedQomitaTiyin, junC.fullTiyin], [false, 2, String(som(600)), '0'], 'tarkib yo‘q — to‘liq oylik noma’lum');
+  assert.ok(!cmp.pool.months.some((m) => m.period === '2026-07'), 'iyul — hisobga olinmaydi');
+  assert.deepStrictEqual([cmp.marksheyder.fullTiyin, cmp.marksheyder.qomitaTiyin, cmp.marksheyder.companyTiyin, cmp.marksheyder.unmatched], [String(som(300)), String(som(80)), String(som(220)), 1], 'Marksheyder alohida');
+
   console.log('OK t-hisob-3802');
 })().catch((e) => {
   console.error(e);
