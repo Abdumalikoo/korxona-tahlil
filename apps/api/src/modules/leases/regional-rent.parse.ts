@@ -8,7 +8,8 @@ import { matchPlace, placeKey, translit } from './leases.match';
 //  1) Ilova shabloni: bitta varaq — Hudud | Tuman | Manzil | Shartnoma | Maydon | Ijaraga beruvchi | STIR | Yanvar … Dekabr | Jami
 //     (umumiy shablon tizimi: sarlavha avtomatik topiladi).
 //  2) Vazirlik «Ижара маълумот» fayli: har viloyat — alohida varaq (viloyat — varaq sarlavhasidan, «ИНН» — ijaraga
-//     beruvchi STIR), sarlavha qatori — oylar («январ» … «декабр») qatori; «Жами» qatori va izohlar (to'langan /
+//     beruvchi STIR), sarlavha qatori — oylar («январ» … «декабр») qatori; bir necha tuman bitta umumiy shartnomada
+//     (summa katagi qatorlar bo'ylab birlashtirilgan) — summa ular orasida tiyingacha teng bo'linadi; «Жами» qatori va izohlar (to'langan /
 //     to'lanmagan, pul to'langan sana, penya) o'qilmaydi — faqat oylik hisoblangan summalar.
 // Natija qatori: hudud (kod yoki matn), tuman matni, 12 oy (so'm), «Жами» tekshiruvi.
 // ═══════════════════════════════════════════════════════════
@@ -160,6 +161,26 @@ function parseMinistry(wb: ExcelJS.Workbook, regions: Region[]): RentParse {
       else if (k === 'jamisumma' && col.total === undefined) col.total = c;
     }
     if (!col.district) continue;
+    // Birlashgan kataklar (bir necha tuman — bitta umumiy shartnoma): «qator:ustun» → yuqori qator va qatorlar soni
+    const merged = new Map<string, { top: number; span: number }>();
+    for (const range of ((ws.model as { merges?: string[] }).merges ?? [])) {
+      const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(range);
+      if (!m || m[1] !== m[3]) continue;
+      const c = ws.getColumn(m[1]!).number;
+      const top = Number(m[2]);
+      const bottom = Number(m[4]);
+      if (top <= hr || bottom <= top) continue;
+      for (let rr = top; rr <= bottom; rr++) merged.set(`${rr}:${c}`, { top, span: bottom - top + 1 });
+    }
+    /** Summa: birlashgan katak bo'lsa — tiyingacha teng ulush (qoldiq tiyinlar — birinchi qatorlarga) */
+    const share = (r0: number, c: number): number => {
+      const v = amount(ws.getRow(r0).getCell(c).value);
+      const m = merged.get(`${r0}:${c}`);
+      if (!m || !v) return v;
+      const t = Math.round(v * 100);
+      const base = Math.floor(t / m.span);
+      return (base + (r0 - m.top < t - base * m.span ? 1 : 0)) / 100;
+    };
     // Viloyat va ijaraga beruvchi STIR — varaq tepasidan
     let title = ws.name;
     let tin: string | null = null;
@@ -176,7 +197,8 @@ function parseMinistry(wb: ExcelJS.Workbook, regions: Region[]): RentParse {
       const row = ws.getRow(r);
       const district = txt(row.getCell(col.district).value);
       const first = txt(row.getCell(1).value) || txt(row.getCell(2).value);
-      const months = MONTH_LABELS.map((_, i) => (col[`m${i}`] ? amount(row.getCell(col[`m${i}`]!).value) : 0));
+      const months = MONTH_LABELS.map((_, i) => (col[`m${i}`] ? share(r, col[`m${i}`]!) : 0));
+      const span = col.m0 ? merged.get(`${r}:${col.m0}`)?.span : undefined;
       if (JAMI.test(district) || JAMI.test(first) || JAMI.test(translit(first))) {
         skipped.push({ ref: `${ws.name} / ${r}`, reason: '«Жами» qatori' });
         continue;
@@ -201,8 +223,8 @@ function parseMinistry(wb: ExcelJS.Workbook, regions: Region[]): RentParse {
         lessorName: null,
         lessorTin: tin,
         months,
-        total: col.total ? amount(row.getCell(col.total).value) : null,
-        warnings: [],
+        total: col.total ? share(r, col.total) : null,
+        warnings: span ? [`Summa ${span} qator uchun birlashgan katakda — teng bo'lindi`] : [],
       });
     }
   }

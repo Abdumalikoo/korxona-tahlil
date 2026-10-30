@@ -87,6 +87,22 @@ function ministrySheet(wb, name, title, inn, rows) {
   assert.strictEqual(by['МАРКАЗ (НЕЕДС БИНОСИ)'].regionCode, 0, "«МАРКАЗ» qatori — Markaz ijarasi");
   assert.ok(!JSON.stringify(p).includes('тўланмаган'), "izoh (to'langan / to'lanmagan) o'qilmaydi");
 
+  // ── Bitta umumiy shartnoma (summa katagi 3 tuman qatori bo'ylab birlashtirilgan) — summa teng bo'linadi ──
+  const wm = new ExcelJS.Workbook();
+  ministrySheet(wm, 'Навоий', 'Навоий вилояти', '200000003', [
+    { name: 'Зарафшон ш', no: 'N-1', m: [1000.01, 900, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], total: 1900.01 },
+    { name: 'Кармана т', no: null, m: [] },
+    { name: 'Нурота т', no: null, m: [] },
+  ]);
+  const nws = wm.getWorksheet('Навоий');
+  for (const c of ['J', 'K', 'V', 'E']) nws.mergeCells(`${c}7:${c}9`);
+  const np = parseRentWorkbook(wm, REGIONS);
+  assert.deepStrictEqual(np.rows.map((r) => r.months[0]), [333.34, 333.34, 333.33], 'yanvar 1000,01 → 3 ga (qoldiq tiyin — birinchi qatorlarga)');
+  assert.deepStrictEqual(np.rows.map((r) => r.months[1]), [300, 300, 300]);
+  assert.strictEqual(np.rows.reduce((s, r) => s + Math.round(r.months[0] * 100), 0), 100001, 'ulushlar yig‘indisi = umumiy summa (tiyingacha)');
+  assert.ok(np.rows.every((r) => r.warnings.some((w) => w.includes('3 qator'))));
+  assert.ok(np.rows.every((r) => r.contractNo === 'N-1'), 'birlashgan shartnoma raqami — hammasiga');
+
   // ── Ilova shabloni: bo'sh shablon → to'ldiriladi → o'qiladi ──
   const t = new ExcelJS.Workbook();
   await t.xlsx.load(await buildTemplate(RENT_SPEC));
