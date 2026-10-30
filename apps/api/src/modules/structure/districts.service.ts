@@ -20,6 +20,7 @@ import { bounds, compareRange, parseDay, periodsEndingIn, trendMonths } from './
 import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } from './structure.types';
 import { CENTRAL_REGION } from '../../common/segments/segments';
 import { loadLocationRefs } from '../payroll/payroll.service';
+import { REGION_VAT } from '../taxes/taxes.service';
 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
@@ -419,11 +420,17 @@ export class DistrictsService {
 
     // Qolganlari: mashinalar, xizmat safari (23106) va boshqa xarajatlar — yozuvda tuman bo'lsa o'sha tumanga
     const safarIds = await safarExpenseMeta(this.prisma);
+    // Hudud daromadidan QQS (tumansiz) — daromad tumanlarga taqsimlangandan keyin, o'sha ulushda (pastda)
+    const vatRows: { row: (typeof expenses)[number]; key: string; label: string }[] = [];
     for (const row of expenses) {
       if (row.source === 'PAYROLL' || row.source === 'LEASE') continue;
       const top = categoryParent.get(row.categoryCode) ?? row.categoryCode;
       const [key, label] = row.source === 'VEHICLE' ? ['VEHICLE', 'Mashina xarajatlari'] : safarIds.has(row.id) ? [SAFAR_PART.key, SAFAR_PART.label] : [`c:${top}`, categoryLabel.get(top) ?? top];
       // Ish haqidan soliq (ijtimoiy soliq — viloyatga bitta yozuv) — tumanlarga shu oy to'liq ish haqi ulushiga qarab
+      if (row.categoryCode === REGION_VAT.code && !row.districtId) {
+        vatRows.push({ row, key, label });
+        continue;
+      }
       const base = row.source === 'TAX' && !row.districtId ? fullBy.get(row.period ?? monthOf(row.date)) : undefined;
       if (base && base.size) {
         for (const part of splitByShare(row.amountTiyin, base)) addExpense(row.date, { districtId: part.key, amount: part.amount }, 'OTHER', key, label, row.period);
@@ -471,6 +478,17 @@ export class DistrictsService {
     // Hududlar tushumi viloyat darajasida (tumansiz) yuklangan bo'lsa ham, har tuman o'z ulushini ko'rishi kerak.
     // Asos: shu davrda tumandagi xodimlar tushumi (fakt) → xodimlar soni → ish haqi. Asos bo'lmasa — bo'linmaydi.
     const allocation = this.allocateUnassignedIncome(accs);
+    // QQS (daromaddan 12%) — tumanlarga daromad bilan bir xil ulushda: har tuman QQS = o'z daromadining 12%
+    for (const v of vatRows) {
+      const parts = allocation ? splitByWeights(v.row.amountTiyin, allocation.weights) : null;
+      if (!parts) {
+        addExpense(v.row.date, { districtId: null, amount: v.row.amountTiyin }, 'OTHER', v.key, v.label, v.row.period);
+        continue;
+      }
+      allocation!.ids.forEach((id, i) => {
+        if (parts[i]) addExpense(v.row.date, { districtId: id, amount: parts[i]! }, 'OTHER', v.key, v.label, v.row.period);
+      });
+    }
     if (allocation) {
       notes.push(
         `Tumanga bo'linmagan daromad ${fmt(allocation.amount)} tumanlarga ${BASIS_LABEL[allocation.basis]} qarab taqsimlandi (Hududlar tushumi tuman kesimida yuklanmagan).`,
@@ -498,7 +516,7 @@ export class DistrictsService {
 
   // ─────────── Tumanga bo'linmagan daromadni taqsimlash ───────────
 
-  private allocateUnassignedIncome(accs: Map<string, Acc>): { amount: bigint; basis: AllocationBasis } | null {
+  private allocateUnassignedIncome(accs: Map<string, Acc>): { amount: bigint; basis: AllocationBasis; ids: string[]; weights: bigint[] } | null {
     const u = accs.get(UNASSIGNED_KEY);
     if (!u) return null;
     const hasIncome = u.income !== 0n || u.previousIncome !== 0n || u.incomeTrend.some((v) => v !== 0n);
@@ -562,7 +580,7 @@ export class DistrictsService {
       real.forEach((a, i) => (a.incomeTrend[m]! += parts[i]!));
       u.incomeTrend[m] = 0n;
     });
-    return { amount, basis };
+    return { amount, basis, ids: real.map((a) => a.id), weights };
   }
 
   // ─────────── Natijaga aylantirish ───────────

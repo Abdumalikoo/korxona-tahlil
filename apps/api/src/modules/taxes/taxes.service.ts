@@ -61,6 +61,12 @@ export const DEFAULT_TAX_TYPES: TaxType[] = [
 
 export const taxCategory = (code: string) => `SOLIQ_${code}`;
 
+/**
+ * Hudud daromadidan QQS — avtomatik: xodimlar bajargan rejadan haqiqatda tushgan pul (hudud daromadi) ustiga 12%,
+ * tuman kesimida. Alohida modda (qo'lda kiritiladigan QQS — Markaz hisobida, tegilmaydi); hudud xarajati bo'lib qoladi.
+ */
+export const REGION_VAT = { code: 'SOLIQ_QQS_HUDUD', label: "QQS 12% (hudud daromadidan, avtomatik)", rate: 12 };
+
 export interface TaxUnit {
   key: string;
   regionCode: number;
@@ -365,7 +371,7 @@ export class TaxesService implements OnApplicationBootstrap {
     const types = all.filter((t) => t.method === 'PAYROLL_PERCENT' && t.active && t.rate && !byIncome.includes(t));
     const base = types.length ? await this.payrollBase(period) : new Map();
     const income = byIncome.length ? await this.incomeBase(period) : new Map<string, { regionCode: number; base: bigint }>();
-    const want: { categoryCode: string; regionCode: number | null; departmentId: string | null; segment?: string | null; amount: bigint; base: bigint; name: string; rate: number; from: 'payroll' | 'income' }[] = [];
+    const want: { categoryCode: string; regionCode: number | null; departmentId: string | null; segment?: string | null; districtId?: string | null; amount: bigint; base: bigint; name: string; rate: number; from: 'payroll' | 'income' }[] = [];
     for (const t of types) {
       const bp = BigInt(Math.round(t.rate! * 100));
       for (const u of base.values()) {
@@ -380,6 +386,13 @@ export class TaxesService implements OnApplicationBootstrap {
         if (amount > 0n) want.push({ categoryCode: taxCategory(t.code), regionCode: u.regionCode, departmentId: null, amount, base: u.base, name: t.name, rate: t.incomeRate!, from: 'income' });
       }
     }
+    // Hudud daromadidan QQS 12% — tuman kesimida (tumani yo'q daromad — viloyatning o'zida)
+    const regionIncome = await this.prisma.income.groupBy({ by: ['regionCode', 'districtId'], where: { period, deletedAt: null, regionCode: { gt: CENTRAL } }, _sum: { amountTiyin: true } });
+    for (const g of regionIncome) {
+      const b = g._sum.amountTiyin ?? 0n;
+      const amount = (b * BigInt(REGION_VAT.rate * 100) + 5000n) / 10000n;
+      if (amount > 0n && g.regionCode) want.push({ categoryCode: REGION_VAT.code, regionCode: g.regionCode, departmentId: null, districtId: g.districtId ?? null, amount, base: b, name: "QQS (hudud daromadidan)", rate: REGION_VAT.rate, from: 'income' });
+    }
     // Daromaddan hisoblanadigan oyda shu turning qo'lda yozuvlari ikki marta sanalmasin — savatga
     if (byIncome.length) {
       const cats = byIncome.map((t) => taxCategory(t.code));
@@ -391,13 +404,14 @@ export class TaxesService implements OnApplicationBootstrap {
     }
     const have = await this.prisma.expense.findMany({
       where: { period, source: 'TAX', documentNo: AUTO_TAG, deletedAt: null },
-      select: { id: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, amountTiyin: true },
+      select: { id: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, districtId: true, amountTiyin: true },
     });
-    const sig = (l: { categoryCode: string; regionCode: number | null; departmentId: string | null; segment?: string | null; amount: bigint }[]) => l.map((x) => `${x.categoryCode}|${x.regionCode}|${x.departmentId ?? ''}|${x.segment ?? ''}|${x.amount}`).sort().join(';');
+    const sig = (l: { categoryCode: string; regionCode: number | null; departmentId: string | null; segment?: string | null; districtId?: string | null; amount: bigint }[]) => l.map((x) => `${x.categoryCode}|${x.regionCode}|${x.departmentId ?? ''}|${x.segment ?? ''}|${x.districtId ?? ''}|${x.amount}`).sort().join(';');
     if (sig(want) === sig(have.map((h) => ({ ...h, amount: h.amountTiyin })))) return 0;
     const userId = await this.systemUserId();
     if (want.length && !userId) return 0;
     if (want.length) await this.ensureCategories(await this.types());
+    if (want.some((w) => w.categoryCode === REGION_VAT.code)) await this.prisma.category.create({ data: { code: REGION_VAT.code, label: REGION_VAT.label, parentCode: TAX_PARENT.code, isLeaf: true, isActive: true, behavior: 'VARIABLE', order: 781 } }).catch(() => null);
     const [regions, depts] = await Promise.all([this.prisma.region.findMany({ select: { code: true, name: true } }), this.prisma.department.findMany({ select: { id: true, name: true } })]);
     const rn = new Map(regions.map((r) => [r.code, r.name]));
     const dn = new Map(depts.map((d) => [d.id, d.name]));
@@ -415,6 +429,7 @@ export class TaxesService implements OnApplicationBootstrap {
                 regionCode: w.regionCode,
                 departmentId: w.departmentId,
                 segment: w.segment ?? null,
+                districtId: w.districtId ?? null,
                 description: `${w.name} ${String(w.rate).replace('.', ',')}% — ${w.segment ? segmentLabel(w.segment) : w.regionCode === CENTRAL ? `Markaz${w.departmentId ? `: ${dn.get(w.departmentId) ?? "bo'lim"}` : ''}` : (rn.get(w.regionCode ?? -1) ?? `Hudud ${w.regionCode}`)} ${w.from === 'income' ? 'daromadidan' : 'ish haqi fondidan'} (${(Number(w.base) / 100).toLocaleString('ru-RU')} so'm)`.slice(0, 500),
                 documentNo: AUTO_TAG,
                 paymentMethod: 'BANK' as const,

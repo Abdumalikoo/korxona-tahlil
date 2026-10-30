@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Optional,
   Post,
   Query,
   Res,
@@ -18,6 +19,7 @@ import { CurrentUser, Roles } from '../../common/decorators';
 import { RegionalIncomeService, type ParsedRow } from './regional-income.service';
 import { assertAmount } from '../../common/validation/amount';
 import { SourceArchiveService } from '../source-archive/source-archive.service';
+import { TaxesService } from '../taxes/taxes.service';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -39,6 +41,7 @@ export class RegionalIncomeController {
   constructor(
     private readonly regional: RegionalIncomeService,
     private readonly archive: SourceArchiveService,
+    @Optional() private readonly taxes?: TaxesService,
   ) {}
 
   /** Tuman kesimidagi shablon — har bir viloyat alohida varaqda, tumanlar ustunlarda */
@@ -105,6 +108,8 @@ export class RegionalIncomeController {
 
     const data = await this.regional.commit(period, rows, userId, replace === 'true');
     await this.archive.link('regional-income', { userId, refId: `regional-income:${period}`, periods: [period] });
+    // Hudud daromadidan QQS 12% — darhol qayta hisoblanadi (tuman kesimida)
+    await this.taxes?.syncPeriod(period).catch(() => 0);
     return { data };
   }
 

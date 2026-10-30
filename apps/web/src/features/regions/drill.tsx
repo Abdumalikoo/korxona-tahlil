@@ -811,6 +811,9 @@ export function MonthsTable({ months, income, expense }: { months: string[]; inc
 // ═══════════════════════════════════════════════════════════
 
 /** noPlan — Markaz xodimi: reja/fakt yo'q, faqat ish haqi */
+/** Hudud daromadidan QQS — haqiqatda tushgan pul (fakt) ustiga 12% (Soliqlarda avtomatik yoziladi) */
+const VAT_RATE = 0.12;
+
 export function EmployeeDrill({ pinfl, range, noPlan = false }: { pinfl: string; range: DateRange; noPlan?: boolean }) {
   const result = useAsync(() => drillApi.employee(pinfl, range).then((r) => r.data), [pinfl, range.from, range.to]);
   if (!result.data) return <LoadingCard label="Xodim ma'lumoti yuklanmoqda" error={result.error} onRetry={result.reload} />;
@@ -830,10 +833,10 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
   const exportCsv = () =>
     downloadCsv(
       `solishtirma-xodim-${e.fullName}-${data.range.from}_${data.range.to}`,
-      noPlan ? ['Oy', 'Qayerda', "Ish haqi, so'm"] : ['Oy', 'Qayerda', "Ish haqi, so'm", "Reja, so'm", "Fakt, so'm", 'Bajarilish, %', "Bonus, so'm"],
+      noPlan ? ['Oy', 'Qayerda', "Ish haqi, so'm"] : ['Oy', 'Qayerda', "Ish haqi, so'm", "Reja, so'm", "Fakt, so'm", "QQS 12%, so'm", 'Bajarilish, %', "Bonus, so'm"],
       data.months.map((m) => {
         const base = [formatPeriod(m.period), (m.placeLabel ?? (m.districtName ? `${m.regionName}, ${m.districtName}` : m.regionName)), csvSom(m.salaryTiyin)];
-        return noPlan ? base : [...base, csvSom(m.planTiyin), csvSom(m.factTiyin), csvPct(completion(Number(m.planTiyin), Number(m.factTiyin))), csvSom(m.bonusTiyin)];
+        return noPlan ? base : [...base, csvSom(m.planTiyin), csvSom(m.factTiyin), csvSom(String(Math.round(Number(m.factTiyin) * VAT_RATE))), csvPct(completion(Number(m.planTiyin), Number(m.factTiyin))), csvSom(m.bonusTiyin)];
       }),
     );
 
@@ -910,6 +913,7 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
                   <>
                     <Th>Reja</Th>
                     <Th>Fakt</Th>
+                    <Th title="Haqiqatda tushgan pul (fakt) ustiga 12% — avtomatik">QQS 12%</Th>
                     <Th>Bajarilishi</Th>
                     <Th>Bonus</Th>
                   </>
@@ -926,6 +930,7 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
                   <>
                     <MoneyCell value={plan} />
                     <MoneyCell value={fact} />
+                    <MoneyCell value={Math.round(fact * VAT_RATE)} className="text-(--color-expense)" />
                     <DoneCell plan={plan} fact={fact} />
                     <MoneyCell value={Number(t.bonusTiyin)} />
                   </>
@@ -941,6 +946,7 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
                     <>
                       <MoneyCell value={Number(m.planTiyin)} />
                       <MoneyCell value={Number(m.factTiyin)} className="text-(--color-income)" />
+                      <MoneyCell value={Math.round(Number(m.factTiyin) * VAT_RATE)} className="text-(--color-expense)" />
                       <DoneCell plan={Number(m.planTiyin)} fact={Number(m.factTiyin)} note={formatPeriod(m.period)} />
                       <MoneyCell value={Number(m.bonusTiyin)} />
                     </>

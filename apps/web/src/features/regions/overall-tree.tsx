@@ -148,7 +148,16 @@ function employeeNode(prefix: string, e: { pinfl: string; fullName: string; posi
       return d.months.map((m) => ({
         id: `${prefix}:e:${e.pinfl}:${m.period}`,
         label: formatPeriod(m.period),
-        sub: [m.placeLabel ?? m.districtName ?? m.regionName, n(m.planTiyin) ? `reja ${compact(n(m.planTiyin))}` : '', n(m.factTiyin) ? `tushum ${compact(n(m.factTiyin))}` : ''].filter(Boolean).join(' · '),
+        // Hudud xodimi: reja, haqiqatda tushgan (fakt), bajarilish % va fakt ustiga QQS 12%
+        sub: [
+          m.placeLabel ?? m.districtName ?? m.regionName,
+          n(m.planTiyin) ? `reja ${compact(n(m.planTiyin))}` : '',
+          n(m.factTiyin) ? `fakt ${compact(n(m.factTiyin))}` : '',
+          n(m.planTiyin) && n(m.factTiyin) ? `bajarilish ${pct((n(m.factTiyin) / n(m.planTiyin)) * 100)}` : '',
+          n(m.factTiyin) ? `QQS 12% ${compact(Math.round(n(m.factTiyin) * 0.12))}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
         expense: n(m.salaryTiyin),
         income: n(m.factTiyin) || null,
       }));
