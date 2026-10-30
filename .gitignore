@@ -70,3 +70,4 @@ storage/
 e2e/.auth/
 test-results/
 playwright-report/
+.golden-local/
