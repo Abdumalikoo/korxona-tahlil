@@ -27,6 +27,11 @@ export const INTROS: Record<string, PageIntro> = {
     from: INCOME_SRC,
     how: '▸ belgisi — qator ichini ochadi; istalgan summa bosilsa — uni tashkil qilgan aniq yozuvlar ochiladi. Grafiklar sahifa oxirida.',
   },
+  '/tahlil/qomita': {
+    what: "Qo'mita pullari: 3802 (hamma bo'limlar xodimlari) va Marksheyder — kelgan pul, sarf va qoldiq; ichma-ich oy → bo'lim → xodim → nimaga qancha.",
+    from: "Qo'mita mablag'lari (kassa 1.11 / 1.14 / 1.15, yuklangan fayl) va oylik «3802 dan olingan pullar» shabloni",
+    how: "Qatorni bosing — ichi ochiladi. Shablon va shtatlar — 3802 — Qo'mita qoplashi sahifasida (u yerda ham shu ko'rinish bor).",
+  },
   '/tahlil/xarajat': {
     what: 'Pul nimaga sarflandi: guruhlar va moddalar, Markaz va hududlar, bo‘limlar, kontragentlar, oylar; o‘tgan davr va o‘tgan yilga nisbatan.',
     from: EXPENSE_SRC,

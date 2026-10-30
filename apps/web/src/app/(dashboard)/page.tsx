@@ -10,6 +10,7 @@ import { calcResult, calcSum, Q } from '@/lib/calc';
 import { formatDate } from '@/lib/format';
 import { usePeriod } from '@/lib/period';
 import { StructureDrill } from '@/features/dashboard/structure-drill';
+import { hisobApi } from '@/features/qomita/api';
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -47,6 +48,9 @@ export default function DashboardPage() {
   const router = useRouter();
   const [view, setView] = useState<View>('income');
   const result = useAsync(() => regionsApi.compare(range, 'ALL', 'prev').then((r) => r.data), [range.from, range.to]);
+  // Qo'mita pullari sarfi (3802 + Marksheyder, shablon bo'yicha) — xarajat tarkibida ma'lumot qatori; o'tgan davr bilan
+  const prevFrom = result.data?.previousRange.from.slice(0, 7) ?? null;
+  const qomita = useAsync(() => (prevFrom ? hisobApi.ledger(prevFrom < range.from.slice(0, 7) ? prevFrom : range.from.slice(0, 7), range.to.slice(0, 7)).then((r) => r.data) : Promise.resolve(null)), [prevFrom, range.from, range.to]);
   const data = result.data;
 
   const period = `${formatDate(range.from)} — ${formatDate(range.to)}`;
@@ -159,7 +163,23 @@ export default function DashboardPage() {
                 title={view === 'income' ? 'Daromad tarkibi' : 'Xarajat tarkibi'}
                 badge={cmpOn ? `Joriy: ${period} · o'tgan teng davr: ${formatDate(data.previousRange.from)} — ${formatDate(data.previousRange.to)}` : period}
               >
-                <StructureDrill key={view} units={data.units} kind={view} cmpOn={cmpOn} />
+                <StructureDrill
+                  key={view}
+                  units={data.units}
+                  kind={view}
+                  cmpOn={cmpOn}
+                  info={
+                    view === 'expense' && qomita.data
+                      ? (() => {
+                          const q = qomita.data;
+                          const spend = (a: string, b: string) => q.months.reduce((t, p, i) => (p >= a && p <= b ? t + Number(q.pool.months[i]!.spendTiyin) + Number(q.marksheyder.months[i]!.spendTiyin) : t), 0);
+                          const cur = spend(range.from.slice(0, 7), range.to.slice(0, 7));
+                          const prev = spend(data.previousRange.from.slice(0, 7), data.previousRange.to.slice(0, 7));
+                          return { label: "Qo'mita pullarining sarfi", sub: "3802 + Marksheyder · ish haqida bor, jamiga qo'shilmagan", cur, prev, onClick: () => router.push('/tahlil/qomita') };
+                        })()
+                      : null
+                  }
+                />
                 <TableNote>
                   Qatorni bosing — ichiga ochiladi: Markaz va yo&apos;nalishlar — {view === 'income' ? 'xizmatlar' : 'moddalar'} bo&apos;yicha; Hudud — viloyatlar, viloyat — {view === 'income' ? 'xizmatlari' : 'moddalari'}. Hudud qatoridagi tugma — «{view === 'income' ? 'Xizmat turlari' : 'Moddalar'} bo&apos;yicha» (har biri — viloyatlar kesimida).
                 </TableNote>

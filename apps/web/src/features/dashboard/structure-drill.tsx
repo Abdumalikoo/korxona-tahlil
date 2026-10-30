@@ -27,7 +27,16 @@ const partsOf = (u: RegionUnit, kind: Kind): Part[] =>
 const add = (a: Amount, b: Amount): Amount => ({ cur: a.cur + b.cur, prev: a.prev + b.prev });
 const ZERO: Amount = { cur: 0, prev: 0 };
 
-export function StructureDrill({ units, kind, cmpOn }: { units: RegionUnit[]; kind: Kind; cmpOn: boolean }) {
+/** Ma'lumot qatori (jamiga qo'shilmaydi): masalan, xarajatda «Qo'mita pullarining sarfi» — ish haqi sifatida allaqachon xarajatda */
+export interface DrillInfoRow {
+  label: string;
+  sub: string;
+  cur: number;
+  prev: number | null;
+  onClick: () => void;
+}
+
+export function StructureDrill({ units, kind, cmpOn, info }: { units: RegionUnit[]; kind: Kind; cmpOn: boolean; info?: DrillInfoRow | null }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [regionMode, setRegionMode] = useState<'regions' | 'parts'>('regions');
   const toggle = (k: string) =>
@@ -151,6 +160,20 @@ export function StructureDrill({ units, kind, cmpOn }: { units: RegionUnit[]; ki
     if (line(`s:${s.key}`, s.name, a, 0, { openKey: `s:${s.key}`, sub: `yo'nalish · ${word}lar bo'yicha` })) partLines(`s:${s.key}`, partsOf(s, kind), 1);
   }
   if (unassigned && (amountOf(unassigned, kind).cur || amountOf(unassigned, kind).prev)) line('unassigned', unassigned.name, amountOf(unassigned, kind), 0, { sub: 'hudud belgilanmagan yozuvlar' });
+  // Ma'lumot qatori — jamiga kirmaydi (bosilsa — o'z sahifasi)
+  if (info)
+    rows.push(
+      <Tr key="info" muted onClick={info.onClick} title="Ma'lumot uchun — jami xarajatga qo'shilmagan">
+        <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{++n}</Td>
+        <NameCell drill sub={info.sub}>
+          {info.label}
+        </NameCell>
+        {cmpOn && (info.prev === null ? <Td /> : <MoneyCell value={info.prev} className="text-(--color-text-muted)" />)}
+        <MoneyCell value={info.cur} className="text-(--color-text-muted)" />
+        {cmpOn ? info.prev === null ? <Td /> : <DiffCell value={info.cur - info.prev} pct={changeOf(info.cur, info.prev)} growthGood={false} /> : null}
+        <Td className="text-xs text-(--color-text-faint)">—</Td>
+      </Tr>,
+    );
 
   return (
     <RTable minWidth={cmpOn ? 820 : 620}>

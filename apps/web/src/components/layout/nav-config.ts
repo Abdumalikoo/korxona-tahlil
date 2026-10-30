@@ -78,6 +78,7 @@ export const MENU: NavItem[] = [
       { label: 'Bosh sahifa', href: '/', description: 'Daromad, xarajat va foyda bir qarashda' },
       { label: 'Daromad', href: '/tahlil/daromad', description: 'Daromad tahlili: xizmatlar, mijozlar, hududlar' },
       { label: 'Xarajat', href: '/tahlil/xarajat', description: 'Xarajat tahlili: moddalar, kontragentlar, hududlar' },
+      { label: "Qo'mita pullari sarfi", href: '/tahlil/qomita', description: "3802 va Marksheyder: kelgan pul, sarf va qoldiq — oy, bo'lim, xodim" },
       { label: 'Tahlil', href: '/tahlil/umumiy', description: "Chuqur tahlil: dinamika, o'zgarish sabablari, barqarorlik, xodim samaradorligi, xulosalar" },
     ],
   },
@@ -581,6 +582,7 @@ export const SIDEBAR: SideEntry[] = [
     children: [
       { label: 'Daromad', href: '/tahlil/daromad' },
       { label: 'Xarajat', href: '/tahlil/xarajat' },
+      { label: "Qo'mita pullari sarfi", href: '/tahlil/qomita' },
       { label: 'Tahlil', href: '/tahlil/umumiy' },
       { label: 'Solishtirma', href: '/solishtirma', match: ['/solishtirma'], description: "Hududlar, Markaz va yo'nalishlar (Tax free …) yonma-yon" },
     ],
