@@ -7,6 +7,7 @@ import {
   Body,
   Query,
   Delete,
+  Put,
   Res,
   HttpCode,
   HttpStatus,
@@ -16,6 +17,7 @@ import type { Response } from 'express';
 import { EmployeesService } from './employees.service';
 import { EmployeesExportService } from './employees-export.service';
 import { EmployeePlacementsService } from './employee-placements.service';
+import { EmployeeChainService } from './employee-chain.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { QueryEmployeeDto } from './dto/query-employee.dto';
@@ -28,7 +30,23 @@ export class EmployeesController {
     private readonly employees: EmployeesService,
     private readonly exportService: EmployeesExportService,
     private readonly placementsService: EmployeePlacementsService,
+    private readonly chain: EmployeeChainService,
   ) {}
+
+  // --------- Harakat zanjiri: har oy qayerda bo'lgani, manbalar va ziddiyatlar (":pinfl" dan oldin) ---------
+
+  /** Davr bo'yicha harakatlar va «Nazorat» ro'yxati: ?from=YYYY-MM&to=YYYY-MM */
+  @Get('chain/report')
+  async chainReport(@Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.chain.report(from, to) };
+  }
+
+  /** Muammoni «ko'rib chiqildi» deb belgilash yoki qayta ochish: { pinfl, period, type, note?, undo? } */
+  @Roles(UserRole.ADMIN)
+  @Put('chain/review')
+  async chainReview(@Body() body: { pinfl?: unknown; period?: unknown; type?: unknown; note?: unknown; undo?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.chain.review(body, userId) };
+  }
 
   // --------- Statistika (":pinfl" dan oldin) ---------
 
@@ -90,6 +108,12 @@ export class EmployeesController {
   }
 
   // --------- Joylashuv davrlari: «shu oydan shu oygacha shu joyda, shu lavozimda» ---------
+
+  /** Xodimning harakat tarixi: ?from&to */
+  @Get(':pinfl/chain')
+  async chainTimeline(@Param('pinfl') pinfl: string, @Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.chain.timeline(pinfl, from, to) };
+  }
 
   @Get(':pinfl/placements')
   async placements(@Param('pinfl') pinfl: string) {

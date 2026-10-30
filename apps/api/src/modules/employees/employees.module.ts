@@ -3,10 +3,11 @@ import { EmployeesService } from "./employees.service";
 import { EmployeesExportService } from "./employees-export.service";
 import { EmployeesController } from "./employees.controller";
 import { EmployeePlacementsService } from "./employee-placements.service";
+import { EmployeeChainService } from "./employee-chain.service";
 
 @Module({
   controllers: [EmployeesController],
-  providers: [EmployeesService, EmployeesExportService, EmployeePlacementsService],
+  providers: [EmployeesService, EmployeesExportService, EmployeePlacementsService, EmployeeChainService],
   exports: [EmployeesService],
 })
 export class EmployeesModule {}

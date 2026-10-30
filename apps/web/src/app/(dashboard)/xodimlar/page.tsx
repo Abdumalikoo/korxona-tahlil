@@ -4,6 +4,7 @@ import { SourceActions } from '@/components/shared/source-actions';
 import { downloadEmployeesExcel, employeesApi, regionsApi, type EmployeeFilters } from '@/features/employees/api';
 import { transfersApi, transferSummary } from '@/features/employees/transfers-api';
 import { TransfersView } from '@/features/employees/transfers-view';
+import { ChainView } from '@/features/employees/chain-view';
 import { MiyaView } from '@/features/hr-sheets/miya-view';
 import { HrSheetsView } from '@/features/hr-sheets/sheets-view';
 import { Mark } from '@/features/reactions/mark';
@@ -63,10 +64,10 @@ export default function EmployeesPage() {
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  type View = 'list' | 'transfers' | 'sheets' | 'miya';
+  type View = 'list' | 'transfers' | 'chain' | 'sheets' | 'miya';
   const [view, setView] = useState<View>(() => {
     const t = searchParams.get('tab');
-    return t === 'transfers' || t === 'sheets' || t === 'miya' ? t : 'list';
+    return t === 'transfers' || t === 'chain' || t === 'sheets' || t === 'miya' ? t : 'list';
   });
   /** Miya: ochilgan xodim (JShShIR) */
   const [miyaPinfl, setMiyaPinfl] = useState<string | null>(() => searchParams.get('pinfl'));
@@ -184,6 +185,7 @@ export default function EmployeesPage() {
           [
             { key: 'list', label: "Ro'yxat", admin: false },
             { key: 'transfers', label: "O'tkazmalar", admin: false },
+            { key: 'chain', label: 'Harakat zanjiri va nazorat', admin: false },
             { key: 'sheets', label: "Ma'lumotnomalar (10 · 16 · 37 · 51)", admin: true },
             { key: 'miya', label: 'Miya — xodim kartasi', admin: true },
           ] as const
@@ -214,6 +216,10 @@ export default function EmployeesPage() {
       ) : view === 'miya' && isAdmin ? (
         <div className="p-6">
           <MiyaView pinfl={miyaPinfl} onPinfl={setMiyaPinfl} />
+        </div>
+      ) : view === 'chain' ? (
+        <div className="p-6">
+          <ChainView isAdmin={isAdmin} onOpenEmployee={(pinfl) => void openEmployee(pinfl)} />
         </div>
       ) : view === 'transfers' ? (
         <div className="p-6">
