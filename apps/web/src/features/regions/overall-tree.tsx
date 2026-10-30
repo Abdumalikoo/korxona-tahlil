@@ -153,11 +153,24 @@ function group(id: string, label: string, kids: TNode[] | (() => Promise<TNode[]
 }
 
 /** Xodim → oylar (ish haqi, reja, tushum) */
-function employeeNode(prefix: string, e: { pinfl: string; fullName: string; position: string | null; salaryTiyin: string; previousSalaryTiyin: string }, c: Ctx): TNode {
+function employeeNode(prefix: string, e: { pinfl: string; fullName: string; position: string | null; salaryTiyin: string; previousSalaryTiyin: string; planTiyin?: string; factTiyin?: string }, c: Ctx): TNode {
+  // Xodim kesimida: reja, fakt, bajarilish; ijtimoiy soliq 12% (ish haqidan) va QQS 12% (haqiqatda tushgan puldan)
+  const plan = n(e.planTiyin);
+  const fact = n(e.factTiyin);
+  const sub = [
+    e.position ?? '',
+    plan ? `reja ${compact(plan)}` : '',
+    fact ? `fakt ${compact(fact)}` : '',
+    plan && fact ? `bajarilish ${pct((fact / plan) * 100)}` : '',
+    n(e.salaryTiyin) ? `ijtimoiy soliq 12% ${compact(Math.round(n(e.salaryTiyin) * 0.12))}` : '',
+    fact ? `QQS 12% ${compact(Math.round(fact * 0.12))}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return {
     id: `${prefix}:e:${e.pinfl}`,
     label: e.fullName,
-    sub: e.position ?? undefined,
+    sub: sub || undefined,
     expense: n(e.salaryTiyin),
     prevExpense: n(e.previousSalaryTiyin),
     load: async () => {

@@ -45,6 +45,10 @@ export interface DistrictRow {
   factTiyin: string;
   /** «Tumanga bo'linmagan» daromaddan shu tumanga taqsimlangan qism (incomeTiyin ichida) */
   allocatedIncomeTiyin: string;
+  /** Tumanning ijtimoiy solig'i (ish haqidan 12%) */
+  socialTaxTiyin: string;
+  /** Tumanning QQS i (hudud daromadidan 12%) */
+  vatTiyin: string;
 
   /** Eng katta daromad keltirgan xizmatlar (3 tagacha) */
   topServices: { label: string; amountTiyin: string }[];

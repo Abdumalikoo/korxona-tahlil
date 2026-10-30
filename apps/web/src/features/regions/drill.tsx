@@ -303,7 +303,7 @@ function RegionBody({ data, onDistrict, extraActions }: { data: RegionDistrictsR
       </FilterBar>
 
       <ReportCard title={`${data.region.name}: tumanlar kesimida`} badge={`Joriy: ${periodText(data.range)} · ${data.compareLabel}: ${periodText(data.previousRange)}`}>
-        <RTable minWidth={1060}>
+        <RTable minWidth={1260}>
           <thead>
             <tr>
               <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>
@@ -315,6 +315,8 @@ function RegionBody({ data, onDistrict, extraActions }: { data: RegionDistrictsR
               <GroupTh span={3}>Daromad</GroupTh>
               <Th rowSpan={2}>Xizmatlar soni</Th>
               <GroupTh span={3}>Xarajat</GroupTh>
+              <Th rowSpan={2} title="Tumanning o'z ijtimoiy solig'i — ish haqidan 12% (xarajat ichida)">Ijtimoiy soliq</Th>
+              <Th rowSpan={2} title="Tumanning o'z QQS i — haqiqatda tushgan puldan 12% (xarajat ichida)">QQS 12%</Th>
               <Th rowSpan={2}>Natija</Th>
             </tr>
             <tr>
@@ -337,6 +339,8 @@ function RegionBody({ data, onDistrict, extraActions }: { data: RegionDistrictsR
               <MoneyCell value={prevExpense} />
               <MoneyCell value={expense} calc={calcSum('Jami xarajat', data.districts.map((d) => Q.money(d.name, d.expenseTiyin)))} />
               <DiffCell value={expense - prevExpense} pct={changeOf(expense, prevExpense)} growthGood={false} calc={calcChange("Viloyat xarajati: o'zgarish", Q.money('Joriy davr', expense), Q.money(label, prevExpense), { growthGood: false })} />
+              <MoneyCell value={data.districts.reduce((sum, d) => sum + Number(d.socialTaxTiyin ?? 0), 0)} calc={calcSum('Ijtimoiy soliq', data.districts.map((d) => Q.money(d.name, d.socialTaxTiyin ?? '0')))} />
+              <MoneyCell value={data.districts.reduce((sum, d) => sum + Number(d.vatTiyin ?? 0), 0)} calc={calcSum('QQS 12%', data.districts.map((d) => Q.money(d.name, d.vatTiyin ?? '0')))} />
               <MoneyCell value={income - expense} strong signedColor calc={calcResult(income, expense, { title: `Natija: ${data.region.name}` })} />
             </Tr>
             {rows.map((d, i) => (
@@ -381,6 +385,8 @@ function DistrictTr({ d, index, section, compareLabel, onOpen }: { d: DistrictRo
         calc={calcSum(`${d.name} xarajati`, [Q.money('Ish haqi', d.payrollTiyin, 'Tumanda ishlagan xodimlar'), Q.money('Ijara', d.leaseTiyin, 'Tumandagi ijara shartnomalari'), Q.money('Boshqa', d.otherTiyin, "Tuman ko'rsatilgan xarajatlar")])}
       />
       <DiffCell value={expense - prevExpense} pct={changeOf(expense, prevExpense)} growthGood={false} calc={calcChange(`${d.name} xarajati: o'zgarish`, Q.money('Joriy davr', expense), Q.money(compareLabel, prevExpense), { growthGood: false })} />
+      <MoneyCell value={Number(d.socialTaxTiyin ?? 0)} className="text-(--color-text-muted)" />
+      <MoneyCell value={Number(d.vatTiyin ?? 0)} className="text-(--color-text-muted)" />
       <MoneyCell value={Number(d.resultTiyin)} strong signedColor calc={calcResult(income, expense, { title: `Natija: ${d.name}` })} />
     </Tr>
   );
@@ -705,6 +711,8 @@ function EmployeesTable({ employees, all, label, onEmployee }: { employees: Dist
           <GroupTh span={3}>Ish haqi</GroupTh>
           <GroupTh span={3}>Natijalar (reja / fakt)</GroupTh>
           <Th rowSpan={2}>Bonus</Th>
+          <Th rowSpan={2} title="Ish haqidan 12% (ish beruvchi to'laydi)">Ijtimoiy soliq</Th>
+          <Th rowSpan={2} title="Haqiqatda tushgan pul (fakt) ustiga 12%">QQS 12%</Th>
         </tr>
         <tr>
           <Th className="first:border-l">{label}</Th>
@@ -727,6 +735,8 @@ function EmployeesTable({ employees, all, label, onEmployee }: { employees: Dist
           <MoneyCell value={fact} />
           <DoneCell plan={plan} fact={fact} />
           <MoneyCell value={bonus} />
+          <MoneyCell value={Math.round(salary * SOCIAL_RATE)} />
+          <MoneyCell value={Math.round(fact * VAT_RATE)} />
         </Tr>
         {employees.map((e, i) => {
           const sal = Number(e.salaryTiyin);
@@ -752,6 +762,8 @@ function EmployeesTable({ employees, all, label, onEmployee }: { employees: Dist
               <MarkMoneyCell value={Number(e.factTiyin)} mark={Number(e.factTiyin) ? employeeMark(e.pinfl, e.fullName, 'INCOME', 'Solishtirma › xodim') : null} />
               <DoneCell plan={Number(e.planTiyin)} fact={Number(e.factTiyin)} note={e.fullName} />
               <MoneyCell value={Number(e.bonusTiyin)} />
+              <MoneyCell value={Math.round(sal * SOCIAL_RATE)} className="text-(--color-text-muted)" />
+              <MoneyCell value={Math.round(Number(e.factTiyin) * VAT_RATE)} className="text-(--color-text-muted)" />
             </Tr>
           );
         })}
@@ -813,6 +825,8 @@ export function MonthsTable({ months, income, expense }: { months: string[]; inc
 /** noPlan — Markaz xodimi: reja/fakt yo'q, faqat ish haqi */
 /** Hudud daromadidan QQS — haqiqatda tushgan pul (fakt) ustiga 12% (Soliqlarda avtomatik yoziladi) */
 const VAT_RATE = 0.12;
+/** Ijtimoiy soliq — ish haqidan 12% (Soliqlarda avtomatik yoziladi) */
+const SOCIAL_RATE = 0.12;
 
 export function EmployeeDrill({ pinfl, range, noPlan = false }: { pinfl: string; range: DateRange; noPlan?: boolean }) {
   const result = useAsync(() => drillApi.employee(pinfl, range).then((r) => r.data), [pinfl, range.from, range.to]);

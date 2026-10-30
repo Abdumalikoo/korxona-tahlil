@@ -435,7 +435,8 @@ export class DistrictsService {
     for (const row of expenses) {
       if (row.source === 'PAYROLL' || row.source === 'LEASE') continue;
       const top = categoryParent.get(row.categoryCode) ?? row.categoryCode;
-      const [key, label] = row.source === 'VEHICLE' ? ['VEHICLE', 'Mashina xarajatlari'] : safarIds.has(row.id) ? [SAFAR_PART.key, SAFAR_PART.label] : [`c:${top}`, categoryLabel.get(top) ?? top];
+      // Soliqlar — o'z moddasi bo'yicha alohida qator (Ijtimoiy soliq, QQS …): tuman o'z solig'ini ko'rsin
+      const [key, label] = row.source === 'VEHICLE' ? ['VEHICLE', 'Mashina xarajatlari'] : safarIds.has(row.id) ? [SAFAR_PART.key, SAFAR_PART.label] : row.source === 'TAX' ? [`c:${row.categoryCode}`, categoryLabel.get(row.categoryCode) ?? row.categoryCode] : [`c:${top}`, categoryLabel.get(top) ?? top];
       // Ish haqidan soliq (ijtimoiy soliq — viloyatga bitta yozuv) — tumanlarga shu oy to'liq ish haqi ulushiga qarab
       if (row.categoryCode === REGION_VAT.code && !row.districtId) {
         vatRows.push({ row, key, label });
@@ -623,6 +624,9 @@ export class DistrictsService {
       planTiyin: a.plan.toString(),
       factTiyin: a.fact.toString(),
       allocatedIncomeTiyin: a.allocatedIncome.toString(),
+      // Tumanning o'z soliqlari: ijtimoiy soliq (ish haqidan 12%) va QQS (daromaddan 12%)
+      socialTaxTiyin: (a.parts.get('c:SOLIQ_IJTIMOIY')?.amount ?? 0n).toString(),
+      vatTiyin: (a.parts.get(`c:${REGION_VAT.code}`)?.amount ?? 0n).toString(),
       topServices,
       incomeTrend: a.incomeTrend.map(String),
       expenseTrend: a.expenseTrend.map(String),
