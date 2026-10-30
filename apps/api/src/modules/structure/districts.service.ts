@@ -17,11 +17,27 @@ import {
 import { bounds, compareRange, parseDay, periodsEndingIn, trendMonths } from './structure.engine';
 import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } from './structure.types';
 import { CENTRAL_REGION } from '../../common/segments/segments';
+import { loadLocationRefs } from '../payroll/payroll.service';
 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
 const TREND_MONTHS = 12;
 const UNASSIGNED_NAME = "Tumanga bo'linmagan";
+
+/** Summani ulushlarga bo'lish (tiyingacha): qoldiq tiyinlar — eng katta kasr qismlarga; yig'indi aniq teng */
+export function splitByShare<K>(amount: bigint, weights: Map<K, bigint>): { key: K; amount: bigint }[] {
+  const list = [...weights.entries()].filter(([, w]) => w > 0n);
+  const total = list.reduce((s, [, w]) => s + w, 0n);
+  if (total === 0n) return [];
+  const parts = list.map(([key, w]) => ({ key, amount: (amount * w) / total, rem: (amount * w) % total }));
+  let left = amount - parts.reduce((s, p) => s + p.amount, 0n);
+  for (const p of [...parts].sort((a, b) => (b.rem > a.rem ? 1 : b.rem < a.rem ? -1 : 0))) {
+    if (left <= 0n) break;
+    p.amount += 1n;
+    left -= 1n;
+  }
+  return parts.map(({ key, amount: a }) => ({ key, amount: a }));
+}
 
 export interface DrillQuery {
   from?: string;
@@ -323,30 +339,25 @@ export class DistrictsService {
     const entries = batchIds.length
       ? await this.prisma.payrollEntry.findMany({
           where: { batchId: { in: batchIds }, deletedAt: null },
-          select: { batchId: true, employeePinfl: true, period: true, totalTiyin: true },
+          select: { batchId: true, employeePinfl: true, period: true, totalTiyin: true, baseTiyin: true, bonusTiyin: true },
         })
       : [];
-    // Hududlar vedomosti (REGIONS) — shartnoma asosidagi hudud xodimlari ham tumaniga (umumiy vedomostda — alohida)
-    const batchScope = new Map(
-      batchIds.length ? (await this.prisma.payrollBatch.findMany({ where: { id: { in: batchIds } }, select: { id: true, scope: true } })).map((b) => [b.id, b.scope]) : [],
-    );
     const pinfls = [...new Set(entries.map((e) => e.employeePinfl))];
     const periods = [...new Set(entries.map((e) => e.period))];
 
-    const [registry, locations] = await Promise.all([
+    // Xodim joyi — ish haqi xarajatini viloyatga yozgan qoida bilan aynan bir xil (joylashuv yozuvi + «joylashuv davri»):
+    // shunda tumanlar yig'indisi viloyat ish haqiga teng bo'ladi (shtat ham, shartnoma ham — o'z tumaniga)
+    const [registry, locationMaps] = await Promise.all([
       this.prisma.employee.findMany({
         where: { OR: [{ pinfl: { in: pinfls } }, { regionCode }] },
         select: { pinfl: true, fullName: true, position: true, employmentType: true, regionCode: true, districtId: true },
       }),
-      pinfls.length && periods.length
-        ? this.prisma.employeeLocation.findMany({
-            where: { employeePinfl: { in: pinfls }, period: { in: periods } },
-            select: { employeePinfl: true, period: true, regionCode: true, districtId: true, employmentType: true },
-          })
-        : Promise.resolve([]),
+      Promise.all(periods.map(async (p) => [p, await loadLocationRefs(this.prisma, p, pinfls)] as const)),
     ]);
     const registryBy = new Map(registry.map((e) => [e.pinfl, e]));
-    const locationBy = new Map(locations.map((l) => [`${l.employeePinfl}:${l.period}`, l]));
+    const locationBy = new Map(locationMaps.flatMap(([p, m]) => [...m.entries()].map(([pin, l]) => [`${pin}:${p}`, l] as const)));
+    /** Ijtimoiy soliqni tumanlarga bo'lish uchun: oy → tuman → to'liq ish haqi (soliq bazasi bilan bir xil: oklad yoki jami + mukofot) */
+    const fullBy = new Map<string, Map<string | null, bigint>>();
 
     const entriesByBatch = new Map<string, typeof entries>();
     for (const e of entries) {
@@ -362,11 +373,15 @@ export class DistrictsService {
         const person = registryBy.get(entry.employeePinfl);
         const loc = locationBy.get(`${entry.employeePinfl}:${entry.period}`);
         const effRegion = loc?.regionCode ?? person?.regionCode;
-        const effType = loc?.employmentType ?? person?.employmentType;
         const effDistrict = loc ? loc.districtId : (person?.districtId ?? null);
-        // Ish haqi xarajati hududga faqat shtatdagi xodimlar bo'yicha yoziladi (shartnoma — alohida)
-        if (effRegion !== regionCode || (effType === 'SHARTNOMA' && batchScope.get(row.payrollBatchId!) !== 'REGIONS')) continue;
+        if (effRegion !== regionCode) continue;
         shares.push({ districtId: effDistrict, amount: entry.totalTiyin, pinfl: entry.employeePinfl });
+        const full = entry.baseTiyin === 0n ? entry.totalTiyin + entry.bonusTiyin : entry.baseTiyin;
+        if (full > 0n) {
+          const m = fullBy.get(entry.period) ?? new Map<string | null, bigint>();
+          m.set(effDistrict, (m.get(effDistrict) ?? 0n) + full);
+          fullBy.set(entry.period, m);
+        }
       }
       const assigned = shares.reduce((s, x) => s + x.amount, 0n);
       // Bir partiyada viloyatga bir nechta yozuv bo'lishi mumkin emas, lekin ehtiyot uchun:
@@ -403,6 +418,12 @@ export class DistrictsService {
       if (row.source === 'PAYROLL' || row.source === 'LEASE') continue;
       const top = categoryParent.get(row.categoryCode) ?? row.categoryCode;
       const [key, label] = row.source === 'VEHICLE' ? ['VEHICLE', 'Mashina xarajatlari'] : safarIds.has(row.id) ? [SAFAR_PART.key, SAFAR_PART.label] : [`c:${top}`, categoryLabel.get(top) ?? top];
+      // Ish haqidan soliq (ijtimoiy soliq — viloyatga bitta yozuv) — tumanlarga shu oy to'liq ish haqi ulushiga qarab
+      const base = row.source === 'TAX' && !row.districtId ? fullBy.get(row.period ?? monthOf(row.date)) : undefined;
+      if (base && base.size) {
+        for (const part of splitByShare(row.amountTiyin, base)) addExpense(row.date, { districtId: part.key, amount: part.amount }, 'OTHER', key, label, row.period);
+        continue;
+      }
       addExpense(row.date, { districtId: row.districtId, amount: row.amountTiyin }, 'OTHER', key, label, row.period);
     }
     // PAYROLL yozuvi partiyasiz bo'lsa (qo'lda) — tumanga bo'linmagan
