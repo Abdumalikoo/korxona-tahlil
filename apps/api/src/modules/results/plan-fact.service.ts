@@ -219,7 +219,7 @@ function regionKey(value: string): string {
 /** Tuman kaliti: asos va turi (shahar / tuman) */
 function districtKey(value: string): { base: string; city: boolean } {
   let v = norm(value);
-  // «Bo'lim boshlig'i - Nukus shahar» → «Nukus shahar»
+  // «Bo'lim boshlig'i - Nukus shahar» → «Nukus shahar» (bo'lim boshlig'i — alohida: headOf)
   const dash = v.lastIndexOf(' - ');
   if (dash >= 0) v = v.slice(dash + 3).trim();
   const city = /\b(shahri|shahar|sh)\b/.test(v);
@@ -457,7 +457,11 @@ export class PlanFactService {
       return regionBy.get(norm(raw)) ?? regionBy.get(regionKey(raw)) ?? null;
     };
     const dKeys = districts.map((d) => ({ d, ...districtKey(d.name) }));
+    // «Bo'lim boshlig'i - Nukus shahar» — viloyat bo'lim boshlig'i: shu viloyatning «Bo'lim boshlig'i» bo'linmasi (kod 0)
+    const headOf = (regionCode: number | null, raw: string): District | null => (regionCode !== null && /^bolim boshlig/.test(norm(raw)) ? (districts.find((d) => d.id === `${regionCode}-0`) ?? null) : null);
     const findDistrict = (regionCode: number, raw: string): District | null => {
+      const head = headOf(regionCode, raw);
+      if (head) return head;
       const k = districtKey(raw);
       if (!k.base) return null;
       const inRegion = dKeys.filter((x) => x.d.regionCode === regionCode && x.base === k.base);
@@ -540,6 +544,8 @@ export class PlanFactService {
       districtsByBase.set(x.base, list);
     }
     const guessDistrict = (raw: string, preferRegion: number | null): District | null => {
+      const head = headOf(preferRegion, raw);
+      if (head) return head;
       const k = districtKey(raw);
       if (!k.base) return null;
       const all = districtsByBase.get(k.base) ?? [];

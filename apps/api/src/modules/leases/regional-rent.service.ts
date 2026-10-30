@@ -345,7 +345,7 @@ export class RegionalRentService {
       }
       for (const d of b.districts.filter((x) => x.regionCode === code)) {
         const own = leases.filter((l) => l.districtId === d.id);
-        if (!own.length && /bolim boshli/i.test(sheetKey(d.name))) continue;
+        if (!own.length && /bolimboshli/.test(sheetKey(d.name))) continue;
         if (!own.length) put(region, d.name, null);
         for (const l of own) put(region, d.name, l);
       }

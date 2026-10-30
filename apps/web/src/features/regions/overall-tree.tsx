@@ -7,7 +7,7 @@ import { compact, pct, som, type CompareMode, type SectionFilter } from '@/featu
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { partDetailApi, partOpens, regionsApi, safarCostsApi, vehicleCostsApi, type UnitPart, type UnitStats } from './api';
+import { partDetailApi, partOpens, regionsApi, safarCostsApi, statsOf, vehicleCostsApi, type UnitPart, type UnitStats } from './api';
 import { centerDrillApi, drillApi, type MoneyPart } from './drill-api';
 import { money, type Fmt } from './overall-tables';
 import { segmentApi, type DrillNode } from './segment-api';
@@ -136,6 +136,19 @@ function employeeNode(prefix: string, e: { pinfl: string; fullName: string; posi
   };
 }
 
+/** Birlik statistikasi shu davr uchun (butun davr yoki bitta oy) — oylar ustunlari to'g'ri bo'lishi uchun; davr bo'yicha bir marta */
+const unitsCache = new Map<string, Promise<UnitStats[]>>();
+function unitAt(key: string, c: Ctx): Promise<UnitStats | null> {
+  const k = [c.range.from, c.range.to, c.section, c.compare].join('|');
+  let p = unitsCache.get(k);
+  if (!p) {
+    p = regionsApi.compare(c.range, c.section, c.compare).then((r) => r.data.units.map(statsOf));
+    p.catch(() => unitsCache.delete(k));
+    unitsCache.set(k, p);
+  }
+  return p.then((list) => list.find((x) => x.unit.key === key) ?? null);
+}
+
 function regionTree(s: UnitStats, c: Ctx): TNode[] {
   const code = s.unit.code!;
   return [
@@ -165,8 +178,9 @@ function regionTree(s: UnitStats, c: Ctx): TNode[] {
         },
       }));
     }),
-    group(`r${code}:inc`, 'Daromad tarkibi', parts(`r${code}:inc`, s.unit.incomeParts, 'income'), { records: { kind: 'income', f: { unit: s.unit.key }, title: `${s.unit.name} › Daromad` } }),
-    group(`r${code}:exp`, 'Xarajat tarkibi', parts(`r${code}:exp`, s.unit.expenseParts, 'expense', { unit: `r:${code}`, c })),
+    // Viloyat bo'yicha tarkib — shu davr (oy) statistikasidan: oylar ustunida o'sha oyning summasi (jami takrorlanmaydi)
+    group(`r${code}:inc`, "Daromad tarkibi (viloyat bo'yicha)", async () => parts(`r${code}:inc`, (await unitAt(s.unit.key, c))?.unit.incomeParts ?? [], 'income'), { records: { kind: 'income', f: { unit: s.unit.key }, title: `${s.unit.name} › Daromad` } }),
+    group(`r${code}:exp`, "Xarajat tarkibi (viloyat bo'yicha, barcha tumanlar)", async () => parts(`r${code}:exp`, (await unitAt(s.unit.key, c))?.unit.expenseParts ?? [], 'expense', { unit: `r:${code}`, c })),
   ];
 }
 
