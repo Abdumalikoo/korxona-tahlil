@@ -27,6 +27,8 @@ import { AssetImportDialog } from './assets-import';
 import { AdoptDialog } from './adopt-dialog';
 import { realRegions } from '@/lib/segments';
 import { BalanceReportView } from './assets-report';
+import { XaridPanel } from './xarid-panel';
+import { PillTabs } from '@/components/report/report';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Asosiy vositalar.
@@ -513,7 +515,7 @@ export function FixedAssetsPage() {
   const to = monthEndIso(month);
   const [status, setStatus] = useState('all');
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState<'list' | 'report' | 'policy'>('list');
+  const [tab, setTab] = useState<'list' | 'report' | 'policy' | 'xarid'>('list');
   const [batch, setBatch] = useState('');
   const [importing, setImporting] = useState(false);
   const [adopting, setAdopting] = useState(false);
@@ -649,23 +651,24 @@ export function FixedAssetsPage() {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          {(
-            [
-              ['list', "Ro'yxat"],
-              ['report', 'Balans hisoboti'],
-              ['policy', 'Moddalar va muddatlar'],
-            ] as const
-          ).map(([k, label]) => (
-            <button key={k} type="button" onClick={() => setTab(k)} className={cn('rounded-lg px-3.5 py-2 text-sm font-semibold', tab === k ? 'bg-brand-600 text-white' : 'bg-white text-heading shadow-card hover:bg-brand-50')}>
-              {label}
-            </button>
-          ))}
+          <PillTabs
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'list', label: "Ro'yxat" },
+              { value: 'report', label: 'Balans hisoboti' },
+              { value: 'policy', label: 'Moddalar va muddatlar' },
+              { value: 'xarid', label: 'Xarid shabloni', hint: "Moddiy-texnika ehtiyojlari ma'lumotnomasi: talabnoma → shartnoma → schyot-faktura; aniqlab oluvchi filtr" },
+            ]}
+          />
           <Link href="/xarajatlar/siyosat" className="ml-auto text-xs font-semibold text-brand-700 underline">
             Xarajatlar siyosati (Markaz xarajati guruhlari)
           </Link>
         </div>
 
-        {tab === 'policy' ? (
+        {tab === 'xarid' ? (
+          <XaridPanel />
+        ) : tab === 'policy' ? (
           <PolicyCard isAdmin={isAdmin} onSaved={reloadAll} />
         ) : tab === 'report' ? (
           <BalanceReportView batches={batches.data ?? []} />

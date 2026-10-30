@@ -251,3 +251,107 @@ export const assetsApi = {
   mode: (id: string, mode: AssetMode) => api.post<ApiResponse<FixedAssetView>>(`/fixed-assets/${id}/mode`, { mode }),
   remove: (id: string) => api.delete<ApiResponse<{ success: true }>>(`/fixed-assets/${id}`),
 };
+// ─────────── Xarid shabloni — /api/asset-xarid (1-bosqich: reestr, raqamlarga ta'sir qilmaydi) ───────────
+
+export type XaridKind = 'ASSET' | 'LOW_VALUE' | 'SUPPLY' | 'PRINT_GIFT' | 'SERVICE';
+export type XaridStatus = 'DONE' | 'IN_PROGRESS' | 'PLANNED' | 'REJECTED';
+
+export interface XaridRow {
+  key: string;
+  /** Excel qator raqami */
+  row: number;
+  name: string;
+  /** Birlik kodi (CENTER, FERMER, MARKSHEYDER …) */
+  unit: string;
+  structure: string | null;
+  reqDept: string | null;
+  reqNo: string | null;
+  reqDate: string | null;
+  purpose: string | null;
+  type: string | null;
+  measure: string | null;
+  qty: number | null;
+  unitPriceTiyin: string | null;
+  totalTiyin: string | null;
+  /** Shartnoma yo'q — bozor taxminiy qiymati */
+  estimated: boolean;
+  method: string | null;
+  platform: string | null;
+  platformUrl: string | null;
+  supplier: string | null;
+  contractNo: string | null;
+  contractDate: string | null;
+  invoiceNo: string | null;
+  invoiceDate: string | null;
+  status: XaridStatus;
+  kind: XaridKind;
+  autoKind: XaridKind;
+  reason: string;
+  overridden: boolean;
+  warnings: string[];
+}
+
+export interface XaridGroup {
+  key: string;
+  count: number;
+  totalTiyin: string;
+}
+
+export interface XaridView {
+  loaded: boolean;
+  fileName?: string;
+  savedAt?: string;
+  savedBy?: string;
+  sheet?: string;
+  headerRow?: number;
+  missing?: string[];
+  rule: { assetMinTiyin: string; overrides: number };
+  kinds: { key: XaridKind; label: string }[];
+  statuses: { key: XaridStatus; label: string; count: number }[];
+  summary: {
+    rows: number;
+    done: number;
+    doneTotalTiyin: string;
+    warnings: number;
+    byKind: { key: XaridKind; label: string; count: number; totalTiyin: string; all: number }[];
+    byUnit: XaridGroup[];
+    byPlatform: XaridGroup[];
+    byMonth: XaridGroup[];
+  };
+  rows: XaridRow[];
+}
+
+export type XaridAnalysis = XaridView & { fileName: string; sheet: string; headerRow: number; missing: string[]; skipped: { row: number; reason: string }[] };
+
+async function uploadXarid<T>(path: string, file: File, fallback: string): Promise<T> {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch(`${BASE}${path}`, { method: 'POST', headers: authHeaders(), body: form });
+  if (!response.ok) throw new Error(await readError(response, fallback));
+  return ((await response.json()) as ApiResponse<T>).data;
+}
+
+export const xaridApi = {
+  view: () => api.get<ApiResponse<XaridView>>('/asset-xarid'),
+  /** Faylni o'qish — hech narsa saqlanmaydi */
+  analyze: (file: File) => uploadXarid<XaridAnalysis>('/asset-xarid/analyze', file, "Faylni o'qib bo'lmadi"),
+  /** Saqlash — fayl serverda qayta o'qiladi */
+  commit: (file: File) => uploadXarid<{ success: true; rows: number }>('/asset-xarid/commit', file, "Saqlab bo'lmadi"),
+  rule: (assetMinSom: string) => api.put<ApiResponse<{ assetMinSom: number }>>('/asset-xarid/rule', { assetMinSom }),
+  override: (key: string, kind: XaridKind | null) => api.put<ApiResponse<{ key: string; kind: XaridKind | null }>>('/asset-xarid/override', { key, kind }),
+  remove: () => api.delete<ApiResponse<{ removed: true }>>('/asset-xarid'),
+  /** Bo'sh shablon (Excel) */
+  template: async (): Promise<void> => {
+    const response = await fetch(`${BASE}/asset-xarid/template`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await readError(response, "Shablonni yuklab bo'lmadi"));
+    const name = decodeURIComponent(/filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'asosiy-vositalar-xarid-shablon.xlsx');
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  },
+};
