@@ -1,3 +1,4 @@
+import { exportXlsx } from '@/lib/excel-export';
 // ═══════════════════════════════════════════════════════════
 // Tarkib tahlili uchun oddiy statistik hisoblar (brauzerda).
 // Hamma summalar tiyinda, number sifatida.
@@ -224,6 +225,14 @@ function csvWorkings(header: string[], rows: (string | number | null)[][]): (str
  * (workings berilsa — o'shalar, aks holda ustun nomlaridan avtomatik).
  */
 export function downloadCsv(fileName: string, header: string[], rows: (string | number | null)[][], workings?: string[][]): void {
+  // Avval tushunarli Excel (.xlsx: jadval, tushuntirish, ma'lumot); server javob bermasa — CSV
+  const name = fileName.replace(/\.csv$/i, '');
+  const work = workings ?? csvWorkings(header, rows).filter((r) => r.length && !(r.length === 1 && /^Hisob-kitob/.test(String(r[0]))));
+  void exportXlsx({ fileName: name, header, rows, workings: work }).catch(() => saveCsv(fileName, header, rows, workings));
+}
+
+/** Eski usul — CSV (Excel'da ochiladi); Excel eksport ishlamasa */
+function saveCsv(fileName: string, header: string[], rows: (string | number | null)[][], workings?: string[][]): void {
   const escape = (value: string | number | null) => {
     const text = value === null || value === undefined ? '' : String(value);
     return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;

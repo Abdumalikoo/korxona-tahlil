@@ -1,3 +1,4 @@
+import { exportXlsx } from '@/lib/excel-export';
 import { api, type ApiResponse } from '@/lib/api';
 import { formatDate, formatPeriodShort, formatSum, tiyinToSum } from '@/lib/format';
 
@@ -270,6 +271,13 @@ export const UNIT_COLOR: Record<string, string> = {
 
 /** CSV yuklab olish (Excel ochadi) */
 export function downloadCsv(name: string, rows: (string | number | null)[][]) {
+  // Avval tushunarli Excel (.xlsx); server javob bermasa — CSV. Birinchi qator — sarlavha
+  const [head, ...body] = rows;
+  void exportXlsx({ fileName: name, header: (head ?? []).map((h) => String(h ?? '')), rows: body }).catch(() => saveCsv(name, rows));
+}
+
+/** Eski usul — CSV; Excel eksport ishlamasa */
+function saveCsv(name: string, rows: (string | number | null)[][]) {
   const esc = (v: string | number | null) => {
     const s = v === null ? '' : typeof v === 'number' ? String(Math.round(v * 100) / 100).replace('.', ',') : v;
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

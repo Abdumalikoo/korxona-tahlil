@@ -21,6 +21,8 @@ const RULES: { re: RegExp; limit: string }[] = [
   { re: /^\/api\/public\//, limit: '2mb' },
   // Schyot-faktura reyestri qatorlari (o'n minglab) — saqlashda (faqat kirgan foydalanuvchi, administrator)
   { re: /^\/api\/invoice-analysis\/commit\/?$/, limit: '64mb' },
+  // Excel eksport — sahifa jadvali (katta jadvallar ham; faqat kirgan foydalanuvchi)
+  { re: /^\/api\/export\/xlsx\/?$/, limit: '32mb' },
 ];
 
 export function limitFor(path: string, fallback: string): string {
