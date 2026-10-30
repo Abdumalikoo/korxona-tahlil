@@ -51,6 +51,13 @@ export class Nazorat3802Controller {
     return { data: await this.nz.sarf(from, to) };
   }
 
+  /** Bo'lim xodimlariga 3802 hovuzidan qoplangan ish haqi: oyma-oy, xodimlar bilan (?from=YYYY-MM&to=YYYY-MM; shaxsiy ma'lumot) */
+  @Personal()
+  @Get('coverage/:dep')
+  async coverageOf(@Param('dep') dep: string, @Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.nz.coverageOf(dep, from, to) };
+  }
+
   /** Bitta bo'lim — xodimlar bilan (shaxsiy ma'lumot) */
   @Personal()
   @Get('sarf/:unit')

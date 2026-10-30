@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SEGMENTS, segmentKey, segmentLabel, segmentOfKey, unitKeyOf } from '../../common/segments/segments';
 import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
-import { ownQomitaIncome, qomitaIncomeOwners } from '../qomita/qomita.util';
+import { qomitaIncomeOwners, qomitaIncomeView } from '../qomita/qomita.util';
+import { Nazorat3802Service } from '../qomita/nazorat-3802.service';
 import { ASSET_CHARGE_CATEGORY, ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
 import { bounds, compareRange, parseDay, trendMonths } from './structure.engine';
 import type { RegionUnit, RegionsResult, UnitKind, UnitPart } from './regions.types';
@@ -135,7 +136,15 @@ function fmtPct(value: number): string {
  */
 @Injectable()
 export class RegionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly nazorat?: Nazorat3802Service,
+  ) {}
+
+  /** 3802 hovuzi qoplashi (bo'lmasa — null: hovuz puli Qo'mita qatorida qoladi) */
+  private qomitaCoverage() {
+    return this.nazorat ? this.nazorat.coverage().catch(() => null) : Promise.resolve(null);
+  }
 
   private parseSection(value?: string): SectionFilter {
     if (!value || value === 'ALL') return 'ALL';
@@ -202,7 +211,8 @@ export class RegionsService {
       readPolicy(this.prisma),
     ]);
     // Qo'mita ajratmasi — pul berilgan bo'limning o'z daromadi (Call markaz → Markaz, Marksheyder → yo'nalish)
-    ownQomitaIncome(incomes, await qomitaIncomeOwners(this.prisma));
+    // 3802 hovuzi — har bo'limga faqat o'z xodimlariga qoplangani; qoldig'i Qo'mita qatorida
+    qomitaIncomeView(incomes, await qomitaIncomeOwners(this.prisma), await this.qomitaCoverage(), start, end);
     // Xarajatlar siyosati: shu moddalar qayerda yozilgan bo'lsa ham — Markaz xarajati (hududlar uchun)
     // Xarajatlar siyosati: moddalar qayerda yozilgan bo'lsa ham — Markaz yoki yo'nalish (Tax free …) hisobidan
     const routing = policyRouting(policy, expenseCategories);

@@ -46,11 +46,27 @@ interface Props {
   actions?: ReactNode;
 }
 
+/**
+ * Ish haqi (PAYROLL_BASE) qatori — to'liq summa; ichiga kirilganda ajraladi: «shundan: qo'lga (sof, 88%)» va «shundan: daromad
+ * solig'i 12%» (ish haqi ichida — alohida xarajat emas). Ichki qatorlar jamiga qo'shilmaydi (jami — yuqori qatorlardan).
+ */
+const PAYROLL_CAT = 'PAYROLL_BASE';
+const JSHDS_RATE = 0.12;
+function withPayrollSplit(list: XNode[]): XNode[] {
+  return list.map((n) => {
+    if (n.children?.length) return { ...n, children: withPayrollSplit(n.children) };
+    if (n.kind !== 'expense' || n.f.cats?.length !== 1 || n.f.cats[0] !== PAYROLL_CAT || !n.cur) return n;
+    const part = (k: string, label: string, r: number): XNode => ({ ...n, key: `${n.key}:${k}`, label, cur: Math.round(n.cur * r), prev: Math.round(n.prev * r), ly: Math.round(n.ly * r), count: 0, children: undefined });
+    return { ...n, children: [part('net', "shundan: qo'lga (sof, 88%)", 1 - JSHDS_RATE), part('jshds', "shundan: daromad solig'i 12% — ish haqi ichida, alohida xarajat emas", JSHDS_RATE)] };
+  });
+}
+
 const sumVals = (list: XNode[]): Vals => list.reduce((a, n) => ({ cur: a.cur + n.cur, prev: a.prev + n.prev, ly: a.ly + n.ly, count: a.count + n.count }), { cur: 0, prev: 0, ly: 0, count: 0 });
 
 
-export function DrillTable({ nodes, title, description, nameHeader = 'Nomi', root, openDepth = 0, extra = [], total, csv, note, limit, hideLy, actions }: Props) {
+export function DrillTable({ nodes: nodesIn, title, description, nameHeader = 'Nomi', root, openDepth = 0, extra = [], total, csv, note, limit, hideLy, actions }: Props) {
   const { open: drill } = useDrill();
+  const nodes = useMemo(() => withPayrollSplit(nodesIn), [nodesIn]);
   const [opened, setOpened] = useState<Set<string> | null>(null);
   const [q, setQ] = useState('');
   const [all, setAll] = useState(false);

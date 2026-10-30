@@ -1,5 +1,5 @@
-// Tahlil jadvallari: ish haqi yozuvidan daromad solig'i (JShDS, 12%) ajratilib «Soliqlar» ichida ko'rinadi;
-// ish haqi fondi — sof qism; jami o'zgarmaydi; bazadagi yozuvlar o'zgarmaydi. TEST MA'LUMOTLARI SUN'IY.
+// Tahlil jadvallari: daromad solig'i (JShDS) ish haqi ICHIDA — alohida xarajat qatori bo'lib yozilmaydi (ikki marta
+// sanalmasin); ish haqi — to'liq; «Soliqlar»da faqat ijtimoiy soliq; jami o'zgarmaydi. TEST MA'LUMOTLARI SUN'IY.
 require('reflect-metadata');
 const assert = require('assert');
 const fakeDb = require('./fakedb');
@@ -28,13 +28,11 @@ const { ExploreService } = require('../dist/modules/explore/explore.service');
   const ish = find(d.tree, 'Ish haqi fondi');
   const sol = find(d.tree, 'Soliqlar');
   assert.ok(ish && sol, 'guruhlar bor');
-  const jshds = find(sol.children ?? [], "Daromad solig'i (ish haqidan ushlanadi)");
-  assert.ok(jshds, 'Soliqlar ichida daromad solig‘i');
+  assert.ok(!(sol.children ?? []).some((n) => /daromad solig/i.test(n.label)), 'Soliqlarda daromad solig‘i alohida qator emas');
   const total = d.totals.cur;
   assert.strictEqual(total, 1_700_000_00, 'jami o‘zgarmadi');
-  assert.strictEqual(cur(jshds), 180_000_00, '12% (1,5 mln dan)');
-  assert.strictEqual(cur(ish), 1_320_000_00, 'ish haqi — sof qism');
-  assert.strictEqual(cur(sol), 360_000_00, 'ijtimoiy + daromad solig‘i');
+  assert.strictEqual(cur(ish), 1_500_000_00, 'ish haqi — to‘liq (daromad solig‘i ichida)');
+  assert.strictEqual(cur(sol), 180_000_00, 'Soliqlar — faqat ijtimoiy soliq');
   assert.strictEqual(T.expense.length, 4, 'bazaga hech narsa yozilmadi');
   console.log('OK t-explore-jshds');
 })().catch((e) => {

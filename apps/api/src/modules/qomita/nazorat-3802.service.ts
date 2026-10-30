@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { loadLocationRefs } from '../payroll/payroll.service';
+import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
 import ExcelJS from 'exceljs';
 import { runExclusive } from '../../common/locks';
 import { classify, readRules, RULES_KEY, sortedRules } from '../acc-23106/acc23106.rules';
@@ -6,9 +8,9 @@ import { readStore as read23106, STORE_KEY as ACC23106_KEY } from '../acc-23106/
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { monthsBetween } from '../../common/period';
-import { SEGMENTS } from '../../common/segments/segments';
+import { CENTRAL_REGION, isSegment, SEGMENTS } from '../../common/segments/segments';
 import { candidates, computeMonth, matchPerson, nameKey, vedCoverage, type LinkCode, type Nz23106Row, type NzShtatSection, type NzTarkibRow, type NzVedEmployee } from './nazorat-3802.compute';
-import { QOMITA_INCOME_PREFIX, QOMITA_SEGMENT, readQomita } from './qomita.util';
+import { coverKey, ensureQomitaCoverCategories, QOMITA_INCOME_PREFIX, QOMITA_SEGMENT, qomitaIncomeOwners, readQomita, type CoverCell, type QomitaCoverage } from './qomita.util';
 import { Shtat3802Service } from './shtat-3802.service';
 import { VED_INDEX_KEY, vedKey, type VedIndexEntry } from './vedomost-3802.service';
 import type { VedSection } from './vedomost-3802.parse';
@@ -46,6 +48,7 @@ export class Nazorat3802Service {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly shtat: Shtat3802Service,
+    @Optional() private readonly units?: UnitPayrollService,
   ) {}
 
   private async read<T>(key: string, fallback: T): Promise<T> {
@@ -76,6 +79,118 @@ export class Nazorat3802Service {
   }
 
   /** Oylar uchun hamma kirish ma'lumoti (bir yo'la) */
+  private coverageCache: { at: number; value: Promise<QomitaCoverage> } | null = null;
+
+  /**
+   * Solishtirma va Bosh sahifa uchun: 3802 hovuzidan har oy har bo'lim xodimlariga qoplangan ish haqi (vedomost, Nazorat
+   * zanjiri 4-halqasi qoidasi bilan bir xil — vedCoverage) va hovuz pulini oluvchi daromad moddalari (POOL). Hovuz puli
+   * («3802 Call Markaz») hamma hovuz bo'limlari xodimlari uchun — har bo'limga faqat o'z xodimlariga qoplangani tegadi.
+   * Faqat o'qish; 1 daqiqa xotirada (har so'rovda qayta hisoblanmasin).
+   */
+  coverage(): Promise<QomitaCoverage> {
+    if (this.coverageCache && Date.now() - this.coverageCache.at < 60_000) return this.coverageCache.value;
+    const value = this.computeCoverage().catch((e: unknown) => {
+      this.coverageCache = null;
+      throw e;
+    });
+    this.coverageCache = { at: Date.now(), value };
+    return value;
+  }
+
+  /** Bitta bo'lim: hovuzdan shu bo'lim xodimlariga qoplangan ish haqi — oyma-oy, xodimlar bilan (Solishtirmada ochilganda) */
+  async coverageOf(unit: string, from: string, to: string) {
+    if (!PERIOD_RE.test(from ?? '') || !PERIOD_RE.test(to ?? '')) throw new BadRequestException("Oy noto'g'ri (YYYY-MM)");
+    const cov = await this.coverage();
+    // Birlik: «dep:<id>» (yoki faqat id) — Markaz bo'limi, «center» — hamma Markaz bo'limlari, «r:<kod>» — viloyat, «s:<kod>» — yo'nalish
+    const want = unit.startsWith('dep:') ? `d:${unit.slice(4)}` : unit;
+    const match = (k: string) => (want === 'center' ? k.startsWith('d:') : want.startsWith('r:') ? k.startsWith(`${want}|`) : want.startsWith('s:') || want.startsWith('d:') ? k === want : k === `d:${want}`);
+    const months = monthsBetween(from, to)
+      .map((period) => {
+        const keys = [...(cov.covered.get(period)?.keys() ?? [])].filter(match);
+        const list = keys.flatMap((k) => cov.employees.get(`${period}|${k}`) ?? []);
+        return {
+          period,
+          coveredTiyin: keys.reduce((s, k) => s + (cov.covered.get(period)!.get(k)!.amount), 0n).toString(),
+          employees: [...list].sort((a, b) => (b.coveredTiyin > a.coveredTiyin ? 1 : -1)).map((e) => ({ fullName: e.fullName, position: e.position, coveredTiyin: e.coveredTiyin.toString() })),
+        };
+      })
+      .filter((m) => m.coveredTiyin !== '0');
+    return { months, totalTiyin: months.reduce((s, m) => s + BigInt(m.coveredTiyin), 0n).toString() };
+  }
+
+  private async computeCoverage(): Promise<QomitaCoverage> {
+    const periods = await this.vedPeriods();
+    const [vedRows, view, deps, config, sectionMap] = await Promise.all([
+      periods.length ? this.prisma.setting.findMany({ where: { key: { in: periods.map(vedKey) } }, select: { value: true } }) : Promise.resolve([] as { value: unknown }[]),
+      this.shtat.view(),
+      this.prisma.department.findMany({ select: { id: true, name: true, index: true, isActive: true } }),
+      readQomita(this.prisma),
+      this.read<Record<string, string | null>>(SECTIONS_KEY, {}),
+    ]);
+    const shtat: NzShtatSection[] = [];
+    for (const kind of ['OLADI', 'OLMAYDI'] as const) {
+      const s = view[kind];
+      if (!s) continue;
+      for (const sec of s.sheet.sections)
+        shtat.push({ kind, key: sec.settingKey, name: sec.name, departmentId: sec.departmentId, coverage: sec.coverage, positions: sec.positions.map((p) => ({ row: p.row, name: p.name, units: p.units, salaryTiyin: p.salaryTiyin })) });
+    }
+    const departments = deps.filter((d) => d.isActive).map((d) => ({ id: d.id, name: d.name }));
+    // Vedomostdagi xodim (F.I.Sh.) → Xodimlar bazasi (faqat bir xil ismli bitta xodim bo'lsa); joyi — shu oy, hamma
+    // sahifa bilan bir xil qoida: yo'nalish «miya»dan, Markaz bo'limi va viloyat › tuman — loadLocationRefs, bo'lmasa baza
+    const registry = await this.prisma.employee.findMany({ select: { pinfl: true, fullName: true, regionCode: true, districtId: true, departmentId: true } });
+    const byName = new Map<string, (typeof registry)[number] | null>();
+    for (const e of registry) {
+      const k = nameKey(e.fullName);
+      byName.set(k, byName.has(k) ? null : e);
+    }
+    const segOfDep = new Map([...(await qomitaIncomeOwners(this.prisma)).values()].map((o) => [o.departmentId, o.segment]));
+    const covered = new Map<string, Map<string, CoverCell>>();
+    const employees = new Map<string, { fullName: string; position: string | null; coveredTiyin: bigint }[]>();
+    const pool = new Set<string>();
+    for (const r of vedRows) {
+      const v = r.value as { period?: string; sections?: VedSection[] } | null;
+      if (!v?.period || !Array.isArray(v.sections)) continue;
+      const period = v.period;
+      const ved = v.sections.flatMap((s) => s.employees.map((e) => ({ section: s.name, fullName: e.fullName, position: e.position, amounts: e.amounts as Record<string, string>, totalTiyin: e.totalTiyin })));
+      const list = vedCoverage(ved, shtat, departments, sectionMap).filter((c) => c.departmentId && c.coveredTiyin > 0n);
+      const pins = [...new Set(list.map((c) => byName.get(nameKey(c.e.fullName))?.pinfl).filter((p): p is string => Boolean(p)))];
+      const [refs, unitAt] = await Promise.all([pins.length ? loadLocationRefs(this.prisma, period, pins) : Promise.resolve(new Map()), pins.length && this.units ? this.units.unitsAt(pins, period) : Promise.resolve(new Map<string, string>())]);
+      const m = new Map<string, CoverCell>();
+      for (const c of list) {
+        pool.add(c.departmentId!);
+        const emp = byName.get(nameKey(c.e.fullName)) ?? null;
+        let place: Omit<CoverCell, 'amount'>;
+        const unit = emp ? unitAt.get(emp.pinfl) : undefined;
+        const ref = emp ? refs.get(emp.pinfl) : undefined;
+        const regionCode = ref ? ref.regionCode : (emp?.regionCode ?? null);
+        if (!emp) {
+          // Bazada topilmadi — vedomost bo'limi (avvalgidek)
+          const seg = segOfDep.get(c.departmentId!) ?? null;
+          place = { regionCode: seg ? null : CENTRAL_REGION, departmentId: seg ? null : c.departmentId!, districtId: null, segment: seg };
+        } else if (unit && isSegment(unit)) place = { regionCode: null, departmentId: null, districtId: null, segment: unit };
+        else if (regionCode !== null && regionCode > 0 && unit !== 'CENTER') place = { regionCode, departmentId: null, districtId: ref ? ref.districtId : emp.districtId, segment: null };
+        else {
+          const dep = ref?.department?.id ?? emp.departmentId ?? c.departmentId!;
+          const seg = segOfDep.get(dep) ?? null;
+          place = { regionCode: seg ? null : CENTRAL_REGION, departmentId: seg ? null : dep, districtId: null, segment: seg };
+        }
+        const key = coverKey(place);
+        const cell = m.get(key) ?? { ...place, amount: 0n };
+        cell.amount += c.coveredTiyin;
+        m.set(key, cell);
+        const ek = `${period}|${key}`;
+        employees.set(ek, [...(employees.get(ek) ?? []), { fullName: c.e.fullName, position: c.e.position ?? null, coveredTiyin: c.coveredTiyin }]);
+      }
+      covered.set(period, m);
+    }
+    // Hovuz a'zolari — 3802 vedomostida qoplashi bor bo'limlar; ularning daromad moddasi — hovuz puli
+    const codeDep = new Map<string, string>(deps.map((d) => [`${QOMITA_INCOME_PREFIX}${d.index}`, d.id]));
+    for (const i of config.items) codeDep.set(i.incomeCode, i.departmentId);
+    const poolCodes = new Set([...codeDep].filter(([, dep]) => pool.has(dep)).map(([code]) => code));
+    await ensureQomitaCoverCategories(this.prisma);
+    return { covered, poolCodes, employees };
+  }
+
   private async load(periods: string[]) {
     const [vedRows, batches, view, deps, config, links, sectionMap, notes, tol, accRow, rulesRow] = await Promise.all([
       this.prisma.setting.findMany({ where: { key: { in: periods.map(vedKey) } }, select: { key: true, value: true } }),

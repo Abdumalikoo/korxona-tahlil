@@ -1,8 +1,9 @@
 import { safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { SEGMENTS, entryUnitLabel, entryUnitOf, segmentKey, segmentLabel } from '../../common/segments/segments';
 import { policyRouting, readPolicy, unitOfKey } from '../expense-policy/policy.util';
-import { ownQomitaIncome, qomitaIncomeOwners } from '../qomita/qomita.util';
+import { qomitaIncomeOwners, qomitaIncomeView } from '../qomita/qomita.util';
+import { Nazorat3802Service } from '../qomita/nazorat-3802.service';
 import { LEASE_CONFIG } from '../unit-lease/unit-lease.branches';
 import { PrismaService } from '../prisma/prisma.service';
 import { bounds, compareRange, parseDay, periodsEndingIn, trendMonths } from './structure.engine';
@@ -174,7 +175,15 @@ function exploreUnit(code: string): string {
 
 @Injectable()
 export class SegmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly nazorat?: Nazorat3802Service,
+  ) {}
+
+  /** 3802 hovuzi qoplashi (bo'lmasa — null: hovuz puli Qo'mita qatorida qoladi) */
+  private qomitaCoverage() {
+    return this.nazorat ? this.nazorat.coverage().catch(() => null) : Promise.resolve(null);
+  }
 
   private parseRange(from?: string, to?: string): DateRange {
     const today = new Date(Date.now() + TASHKENT_MS).toISOString().slice(0, 10);
@@ -224,7 +233,7 @@ export class SegmentsService {
       readPolicy(this.prisma),
     ]);
     // Qo'mita ajratmasi — pul berilgan bo'limning daromadi (Marksheyder ajratmasi — Marksheyder yo'nalishida)
-    ownQomitaIncome(incomes, await qomitaIncomeOwners(this.prisma));
+    qomitaIncomeView(incomes, await qomitaIncomeOwners(this.prisma), await this.qomitaCoverage(), start, end);
     const routing = policyRouting(policy, cats);
     // Mashina xarajatlari: xarajat → mashina (raqami, rusumi) va biriktirish izohi
     const vehicleIds = expenses.filter((e) => e.source === 'VEHICLE').map((e) => e.id);

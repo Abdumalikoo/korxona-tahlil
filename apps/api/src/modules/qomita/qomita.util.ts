@@ -154,10 +154,13 @@ export async function qomitaIncomeOwners(prisma: { department: { findMany: (a: {
   return out;
 }
 
-/** Daromad yozuvlari: «Qo'mita» yo'nalishidagi ajratma — egasi bo'limga (Markaz bo'limi yoki yo'nalish); joyida o'zgartiradi */
-export function ownQomitaIncome<T extends { categoryCode: string; segment?: string | null; regionCode?: number | null; departmentId?: string | null }>(rows: T[], owners: Map<string, QomitaOwner>): T[] {
+/**
+ * Daromad yozuvlari: «Qo'mita» yo'nalishidagi ajratma — egasi bo'limga (Markaz bo'limi yoki yo'nalish); joyida o'zgartiradi.
+ * keep — 3802 hovuzi moddalari: ular Qo'mita qatorida qoladi (pul hamma hovuz bo'limlari xodimlari uchun).
+ */
+export function ownQomitaIncome<T extends { categoryCode: string; segment?: string | null; regionCode?: number | null; departmentId?: string | null }>(rows: T[], owners: Map<string, QomitaOwner>, keep?: Set<string>): T[] {
   for (const r of rows) {
-    if (r.segment !== QOMITA_SEGMENT) continue;
+    if (r.segment !== QOMITA_SEGMENT || keep?.has(r.categoryCode)) continue;
     const o = owners.get(r.categoryCode);
     if (!o) continue;
     if (o.segment) {
@@ -166,6 +169,65 @@ export function ownQomitaIncome<T extends { categoryCode: string; segment?: stri
       r.segment = null;
       r.regionCode = 0;
       r.departmentId = o.departmentId;
+    }
+  }
+  return rows;
+}
+
+// ═══════════ 3802 hovuzi — har bo'limga o'z xodimlariga qoplangani ═══════════
+
+/** Qoplangan xodim(lar) shu oy qayerda ishlagan: Markaz bo'limi, yo'nalish yoki viloyat › tuman */
+export interface CoverCell {
+  regionCode: number | null;
+  departmentId: string | null;
+  districtId: string | null;
+  segment: string | null;
+  amount: bigint;
+}
+
+/** Katak kaliti: «d:<bo'lim>», «s:<yo'nalish>», «r:<viloyat>|<tuman>» */
+export const coverKey = (c: Omit<CoverCell, 'amount'>) => (c.segment ? `s:${c.segment}` : c.regionCode && c.regionCode > 0 ? `r:${c.regionCode}|${c.districtId ?? ''}` : `d:${c.departmentId ?? ''}`);
+
+/** 3802 hovuzi qoplashi (Nazorat3802Service.coverage) */
+export interface QomitaCoverage {
+  /** oy → joy kaliti → hovuzdan shu joydagi xodimlarga qoplangan ish haqi (xodim shu oy qayerda ishlagan bo'lsa — o'sha yerda) */
+  covered: Map<string, Map<string, CoverCell>>;
+  /** Hovuz pulini oluvchi daromad moddalari (QOMITA_<indeks>) — pul hamma hovuz bo'limlari uchun */
+  poolCodes: Set<string>;
+  /** «oy|joy kaliti» → xodimlar (vedomost bo'yicha) va qoplangan qismi */
+  employees: Map<string, { fullName: string; position: string | null; coveredTiyin: bigint }[]>;
+}
+
+/** Bo'lim daromadi: Qo'mita shu bo'lim xodimlari uchun qoplagan ish haqi */
+export const QOMITA_COVER = { code: 'QOMITA_QOPLASH', label: "Qo'mita qoplagan ish haqi (3802 hovuzidan)" };
+/** Qo'mita qatori: hovuzdan bo'limlarga qoplab berilgani (ayiriladi — qolgani hovuz qoldig'i) */
+export const QOMITA_COVER_OUT = { code: 'QOMITA_QOPLANDI', label: "Hovuzdan bo'limlarga qoplab berildi" };
+
+export async function ensureQomitaCoverCategories(prisma: PrismaService): Promise<void> {
+  for (const [i, c] of [QOMITA_COVER, QOMITA_COVER_OUT].entries()) {
+    await prisma.incomeCategory.upsert({ where: { code: c.code }, create: { code: c.code, label: c.label, isActive: true, order: 960 + i }, update: { label: c.label } }).catch(() => null);
+  }
+}
+
+/**
+ * Solishtirma / Bosh sahifa daromadi — Qo'mita pullari:
+ *  • xizmat shartnomasi (Marksheyder) — ajratma to'liq egasiga;
+ *  • 3802 hovuzi («3802 Call Markaz») — pul Qo'mita qatorida qoladi; har oy har hovuz bo'limiga faqat o'z xodimlariga
+ *    qoplangani «Qo'mita qoplagan ish haqi» bo'lib qo'shiladi va Qo'mita qatoridan ayiriladi (qolgani — hovuz qoldig'i).
+ * Jami daromad o'zgarmaydi. Qoplash yozuvlari — oy o'rtasi sanasi bilan, [start, end) oralig'idagilari.
+ */
+export function qomitaIncomeView<T extends { categoryCode: string; segment?: string | null; regionCode?: number | null; departmentId?: string | null }>(rows: T[], owners: Map<string, QomitaOwner>, cov: QomitaCoverage | null, start: Date, end: Date): T[] {
+  ownQomitaIncome(rows, owners, cov?.poolCodes);
+  if (!cov) return rows;
+  for (const [period, m] of cov.covered) {
+    const date = new Date(`${period}-15T07:00:00Z`);
+    if (date < start || date >= end) continue;
+    for (const c of m.values()) {
+      const amount = c.amount;
+      if (amount <= 0n) continue;
+      const base = { date, period, quantity: 0, clientName: null };
+      rows.push({ ...base, amountTiyin: amount, categoryCode: QOMITA_COVER.code, segment: c.segment, regionCode: c.regionCode, departmentId: c.departmentId, districtId: c.districtId } as unknown as T);
+      rows.push({ ...base, amountTiyin: -amount, categoryCode: QOMITA_COVER_OUT.code, segment: QOMITA_SEGMENT, regionCode: null, departmentId: null } as unknown as T);
     }
   }
   return rows;

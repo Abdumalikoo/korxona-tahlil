@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { SEGMENTS, segmentKey, segmentLabel, unitKeyOf } from '../../common/segments/segments';
-import { ownQomitaIncome, QOMITA_SEGMENT, qomitaIncomeOwners, type QomitaOwner } from '../qomita/qomita.util';
+import { ownQomitaIncome, QOMITA_COVER, QOMITA_COVER_OUT, QOMITA_SEGMENT, qomitaIncomeOwners, type QomitaOwner } from '../qomita/qomita.util';
+import { Nazorat3802Service } from '../qomita/nazorat-3802.service';
 import { loadPolicyRouting, type PolicyRouting } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { ranges, type Ranges, type Span } from './explore.range';
@@ -65,12 +66,6 @@ export interface MatrixRow {
   children?: MatrixRow[];
 }
 
-/**
- * Daromad solig'i (JShDS) — ish haqidan ushlanadi: jadvallarda ish haqi yozuvidan ajratib «Soliqlar» ichida ko'rsatiladi
- * (ish haqi fondi — sof qism). Bazadagi yozuvlar o'zgarmaydi, jami summa ham o'zgarmaydi — faqat ko'rinishi.
- * Foiz — «Ish haqi solishtirma» sozlamasi (standart 12%).
- */
-export const JSHDS_CAT = { code: 'SOLIQ_JSHDS', label: "Daromad solig'i (ish haqidan ushlanadi)", parent: 'SOLIQLAR', parentLabel: 'Soliqlar' };
 
 interface Row {
   cat: string;
@@ -102,6 +97,8 @@ interface Lookups {
   routing: PolicyRouting | null;
   /** Qo'mita ajratmasi egasi (Solishtirma bilan bir xil — pul berilgan bo'lim) */
   qomita: Map<string, QomitaOwner>;
+  /** 3802 hovuzi moddalari — Qo'mita qatorida qoladi */
+  qomitaPool: Set<string>;
 }
 
 type GroupModel = {
@@ -139,7 +136,15 @@ const PAGE_SIZE = 50;
 
 @Injectable()
 export class ExploreService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly nazorat?: Nazorat3802Service,
+  ) {}
+
+  /** 3802 hovuzi qoplashi (bo'lmasa — null: hovuz puli Qo'mita qatorida qoladi) */
+  private qomitaCoverage() {
+    return this.nazorat ? this.nazorat.coverage().catch(() => null) : Promise.resolve(null);
+  }
 
   private model(kind: Kind): GroupModel {
     return (kind === 'income' ? this.prisma.income : this.prisma.expense) as unknown as GroupModel;
@@ -156,12 +161,12 @@ export class ExploreService {
     ]);
     const exp = new Map(expenseCats.map((c) => [c.code, { label: c.label, parent: c.parentCode ?? null, order: c.order ?? 0 }]));
     // Ish haqidan ushlanadigan daromad solig'i — «Soliqlar» ichida (yozuvlardan ajratiladi, pastda)
-    if (!exp.has(JSHDS_CAT.parent)) exp.set(JSHDS_CAT.parent, { label: JSHDS_CAT.parentLabel, parent: null, order: 900 });
-    exp.set(JSHDS_CAT.code, { label: JSHDS_CAT.label, parent: JSHDS_CAT.parent, order: 5 });
     const routing = await loadPolicyRouting(this.prisma, expenseCats.map((c) => ({ code: c.code, parentCode: c.parentCode }))).catch(() => null);
     const qomita = await qomitaIncomeOwners(this.prisma);
+    const qomitaPool = (await this.qomitaCoverage())?.poolCodes ?? new Set<string>();
     return {
       qomita,
+      qomitaPool,
       regions: new Map(regions.map((r) => [r.code, r.code === 0 ? 'Markaz' : r.name])),
       departments: new Map(departments.map((d) => [d.id, d.name])),
       incomeCats: new Map(incomeCats.map((c) => [c.code, { label: c.label, order: c.order ?? 0 }])),
@@ -170,18 +175,31 @@ export class ExploreService {
     };
   }
 
-  private async load(kind: Kind, s: Span, opts: { period?: boolean; party?: boolean; routing?: PolicyRouting | null; pct?: number } = {}): Promise<Row[]> {
+  private async load(kind: Kind, s: Span, opts: { period?: boolean; party?: boolean; routing?: PolicyRouting | null } = {}): Promise<Row[]> {
     const partyField = kind === 'income' ? 'clientName' : 'counterparty';
     // Mijoz / kontragent kesimi alohida yuklanadi (aks holda guruhlar soni juda ko'payadi)
     const by = [...(opts.party ? [partyField, 'paymentStatus'] : ['categoryCode', 'regionCode', 'departmentId', 'segment', 'paymentStatus', ...(opts.period ? ['period'] : [])]), ...(kind === 'expense' ? ['source'] : [])];
-    const pct = kind === 'expense' ? (opts.pct ?? (await this.jshdsPct())) : 0;
     const owners = kind === 'income' ? await qomitaIncomeOwners(this.prisma) : null;
+    const cov = kind === 'income' ? await this.qomitaCoverage() : null;
     const groups = await this.model(kind).groupBy({
       by,
       where: { deletedAt: null, date: { gte: s.start, lt: s.end } },
       _sum: kind === 'income' ? { amountTiyin: true, paidTiyin: true } : { amountTiyin: true },
       _count: { _all: true },
     });
+    // 3802 hovuzi: har oy har bo'limga o'z xodimlariga qoplangani (+) va Qo'mita qatoridan (−) — Solishtirma bilan bir xil
+    if (cov && owners && !opts.party) {
+      for (const [period, m] of cov.covered) {
+        const date = new Date(`${period}-15T07:00:00Z`);
+        if (date < s.start || date >= s.end) continue;
+        for (const c of m.values()) {
+          const amount = c.amount;
+          if (amount <= 0n) continue;
+          groups.push({ categoryCode: QOMITA_COVER.code, regionCode: c.regionCode, departmentId: c.departmentId, segment: c.segment, paymentStatus: 'PAID', period, _sum: { amountTiyin: amount, paidTiyin: amount }, _count: { _all: 0 } });
+          groups.push({ categoryCode: QOMITA_COVER_OUT.code, regionCode: null, departmentId: null, segment: QOMITA_SEGMENT, paymentStatus: 'PAID', period, _sum: { amountTiyin: -amount, paidTiyin: -amount }, _count: { _all: 0 } });
+        }
+      }
+    }
     return groups.flatMap((g) => {
       const sum = num(g._sum.amountTiyin);
       const status = String(g.paymentStatus ?? 'PAID');
@@ -189,7 +207,7 @@ export class ExploreService {
       const open = status === 'PAID' ? 0 : kind === 'income' ? Math.max(0, sum - num(g._sum.paidTiyin)) : sum;
       const place = { categoryCode: String(g.categoryCode ?? ''), regionCode: (g.regionCode as number | null) ?? null, departmentId: (g.departmentId as string | null) ?? null, segment: (g.segment as string | null) ?? null };
       // Qo'mita ajratmasi — pul berilgan bo'limniki (Solishtirma bilan bir xil)
-      if (owners) ownQomitaIncome([place], owners);
+      if (owners) ownQomitaIncome([place], owners, cov?.poolCodes);
       // Mijoz / kontragent kesimida modda va joy yo'q — siyosat qo'llanmaydi (birlik u yerda ishlatilmaydi)
       const { unit, routed } = kind === 'expense' && !opts.party ? expenseUnit(opts.routing ?? null, place) : { unit: unitKey(place.regionCode, place.departmentId, place.segment), routed: false };
       const row: Row = {
@@ -204,28 +222,14 @@ export class ExploreService {
         count: g._count._all,
         routed,
       };
-      // Ish haqi yozuvi: daromad solig'i (JShDS) ajratiladi — «Soliqlar › Daromad solig'i», ish haqi — sof qism
-      if (kind !== 'expense' || g.source !== 'PAYROLL' || pct <= 0 || sum <= 0) return [row];
-      const tax = Math.round((sum * pct) / 100);
-      const taxOpen = Math.round((open * pct) / 100);
-      return [
-        { ...row, sum: sum - tax, open: open - taxOpen },
-        { ...row, cat: JSHDS_CAT.code, sum: tax, open: taxOpen },
-      ];
+      // Daromad solig'i (JShDS) ish haqi ICHIDA — alohida xarajat qatori bo'lib yozilmaydi (ikki marta sanalmasin);
+      // ish haqi — to'liq (hisoblangan) summa
+      return [row];
     });
   }
 
-  /** Daromad solig'i foizi — «Ish haqi solishtirma» sozlamasi (standart 12%) */
-  private async jshdsPct(): Promise<number> {
-    const row = await this.prisma.setting.findUnique({ where: { key: 'payroll.solishtirma' } }).catch(() => null);
-    const v = Number((row?.value as { taxPct?: unknown } | null)?.taxPct);
-    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 12;
-  }
-
   private async sets(kind: Kind, r: Ranges, routing: PolicyRouting | null, party = false): Promise<Sets> {
-    // Daromad solig'i foizi — uch davr uchun bir marta o'qiladi
-    const pct = kind === 'expense' ? await this.jshdsPct() : 0;
-    const [cur, prev, ly] = await Promise.all([this.load(kind, r.cur, { period: !party, party, routing, pct }), this.load(kind, r.prev, { party, routing, pct }), this.load(kind, r.ly, { party, routing, pct })]);
+    const [cur, prev, ly] = await Promise.all([this.load(kind, r.cur, { period: !party, party, routing }), this.load(kind, r.prev, { party, routing }), this.load(kind, r.ly, { party, routing })]);
     return { cur, prev, ly };
   }
 
@@ -370,7 +374,7 @@ export class ExploreService {
 
   private record(kind: Kind, r: Record<string, unknown>, lk: Lookups) {
     const place = { categoryCode: String(r.categoryCode ?? ''), regionCode: (r.regionCode as number | null) ?? null, departmentId: (r.departmentId as string | null) ?? null, segment: (r.segment as string | null) ?? null };
-    if (kind === 'income') ownQomitaIncome([place], lk.qomita);
+    if (kind === 'income') ownQomitaIncome([place], lk.qomita, lk.qomitaPool);
     const { unit, routed } = kind === 'expense' ? expenseUnit(lk.routing, place) : { unit: unitKey(place.regionCode, place.departmentId, place.segment), routed: false };
     const amount = num(r.amountTiyin);
     const status = String(r.paymentStatus ?? 'PAID');
@@ -716,7 +720,8 @@ export class ExploreService {
     // Daromad: «Qo'mita» yo'nalishidagi ajratma — egasi bo'limniki (Call markaz → Markaz › bo'limi, Marksheyder → yo'nalish)
     if (kind === 'income' && f.unit) {
       const owners = await qomitaIncomeOwners(this.prisma);
-      const codesOf = (pred: (o: QomitaOwner) => boolean) => [...owners].filter(([, o]) => pred(o)).map(([c]) => c);
+      const pool = (await this.qomitaCoverage())?.poolCodes ?? new Set<string>();
+      const codesOf = (pred: (o: QomitaOwner) => boolean) => [...owners].filter(([c, o]) => !pool.has(c) && pred(o)).map(([c]) => c);
       const owned = (codes: string[]) => (codes.length ? [{ segment: QOMITA_SEGMENT, categoryCode: { in: codes } }] : []);
       const all = codesOf(() => true);
       if (f.unit === 'center') {
@@ -738,7 +743,8 @@ export class ExploreService {
     } else and.push(...own);
     if (f.dep) {
       // Markaz bo'limi: Qo'mita shu bo'limga bergan ajratma ham (yozuvda bo'lim yo'q — modda bo'limga bog'langan)
-      const qcodes = kind === 'income' && f.dep !== 'none' ? [...(await qomitaIncomeOwners(this.prisma))].filter(([, o]) => o.departmentId === f.dep && !o.segment).map(([c]) => c) : [];
+      const pool = kind === 'income' ? ((await this.qomitaCoverage())?.poolCodes ?? new Set<string>()) : new Set<string>();
+      const qcodes = kind === 'income' && f.dep !== 'none' ? [...(await qomitaIncomeOwners(this.prisma))].filter(([c, o]) => !pool.has(c) && o.departmentId === f.dep && !o.segment).map(([c]) => c) : [];
       and.push(qcodes.length ? { OR: [{ departmentId: f.dep }, { segment: QOMITA_SEGMENT, categoryCode: { in: qcodes } }] } : { departmentId: f.dep === 'none' ? null : f.dep });
     }
     if (f.month) and.push({ period: f.month });

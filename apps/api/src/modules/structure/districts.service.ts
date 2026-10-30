@@ -21,6 +21,8 @@ import { COMPARE_LABELS, type CompareMode, type DateRange, type SectionFilter } 
 import { CENTRAL_REGION } from '../../common/segments/segments';
 import { loadLocationRefs } from '../payroll/payroll.service';
 import { REGION_VAT } from '../taxes/taxes.service';
+import { Nazorat3802Service } from '../qomita/nazorat-3802.service';
+import { QOMITA_COVER } from '../qomita/qomita.util';
 
 const TASHKENT_MS = 5 * 3600_000;
 const MAX_DAYS = 3 * 366;
@@ -164,6 +166,7 @@ export class DistrictsService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly units?: UnitPayrollService,
+    @Optional() private readonly nazorat?: Nazorat3802Service,
   ) {}
 
   // ─────────── Parametrlar ───────────
@@ -229,6 +232,13 @@ export class DistrictsService {
         select: { id: true, date: true, amountTiyin: true, categoryCode: true, source: true, districtId: true, payrollBatchId: true, period: true },
       }),
     ]);
+    // Qo'mita 3802 hovuzidan shu viloyat xodimlariga qoplangan ish haqi — viloyat (tuman) daromadi, Solishtirma bilan bir xil
+    const cov = this.nazorat ? await this.nazorat.coverage().catch(() => null) : null;
+    for (const [period, m] of cov?.covered ?? []) {
+      const date = new Date(`${period}-15T07:00:00Z`);
+      if (date < start || date >= end) continue;
+      for (const c of m.values()) if (c.regionCode === regionCode && c.amount > 0n) incomes.push({ date, amountTiyin: c.amount, quantity: 0, categoryCode: QOMITA_COVER.code, districtId: c.districtId } as (typeof incomes)[number]);
+    }
 
     // Xarajatlar siyosati: Markaz hisobidagi moddalar viloyat/tuman xarajatiga kirmaydi (Solishtirma bilan bir xil)
     // Umumiy siyosat va Hududlar bo'limi qoidalari: boshqa bo'lim hisobidagi moddalar tuman xarajatiga kirmaydi
@@ -664,16 +674,29 @@ export class DistrictsService {
         where: { deletedAt: null, regionCode, date: { gte: cur.start, lt: cur.end }, ...sectionWhere },
         _sum: { amountTiyin: true },
       }),
-      this.prisma.expense.aggregate({
+      // Moddalar bo'yicha — siyosat bo'yicha Markaz hisobidagilari tumanlarga kirmaydi (yuklashdagi qoida bilan bir xil)
+      this.prisma.expense.groupBy({
+        by: ['categoryCode'],
         where: { deletedAt: null, regionCode, date: { gte: cur.start, lt: cur.end }, ...sectionWhere },
         _sum: { amountTiyin: true },
       }),
     ]);
+    const cats = await this.prisma.category.findMany({ select: { code: true, parentCode: true } });
+    const centerCategories = await loadCenterCategories(this.prisma, cats.map((x) => ({ code: x.code, parentCode: x.parentCode })));
+    const expenseOwn = expenseDb.filter((g) => !centerCategories.has(g.categoryCode)).reduce((t, g) => t + (g._sum.amountTiyin ?? 0n), 0n);
     const rowsIncome = districts.reduce((s, d) => s + BigInt(d.incomeTiyin), 0n);
     const rowsExpense = districts.reduce((s, d) => s + BigInt(d.expenseTiyin), 0n);
+    // Bazadagi daromad + Qo'mita 3802 hovuzidan shu viloyat xodimlariga qoplangani (yozuv emas — hisob)
+    let covIncome = 0n;
+    const cov = this.nazorat ? await this.nazorat.coverage().catch(() => null) : null;
+    for (const [period, m] of cov?.covered ?? []) {
+      const date = new Date(`${period}-15T07:00:00Z`);
+      if (date < cur.start || date >= cur.end) continue;
+      for (const c of m.values()) if (c.regionCode === regionCode && c.amount > 0n) covIncome += c.amount;
+    }
     const check = {
-      incomeOk: rowsIncome === (incomeDb._sum.amountTiyin ?? 0n),
-      expenseOk: rowsExpense === (expenseDb._sum.amountTiyin ?? 0n),
+      incomeOk: rowsIncome === (incomeDb._sum.amountTiyin ?? 0n) + covIncome,
+      expenseOk: rowsExpense === expenseOwn,
     };
 
     return {

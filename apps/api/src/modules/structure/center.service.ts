@@ -1,8 +1,9 @@
 import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { loadLocationRefs } from '../payroll/payroll.service';
-import { ownQomitaIncome, QOMITA_SEGMENT, qomitaIncomeOwners } from '../qomita/qomita.util';
+import { QOMITA_SEGMENT, qomitaIncomeOwners, qomitaIncomeView } from '../qomita/qomita.util';
+import { Nazorat3802Service } from '../qomita/nazorat-3802.service';
 import { ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
 import { NO_DEPARTMENT, type CenterDetailResult, type CenterEmployeeRow, type DepartmentDetailResult, type DepartmentRow } from './center.types';
 import type { DrillBase, MoneyPart } from './districts.types';
@@ -131,7 +132,15 @@ const toParts = (map: Map<string, Part>, limit = 12): MoneyPart[] => {
  */
 @Injectable()
 export class CenterService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly nazorat?: Nazorat3802Service,
+  ) {}
+
+  /** 3802 hovuzi qoplashi (bo'lmasa — null: hovuz puli Qo'mita qatorida qoladi) */
+  private qomitaCoverage() {
+    return this.nazorat ? this.nazorat.coverage().catch(() => null) : Promise.resolve(null);
+  }
 
   private parseSection(value?: string): SectionFilter {
     if (!value || value === 'ALL') return 'ALL';
@@ -191,7 +200,14 @@ export class CenterService {
       }),
       readPolicy(this.prisma),
     ]);
-    ownQomitaIncome(incomes, qOwners);
+    // Qo'mita: shartnoma ajratmasi — egasi bo'limga; 3802 hovuzi — har bo'limga o'z xodimlariga qoplangani (hovuz puli
+    // va boshqa yo'nalishlar ulushi Markaz bo'limlariga kirmaydi)
+    qomitaIncomeView(incomes, qOwners, await this.qomitaCoverage(), start, end);
+    // Faqat Markaz yozuvlari qoladi (yo'nalish va viloyat xodimlariga qoplangani — o'z birligida)
+    for (let i = incomes.length - 1; i >= 0; i--) {
+      const r = incomes[i]!;
+      if (r.segment || (r.regionCode !== null && r.regionCode !== CENTRAL_REGION)) incomes.splice(i, 1);
+    }
     // Siyosat: Markaz hisobidagi moddalar; yo'nalishlar (Tax free …) hisobidagilari Markazga kirmaydi
     const routing = policyRouting(policy, expenseCategories);
     // 23106 › xarajatga o'tkazilgan xizmat safarlari — alohida «Xizmat safari» moddasi (ichida xodim → oylar)

@@ -364,3 +364,16 @@ export const partDetailApi = {
   detail: (q: VehicleQuery & { key: string }) =>
     api.get<ApiResponse<PartDetail>>('/structure/regions/part', { params: { unit: q.unit, key: q.key, from: q.range.from, to: q.range.to, compare: q.compare, section: q.section } }),
 };
+
+/** Qo'mita 3802 hovuzidan birlik xodimlariga qoplangan ish haqi — oyma-oy, xodimlar bilan (dep:ID, center, r:KOD, s:KOD) */
+export interface QomitaCoverageOf {
+  months: { period: string; coveredTiyin: string; employees: { fullName: string; position: string | null; coveredTiyin: string }[] }[];
+  totalTiyin: string;
+}
+
+/** Solishtirma daromadidagi «Qo'mita qoplagan ish haqi» moddasi (bo'limga) va Qo'mita qatoridagi ayirma */
+export const QOMITA_COVER_KEYS = { cover: 'QOMITA_QOPLASH', out: 'QOMITA_QOPLANDI' } as const;
+
+export const qomitaCoverageApi = {
+  of: (unit: string, range: { from: string; to: string }) => api.get<ApiResponse<QomitaCoverageOf>>(`/qomita/3802/nazorat/coverage/${encodeURIComponent(unit)}`, { params: { from: range.from.slice(0, 7), to: range.to.slice(0, 7) } }),
+};

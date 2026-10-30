@@ -7,7 +7,7 @@ import { compact, pct, som, type CompareMode, type SectionFilter } from '@/featu
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { partDetailApi, partOpens, regionsApi, safarCostsApi, statsOf, vehicleCostsApi, type UnitPart, type UnitStats } from './api';
+import { partDetailApi, partOpens, QOMITA_COVER_KEYS, qomitaCoverageApi, regionsApi, safarCostsApi, statsOf, vehicleCostsApi, type UnitPart, type UnitStats } from './api';
 import { centerDrillApi, drillApi, type MoneyPart } from './drill-api';
 import { money, type Fmt } from './overall-tables';
 import { segmentApi, type DrillNode } from './segment-api';
@@ -62,8 +62,25 @@ function parts(prefix: string, list: (UnitPart | MoneyPart)[], side: 'income' | 
       ...(vehicles && side === 'expense' && p.key === 'SAFAR' ? { load: () => safarNodes(`${prefix}:${p.key}`, vehicles.unit, vehicles.c) } : {}),
       ...(vehicles && side === 'expense' && partOpens(vehicles.unit, p.key) ? { load: () => partNodes(`${prefix}:${p.key}`, vehicles.unit, p.key, vehicles.c) } : {}),
       // Ish haqi: ichida daromad solig'i 12% (xodimdan ushlanadi), qolgani — qo'lga; ijtimoiy soliq 12% — alohida «Soliqlar»da
+      // Qo'mita qoplagan ish haqi (3802 hovuzidan) — yozuv emas, hisob: ochilganda oylar → xodimlar
+      ...(side === 'income' && p.key === QOMITA_COVER_KEYS.cover
+        ? { records: undefined, sub: "Qo'mita shu bo'lim xodimlari uchun qoplagan ish haqi (3802 vedomosti)", ...(vehicles && /^(dep:|r:|s:|center$)/.test(vehicles.unit) ? { load: () => coverageNodes(`${prefix}:${p.key}`, vehicles.unit, vehicles.c) } : {}) }
+        : {}),
+      ...(side === 'income' && p.key === QOMITA_COVER_KEYS.out ? { records: undefined, sub: "Hovuz pulidan bo'limlar xodimlariga qoplab berilgani — qolgani hovuz qoldig'i" } : {}),
       ...(side === 'expense' && PAYROLL_KEYS.has(p.key) ? payrollSplit(`${prefix}:${p.key}`, n(p.amountTiyin), n(p.previousTiyin)) : {}),
     }));
+}
+
+/** Birlik (Markaz bo'limi, viloyat, yo'nalish) xodimlariga Qo'mita qoplagan ish haqi: oylar → xodimlar (3802 vedomosti) */
+async function coverageNodes(prefix: string, unit: string, c: Ctx): Promise<TNode[]> {
+  const d = (await qomitaCoverageApi.of(unit, c.range)).data;
+  return d.months.map((m) => ({
+    id: `${prefix}:${m.period}`,
+    label: formatPeriod(m.period),
+    sub: `${m.employees.length} xodim`,
+    income: n(m.coveredTiyin),
+    children: m.employees.map((e, i) => ({ id: `${prefix}:${m.period}:${i}`, label: e.fullName, sub: e.position ?? undefined, income: n(e.coveredTiyin) })),
+  }));
 }
 
 const PAYROLL_KEYS = new Set(['PAYROLL', 'PAYROLL_BASE']);
@@ -74,10 +91,10 @@ function payrollSplit(prefix: string, cur: number, prev: number): Partial<TNode>
   const tax = Math.round(cur * JSHDS_RATE);
   const prevTax = Math.round(prev * JSHDS_RATE);
   return {
-    sub: `ichida daromad solig'i 12% ${som(tax)} · ijtimoiy soliq 12% — «Soliqlar»da`,
+    sub: `ichida daromad solig'i 12% ${som(tax)} (alohida xarajat emas) · ijtimoiy soliq 12% — «Soliqlar»da`,
     children: [
-      { id: `${prefix}:net`, label: "Sof ish haqi (qo'lga, 88%)", expense: cur - tax, prevExpense: prev - prevTax },
-      { id: `${prefix}:jshds`, label: "Daromad solig'i 12% (ish haqi ichidan ushlanadi)", expense: tax, prevExpense: prevTax },
+      { id: `${prefix}:net`, label: "shundan: qo'lga (sof, 88%)", expense: cur - tax, prevExpense: prev - prevTax },
+      { id: `${prefix}:jshds`, label: "shundan: daromad solig'i 12% — ish haqi ichida, alohida xarajat emas", expense: tax, prevExpense: prevTax },
     ],
   };
 }

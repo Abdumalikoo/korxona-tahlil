@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { UnitPayrollModule } from '../unit-payroll/unit-payroll.module';
 import { BankAnalysisModule } from '../bank-analysis/bank-analysis.module';
 import { CashbookModule } from '../cashbook/cashbook.module';
 import { PayrollModule } from '../payroll/payroll.module';
@@ -18,7 +19,7 @@ import { Vedomost3802Service } from './vedomost-3802.service';
 /** Qo'mita mablag'lari: ajratmalar (daromad) va ular qoplaydigan xarajatlar; 3802 — shtat jadvali va oylik vedomost */
 @Module({
   // Kassa (Markaz daromadi): Qo'mita qatorlari Qo'mita mablag'lari bilan bitta pul — yozuv o'zgarsa qayta hisoblanadi
-  imports: [PayrollModule, BankAnalysisModule, CashbookModule],
+  imports: [PayrollModule, BankAnalysisModule, CashbookModule, UnitPayrollModule],
   controllers: [QomitaController, QomitaStatementController, Shtat3802Controller, Vedomost3802Controller, Nazorat3802Controller, Hisob3802Controller],
   providers: [QomitaService, QomitaStatementService, Shtat3802Service, Vedomost3802Service, Nazorat3802Service, Hisob3802Service],
   // Hisobotlar (Bo'limlar bo'yicha) — Qo'mita qoplashi
