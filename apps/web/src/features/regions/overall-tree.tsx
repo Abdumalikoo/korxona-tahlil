@@ -130,7 +130,7 @@ function employeeNode(prefix: string, e: { pinfl: string; fullName: string; posi
       return d.months.map((m) => ({
         id: `${prefix}:e:${e.pinfl}:${m.period}`,
         label: formatPeriod(m.period),
-        sub: [m.districtName ?? m.regionName, n(m.planTiyin) ? `reja ${compact(n(m.planTiyin))}` : '', n(m.factTiyin) ? `tushum ${compact(n(m.factTiyin))}` : ''].filter(Boolean).join(' · '),
+        sub: [m.placeLabel ?? m.districtName ?? m.regionName, n(m.planTiyin) ? `reja ${compact(n(m.planTiyin))}` : '', n(m.factTiyin) ? `tushum ${compact(n(m.factTiyin))}` : ''].filter(Boolean).join(' · '),
         expense: n(m.salaryTiyin),
         income: n(m.factTiyin) || null,
       }));

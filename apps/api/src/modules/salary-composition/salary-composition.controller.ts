@@ -212,8 +212,15 @@ export class SalaryCompositionController {
             placesError = e.message;
             return null;
           });
+    // Asosiy manba — shu oy tarkibidagi bo'lim: hamma xodimning shu oy joyi tarkibdagidek (belgilanmaganlari ham)
+    const synced = unit
+      ? null
+      : await this.places.syncApply(period, userId).catch((e: Error) => {
+          placesError = placesError ?? e.message;
+          return null;
+        });
     await this.archive.link('salary-composition', { userId, fileName: body.fileName ?? 'tarkib.xlsx', refId: data.batchId, periods: [period], unit: unit ?? null });
-    return { data: { ...data, rememberedColumns: remembered, places, placesError } };
+    return { data: { ...data, rememberedColumns: remembered, places, placesSynced: synced ? synced.fixed : 0, placesError } };
   }
 
   /** Yuklashni bekor qilish */

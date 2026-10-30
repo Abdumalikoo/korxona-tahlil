@@ -825,14 +825,14 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
   const plan = Number(t.planTiyin);
   const fact = Number(t.factTiyin);
   const done = completion(plan, fact);
-  const moved = new Set(data.months.map((m) => m.districtName ?? m.regionName)).size > 1;
+  const moved = new Set(data.months.map((m) => m.placeLabel ?? m.districtName ?? m.regionName)).size > 1;
 
   const exportCsv = () =>
     downloadCsv(
       `solishtirma-xodim-${e.fullName}-${data.range.from}_${data.range.to}`,
       noPlan ? ['Oy', 'Qayerda', "Ish haqi, so'm"] : ['Oy', 'Qayerda', "Ish haqi, so'm", "Reja, so'm", "Fakt, so'm", 'Bajarilish, %', "Bonus, so'm"],
       data.months.map((m) => {
-        const base = [formatPeriod(m.period), m.districtName ? `${m.regionName}, ${m.districtName}` : m.regionName, csvSom(m.salaryTiyin)];
+        const base = [formatPeriod(m.period), (m.placeLabel ?? (m.districtName ? `${m.regionName}, ${m.districtName}` : m.regionName)), csvSom(m.salaryTiyin)];
         return noPlan ? base : [...base, csvSom(m.planTiyin), csvSom(m.factTiyin), csvPct(completion(Number(m.planTiyin), Number(m.factTiyin))), csvSom(m.bonusTiyin)];
       }),
     );
@@ -935,7 +935,7 @@ function EmployeeBody({ data, noPlan }: { data: EmployeeDetailResult; noPlan: bo
                 <Tr key={m.period}>
                   <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
                   <NameCell>{formatPeriod(m.period)}</NameCell>
-                  <Td className="text-left text-(--color-text-muted)">{m.districtName ? `${m.regionName}, ${m.districtName}` : m.regionName}</Td>
+                  <Td className="text-left text-(--color-text-muted)">{(m.placeLabel ?? (m.districtName ? `${m.regionName}, ${m.districtName}` : m.regionName))}</Td>
                   <MoneyCell value={Number(m.salaryTiyin)} className="text-(--color-expense)" />
                   {!noPlan && (
                     <>

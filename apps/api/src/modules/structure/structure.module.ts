@@ -12,8 +12,11 @@ import { UnassignedService } from './unassigned.service';
 import { VehicleCostsService } from './vehicle-costs.service';
 import { SafarCostsService } from './safar-costs.service';
 import { PartDetailService } from './part-detail.service';
+import { UnitPayrollModule } from '../unit-payroll/unit-payroll.module';
 
 @Module({
+  // Xodimning oyma-oy joyi («miya»: ko'chishlar va ish haqi tarkibi) — hamma sahifa bilan bir xil
+  imports: [UnitPayrollModule],
   // RegionsController va DistrictsController birinchi: "structure/regions" va "structure/drill"
   // yo'llari ":kind/tree" dan oldin tekshiriladi
   controllers: [RegionsController, DistrictsController, StructureController],

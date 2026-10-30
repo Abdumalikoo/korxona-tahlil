@@ -1,5 +1,7 @@
 import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { UnitPayrollService } from '../unit-payroll/unit-payroll.service';
+import { entryUnitLabel, isSegment } from '../../common/segments/segments';
 import { PrismaService } from '../prisma/prisma.service';
 import { loadCenterCategories } from '../expense-policy/policy.util';
 import {
@@ -158,7 +160,10 @@ interface Collected {
  */
 @Injectable()
 export class DistrictsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly units?: UnitPayrollService,
+  ) {}
 
   // ─────────── Parametrlar ───────────
 
@@ -922,7 +927,34 @@ export class DistrictsService {
       v.fact += r.factTiyin;
       v.bonus += r.bonusTiyin;
     }
+    // Yo'nalish sahifalarida (Tax free …) yuklangan ish haqi ham — xodim o'sha oy yo'nalishda ishlagan
+    if (this.units) {
+      for (const p of periods) {
+        for (const u of await this.units.allBatches(p)) {
+          if (u.batch.status !== 'COMMITTED') continue;
+          for (const r of u.batch.rows ?? []) if (r.pinfl === pinfl) get(p).salary += BigInt(r.amountTiyin);
+        }
+      }
+    }
     const locationBy = new Map(locations.map((l) => [l.period, l]));
+    // Har oy joyi — hamma sahifa bilan bir xil qoida: yo'nalish «miya»dan (ko'chishlar, ish haqi tarkibi bo'yicha),
+    // Markaz bo'limi va hudud/tuman — loadLocationRefs (tarkibdagi bo'lim, natijalar fayli), bo'lmasa Xodimlar bazasi
+    const placeBy = new Map<string, { unit: string | null; label: string }>();
+    const reg = await this.prisma.employee.findUnique({ where: { pinfl }, select: { department: { select: { name: true } } } });
+    for (const p of byPeriod.keys()) {
+      const unit = this.units ? ((await this.units.unitsAt([pinfl], p)).get(pinfl) ?? null) : null;
+      const ref = (await loadLocationRefs(this.prisma, p, [pinfl])).get(pinfl);
+      let label: string;
+      if (unit && isSegment(unit)) label = entryUnitLabel(unit);
+      else if (unit === 'CENTER' || (!unit && ref?.regionCode === CENTRAL_REGION)) label = `Markaz › ${ref?.department?.name ?? reg?.department?.name ?? "bo'limsiz"}`;
+      else {
+        const loc = locationBy.get(p);
+        const rn = ref?.region.name ?? loc?.region.name ?? person.region.name;
+        const dn = ref?.district?.name ?? loc?.district?.name ?? null;
+        label = dn ? `${rn} › ${dn}` : rn;
+      }
+      placeBy.set(p, { unit, label });
+    }
 
     const months = [...byPeriod.keys()]
       .sort()
@@ -931,6 +963,9 @@ export class DistrictsService {
         const loc = locationBy.get(period);
         return {
           period,
+          /** Shu oy qayerda ishlagan: «Markaz › bo'lim», «Tax free», «Viloyat › tuman» */
+          placeLabel: placeBy.get(period)?.label ?? null,
+          unit: placeBy.get(period)?.unit ?? null,
           regionName: loc?.region.name ?? person.region.name,
           districtId: loc ? (loc.district?.id ?? null) : null,
           districtName: loc ? (loc.district?.name ?? null) : (person.district?.name ?? null),

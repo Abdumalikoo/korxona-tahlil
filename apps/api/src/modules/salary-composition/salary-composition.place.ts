@@ -351,6 +351,8 @@ export class CompositionPlaceService {
       let fixed = 0;
       let moved = 0;
       const touched: PlaceFix[] = [];
+      // Avvalgi tuzatish olib tashlanib, yangisi kerak bo'lmagan (asl joyi to'g'ri) — xarajatlar baribir qayta guruhlanadi
+      const dropped: PlaceFix[] = [];
       for (const pinfl of want) {
         const depId = map.get(deptKey(depts[pinfl]!));
         if (!depId || depId === SKIP) continue;
@@ -360,6 +362,7 @@ export class CompositionPlaceService {
         if (prev) {
           await this.undoMoves(prev, userId);
           delete month.fixes[pinfl];
+          dropped.push(prev);
         }
         const before = (await this.miya([pinfl], period, month)).get(pinfl)!;
         const sameUnit = before.unit === target.unit;
@@ -372,9 +375,9 @@ export class CompositionPlaceService {
           const all = await this.units.allMoves();
           const at = membership(all);
           const nextBefore = at(pinfl, next) ?? before.unit;
-          const m = await this.units.addMove({ pinfl, unit: target.unit, from: period, fullName: before.fullName ?? undefined, note: `Ish haqi tarkibi bo'yicha (${monthLabel(period)}, faqat shu oy)` }, userId, 'UPLOAD');
-          moveIds.push(m.id);
-          if (m.displaced) displacedMoves.push(m.displaced);
+          const m = await this.placeMonth(pinfl, target.unit, period, before.fullName, `Ish haqi tarkibi bo'yicha (${monthLabel(period)}, faqat shu oy)`, userId);
+          moveIds.push(...m.moveIds);
+          displacedMoves.push(...m.displaced);
           const hasNext = all.some((x) => x.pinfl === pinfl && x.from === next);
           if (!hasNext && nextBefore && nextBefore !== target.unit) {
             const back = await this.units.addMove({ pinfl, unit: nextBefore, from: next, fullName: before.fullName ?? undefined, note: `${monthLabel(period)}dan keyin avvalgi joyiga (ish haqi tarkibi bo'yicha)` }, userId, 'UPLOAD').catch(() => null);
@@ -402,7 +405,7 @@ export class CompositionPlaceService {
         fixed += 1;
       }
       await this.saveMonth(period, month);
-      return { fixed, moved, touched };
+      return { fixed, moved, touched, dropped: dropped.filter((d) => !touched.some((t) => t.pinfl === d.pinfl)) };
     });
 
     // Bo'limlar ish haqi qo'lda yuklangan bo'lsa — o'sha sahifadan o'tkaziladi (avtomatik tegilmaydi)
@@ -413,7 +416,7 @@ export class CompositionPlaceService {
         if (up && up.unit !== f.unit) warnings.push(`${f.fullName}: shu oy ish haqi «${entryUnitLabel(up.unit)}» sahifasida qo'lda yuklangan — o'sha sahifadan «${entryUnitLabel(f.unit)}»ga o'tkazing`);
       }
     }
-    const redistributed = result.touched.length ? await this.refresh(period, result.touched.some((f) => f.unit !== f.fromUnit), userId) : false;
+    const redistributed = result.touched.length || result.dropped.length ? await this.refresh(period, result.touched.some((f) => f.unit !== f.fromUnit) || result.dropped.some((f) => f.unit !== f.fromUnit), userId) : false;
     if (result.touched.length) {
       await this.audit.log({
         userId,
@@ -424,6 +427,24 @@ export class CompositionPlaceService {
       });
     }
     return { departments: new Set(Object.values(depts).map(deptKey)).size, fixed: result.fixed, moved: result.moved, redistributed, warnings };
+  }
+
+  /**
+   * «Miya»da xodim shu oy target bo'limida bo'lsin: kerak bo'lsa ko'chish yoziladi. O'tgan oydan shu joy davom etsa
+   * (masalan, avvalgi «faqat shu oy» tuzatishning «keyingi oydan qaytish» ko'chishi turgan bo'lsa) — yangi ko'chish
+   * yozilmaydi, shu oydagi ortiqcha ko'chish olib tashlanadi (bekor qilinsa — tiklanadi).
+   */
+  private async placeMonth(pinfl: string, target: string, period: string, fullName: string | null, note: string, userId: string): Promise<{ moveIds: string[]; displaced: UnitMove[] }> {
+    const all = await this.units.allMoves();
+    const existing = all.find((m) => m.pinfl === pinfl && m.from === period) ?? null;
+    const carried = membership(all.filter((m) => !(m.pinfl === pinfl && m.from === period)))(pinfl, period);
+    if (carried === target) {
+      if (!existing) return { moveIds: [], displaced: [] };
+      await this.units.undoMoves([existing.id], [], userId, `${monthLabel(period)}: o'tgan oydagi joyi davom etadi (ish haqi tarkibi bo'yicha)`);
+      return { moveIds: [], displaced: [existing] };
+    }
+    const m = await this.units.addMove({ pinfl, unit: target, from: period, fullName: fullName ?? undefined, note }, userId, 'UPLOAD');
+    return { moveIds: [m.id], displaced: m.displaced ? [m.displaced] : [] };
   }
 
   private async undoMoves(fix: PlaceFix, userId: string) {
@@ -765,9 +786,9 @@ export class CompositionPlaceService {
           const next = nextPeriod(period);
           const all = await this.units.allMoves();
           const nextBefore = membership(all)(pinfl, next) ?? before.unit;
-          const m = await this.units.addMove({ pinfl, unit: target, from: period, fullName: before.fullName ?? undefined, note: `${place.label ?? entryUnitLabel(target)} (${monthLabel(period)}${onlyThisMonth ? ', faqat shu oy' : ''})` }, userId, 'UPLOAD');
-          moveIds.push(m.id);
-          if (m.displaced) displacedMoves.push(m.displaced);
+          const m = await this.placeMonth(pinfl, target, period, before.fullName, `${place.label ?? entryUnitLabel(target)} (${monthLabel(period)}${onlyThisMonth ? ', faqat shu oy' : ''})`, userId);
+          moveIds.push(...m.moveIds);
+          displacedMoves.push(...m.displaced);
           if (onlyThisMonth && !all.some((x) => x.pinfl === pinfl && x.from === next) && nextBefore && nextBefore !== target) {
             const back = await this.units.addMove({ pinfl, unit: nextBefore, from: next, fullName: before.fullName ?? undefined, note: `${monthLabel(period)}dan keyin avvalgi joyiga` }, userId, 'UPLOAD').catch(() => null);
             if (back) moveIds.push(back.id);

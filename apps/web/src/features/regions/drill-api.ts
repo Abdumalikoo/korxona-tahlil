@@ -100,6 +100,8 @@ export interface DistrictDetailResult extends DrillBase {
 
 export interface EmployeeMonth {
   period: string;
+  /** Shu oy qayerda ishlagan: «Markaz › bo'lim», «Tax free», «Viloyat › tuman» (hamma sahifa bilan bir xil qoida) */
+  placeLabel?: string | null;
   regionName: string;
   districtId: string | null;
   districtName: string | null;
