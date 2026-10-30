@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { SEGMENTS, segmentKey, segmentLabel } from '../../common/segments/segments';
+import { SEGMENTS, segmentKey, segmentLabel, unitKeyOf } from '../../common/segments/segments';
 import { loadPolicyRouting, type PolicyRouting } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { ranges, type Ranges, type Span } from './explore.range';
@@ -122,11 +122,9 @@ export function unitMatches(filter: string, key: string): boolean {
   return filter === 'regions' ? key.startsWith('r:') : filter === 'segments' ? key.startsWith('s:') : key === filter;
 }
 
+/** Yozilgan joyi bo'yicha birlik (Solishtirma bilan bir xil qoida — common/segments) */
 export function unitKey(regionCode: number | null, departmentId: string | null, segment?: string | null): string {
-  if (segment && SEGMENT_KEYS.includes(segmentKey(segment))) return segmentKey(segment);
-  if (regionCode !== null && regionCode !== undefined) return regionCode === 0 ? 'center' : `r:${regionCode}`;
-  if (departmentId) return 'center';
-  return 'none';
+  return unitKeyOf(regionCode, departmentId, segment);
 }
 
 /** Yo'nalishlar (Tax free …) birlik kalitlari — tartib bo'yicha */
@@ -167,11 +165,11 @@ export class ExploreService {
     };
   }
 
-  private async load(kind: Kind, s: Span, opts: { period?: boolean; party?: boolean; routing?: PolicyRouting | null } = {}): Promise<Row[]> {
+  private async load(kind: Kind, s: Span, opts: { period?: boolean; party?: boolean; routing?: PolicyRouting | null; pct?: number } = {}): Promise<Row[]> {
     const partyField = kind === 'income' ? 'clientName' : 'counterparty';
     // Mijoz / kontragent kesimi alohida yuklanadi (aks holda guruhlar soni juda ko'payadi)
     const by = [...(opts.party ? [partyField, 'paymentStatus'] : ['categoryCode', 'regionCode', 'departmentId', 'segment', 'paymentStatus', ...(opts.period ? ['period'] : [])]), ...(kind === 'expense' ? ['source'] : [])];
-    const pct = kind === 'expense' ? await this.jshdsPct() : 0;
+    const pct = kind === 'expense' ? (opts.pct ?? (await this.jshdsPct())) : 0;
     const groups = await this.model(kind).groupBy({
       by,
       where: { deletedAt: null, date: { gte: s.start, lt: s.end } },
@@ -217,7 +215,9 @@ export class ExploreService {
   }
 
   private async sets(kind: Kind, r: Ranges, routing: PolicyRouting | null, party = false): Promise<Sets> {
-    const [cur, prev, ly] = await Promise.all([this.load(kind, r.cur, { period: !party, party, routing }), this.load(kind, r.prev, { party, routing }), this.load(kind, r.ly, { party, routing })]);
+    // Daromad solig'i foizi — uch davr uchun bir marta o'qiladi
+    const pct = kind === 'expense' ? await this.jshdsPct() : 0;
+    const [cur, prev, ly] = await Promise.all([this.load(kind, r.cur, { period: !party, party, routing, pct }), this.load(kind, r.prev, { party, routing, pct }), this.load(kind, r.ly, { party, routing, pct })]);
     return { cur, prev, ly };
   }
 

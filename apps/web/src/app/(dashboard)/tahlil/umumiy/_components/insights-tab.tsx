@@ -12,6 +12,7 @@ import { formatDate } from '@/lib/format';
 import { useAsOf } from '@/lib/period';
 import { useAsync } from '@/lib/use-async';
 import type { ReactNode } from 'react';
+import { cap } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════
 // Xulosa — bir sahifada eng muhim raqamlar va tizim chiqargan xulosalar.
@@ -19,7 +20,6 @@ import type { ReactNode } from 'react';
 // API'laridan qaytgan raqamlar va izohlar. O'zidan hech narsa to'qilmaydi.
 // ═══════════════════════════════════════════════════════════
 
-const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 export function InsightsTab({ range }: { range: DateRange }) {
   const asOf = useAsOf();

@@ -8,3 +8,8 @@ import { twMerge } from 'tailwind-merge';
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
+
+/** Matnning birinchi harfi — katta («o'tgan davr» → «O'tgan davr») */
+export function cap(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}

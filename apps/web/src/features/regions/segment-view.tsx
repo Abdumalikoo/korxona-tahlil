@@ -30,7 +30,7 @@ import { type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { unitByCode, type EntryUnit } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
-import { cn } from '@/lib/utils';
+import { cn, cap } from '@/lib/utils';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { segmentApi, type DrillNode, type SegFlow, type SegmentView } from './segment-api';
@@ -45,7 +45,6 @@ import { SegmentSides } from './segment-sides';
 // ═══════════════════════════════════════════════════════════
 
 const n = (s: string) => Number(s);
-const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 type View = 'both' | 'income' | 'expense' | 'months' | 'flows' | 'qomita';
 

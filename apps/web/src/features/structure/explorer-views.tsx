@@ -21,7 +21,7 @@ import {
 } from '@/components/report/report';
 import { EmptyNote, MiniButton, pctPlain, StatusBadge } from '@/components/report/report-extra-b';
 import { formatDate, formatPeriod, formatPeriodShort } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { cn, cap } from '@/lib/utils';
 import { useState } from 'react';
 import type { MarkItem } from '@/features/reactions/api';
 import { Mark } from '@/features/reactions/mark';
@@ -39,7 +39,6 @@ const MODULE_TEXT: Record<string, string> = {
   REGIONAL: 'hududiy Excel shablon',
 };
 
-const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 export function changeText(change: number | null, _amount?: string | number): string {
   if (change === null) return '';

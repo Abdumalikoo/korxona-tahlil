@@ -37,7 +37,7 @@ import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatDate, formatPeriod } from '@/lib/format';
 import { calcChange, calcCompletion, calcDivide, calcResult, calcShare, calcSum, Q } from '@/lib/calc';
 import { useAsync } from '@/lib/use-async';
-import { cn } from '@/lib/utils';
+import { cn, cap } from '@/lib/utils';
 import { useState, type ReactNode } from 'react';
 import { PinflText } from './pinfl-text';
 import { drillApi, type DistrictDetailResult, type DistrictRow, type EmployeeDetailResult, type RegionDistrictsResult } from './drill-api';
@@ -48,7 +48,6 @@ import { drillApi, type DistrictDetailResult, type DistrictRow, type EmployeeDet
 // Tepada yo'lak — istalgan bo'g'inga bir bosishda qaytiladi.
 // ═══════════════════════════════════════════════════════════
 
-const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 /** Reja bajarilishi, % */
 function completion(plan: number, fact: number): number | null {

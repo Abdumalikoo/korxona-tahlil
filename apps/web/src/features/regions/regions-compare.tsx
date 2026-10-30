@@ -32,7 +32,7 @@ import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatDate } from '@/lib/format';
 import { calcChange, calcResult, calcSum, moneyText, Q, type Calc } from '@/lib/calc';
 import { useAsync } from '@/lib/use-async';
-import { cn } from '@/lib/utils';
+import { cn, cap } from '@/lib/utils';
 import { unitByCode } from '@/lib/segments';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { createContext, Fragment, useContext, useMemo, useState } from 'react';
@@ -65,7 +65,6 @@ function partsCalc(title: string, parts: { label: string; amountTiyin: string }[
   return calcSum(title, parts.map((p) => Q.money(p.label, p.amountTiyin, source)));
 }
 
-const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 function sortValue(s: UnitStats, key: SortKey): number {
   switch (key) {

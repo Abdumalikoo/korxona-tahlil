@@ -3,7 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { AuditService } from '../audit/audit.service';
 import { median } from '../econ/econ.math';
 import { PrismaService } from '../prisma/prisma.service';
-import { regionalEmployees } from '../regional-data/rd.employees';
+import { regionalEmployees, regionalEmployeesMany } from '../regional-data/rd.employees';
 import { CENTRAL_REGION, currentPeriod, monthName, periodDays, shiftPeriod } from '../regional-data/rd.util';
 import { loadLookups, loadMonths, PAYROLL_CATEGORY, unitOf } from './econ.loader';
 import {
@@ -113,8 +113,9 @@ export class ForecastService {
   private async payrollByRegion(periods: string[]) {
     const entries = await this.payrollEntries(periods);
     const out = new Map<string, Map<number, number>>();
+    const staffByPeriod = await regionalEmployeesMany(this.prisma, periods);
     for (const p of periods) {
-      const staff = await regionalEmployees(this.prisma, p);
+      const staff = staffByPeriod.get(p) ?? [];
       const region = new Map(staff.map((e) => [e.pinfl, e.regionCode]));
       const m = new Map<number, number>();
       for (const [pin, v] of entries.get(p) ?? []) {
@@ -573,7 +574,8 @@ export class ForecastService {
       return v;
     };
     const staffBy = new Map<string, Awaited<ReturnType<typeof regionalEmployees>>>();
-    for (const p of [last, ...future]) staffBy.set(p, (await regionalEmployees(this.prisma, p)).filter((e) => e.regionCode === code));
+    const staffMany = await regionalEmployeesMany(this.prisma, [last, ...future]);
+    for (const p of [last, ...future]) staffBy.set(p, (staffMany.get(p) ?? []).filter((e) => e.regionCode === code));
     const pins = new Set<string>();
     for (const s of staffBy.values()) for (const e of s) pins.add(e.pinfl);
     // Hudud nisbati va medianasi

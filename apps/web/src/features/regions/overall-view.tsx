@@ -28,7 +28,7 @@ import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { calcChange, calcResult, calcSum, moneyText, Q } from '@/lib/calc';
 import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
-import { cn } from '@/lib/utils';
+import { cn, cap } from '@/lib/utils';
 import { unitByCode } from '@/lib/segments';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -91,7 +91,6 @@ function mixOf(unit: RegionUnit): Mix {
   return mix;
 }
 
-const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 function add(rows: UnitStats[], pick: (s: UnitStats) => number): number {
   return rows.reduce((a, s) => a + pick(s), 0);

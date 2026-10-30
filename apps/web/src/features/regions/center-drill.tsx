@@ -30,7 +30,7 @@ import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { calcChange, calcDivide, calcResult, calcShare, calcSum, Q } from '@/lib/calc';
 import { formatDate, formatPeriod } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
-import { cn } from '@/lib/utils';
+import { cn, cap } from '@/lib/utils';
 import Link from 'next/link';
 import { useState } from 'react';
 import { centerDrillApi, type CenterDetailResult, type DepartmentDetailResult, type DepartmentRow } from './drill-api';
@@ -44,7 +44,6 @@ import { centerPartMark, departmentMark, departmentPartMark, employeeMark } from
 // Yagona hisobot uslubi: kartalar, yorliqlar va jadvallar (grafiklarsiz).
 // ═══════════════════════════════════════════════════════════
 
-const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 function periodText(range: DateRange): string {
   return `${formatDate(range.from)} — ${formatDate(range.to)}`;

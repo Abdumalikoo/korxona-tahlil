@@ -1,6 +1,6 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { loadCenterCategories, loadPolicyRouting } from '../expense-policy/policy.util';
-import { regionalEmployees } from '../regional-data/rd.employees';
+import { regionalEmployeesMany } from '../regional-data/rd.employees';
 import { CENTRAL_REGION, periodDays } from '../regional-data/rd.util';
 import { REGION_GENERAL } from '../../common/segments/segments';
 
@@ -106,6 +106,8 @@ export async function loadMonths(prisma: PrismaService, periods: string[], looku
   }
 
   const out: MonthData[] = [];
+  // Hudud xodimlari — hamma oylar uchun bir marta (oyma-oy butun jadvalni qayta o'qimaslik)
+  const staffByPeriod = await regionalEmployeesMany(prisma, periods);
   for (const period of periods) {
     const m: MonthData = { period, regions: new Map(), units: new Map(), manual: new Map() };
     for (const r of lookups.regions) m.regions.set(r.code, emptyRegion());
@@ -157,7 +159,7 @@ export async function loadMonths(prisma: PrismaService, periods: string[], looku
     }
 
     // Xodimlar: oy ichida ishlagan hudud xodimlari; FTE — oy oxiridagi stavka (shtat jadvalidan)
-    const staff = await regionalEmployees(prisma, period);
+    const staff = staffByPeriod.get(period) ?? [];
     const monthEnd = periodDays(period).last;
     const pinRegion = new Map<string, number>();
     for (const e of staff) {

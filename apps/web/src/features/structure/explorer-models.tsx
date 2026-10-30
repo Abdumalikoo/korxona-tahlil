@@ -3,7 +3,7 @@
 import { DiffCell, MoneyCell, NameCell, PctCell, ReportCard, RTable, Td, Th, Tr, changeOf } from '@/components/report/report';
 import { EmptyNote, MiniButton, NotesList, pctPlain, StatusBadge } from '@/components/report/report-extra-b';
 import { formatPeriod } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { cn, cap } from '@/lib/utils';
 import { KIND_TEXT, type StructureKind, type StructureNode, type StructureTree } from './api';
 import { forecastYear, toNums } from './stats';
 
@@ -12,7 +12,6 @@ import { forecastYear, toNums } from './stats';
 //  o'zgarish omillari, yangi va yo'qolgan moddalar, ABC (Pareto), g'ayrioddiy oylar, yil prognozi.
 // ═══════════════════════════════════════════════════════════
 
-const cap = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 export function Models({ kind, tree, onOpen }: { kind: StructureKind; tree: StructureTree; onOpen: (node: StructureNode) => void }) {
   const insights = tree.insights;
