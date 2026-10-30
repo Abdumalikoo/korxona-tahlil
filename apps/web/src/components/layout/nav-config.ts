@@ -126,6 +126,7 @@ export const MENU: NavItem[] = [
       { label: 'Schyot-fakturalar', href: '/xarajatlar/fakturalar', description: "Kiruvchi schyot-fakturalar (Didox reyestri) nazorati: kontragent va xizmat (IKPU) bo'yicha oyma-oy, faqat Подписан va Ожидает, QQS bilan" },
       { label: 'Kontragentlar', href: '/xarajatlar/kontragentlar', description: "Yetkazib beruvchilar: nima beradi, fakturada hisoblangan va bankdan to'langan, farq (qarz), shartnomalar" },
       { label: 'Bank ko‘chirmasi', href: '/xarajatlar/bank-kochirma', description: "Bankdan olingan ko'chirma tahlili: chiqim va kirim, o'xshash to'lovlar oyma-oy va o'sib boruvchi, turlari (xarajat va daromadga yozilmaydi)" },
+      { label: 'Test ish haqi', href: '/xarajatlar/test-ish-haqi', description: "Sinov: hudud xodimlari bayram pullari (23106 dan) — ko'rib chiqish, tasdiqlangach hudud ish haqidan Markaz hisobiga", group: 'Ish haqi xarajatlari' },
       { label: 'Ish haqi solishtirma', href: '/xarajatlar/ish-haqi-solishtirma', description: "FOT − soliq (− kasaba uyushmasi) = 23106: bankdan to'langani hisoblanganiga mosmi — shtat va shartnoma, Markaz va hududlar kesimida", group: 'Ish haqi xarajatlari' },
       { label: 'Ijara', href: '/xarajatlar/ijara', description: "Ijara shartnomalari va to'lovlar" },
       { label: 'Hudud ijaralari', href: '/xarajatlar/hudud-ijaralari', description: "Hududlar va tumanlar bo'yicha oylik ijara: shablon, yuklash, tekshiruv va tasdiqlash" },

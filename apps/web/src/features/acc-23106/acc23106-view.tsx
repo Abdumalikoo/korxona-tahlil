@@ -17,7 +17,6 @@ import { formatDate, formatDateTime, formatPeriod, formatTiyin } from '@/lib/for
 import { useAsync } from '@/lib/use-async';
 import { cn } from '@/lib/utils';
 import { useMemo, useRef, useState } from 'react';
-import { BayramPanel } from './bayram-panel';
 import { SafarPanel } from './safar-panel';
 import { KindAnalysis, type KindMover } from './kind-analysis';
 import { RulesCard } from './rules-card';
@@ -340,9 +339,6 @@ export function Acc23106View() {
       ) : (
         <EmptyState title={`${range.text || 'Tanlangan davr'} uchun ko'chirma saqlanmagan`} hint="upload" />
       )}
-
-      {/* Hudud xodimlari bayram pullari — ko'rib chiqish, tasdiqlangach Markaz hisobiga */}
-      <BayramPanel from={range.from} to={range.to} rangeText={range.text} disabled={Boolean(range.error)} isAdmin={isAdmin} reloadKey={safarKey} onToast={setToast} />
 
       {/* Xizmat safari — bo'limlarga yo'naltirish */}
       <SafarPanel from={range.from} to={range.to} rangeText={range.text} disabled={Boolean(range.error)} isAdmin={isAdmin} reloadKey={safarKey} onToast={setToast} />
