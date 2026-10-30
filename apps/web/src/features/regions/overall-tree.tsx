@@ -61,7 +61,25 @@ function parts(prefix: string, list: (UnitPart | MoneyPart)[], side: 'income' | 
       ...(vehicles && side === 'expense' && p.key === 'VEHICLE' ? { load: () => vehicleNodes(`${prefix}:${p.key}`, vehicles.unit, vehicles.c) } : {}),
       ...(vehicles && side === 'expense' && p.key === 'SAFAR' ? { load: () => safarNodes(`${prefix}:${p.key}`, vehicles.unit, vehicles.c) } : {}),
       ...(vehicles && side === 'expense' && partOpens(vehicles.unit, p.key) ? { load: () => partNodes(`${prefix}:${p.key}`, vehicles.unit, p.key, vehicles.c) } : {}),
+      // Ish haqi: ichida daromad solig'i 12% (xodimdan ushlanadi), qolgani — qo'lga; ijtimoiy soliq 12% — alohida «Soliqlar»da
+      ...(side === 'expense' && PAYROLL_KEYS.has(p.key) ? payrollSplit(`${prefix}:${p.key}`, n(p.amountTiyin), n(p.previousTiyin)) : {}),
     }));
+}
+
+const PAYROLL_KEYS = new Set(['PAYROLL', 'PAYROLL_BASE']);
+/** Daromad solig'i (JShDS) — ish haqi ichidan 12%; ijtimoiy soliq ham 12% (ish beruvchi xarajati), summasi teng */
+const JSHDS_RATE = 0.12;
+
+function payrollSplit(prefix: string, cur: number, prev: number): Partial<TNode> {
+  const tax = Math.round(cur * JSHDS_RATE);
+  const prevTax = Math.round(prev * JSHDS_RATE);
+  return {
+    sub: `ichida daromad solig'i 12% ${som(tax)} · ijtimoiy soliq 12% — «Soliqlar»da`,
+    children: [
+      { id: `${prefix}:net`, label: "Sof ish haqi (qo'lga, 88%)", expense: cur - tax, prevExpense: prev - prevTax },
+      { id: `${prefix}:jshds`, label: "Daromad solig'i 12% (ish haqi ichidan ushlanadi)", expense: tax, prevExpense: prevTax },
+    ],
+  };
 }
 
 /** Boshqa moddalar ichi — ichma-ich: guruh → moddalar → kontragent / joy (kalitli qator yana ochiladi) */

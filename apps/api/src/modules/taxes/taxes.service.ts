@@ -4,7 +4,7 @@ import ExcelJS from 'exceljs';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertSafeXlsx } from '../../common/files/xlsx-guard';
-import { CENTRAL_REGION as CENTRAL, REGION_GENERAL } from '../../common/segments/segments';
+import { CENTRAL_REGION as CENTRAL, REGION_GENERAL, segmentLabel } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Xarajatlar › Soliqlar — hamma soliqlar bir joyda (turlarini o'zingiz qo'shasiz).
@@ -288,8 +288,15 @@ export class TaxesService implements OnApplicationBootstrap {
   // ═══════════ Avtomatik (ish haqidan foiz) ═══════════
 
   /** Oy ish haqi fondi: birlik (hudud / Markaz bo'limi) → to'liq ish haqi */
-  private async payrollBase(period: string): Promise<Map<string, { regionCode: number; departmentId: string | null; base: bigint }>> {
-    const out = new Map<string, { regionCode: number; departmentId: string | null; base: bigint }>();
+  private async payrollBase(period: string): Promise<Map<string, { regionCode: number | null; departmentId: string | null; segment?: string | null; base: bigint }>> {
+    const out = new Map<string, { regionCode: number | null; departmentId: string | null; segment?: string | null; base: bigint }>();
+    // Yo'nalishlar (Tax free, Marksheyder …) ish haqi — umumiy vedomostdan o'tkazilgani ham: ijtimoiy soliq hamma ish haqidan
+    // 12% (foydalanuvchi qoidasi), soliq o'sha yo'nalish hisobiga
+    const segs = await this.prisma.expense.groupBy({ by: ['segment'], where: { period, deletedAt: null, source: 'IMPORT', categoryCode: 'PAYROLL_BASE', segment: { not: null } }, _sum: { amountTiyin: true } });
+    for (const g of segs) {
+      const b = g._sum.amountTiyin ?? 0n;
+      if (g.segment && b > 0n) out.set(`s:${g.segment}`, { regionCode: null, departmentId: null, segment: g.segment, base: b });
+    }
     const entries = await this.prisma.payrollEntry.findMany({
       where: { period, deletedAt: null, batch: { status: 'COMMITTED' } },
       select: { employeePinfl: true, baseTiyin: true, bonusTiyin: true, totalTiyin: true },
@@ -358,12 +365,12 @@ export class TaxesService implements OnApplicationBootstrap {
     const types = all.filter((t) => t.method === 'PAYROLL_PERCENT' && t.active && t.rate && !byIncome.includes(t));
     const base = types.length ? await this.payrollBase(period) : new Map();
     const income = byIncome.length ? await this.incomeBase(period) : new Map<string, { regionCode: number; base: bigint }>();
-    const want: { categoryCode: string; regionCode: number; departmentId: string | null; amount: bigint; base: bigint; name: string; rate: number; from: 'payroll' | 'income' }[] = [];
+    const want: { categoryCode: string; regionCode: number | null; departmentId: string | null; segment?: string | null; amount: bigint; base: bigint; name: string; rate: number; from: 'payroll' | 'income' }[] = [];
     for (const t of types) {
       const bp = BigInt(Math.round(t.rate! * 100));
       for (const u of base.values()) {
         const amount = (u.base * bp + 5000n) / 10000n;
-        if (amount > 0n) want.push({ categoryCode: taxCategory(t.code), regionCode: u.regionCode, departmentId: u.departmentId, amount, base: u.base, name: t.name, rate: t.rate!, from: 'payroll' });
+        if (amount > 0n) want.push({ categoryCode: taxCategory(t.code), regionCode: u.regionCode, departmentId: u.departmentId, segment: u.segment ?? null, amount, base: u.base, name: t.name, rate: t.rate!, from: 'payroll' });
       }
     }
     for (const t of byIncome) {
@@ -384,9 +391,9 @@ export class TaxesService implements OnApplicationBootstrap {
     }
     const have = await this.prisma.expense.findMany({
       where: { period, source: 'TAX', documentNo: AUTO_TAG, deletedAt: null },
-      select: { id: true, categoryCode: true, regionCode: true, departmentId: true, amountTiyin: true },
+      select: { id: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, amountTiyin: true },
     });
-    const sig = (l: { categoryCode: string; regionCode: number | null; departmentId: string | null; amount: bigint }[]) => l.map((x) => `${x.categoryCode}|${x.regionCode}|${x.departmentId ?? ''}|${x.amount}`).sort().join(';');
+    const sig = (l: { categoryCode: string; regionCode: number | null; departmentId: string | null; segment?: string | null; amount: bigint }[]) => l.map((x) => `${x.categoryCode}|${x.regionCode}|${x.departmentId ?? ''}|${x.segment ?? ''}|${x.amount}`).sort().join(';');
     if (sig(want) === sig(have.map((h) => ({ ...h, amount: h.amountTiyin })))) return 0;
     const userId = await this.systemUserId();
     if (want.length && !userId) return 0;
@@ -407,7 +414,8 @@ export class TaxesService implements OnApplicationBootstrap {
                 categoryCode: w.categoryCode,
                 regionCode: w.regionCode,
                 departmentId: w.departmentId,
-                description: `${w.name} ${String(w.rate).replace('.', ',')}% — ${w.regionCode === CENTRAL ? `Markaz${w.departmentId ? `: ${dn.get(w.departmentId) ?? "bo'lim"}` : ''}` : (rn.get(w.regionCode) ?? `Hudud ${w.regionCode}`)} ${w.from === 'income' ? 'daromadidan' : 'ish haqi fondidan'} (${(Number(w.base) / 100).toLocaleString('ru-RU')} so'm)`.slice(0, 500),
+                segment: w.segment ?? null,
+                description: `${w.name} ${String(w.rate).replace('.', ',')}% — ${w.segment ? segmentLabel(w.segment) : w.regionCode === CENTRAL ? `Markaz${w.departmentId ? `: ${dn.get(w.departmentId) ?? "bo'lim"}` : ''}` : (rn.get(w.regionCode ?? -1) ?? `Hudud ${w.regionCode}`)} ${w.from === 'income' ? 'daromadidan' : 'ish haqi fondidan'} (${(Number(w.base) / 100).toLocaleString('ru-RU')} so'm)`.slice(0, 500),
                 documentNo: AUTO_TAG,
                 paymentMethod: 'BANK' as const,
                 paymentStatus: 'PAID' as const,
