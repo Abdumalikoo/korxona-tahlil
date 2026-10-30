@@ -2,6 +2,7 @@ import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { loadLocationRefs } from '../payroll/payroll.service';
+import { ownQomitaIncome, QOMITA_SEGMENT, qomitaIncomeOwners } from '../qomita/qomita.util';
 import { ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
 import { NO_DEPARTMENT, type CenterDetailResult, type CenterEmployeeRow, type DepartmentDetailResult, type DepartmentRow } from './center.types';
 import type { DrillBase, MoneyPart } from './districts.types';
@@ -168,14 +169,17 @@ export class CenterService {
     const inPrevious = (d: Date) => d >= prev.start && d < prev.end;
     const sectionWhere = section !== 'ALL' ? { section } : {};
 
+    const qOwners = await qomitaIncomeOwners(this.prisma);
+    const qCodes = [...qOwners].filter(([, o]) => !o.segment).map(([code]) => code);
     const [regions, departments, expenseCategories, incomeCategories, incomes, expenses, employees, policy] = await Promise.all([
       this.prisma.region.findMany({ select: { code: true, name: true } }),
       this.prisma.department.findMany({ select: { id: true, name: true, index: true, isActive: true }, orderBy: { index: 'asc' } }),
       this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true } }),
       this.prisma.incomeCategory.findMany({ select: { code: true, label: true } }),
       this.prisma.income.findMany({
-        where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere, OR: [{ regionCode: CENTRAL_REGION, segment: null }, { regionCode: null, departmentId: { not: null }, segment: null }] },
-        select: { date: true, amountTiyin: true, categoryCode: true, departmentId: true },
+        // Qo'mita ajratmasi (Call markaz …) — pul berilgan Markaz bo'limining daromadi
+        where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere, OR: [{ regionCode: CENTRAL_REGION, segment: null }, { regionCode: null, departmentId: { not: null }, segment: null }, ...(qCodes.length ? [{ segment: QOMITA_SEGMENT, categoryCode: { in: qCodes } }] : [])] },
+        select: { date: true, amountTiyin: true, categoryCode: true, departmentId: true, segment: true, regionCode: true },
       }),
       this.prisma.expense.findMany({
         where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere },
@@ -187,6 +191,7 @@ export class CenterService {
       }),
       readPolicy(this.prisma),
     ]);
+    ownQomitaIncome(incomes, qOwners);
     // Siyosat: Markaz hisobidagi moddalar; yo'nalishlar (Tax free …) hisobidagilari Markazga kirmaydi
     const routing = policyRouting(policy, expenseCategories);
     // 23106 › xarajatga o'tkazilgan xizmat safarlari — alohida «Xizmat safari» moddasi (ichida xodim → oylar)

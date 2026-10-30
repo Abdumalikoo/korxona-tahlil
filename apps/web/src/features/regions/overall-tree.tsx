@@ -186,6 +186,28 @@ function regionTree(s: UnitStats, c: Ctx): TNode[] {
   ];
 }
 
+/**
+ * Qo'mita pul ajratgan bo'lim (Call markaz, Marksheyder): xarajatning qaysi qismi Qo'mita hisobidan, qaysi qismi korxona
+ * hisobidan. Qo'mita ajratmasi (QOMITA_…) — bo'limning o'z daromadi; xarajatdan oshgani «ortib qoldi».
+ */
+function fundingGroup(prefix: string, incomeParts: { key: string; amountTiyin: string }[], expense: number): TNode[] {
+  const q = incomeParts.filter((p) => p.key.startsWith('QOMITA_')).reduce((sum, p) => sum + n(p.amountTiyin), 0);
+  if (!q) return [];
+  const fromQ = Math.min(q, Math.max(0, expense));
+  const company = Math.max(0, expense - fromQ);
+  return [
+    group(
+      `${prefix}:fund`,
+      'Kim hisobidan',
+      [
+        { id: `${prefix}:fund:q`, label: "Qo'mita hisobidan", sub: `Qo'mita ajratmasi ${som(q)}${q > expense ? ` · ${som(q - expense)} ortib qoldi` : ''}`, expense: fromQ },
+        { id: `${prefix}:fund:k`, label: 'Korxona hisobidan', sub: company > 0 ? "Qo'mita qoplamagan qism" : "to'liq Qo'mita qopladi", expense: company },
+      ],
+      { sub: `Qo'mitadan ${som(fromQ)} · korxonadan ${som(company)}` },
+    ),
+  ];
+}
+
 function centerTree(s: UnitStats, c: Ctx): TNode[] {
   // Bitta so'rov — hamma guruhlar
   let cache: Promise<Awaited<ReturnType<typeof centerDrillApi.center>>['data']> | null = null;
@@ -205,6 +227,7 @@ function centerTree(s: UnitStats, c: Ctx): TNode[] {
           const x = (await centerDrillApi.department(d.id, c.range, c.section, c.compare)).data;
           const p = `c:dep:${d.id}`;
           return [
+            ...fundingGroup(p, x.incomeParts, n(d.expenseTiyin)),
             group(`${p}:i`, 'Daromad tarkibi', parts(`${p}:i`, x.incomeParts, 'income', { unit: `dep:${d.id}`, c })),
             group(`${p}:x`, 'Xarajat tarkibi', parts(`${p}:x`, x.expenseParts, 'expense', { unit: d.unassigned ? 'cnd' : `dep:${d.id}`, c })),
             group(`${p}:e`, `Xodimlar · ${x.employees.length}`, [
@@ -272,6 +295,7 @@ function segmentTree(s: UnitStats, c: Ctx): TNode[] {
   let cache: ReturnType<typeof segmentApi.view> | null = null;
   const data = async () => (await (cache ??= segmentApi.view(code, c.range, c.section, c.compare))).data;
   return [
+    ...fundingGroup(`s:${code}`, s.unit.incomeParts, s.unit.expenseParts.reduce((sum, p) => sum + n(p.amountTiyin), 0)),
     group(`s:${code}:x`, 'Xarajat — tuzilmalar bo‘yicha', async () => {
       const d = await data();
       return mapDrill(d.tree.expense, 'expense', d.tree.months, `s:${code}:x`, `${s.unit.name} › Xarajat`);

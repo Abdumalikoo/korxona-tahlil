@@ -1,4 +1,5 @@
 import type { PrismaService } from '../prisma/prisma.service';
+import { SEGMENTS } from '../../common/segments/segments';
 
 // ═══════════════════════════════════════════════════════════
 // Qo'mita mablag'lari — umumiy qoidalar (xizmat va ish haqi qayta guruhlash birga ishlatadi).
@@ -125,4 +126,47 @@ export async function ensureQomitaPartCategories(prisma: PrismaService, componen
     if (!have.has(code)) await prisma.category.create({ data: { code, label: `Qo'mita hisobidan: ${c.name}`.slice(0, 200), parentCode: QOMITA_PART_PARENT.code, isLeaf: true, isActive: true, order } }).catch(() => null);
     order += 1;
   }
+}
+
+// ═══════════ Qo'mita ajratmasi — egasi bo'limga (Solishtirma, Bosh sahifa) ═══════════
+
+/** Qo'mita ajratmasi egasi: Markaz bo'limi (Call markaz …) yoki bo'lim nomi bilan bir xil yo'nalish (Marksheyder) */
+export interface QomitaOwner {
+  departmentId: string;
+  departmentName: string;
+  /** Bo'lim nomi yo'nalish bilan bir xil bo'lsa — yo'nalish kodi (MARKSHEYDER); aks holda null (Markaz bo'limi) */
+  segment: string | null;
+}
+
+const ownerKey = (s: string) => s.toLowerCase().replace(/[^a-zа-яё0-9]/gi, '');
+
+/**
+ * Qo'mita ajratmasi moddasi (QOMITA_<bo'lim indeksi>) → egasi. Saqlashda ajratma «Qo'mita» yo'nalishida turadi (3802
+ * hisobi, nazorat shu bo'yicha); Solishtirma va Bosh sahifada esa pul berilgan bo'limning o'z daromadi bo'lib ko'rinadi —
+ * shunda bo'lim natijasi Qo'mita qoplagan qismi bilan chiqadi.
+ */
+export async function qomitaIncomeOwners(prisma: { department: { findMany: (a: { select: { id: true; name: true; index: true } }) => Promise<{ id: string; name: string; index: number }[]> } }): Promise<Map<string, QomitaOwner>> {
+  const out = new Map<string, QomitaOwner>();
+  for (const d of await prisma.department.findMany({ select: { id: true, name: true, index: true } })) {
+    const seg = SEGMENTS.find((x) => x.code !== QOMITA_SEGMENT && ownerKey(x.label) === ownerKey(d.name));
+    out.set(`${QOMITA_INCOME_PREFIX}${d.index}`, { departmentId: d.id, departmentName: d.name, segment: seg ? seg.code : null });
+  }
+  return out;
+}
+
+/** Daromad yozuvlari: «Qo'mita» yo'nalishidagi ajratma — egasi bo'limga (Markaz bo'limi yoki yo'nalish); joyida o'zgartiradi */
+export function ownQomitaIncome<T extends { categoryCode: string; segment?: string | null; regionCode?: number | null; departmentId?: string | null }>(rows: T[], owners: Map<string, QomitaOwner>): T[] {
+  for (const r of rows) {
+    if (r.segment !== QOMITA_SEGMENT) continue;
+    const o = owners.get(r.categoryCode);
+    if (!o) continue;
+    if (o.segment) {
+      r.segment = o.segment;
+    } else {
+      r.segment = null;
+      r.regionCode = 0;
+      r.departmentId = o.departmentId;
+    }
+  }
+  return rows;
 }

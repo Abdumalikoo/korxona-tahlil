@@ -2,6 +2,7 @@ import { safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { SEGMENTS, entryUnitLabel, entryUnitOf, segmentKey, segmentLabel } from '../../common/segments/segments';
 import { policyRouting, readPolicy, unitOfKey } from '../expense-policy/policy.util';
+import { ownQomitaIncome, qomitaIncomeOwners } from '../qomita/qomita.util';
 import { LEASE_CONFIG } from '../unit-lease/unit-lease.branches';
 import { PrismaService } from '../prisma/prisma.service';
 import { bounds, compareRange, parseDay, periodsEndingIn, trendMonths } from './structure.engine';
@@ -222,6 +223,8 @@ export class SegmentsService {
       this.prisma.expense.findMany({ where: { deletedAt: null, date: { gte: start, lt: end }, ...sectionWhere }, select: { id: true, date: true, amountTiyin: true, categoryCode: true, regionCode: true, departmentId: true, segment: true, source: true, counterparty: true, description: true } }),
       readPolicy(this.prisma),
     ]);
+    // Qo'mita ajratmasi — pul berilgan bo'limning daromadi (Marksheyder ajratmasi — Marksheyder yo'nalishida)
+    ownQomitaIncome(incomes, await qomitaIncomeOwners(this.prisma));
     const routing = policyRouting(policy, cats);
     // Mashina xarajatlari: xarajat → mashina (raqami, rusumi) va biriktirish izohi
     const vehicleIds = expenses.filter((e) => e.source === 'VEHICLE').map((e) => e.id);

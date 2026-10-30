@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SEGMENTS, segmentKey, segmentLabel, segmentOfKey, unitKeyOf } from '../../common/segments/segments';
 import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
+import { ownQomitaIncome, qomitaIncomeOwners } from '../qomita/qomita.util';
 import { ASSET_CHARGE_CATEGORY, ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
 import { bounds, compareRange, parseDay, trendMonths } from './structure.engine';
 import type { RegionUnit, RegionsResult, UnitKind, UnitPart } from './regions.types';
@@ -200,6 +201,8 @@ export class RegionsService {
       this.prisma.employee.findMany({ select: { regionCode: true, hiredAt: true, firedAt: true, isActive: true } }),
       readPolicy(this.prisma),
     ]);
+    // Qo'mita ajratmasi — pul berilgan bo'limning o'z daromadi (Call markaz → Markaz, Marksheyder → yo'nalish)
+    ownQomitaIncome(incomes, await qomitaIncomeOwners(this.prisma));
     // Xarajatlar siyosati: shu moddalar qayerda yozilgan bo'lsa ham — Markaz xarajati (hududlar uchun)
     // Xarajatlar siyosati: moddalar qayerda yozilgan bo'lsa ham — Markaz yoki yo'nalish (Tax free …) hisobidan
     const routing = policyRouting(policy, expenseCategories);

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { SEGMENTS, segmentKey, segmentLabel, unitKeyOf } from '../../common/segments/segments';
+import { ownQomitaIncome, QOMITA_SEGMENT, qomitaIncomeOwners, type QomitaOwner } from '../qomita/qomita.util';
 import { loadPolicyRouting, type PolicyRouting } from '../expense-policy/policy.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { ranges, type Ranges, type Span } from './explore.range';
@@ -99,6 +100,8 @@ interface Lookups {
   expenseCats: Map<string, { label: string; parent: string | null; order: number }>;
   /** Xarajatlar siyosati (o'qib bo'lmasa — null: yozilgan joyi bo'yicha) */
   routing: PolicyRouting | null;
+  /** Qo'mita ajratmasi egasi (Solishtirma bilan bir xil — pul berilgan bo'lim) */
+  qomita: Map<string, QomitaOwner>;
 }
 
 type GroupModel = {
@@ -156,7 +159,9 @@ export class ExploreService {
     if (!exp.has(JSHDS_CAT.parent)) exp.set(JSHDS_CAT.parent, { label: JSHDS_CAT.parentLabel, parent: null, order: 900 });
     exp.set(JSHDS_CAT.code, { label: JSHDS_CAT.label, parent: JSHDS_CAT.parent, order: 5 });
     const routing = await loadPolicyRouting(this.prisma, expenseCats.map((c) => ({ code: c.code, parentCode: c.parentCode }))).catch(() => null);
+    const qomita = await qomitaIncomeOwners(this.prisma);
     return {
+      qomita,
       regions: new Map(regions.map((r) => [r.code, r.code === 0 ? 'Markaz' : r.name])),
       departments: new Map(departments.map((d) => [d.id, d.name])),
       incomeCats: new Map(incomeCats.map((c) => [c.code, { label: c.label, order: c.order ?? 0 }])),
@@ -170,6 +175,7 @@ export class ExploreService {
     // Mijoz / kontragent kesimi alohida yuklanadi (aks holda guruhlar soni juda ko'payadi)
     const by = [...(opts.party ? [partyField, 'paymentStatus'] : ['categoryCode', 'regionCode', 'departmentId', 'segment', 'paymentStatus', ...(opts.period ? ['period'] : [])]), ...(kind === 'expense' ? ['source'] : [])];
     const pct = kind === 'expense' ? (opts.pct ?? (await this.jshdsPct())) : 0;
+    const owners = kind === 'income' ? await qomitaIncomeOwners(this.prisma) : null;
     const groups = await this.model(kind).groupBy({
       by,
       where: { deletedAt: null, date: { gte: s.start, lt: s.end } },
@@ -182,12 +188,14 @@ export class ExploreService {
       // Daromadda to'langan qism alohida yoziladi; xarajatda — holat bo'yicha (qisman to'langani ham ochiq hisoblanadi)
       const open = status === 'PAID' ? 0 : kind === 'income' ? Math.max(0, sum - num(g._sum.paidTiyin)) : sum;
       const place = { categoryCode: String(g.categoryCode ?? ''), regionCode: (g.regionCode as number | null) ?? null, departmentId: (g.departmentId as string | null) ?? null, segment: (g.segment as string | null) ?? null };
+      // Qo'mita ajratmasi — pul berilgan bo'limniki (Solishtirma bilan bir xil)
+      if (owners) ownQomitaIncome([place], owners);
       // Mijoz / kontragent kesimida modda va joy yo'q — siyosat qo'llanmaydi (birlik u yerda ishlatilmaydi)
       const { unit, routed } = kind === 'expense' && !opts.party ? expenseUnit(opts.routing ?? null, place) : { unit: unitKey(place.regionCode, place.departmentId, place.segment), routed: false };
       const row: Row = {
         cat: place.categoryCode,
         unit,
-        dep: (g.departmentId as string | null) ?? 'none',
+        dep: place.departmentId ?? 'none',
         period: String(g.period ?? ''),
         party: String(g[partyField] ?? NO_PARTY),
         status,
@@ -362,6 +370,7 @@ export class ExploreService {
 
   private record(kind: Kind, r: Record<string, unknown>, lk: Lookups) {
     const place = { categoryCode: String(r.categoryCode ?? ''), regionCode: (r.regionCode as number | null) ?? null, departmentId: (r.departmentId as string | null) ?? null, segment: (r.segment as string | null) ?? null };
+    if (kind === 'income') ownQomitaIncome([place], lk.qomita);
     const { unit, routed } = kind === 'expense' ? expenseUnit(lk.routing, place) : { unit: unitKey(place.regionCode, place.departmentId, place.segment), routed: false };
     const amount = num(r.amountTiyin);
     const status = String(r.paymentStatus ?? 'PAID');
@@ -704,11 +713,34 @@ export class ExploreService {
     else if (f.unit?.startsWith('r:')) own.push(noSegment, { regionCode: Number(f.unit.slice(2)) });
     // Xarajatlar siyosati: shu birlikdan boshqa birlikka o'tganlar chiqariladi, boshqa birlikdan shu birlikka o'tganlar qo'shiladi
     // (modda × joy guruhlari bo'yicha — jadvaldagi summa bilan aynan bir xil)
+    // Daromad: «Qo'mita» yo'nalishidagi ajratma — egasi bo'limniki (Call markaz → Markaz › bo'limi, Marksheyder → yo'nalish)
+    if (kind === 'income' && f.unit) {
+      const owners = await qomitaIncomeOwners(this.prisma);
+      const codesOf = (pred: (o: QomitaOwner) => boolean) => [...owners].filter(([, o]) => pred(o)).map(([c]) => c);
+      const owned = (codes: string[]) => (codes.length ? [{ segment: QOMITA_SEGMENT, categoryCode: { in: codes } }] : []);
+      const all = codesOf(() => true);
+      if (f.unit === 'center') {
+        const extra = owned(codesOf((o) => !o.segment));
+        if (extra.length) own.splice(0, own.length, { OR: [{ AND: [...own] }, ...extra] });
+      } else if (f.unit.startsWith('s:')) {
+        const seg = f.unit.slice(2);
+        const extra = owned(codesOf((o) => o.segment === seg));
+        if (seg === QOMITA_SEGMENT && all.length) own.push({ NOT: { categoryCode: { in: all } } });
+        else if (extra.length) own.splice(0, own.length, { OR: [{ AND: [...own] }, ...extra] });
+      } else if (f.unit === 'segments') {
+        const centerCodes = codesOf((o) => !o.segment);
+        if (centerCodes.length) own.push({ NOT: { segment: QOMITA_SEGMENT, categoryCode: { in: centerCodes } } });
+      }
+    }
     const moved = f.unit && lk?.routing ? await this.movedPlaces(and, f.unit, lk.routing) : { out: [], in: [] };
     if (moved.out.length || moved.in.length) {
       and.push({ OR: [{ AND: [...own, ...(moved.out.length ? [{ NOT: { OR: moved.out } }] : [])] }, ...(moved.in.length ? [{ OR: moved.in }] : [])] });
     } else and.push(...own);
-    if (f.dep) and.push({ departmentId: f.dep === 'none' ? null : f.dep });
+    if (f.dep) {
+      // Markaz bo'limi: Qo'mita shu bo'limga bergan ajratma ham (yozuvda bo'lim yo'q — modda bo'limga bog'langan)
+      const qcodes = kind === 'income' && f.dep !== 'none' ? [...(await qomitaIncomeOwners(this.prisma))].filter(([, o]) => o.departmentId === f.dep && !o.segment).map(([c]) => c) : [];
+      and.push(qcodes.length ? { OR: [{ departmentId: f.dep }, { segment: QOMITA_SEGMENT, categoryCode: { in: qcodes } }] } : { departmentId: f.dep === 'none' ? null : f.dep });
+    }
     if (f.month) and.push({ period: f.month });
     if (f.party !== undefined) {
       const field = kind === 'income' ? 'clientName' : 'counterparty';
