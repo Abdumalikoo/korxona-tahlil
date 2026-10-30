@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { isChildActive, isGroupActive, isMenuActive, SIDEBAR, type SideGroup } from './nav-config';
+import { useViewMode } from '@/lib/view-mode';
+import { isChildActive, isGroupActive, isHomePath, isMenuActive, SIDEBAR, type SideEntry, type SideGroup } from './nav-config';
 import { NavLogo } from './nav-icons';
 import { SideAccount } from './side-account';
 
@@ -71,9 +72,14 @@ interface SidebarProps {
   onMobileClose: () => void;
 }
 
+/** «Faqat Bosh sahifa» rejimida chap menyu: faqat Bosh sahifa guruhi va uning o'z sahifalari */
+const HOME_ONLY_SIDEBAR: SideEntry[] = SIDEBAR.flatMap((e) => (e.kind === 'group' && e.key === 'home' ? [{ ...e, children: e.children.filter((c) => isHomePath(c.href)) }] : []));
+
 export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { isAdmin, isWorker } = useAuth();
+  /** «Faqat Bosh sahifa» — boshqa bo'limlar hamma uchun yashirin (administrator yoqadi) */
+  const { homeOnly } = useViewMode();
   /** Rollar — o'z nomlari bilan (administrator qo'ygan) */
   const roles = useRoles(!isWorker);
   const [collapsed, setCollapsed] = useState(false);
@@ -151,7 +157,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         {/* Bandlar */}
         <nav className="side-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-2">
           <ul className="space-y-1">
-            {SIDEBAR.map((entry, index) => {
+            {(homeOnly ? HOME_ONLY_SIDEBAR : SIDEBAR).map((entry, index) => {
               if (entry.kind === 'heading') {
                 return (
                   <li key={`h-${entry.label}`} className={cn('px-3 pb-1', index > 0 ? 'pt-3' : 'pt-1', collapsed && 'md:px-0 md:pt-3')} title={entry.hint}>

@@ -20,4 +20,11 @@ export class ViewModeController {
   async set(@Body() body: { mode?: unknown }) {
     return { data: await this.viewMode.set(body?.mode) };
   }
+
+  /** «Faqat Bosh sahifa»: { on: true | false } — boshqa bo'limlar hamma uchun yashiriladi (faqat administrator) */
+  @Patch('home-only')
+  @Roles(UserRole.ADMIN)
+  async homeOnly(@Body() body: { on?: unknown }) {
+    return { data: await this.viewMode.setHomeOnly(body?.on) };
+  }
 }

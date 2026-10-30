@@ -591,7 +591,19 @@ export const SIDEBAR: SideEntry[] = [
       { label: 'Buxgalteriya xizmatlari', href: '/solishtirma/buxgalteriya' },
       { label: "Qo'mita pullarining sarfi", href: '/solishtirma/qomita' },
       { label: "O'zgarishlar", href: '/solishtirma/ozgarishlar' },
-      { label: 'Solishtirma', href: '/tahlil/korxona', match: ['/tahlil'], description: 'Korxona bir qarashda, daromad, xarajat, tahlil' },
+      {
+        label: 'Solishtirma',
+        href: '/tahlil/korxona',
+        match: ['/tahlil'],
+        description: 'Korxona bir qarashda, daromad, xarajat, tahlil',
+        children: [
+          { label: 'Korxona bir qarashda', href: '/tahlil/korxona', match: ['/tahlil/korxona'] },
+          { label: 'Daromad', href: '/tahlil/daromad', match: ['/tahlil/daromad'] },
+          { label: 'Xarajat', href: '/tahlil/xarajat', match: ['/tahlil/xarajat'] },
+          { label: "Qo'mita pullari sarfi", href: '/tahlil/qomita', match: ['/tahlil/qomita'] },
+          { label: 'Tahlil', href: '/tahlil/umumiy', match: ['/tahlil/umumiy'] },
+        ],
+      },
     ],
   },
   {
@@ -676,6 +688,11 @@ export function isPresentationPath(pathname: string): boolean {
   return pathname === '/' || under(pathname, '/tahlil') || under(pathname, '/solishtirma');
 }
 
+/** «Faqat Bosh sahifa» rejimida ochiq qoladigan manzillar: Bosh sahifa va uning bo'limi (Solishtirma sahifalari) */
+export function isHomePath(pathname: string): boolean {
+  return pathname === '/' || under(pathname, '/solishtirma');
+}
+
 /** Kiritish zonasidami (ma'lumot kiritish sahifalari) */
 export function isSourcePath(pathname: string): boolean {
   return SOURCE_PREFIXES.some((prefix) => under(pathname, prefix));
@@ -723,6 +740,22 @@ export function sectionFor(pathname: string, isAdmin: boolean): { item: NavItem;
 export function isTabActive(href: string, pathname: string): boolean {
   return pathname === href;
 }
+
+/** Yon panelda bor manzillar (guruh, band va ichki bandlar) — tepadagi yorliqlar qatorida takrorlanmaydi */
+export const SIDEBAR_HREFS: ReadonlySet<string> = (() => {
+  const out = new Set<string>();
+  const child = (c: SideChild) => {
+    out.add(c.href);
+    for (const x of c.children ?? []) child(x);
+  };
+  for (const e of SIDEBAR) {
+    if (e.kind === 'group') {
+      if (e.href) out.add(e.href);
+      for (const c of e.children) child(c);
+    } else if (e.kind === 'item') out.add(e.item.href);
+  }
+  return out;
+})();
 
 /** Bu yorliqlar bo'lim qatorida allaqachon bormi (sahifa ichidagi takror qatorni yashirish uchun) */
 export function coveredBySection(hrefs: string[], pathname: string, isAdmin: boolean): boolean {

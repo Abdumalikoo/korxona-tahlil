@@ -7,7 +7,7 @@ import { SectionBar } from '@/components/layout/section-bar';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
 import { WorkerShell } from '@/components/layout/worker-shell';
-import { isPresentationPath, roleDashboardFor, workerAllowed } from '@/components/layout/nav-config';
+import { isHomePath, isPresentationPath, roleDashboardFor, workerAllowed } from '@/components/layout/nav-config';
 import { PinSetupScreen } from '@/features/auth/pin';
 import { LoadingState } from '@/components/ui/states';
 import { ReactionBar } from '@/features/reactions/reaction-bar';
@@ -16,7 +16,7 @@ import { SecurityBanner } from '@/features/security/security-banner';
 import { useAuth } from '@/lib/auth-context';
 import { PeriodProvider } from '@/lib/period';
 import { cn } from '@/lib/utils';
-import { ViewModeProvider } from '@/lib/view-mode';
+import { useViewMode, ViewModeProvider } from '@/lib/view-mode';
 import { usePathname, useRouter } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 
@@ -103,6 +103,13 @@ function writeTopHidden(value: boolean) {
 /** Qobiq: menyu, yuqori panel va sahifa (menyu ikkala rejimda bir xil) */
 function Shell({ menuOpen, onMenu, closeMenu, children }: { menuOpen: boolean; onMenu: () => void; closeMenu: () => void; children: React.ReactNode }) {
   const pathname = usePathname() ?? '/';
+  const router = useRouter();
+  // «Faqat Bosh sahifa» (administrator yoqadi): boshqa bo'lim manzili — Bosh sahifaga (to'g'ridan-to'g'ri ochilsa ham)
+  const { homeOnly } = useViewMode();
+  const blocked = homeOnly && !isHomePath(pathname);
+  useEffect(() => {
+    if (blocked) router.replace('/');
+  }, [blocked, router]);
   // Ko'rsatuv sahifalari (Bosh sahifa, Solishtirma) — boshqaruv elementlarisiz: ularni boshqalar ko'radi
   const quiet = isPresentationPath(pathname);
   // Yuqori panel — yon menyudek yashiriladi va qaytariladi (tanlov eslab qolinadi). Panel DOM'da qoladi (CSS bilan
@@ -145,7 +152,7 @@ function Shell({ menuOpen, onMenu, closeMenu, children }: { menuOpen: boolean; o
             {!quiet && <SecurityBanner />}
             {/* Sahifa haqida qisqa tushuntirish: nima ko'rsatadi, ma'lumot qayerdan */}
             <PageIntro />
-            <Suspense fallback={<LoadingState />}>{children}</Suspense>
+            <Suspense fallback={<LoadingState />}>{blocked ? <LoadingState /> : children}</Suspense>
             {/* Sahifa pastida: «Qisqa» rejim izohi va sahifa haqida tushuntirish — asosiy raqamlar tepada */}
             <div id="page-bottom-slot" className="no-print px-4 pt-2 empty:hidden md:px-6" />
             <PageIntro placement="bottom" />
@@ -153,8 +160,12 @@ function Shell({ menuOpen, onMenu, closeMenu, children }: { menuOpen: boolean; o
         </ReactionSelectProvider>
       </main>
 
-      <GlobalSearch />
-      <QuickAddDialog />
+      {!homeOnly && (
+        <>
+          <GlobalSearch />
+          <QuickAddDialog />
+        </>
+      )}
     </div>
   );
 }

@@ -28,6 +28,10 @@ interface ViewModeApi {
   ready: boolean;
   /** Faqat administrator (backend ham tekshiradi) */
   setMode: (mode: ViewMode) => Promise<void>;
+  /** «Faqat Bosh sahifa»: boshqa bo'limlar hamma uchun yashirin */
+  homeOnly: boolean;
+  /** Faqat administrator */
+  setHomeOnly: (on: boolean) => Promise<void>;
 }
 
 const Context = createContext<ViewModeApi | null>(null);
@@ -53,13 +57,36 @@ function remember(mode: ViewMode) {
   }
 }
 
+type ViewModeState = { mode: ViewMode; homeOnly?: boolean; updatedAt: string | null };
+
 export const viewModeApi = {
-  get: () => api.get<ApiResponse<{ mode: ViewMode; updatedAt: string | null }>>('/view-mode'),
-  set: (mode: ViewMode) => api.patch<ApiResponse<{ mode: ViewMode; updatedAt: string | null }>>('/view-mode', { mode }),
+  get: () => api.get<ApiResponse<ViewModeState>>('/view-mode'),
+  set: (mode: ViewMode) => api.patch<ApiResponse<ViewModeState>>('/view-mode', { mode }),
+  homeOnly: (on: boolean) => api.patch<ApiResponse<ViewModeState>>('/view-mode/home-only', { on }),
 };
+
+/** «Faqat Bosh sahifa» oxirgi holati — sahifa yangilanganda boshqa bo'limlar bir lahza ko'rinib qolmasin */
+const HOME_ONLY_KEY = 'korxona_home_only';
+
+function cachedHomeOnly(): boolean {
+  try {
+    return window.localStorage.getItem(HOME_ONLY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function rememberHomeOnly(on: boolean) {
+  try {
+    window.localStorage.setItem(HOME_ONLY_KEY, on ? '1' : '0');
+  } catch {
+    // eslab qolinmasa ham ishlayveradi
+  }
+}
 
 export function ViewModeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ViewMode>('full');
+  const [homeOnly, setHomeOnlyState] = useState(false);
   const [ready, setReady] = useState(false);
 
   const load = useCallback(() => {
@@ -68,6 +95,8 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
       .then((r) => {
         setModeState(r.data.mode);
         remember(r.data.mode);
+        setHomeOnlyState(r.data.homeOnly === true);
+        rememberHomeOnly(r.data.homeOnly === true);
       })
       .catch(() => undefined)
       .finally(() => setReady(true));
@@ -75,11 +104,13 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setModeState(cached());
+    setHomeOnlyState(cachedHomeOnly());
     load();
     // Boshqa oynada o'zgarsa yoki 5 daqiqada bir — serverdan qayta o'qiladi
     const timer = setInterval(load, 5 * 60_000);
     const onStorage = (e: StorageEvent) => {
       if (e.key === CACHE_KEY && (e.newValue === 'brief' || e.newValue === 'full')) setModeState(e.newValue);
+      if (e.key === HOME_ONLY_KEY) setHomeOnlyState(e.newValue === '1');
     };
     window.addEventListener('storage', onStorage);
     window.addEventListener(VIEW_MODE_CHANGED, load);
@@ -97,12 +128,19 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
     window.dispatchEvent(new Event(VIEW_MODE_CHANGED));
   }, []);
 
-  return <Context.Provider value={{ mode, ready, setMode }}>{children}</Context.Provider>;
+  const setHomeOnly = useCallback(async (on: boolean) => {
+    const r = await viewModeApi.homeOnly(on);
+    setHomeOnlyState(r.data.homeOnly === true);
+    rememberHomeOnly(r.data.homeOnly === true);
+    window.dispatchEvent(new Event(VIEW_MODE_CHANGED));
+  }, []);
+
+  return <Context.Provider value={{ mode, ready, setMode, homeOnly, setHomeOnly }}>{children}</Context.Provider>;
 }
 
 /** Rejim va uni almashtirish (Provider bo'lmasa — to'liq rejim) */
 export function useViewMode(): ViewModeApi {
-  return useContext(Context) ?? { mode: 'full', ready: true, setMode: async () => undefined };
+  return useContext(Context) ?? { mode: 'full', ready: true, setMode: async () => undefined, homeOnly: false, setHomeOnly: async () => undefined };
 }
 
 /** Joriy sahifada qisqa ko'rinish kerakmi (Manba sahifalarida — har doim yo'q) */

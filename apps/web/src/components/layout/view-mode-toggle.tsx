@@ -65,3 +65,42 @@ export function ViewModeToggle() {
     </div>
   );
 }
+/**
+ * «Faqat Bosh sahifa» — administrator tugmasi: yoqilsa, Bosh sahifadan (Solishtirma bo'limi) boshqa hamma bo'lim hamma
+ * foydalanuvchi uchun yashiriladi (menyu, qidiruv, tez kiritish; to'g'ridan-to'g'ri manzil — Bosh sahifaga). Boshqalar
+ * uchun tugma yo'q.
+ */
+export function HomeOnlyToggle() {
+  const { isAdmin } = useAuth();
+  const { homeOnly, setHomeOnly } = useViewMode();
+  const [busy, setBusy] = useState(false);
+  if (!isAdmin) return null;
+
+  const change = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await setHomeOnly(!homeOnly);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void change()}
+      disabled={busy}
+      aria-pressed={homeOnly}
+      title={homeOnly ? "Hozir hamma uchun faqat Bosh sahifa ko'rinadi — bosing: hamma bo'limlarni qaytarish" : "Bosh sahifadan boshqa hamma bo'limni hamma uchun yashirish"}
+      className={cn(
+        'hidden h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors sm:flex',
+        homeOnly ? 'border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100' : 'border-(--color-line) bg-(--color-surface-muted) text-(--color-text-muted) hover:text-heading',
+        busy && 'opacity-60',
+      )}
+    >
+      <span aria-hidden>{homeOnly ? '🔒' : '👁'}</span>
+      {homeOnly ? 'Faqat Bosh sahifa' : "Hammasi ko'rinadi"}
+    </button>
+  );
+}

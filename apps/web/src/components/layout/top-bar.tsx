@@ -10,7 +10,8 @@ import { AlertsBell } from './alerts-bell';
 import { titleFor } from './nav-config';
 import { PeriodControl } from './period-control';
 import { QuickAddButton } from './quick-add';
-import { ViewModeToggle } from './view-mode-toggle';
+import { HomeOnlyToggle, ViewModeToggle } from './view-mode-toggle';
+import { useViewMode } from '@/lib/view-mode';
 
 // ═══════════════════════════════════════════════════════════
 // Yuqori oq panel:
@@ -96,6 +97,8 @@ function UserMenu({ quiet = false }: { quiet?: boolean }) {
 }
 
 export function TopBar({ onMenu, onHide, quiet = false }: { onMenu: () => void; onHide?: () => void; quiet?: boolean }) {
+  /** «Faqat Bosh sahifa» — boshqa bo'limlarga olib boradigan tugmalar yashiriladi */
+  const { homeOnly } = useViewMode();
   const pathname = usePathname();
   const router = useRouter();
   const fallback = titleFor(pathname);
@@ -143,13 +146,20 @@ export function TopBar({ onMenu, onHide, quiet = false }: { onMenu: () => void; 
         <span className="flex-1 sm:hidden" />
 
         {/* Yangi yozuv — istalgan sahifadan (N tugmasi); ko'rsatuv sahifalarida — yo'q */}
-        {!quiet && <QuickAddButton />}
+        {!quiet && !homeOnly && <QuickAddButton />}
 
         {/* Davr — hamma bo'lim uchun bitta (davr bilan ishlaydigan sahifalarda) */}
         <PeriodControl />
 
         {/* Ko'rinish rejimi: Qisqa / To'liq */}
         <ViewModeToggle />
+
+        {/* «Faqat Bosh sahifa» — administrator: boshqa bo'limlarni hamma uchun yashirish */}
+        <HomeOnlyToggle />
+
+        {/* Faqat Bosh sahifa rejimida — boshqa bo'limlarga olib boradigan tugmalar yo'q */}
+        {!homeOnly && (
+          <>
 
         {/* Formulalar va atamalar — har bir raqam qanday hisoblanadi */}
         <Link
@@ -182,6 +192,8 @@ export function TopBar({ onMenu, onHide, quiet = false }: { onMenu: () => void; 
           <span className="hidden 2xl:inline">Qidirish…</span>
           <kbd className="hidden rounded-md bg-white px-1.5 py-0.5 font-sans text-[11px] text-(--color-text-faint) shadow-sm 2xl:inline">Ctrl K</kbd>
         </button>
+          </>
+        )}
 
         <span className="hidden h-8 w-px bg-(--color-line) md:block" />
         <UserMenu quiet={quiet} />

@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { isTabActive, sectionFor } from './nav-config';
+import { isTabActive, sectionFor, SIDEBAR_HREFS } from './nav-config';
 
 // ═══════════════════════════════════════════════════════════
 // Bo'lim yorliqlari qatori — yuqori panel tagida, har bir ichki sahifada bir xil.
@@ -26,22 +26,27 @@ export function SectionBar() {
   // Bo'lim sahifalari (Daromadlar/Xarajatlar › Markaz, Hududlar, Tax free …) — alohida hudud: umumiy yorliqlar qatori yo'q
   if (/^\/(daromadlar|xarajatlar)\/bolim(\/|$)/.test(pathname)) return null;
 
+  // Navigatsiya — yon panel orqali: yon panelda bor sahifalar tepada takrorlanmaydi (masalan, Bosh sahifa › Hududlar);
+  // tepada faqat yon panelda yo'q ichki sahifalar qoladi. Hech biri qolmasa — qator ko'rsatilmaydi.
+  const tabsLeft = section.tabs.filter((t) => !SIDEBAR_HREFS.has(t.href));
+  if (!tabsLeft.length) return null;
+
   const period = searchParams.get('period');
   const keep = period && PERIOD_RE.test(period) && section.item.href !== '/sozlamalar' ? `?period=${period}` : '';
 
   // Birinchi qator: guruhsiz sahifalar va har guruhdan bitta yorliq (birinchi sahifasi o'rnida)
   const groups = new Map<string, { href: string; label: string }[]>();
-  for (const tab of section.tabs) if (tab.group) groups.set(tab.group, [...(groups.get(tab.group) ?? []), { href: tab.href, label: tab.label }]);
+  for (const tab of tabsLeft) if (tab.group) groups.set(tab.group, [...(groups.get(tab.group) ?? []), { href: tab.href, label: tab.label }]);
   const items: { href: string; label: string; group?: string }[] = [];
   const seen = new Set<string>();
-  for (const tab of section.tabs) {
+  for (const tab of tabsLeft) {
     if (!tab.group) items.push({ href: `${tab.href}${keep}`, label: tab.label });
     else if (!seen.has(tab.group)) {
       seen.add(tab.group);
       items.push({ href: `${tab.href}${keep}`, label: `${tab.group} ▾`, group: tab.group });
     }
   }
-  const activeGroup = section.tabs.find((t) => t.group && isTabActive(t.href, pathname))?.group ?? null;
+  const activeGroup = tabsLeft.find((t) => t.group && isTabActive(t.href, pathname))?.group ?? null;
   const children = activeGroup ? (groups.get(activeGroup) ?? []) : [];
 
   return (
