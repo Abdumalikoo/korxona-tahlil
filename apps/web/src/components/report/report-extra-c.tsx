@@ -53,8 +53,8 @@ export function CountDiffCell({ current, previous, growthGood = true, className 
   const good = diff === 0 ? null : diff > 0 === growthGood;
   return (
     <Td className={cn('whitespace-nowrap font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)', className)}>
-      {diff > 0 ? '+' : ''}
-      {count(diff)}
+      {good === null ? '' : good ? '+' : '−'}
+      {count(Math.abs(diff))}
       {changeOf(current, previous) !== null && <PctInline value={changeOf(current, previous)} growthGood={growthGood} />}
     </Td>
   );

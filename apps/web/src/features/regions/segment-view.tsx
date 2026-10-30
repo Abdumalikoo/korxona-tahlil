@@ -411,8 +411,8 @@ function TreeCard({
                 )}
               </td>
               <td className={cn(CELL, 'whitespace-nowrap font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)')}>
-                {diff > 0 ? '+' : ''}
-                {sum(diff)}
+                {good === null ? '' : good ? '+' : '−'}
+                {sum(Math.abs(diff))}
                 <PctInline value={changeOf(cur, prev)} growthGood={growthGood} />
               </td>
               <td className={CELL}>{total ? <PctBadge value={(cur / total) * 100} plain /> : ''}</td>
@@ -526,8 +526,8 @@ function TreeCard({
                   <td className={cn(CELL, 'whitespace-nowrap')}>{sum(prevTotal)}</td>
                   <td className={cn(CELL, 'whitespace-nowrap')}>{sum(total)}</td>
                   <td className={cn(CELL, 'whitespace-nowrap')}>
-                    {total - prevTotal > 0 ? '+' : ''}
-                    {sum(total - prevTotal)}
+                    {total === prevTotal ? '' : total > prevTotal === growthGood ? '+' : '−'}
+                    {sum(Math.abs(total - prevTotal))}
                     <PctInline value={changeOf(total, prevTotal)} growthGood={growthGood} />
                   </td>
                   <td className={CELL}>

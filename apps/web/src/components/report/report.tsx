@@ -30,8 +30,16 @@ export function changeOf(current: number, previous: number): number | null {
 }
 
 function pctText(value: number, sign = true): string {
-  const prefix = sign && value > 0 ? '+' : value < 0 ? '-' : '';
+  const prefix = sign && value > 0 ? '+' : value < 0 ? '−' : '';
   return `${prefix}${Math.abs(value).toFixed(2).replace('.', ',')}%`;
+}
+
+/**
+ * O'zgarish belgisi — natijaga ta'siri bo'yicha (rang bilan bir xil): yaxshilanish «+» (yashil), yomonlashish «−»
+ * (qizil). Masalan, xarajat o'sishi — zarar, «−» bilan; xarajat kamayishi — foyda, «+» bilan.
+ */
+function effectSign(good: boolean | null): string {
+  return good === null ? '' : good ? '+' : '−';
 }
 
 // ─────────── Ko'rsatkich kartalari ───────────
@@ -369,15 +377,15 @@ export function MoneyCell({ value, calc, className, strong, signedColor }: { val
   );
 }
 
-/** Farq katakchasi: +1 093 500 (yashil) / -334 000 (qizil); growthGood=false — xarajatda o'sish qizil */
+/** Farq katakchasi: +1 093 500 (yashil, yaxshilanish) / −334 000 (qizil, zarar); growthGood=false — xarajatda o'sish qizil «−» */
 export function DiffCell({ value, growthGood = true, calc, className, pct }: { value: number; growthGood?: boolean; calc?: Calc | null; className?: string; /** Berilsa — farq yonida foiz (qavsda) */ pct?: number | null }) {
   const rounded = Math.round(value / 100);
   const good = rounded === 0 ? null : rounded > 0 === growthGood;
   return (
     <Td className={cn('whitespace-nowrap font-semibold', good === null ? 'text-(--color-text-faint)' : good ? 'text-(--color-income)' : 'text-(--color-expense)', className)}>
       <CalcValue calc={calc} className="no-underline">
-        {rounded > 0 ? '+' : ''}
-        {sum(value)}
+        {effectSign(good)}
+        {sum(Math.abs(value))}
       </CalcValue>
       <PctInline value={pct ?? null} growthGood={growthGood} />
     </Td>
@@ -390,6 +398,7 @@ export function PctBadge({ value, growthGood = true, plain, className }: { value
   if (value === null || !Number.isFinite(value) || (!plain && Math.abs(value) >= 1000)) return null;
   const near = Math.abs(value) < 0.005;
   const good = near ? null : value > 0 === growthGood;
+  const text = `${effectSign(good)}${Math.abs(value).toFixed(2).replace('.', ',')}%`;
   return (
     <span
       className={cn(
@@ -398,7 +407,7 @@ export function PctBadge({ value, growthGood = true, plain, className }: { value
         className,
       )}
     >
-      {plain ? `${value < 0 ? '-' : ''}${Math.abs(value).toFixed(1).replace('.', ',')}%` : pctText(value)}
+      {plain ? `${value < 0 ? '−' : ''}${Math.abs(value).toFixed(1).replace('.', ',')}%` : text}
     </span>
   );
 }
@@ -409,7 +418,7 @@ export function PctInline({ value, growthGood = true, className }: { value: numb
   if (value === null || !Number.isFinite(value) || Math.abs(value) >= 1000) return null;
   const near = Math.abs(value) < 0.05;
   const good = near ? null : value > 0 === growthGood;
-  const text = `${value > 0 ? '+' : value < 0 ? '-' : ''}${Math.abs(value).toFixed(1).replace('.', ',')}%`;
+  const text = `${effectSign(good)}${Math.abs(value).toFixed(1).replace('.', ',')}%`;
   return (
     <span className={cn('ml-1 whitespace-nowrap text-[11px] font-semibold', good === null ? 'text-(--color-text-muted)' : good ? 'text-(--color-income)' : 'text-(--color-expense)', className)}>
       ({text})
@@ -424,6 +433,7 @@ export function PctCell({ value, growthGood = true, plain, className }: { value:
   }
   const near = Math.abs(value) < 0.005;
   const good = near ? null : value > 0 === growthGood;
+  const text = `${effectSign(good)}${Math.abs(value).toFixed(2).replace('.', ',')}%`;
   return (
     <Td
       className={cn(
@@ -432,7 +442,7 @@ export function PctCell({ value, growthGood = true, plain, className }: { value:
         className,
       )}
     >
-      {plain ? `${value < 0 ? '-' : ''}${Math.abs(value).toFixed(1).replace('.', ',')}%` : pctText(value)}
+      {plain ? `${value < 0 ? '−' : ''}${Math.abs(value).toFixed(1).replace('.', ',')}%` : text}
     </Td>
   );
 }

@@ -584,8 +584,9 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
           <td className={cn(CELL, 'whitespace-nowrap text-xs')}>
             {delta !== null && (
               <span className={cn('font-semibold', delta === 0 ? 'text-(--color-text-faint)' : delta > 0 === upGood ? 'text-(--color-income)' : 'text-(--color-expense)')} title={prev !== null ? `O'tgan davr: ${som(prev)}` : undefined}>
-                {delta > 0 ? '+' : ''}
-                {pct(delta)}
+                {/* Belgi — natijaga ta'siri bo'yicha (rang bilan bir xil): zarar «−», yaxshilanish «+» */}
+                {delta === 0 ? '' : delta > 0 === upGood ? '+' : '−'}
+                {pct(Math.abs(delta))}
               </span>
             )}
           </td>
