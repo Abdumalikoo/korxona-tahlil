@@ -1,7 +1,6 @@
 'use client';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
-import { IconChevronRight, IconSpinner } from '@/components/ui/icons';
 import { type DrillTarget } from '@/features/explore/drill';
 import { compact, pct, som, type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
@@ -12,6 +11,7 @@ import { centerDrillApi, drillApi, type MoneyPart } from './drill-api';
 import { money, type Fmt } from './overall-tables';
 import { segmentApi, type DrillNode } from './segment-api';
 import { ToggleAllButton } from '@/components/report/report';
+import { ExpandBox, nestHead, NestedRow } from '@/components/report/nested';
 
 // ═══════════════════════════════════════════════════════════
 // Solishtirma › Umumiy — qator bosilganda JOYIDA kengayadigan to'liq daraxt (boshqa sahifaga o'tmaydi).
@@ -593,9 +593,12 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
   };
   void monthTick;
 
-  const cols = 6 + months.length;
-  const rows: ReactNode[] = [];
-  const walk = (list: TNode[], depth: number) => {
+  /** Har pog'ona — o'z jadvali (sarlavha, raqamlash); ochilgan qator bolalari — tagidagi panelda (ichma-ich) */
+  const cols = 7 + months.length;
+  const table = (list: TNode[], depth: number): ReactNode => {
+    const head = depth === 0 ? HEAD : nestHead(depth);
+    const rows: ReactNode[] = [];
+    let no = 0;
     for (const nd of list) {
       const kids = kidsOf(nd);
       const expandable = Boolean(nd.children?.length || nd.load);
@@ -607,28 +610,20 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
       const prev = has(nd.prevIncome) && has(nd.prevExpense) ? prevResult : (nd.prevIncome ?? nd.prevExpense ?? null);
       const delta = cur !== null && prev ? ((cur - prev) / Math.abs(prev)) * 100 : null;
       const upGood = !has(nd.expense) || has(nd.income);
+      if (!nd.group) no += 1;
       rows.push(
         <tr
           key={nd.id}
           onClick={expandable ? () => toggle(nd) : undefined}
-          className={cn('[&>td]:bg-inherit', expandable && 'cursor-pointer hover:bg-brand-50', nd.group ? 'bg-[#eef2fb]' : depth % 2 ? 'bg-[#fafbfe]' : 'bg-white')}
+          className={cn('[&>td]:bg-inherit', expandable && 'cursor-pointer hover:bg-brand-50', nd.group ? 'bg-[#eef2fb]' : isOpen ? 'bg-brand-50/60' : 'bg-white')}
         >
-          <td className={cn(CELL, 'sticky left-0 z-[1] min-w-64 text-left shadow-[1px_0_0_var(--color-line)]')} style={{ paddingLeft: `${0.4 + depth * 1.1}rem` }}>
-            <span className="flex items-center gap-1.5">
-              {expandable ? (
-                loading.has(nd.id) ? (
-                  <IconSpinner className="size-3.5 shrink-0 text-brand-600" />
-                ) : (
-                  <IconChevronRight className={cn('size-3.5 shrink-0 text-(--color-text-muted) transition-transform', isOpen && 'rotate-90')} />
-                )
-              ) : (
-                <span className="size-3.5 shrink-0" />
-              )}
-              <span className="min-w-0">
-                <span className={cn('block leading-snug', nd.group ? 'text-[11px] font-bold uppercase tracking-wide text-brand-700' : 'text-heading')}>{nd.label}</span>
-                {nd.sub && <span className="block truncate text-[10.5px] text-(--color-text-faint)">{nd.sub}</span>}
-              </span>
-            </span>
+          <td className={cn(CELL, 'w-8 text-center', depth === 0 && 'sticky left-0 z-[1]')}>
+            <ExpandBox open={isOpen} hidden={!expandable} loading={loading.has(nd.id)} onClick={() => toggle(nd)} />
+          </td>
+          <td className={cn(CELL, 'w-9 text-center text-(--color-text-faint)')}>{nd.group ? '' : no}</td>
+          <td className={cn(CELL, 'min-w-60 text-left', depth === 0 && 'sticky left-8 z-[1] shadow-[1px_0_0_var(--color-line)]')}>
+            <span className={cn('block leading-snug', nd.group ? 'text-[11px] font-bold uppercase tracking-wide text-brand-700' : isOpen ? 'font-semibold text-heading' : 'text-heading')}>{nd.label}</span>
+            {nd.sub && <span className="block truncate text-[10.5px] text-(--color-text-faint)">{nd.sub}</span>}
           </td>
           <td className={CELL} title={has(nd.income) ? som(nd.income) : undefined}>
             {has(nd.income) ? money(nd.income, fmt) : ''}
@@ -667,74 +662,55 @@ export function UnitTree({ s, range, section, compare, fmt }: { s: UnitStats; ra
       const err = errors.get(nd.id);
       if (err)
         rows.push(
-          <tr key={`${nd.id}!`}>
-            <td colSpan={cols} className="border-b border-(--color-line) py-1.5 text-xs text-(--color-expense)" style={{ paddingLeft: `${1.4 + (depth + 1) * 1.1}rem` }}>
-              {err}
-            </td>
-          </tr>,
+          <NestedRow key={`${nd.id}!`} colSpan={cols} level={depth + 1}>
+            <p className="px-3 py-2 text-xs text-(--color-expense)">{err}</p>
+          </NestedRow>,
         );
-      else if (kids) {
-        if (!kids.length)
-          rows.push(
-            <tr key={`${nd.id}~`}>
-              <td colSpan={cols} className="border-b border-(--color-line) py-1.5 text-xs text-(--color-text-faint)" style={{ paddingLeft: `${1.4 + (depth + 1) * 1.1}rem` }}>
-                Bu davrda yo&apos;q
-              </td>
-            </tr>,
-          );
-        else walk(kids, depth + 1);
-      }
+      else if (kids)
+        rows.push(
+          <NestedRow key={`${nd.id}>`} colSpan={cols} level={depth + 1}>
+            {kids.length ? table(kids, depth + 1) : <p className="px-3 py-2 text-xs text-(--color-text-faint)">Bu davrda yo&apos;q</p>}
+          </NestedRow>,
+        );
     }
+    return (
+      <table className="w-full border-separate border-spacing-0 text-[13px]" style={depth === 0 ? { minWidth: 700 + months.length * 110 } : undefined}>
+        <thead className={cn(depth === 0 && 'sticky top-0 z-[2]')}>
+          <tr>
+            <th className={cn(head, 'w-8', depth === 0 && 'sticky left-0 z-[3]')} />
+            <th className={cn(head, 'w-9')}>№</th>
+            <th className={cn(head, 'text-left', depth === 0 && 'sticky left-8 z-[3]')}>Nomi</th>
+            <th className={head}>Daromad</th>
+            <th className={head}>Xarajat</th>
+            <th className={head}>Natija</th>
+            {months.map((m) => (
+              <th key={m.period} className={head}>
+                {formatPeriodShort(m.period)}
+              </th>
+            ))}
+            <th className={head} title="O'tgan davrga nisbatan o'zgarish (natija yoki summa)">
+              O&apos;zgarish
+            </th>
+            <th className={head}>Xodim</th>
+          </tr>
+        </thead>
+        <tbody>{rows}</tbody>
+      </table>
+    );
   };
-  walk(roots, 0);
 
   return (
     <div className="overflow-hidden rounded-xl border border-(--color-line) bg-white">
       <div className="flex flex-wrap items-center gap-2 border-b border-(--color-line) px-3 py-2">
         <p className="text-sm font-bold text-heading">«{s.unit.name}» — to&apos;liq tarkib</p>
         <span className="text-[11px] text-(--color-text-faint)">
-          {months.length ? 'oylar: daromad va xarajat bo‘lsa — natija, aks holda — summa' : 'qatorni bosing — ochiladi; «yozuvlar» — o‘sha summa yozuvlari'}
+          {months.length ? 'oylar: daromad va xarajat bo‘lsa — natija, aks holda — summa' : '[+] bosing — tagida ichki ro‘yxat ochiladi'}
         </span>
         <span className="ml-auto">
           <ToggleAllButton open={opened.size > 0} busy={busyAll} onClick={() => (opened.size ? setOpened(new Set()) : void expandAll())} />
         </span>
       </div>
-      <div className="max-h-[38rem] overflow-auto">
-        <table className="w-full border-separate border-spacing-0 text-[13px]" style={{ minWidth: 640 + months.length * 110 }}>
-          <thead className="sticky top-0 z-[2]">
-            <tr>
-              <th rowSpan={2} className={cn(HEAD, 'sticky left-0 z-[3] text-left')}>
-                Nomi
-              </th>
-              <th colSpan={3} className={cn(HEAD, 'uppercase tracking-wider')}>
-                Jami davr
-              </th>
-              {months.length > 0 && (
-                <th colSpan={months.length} className={cn(HEAD, 'uppercase tracking-wider')}>
-                  Oylar bo&apos;yicha
-                </th>
-              )}
-              <th rowSpan={2} className={HEAD} title="O'tgan davrga nisbatan o'zgarish (natija yoki summa)">
-                O&apos;zgarish
-              </th>
-              <th rowSpan={2} className={HEAD}>
-                Xodim
-              </th>
-            </tr>
-            <tr>
-              <th className={cn(HEAD, 'first:border-l')}>Daromad</th>
-              <th className={HEAD}>Xarajat</th>
-              <th className={HEAD}>Natija</th>
-              {months.map((m) => (
-                <th key={m.period} className={cn(HEAD, 'whitespace-nowrap')}>
-                  {formatPeriodShort(m.period)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>{rows}</tbody>
-        </table>
-      </div>
+      <div className="max-h-[38rem] overflow-auto">{table(roots, 0)}</div>
     </div>
   );
 }

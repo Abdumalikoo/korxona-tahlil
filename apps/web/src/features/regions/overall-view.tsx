@@ -24,6 +24,7 @@ import {
   type StatTile,
 } from '@/components/report/report';
 import { count, LoadingCard } from '@/components/report/report-extra-c';
+import { ExpandBox } from '@/components/report/nested';
 import { type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
 import { calcResult, calcSum, moneyText, Q } from '@/lib/calc';
@@ -200,7 +201,7 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
       <Tr onClick={() => toggle(s.unit.key)} className={cn(isOpen && 'bg-brand-50')}>
         <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{index ?? ''}</Td>
         <NameCell
-          before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')} style={{ marginLeft: depth * 18 }}>▸</span>}
+          before={<span className="inline-flex" style={{ marginLeft: depth * 18 }}><ExpandBox open={isOpen} onClick={() => toggle(s.unit.key)} /></span>}
           sub={subOf(s)}
           className="max-w-64 font-semibold text-heading"
         >
@@ -212,8 +213,8 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
       </Tr>
       {isOpen && (
         <tr>
-          <td colSpan={10} className="border-b border-(--color-line) bg-[#f8f9fc] p-0">
-            <div className="sticky left-0 max-w-[calc(100vw-8rem)] px-4 py-3">
+          <td colSpan={10} className="border-b border-(--color-line) bg-[#f7f9fc] p-0">
+            <div className="sticky left-0 max-w-[calc(100vw-8rem)] py-2 pl-10 pr-2">
               <UnitTree s={s} range={data.range} section={data.section} compare={data.compare} fmt="full" />
               <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--color-text-muted)">
                 <span>
@@ -358,7 +359,7 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
                 <Tr onClick={() => toggle(REGIONS_KEY)} className={cn('bg-[#f1f5fe] font-semibold', regionsOpen && 'bg-brand-50')}>
                   <Td className={STICKY_NO} />
                   <NameCell
-                    before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', regionsOpen && 'rotate-90')}>▸</span>}
+                    before={<ExpandBox open={regionsOpen} onClick={() => toggle(REGIONS_KEY)} />}
                     sub={`${activeRegions.length} viloyat · ${count(reg.headcount)} xodim · bosing — viloyatlar`}
                     className="font-semibold text-heading"
                   >
