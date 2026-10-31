@@ -2,6 +2,7 @@ import { SAFAR_PART, safarExpenseMeta } from '../acc-23106/acc23106.safar-ids';
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { loadLocationRefs } from '../payroll/payroll.service';
+import { readSplits, splitAmount, splitAt, SPLITS_KEY } from '../payroll/payroll-splits';
 import { QOMITA_SEGMENT, qomitaIncomeOwners, qomitaIncomeView } from '../qomita/qomita.util';
 import { Nazorat3802Service } from '../qomita/nazorat-3802.service';
 import { ASSET_GROUP_CODES, policyRouting, readPolicy } from '../expense-policy/policy.util';
@@ -429,6 +430,7 @@ export class CenterService {
         select: { employeePinfl: true, period: true, totalTiyin: true },
       });
       const periods = [...new Set(entries.map((e) => e.period))];
+      const splits = readSplits((await this.prisma.setting.findUnique({ where: { key: SPLITS_KEY } }))?.value ?? null);
       const locs = new Map<string, Awaited<ReturnType<typeof loadLocationRefs>>>();
       for (const p of periods) locs.set(p, await loadLocationRefs(this.prisma, p, [...new Set(entries.filter((e) => e.period === p).map((e) => e.employeePinfl))]));
       // Reestrda Markazda bo'lmaganlar (shu oy Markazga o'tkazilgan) — nomi uchun
@@ -453,14 +455,19 @@ export class CenterService {
         const loc = locs.get(en.period)?.get(en.employeePinfl);
         const region = loc ? loc.regionCode : (regOf.get(en.employeePinfl)?.regionCode ?? CENTRAL_REGION);
         if (region !== CENTRAL_REGION) continue;
-        const d = dept(loc?.department ? loc.department.id : emp.departmentId);
-        const row = d.employees.get(en.employeePinfl) ?? { salary: 0n, previousSalary: 0n, periods: new Set<string>() };
-        if (curPeriods.has(en.period)) {
-          row.salary += en.totalTiyin;
-          row.periods.add(en.period);
+        // Foiz bilan bo'lingan xodim — har bo'limda o'z ulushi bilan (ish haqi xarajati qanday yozilgan bo'lsa)
+        const sp = splitAt(splits, en.employeePinfl, en.period);
+        const shares = sp ? sp.parts.map((p, k) => ({ dep: p.departmentId, amount: splitAmount(en.totalTiyin, sp.parts)[k]! })) : [{ dep: loc?.department ? loc.department.id : emp.departmentId, amount: en.totalTiyin }];
+        for (const sh of shares) {
+          const d = dept(sh.dep);
+          const row = d.employees.get(en.employeePinfl) ?? { salary: 0n, previousSalary: 0n, periods: new Set<string>() };
+          if (curPeriods.has(en.period)) {
+            row.salary += sh.amount;
+            row.periods.add(en.period);
+          }
+          if (prevPeriods.has(en.period)) row.previousSalary += sh.amount;
+          d.employees.set(en.employeePinfl, row);
         }
-        if (prevPeriods.has(en.period)) row.previousSalary += en.totalTiyin;
-        d.employees.set(en.employeePinfl, row);
       }
     }
     return c;

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
-import { api, type ApiResponse } from '@/lib/api';
+import { api, type ApiResponse, type PaginatedResponse } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import { formatDate, formatTiyin } from '@/lib/format';
@@ -53,6 +53,14 @@ interface Leaf {
   code: string;
   label: string;
 }
+interface Split {
+  id: string;
+  pinfl: string;
+  fullName: string;
+  from: string;
+  to: string | null;
+  parts: { departmentId: string; departmentName: string; pct: number }[];
+}
 
 const csApi = {
   units: () => api.get<ApiResponse<UnitsResult>>('/cost-structure/units'),
@@ -62,6 +70,10 @@ const csApi = {
   leaves: () => api.get<ApiResponse<Leaf[]>>('/categories/leaves'),
   createItem: (label: string, parentCode: string | null) => api.post<ApiResponse<{ code: string; label: string }>>('/categories', { label, parentCode }),
   linkLine: (lineId: string, departmentId: string) => api.patch<ApiResponse<unknown>>('/cashbook/center-income/modes', { departments: { [lineId]: departmentId } }),
+  splits: (dep: string) => api.get<ApiResponse<Split[]>>('/cost-structure/splits', { params: { dep } }),
+  saveSplit: (body: { pinfl: string; from: string; to: string | null; parts: { departmentId: string; pct: number }[] }) => api.post<ApiResponse<{ regrouped: number }>>('/cost-structure/splits', body),
+  removeSplit: (id: string) => api.post<ApiResponse<{ regrouped: number }>>(`/cost-structure/splits/${id}/delete`),
+  employees: (search: string) => api.get<PaginatedResponse<{ pinfl: string; fullName: string; regionCode: number | null; department?: { name: string } | null }>>('/employees', { params: { search, regionCode: 0, limit: 10 } }),
 };
 
 export function StructureView() {
@@ -141,6 +153,7 @@ export function StructureView() {
             </div>
             <IncomeSide v={view.data} unit={unit} isAdmin={isAdmin} onDone={done} />
             <ExpenseSide v={view.data} unit={unit} isAdmin={isAdmin} leaves={leaves.data ?? []} units={allUnits} unitLabel={unitLabel} range={range} onDone={done} />
+            {unit.startsWith('dep:') && <SplitsCard depId={unit.slice(4)} depName={view.data.unit.label} departments={units.data?.departments ?? []} isAdmin={isAdmin} month={range.from.slice(0, 7)} reload={reload} onDone={done} />}
             <BringHere unit={unit} unitName={view.data.unit.label} isAdmin={isAdmin} range={range} onDone={done} />
           </>
         ) : null}
@@ -415,6 +428,157 @@ function MoveTable({
 }
 
 /** Boshqa joydagi xarajatni (masalan, bank to'lovi) qidirib, shu birlikka olib kelish */
+/**
+ * Xodimlar — foiz bilan bo'lish: bir xodim ikki yo'nalishda ishlasa (masalan, Call markaz 60% va Marketing 40%) — ish haqisi
+ * va unga ergashadigan soliqlar tanlangan oydan boshlab bo'limlarga foizlar bo'yicha yoziladi. Faqat Markaz xodimlari.
+ */
+function SplitsCard({ depId, depName, departments, isAdmin, month, reload, onDone }: { depId: string; depName: string; departments: UnitOpt[]; isAdmin: boolean; month: string; reload: number; onDone: (m: string, t?: 'success' | 'error') => void }) {
+  const list = useAsync(() => csApi.splits(depId).then((r) => r.data), [depId, reload]);
+  const [text, setText] = useState('');
+  const [query, setQuery] = useState('');
+  const found = useAsync(() => (query ? csApi.employees(query).then((r) => r.data) : Promise.resolve(null)), [query]);
+  const [emp, setEmp] = useState<{ pinfl: string; fullName: string } | null>(null);
+  const [from, setFrom] = useState(month);
+  const [pct, setPct] = useState('50');
+  const [other, setOther] = useState('');
+  const [busy, setBusy] = useState(false);
+  const own = Number(pct.replace(',', '.'));
+  const valid = !!emp && /^\d{4}-\d{2}$/.test(from) && !!other && own > 0 && own < 100;
+  const others = departments.filter((d) => d.key !== `dep:${depId}`);
+
+  const save = async () => {
+    if (!emp || !valid) return;
+    setBusy(true);
+    try {
+      const r = await csApi.saveSplit({ pinfl: emp.pinfl, from, to: null, parts: [{ departmentId: depId, pct: own }, { departmentId: other.slice(4), pct: Math.round((100 - own) * 100) / 100 }] });
+      onDone(`Saqlandi — ish haqi ${r.data.regrouped} oy uchun qayta yozildi`);
+      setEmp(null);
+      setQuery('');
+      setText('');
+    } catch (e) {
+      onDone(errorMessage(e, 'Saqlab bo‘lmadi'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (s: Split) => {
+    if (!window.confirm('Bo‘linish bekor qilinsinmi? Xodimning ish haqi yana bitta bo‘limiga yoziladi.')) return;
+    try {
+      const r = await csApi.removeSplit(s.id);
+      onDone(`Bekor qilindi — ish haqi ${r.data.regrouped} oy uchun qayta yozildi`);
+    } catch (e) {
+      onDone(errorMessage(e, 'Bekor qilib bo‘lmadi'), 'error');
+    }
+  };
+
+  const items = list.data ?? [];
+  if (!isAdmin && !items.length) return null;
+  const input = 'h-9 rounded-(--radius-control) border border-(--color-line-strong) bg-white px-2 text-sm focus:border-brand-600 focus:outline-none';
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b border-(--color-line) px-4 py-2.5">
+        <p className="font-semibold text-heading">Xodimlar — foiz bilan bo‘lish</p>
+        <p className="text-xs text-(--color-text-muted)">Bir xodim ikki yo‘nalishda ishlasa — ish haqisi va soliqlari tanlangan oydan boshlab bo‘limlarga foiz bo‘yicha yoziladi (faqat Markaz xodimlari)</p>
+      </div>
+      {list.error && <p className="px-4 py-2 text-sm text-(--color-expense)">{list.error}</p>}
+      {items.length > 0 && (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-(--color-line) text-left text-xs text-(--color-text-muted)">
+              <th className="px-4 py-2 font-medium">Xodim</th>
+              <th className="px-2 py-2 font-medium">Davr</th>
+              <th className="px-2 py-2 font-medium">Bo‘limlar</th>
+              {isAdmin && <th className="px-4 py-2" />}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((s) => (
+              <tr key={s.id} className="border-b border-(--color-line) last:border-0">
+                <td className="px-4 py-2 font-medium text-heading">{s.fullName}</td>
+                <td className="whitespace-nowrap px-2 py-2">{s.to ? `${s.from} — ${s.to}` : `${s.from} dan`}</td>
+                <td className="px-2 py-2">
+                  {s.parts.map((p) => (
+                    <span key={p.departmentId} className={cn('mr-3 whitespace-nowrap', p.departmentId === depId && 'font-semibold text-heading')}>
+                      {p.departmentName} <b>{p.pct}%</b>
+                    </span>
+                  ))}
+                </td>
+                {isAdmin && (
+                  <td className="px-4 py-2 text-right">
+                    <Button size="sm" variant="ghost" onClick={() => remove(s)}>
+                      Bekor qilish
+                    </Button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {isAdmin && (
+        <div className="space-y-2 border-t border-(--color-line) px-4 py-3">
+          {!emp ? (
+            <>
+              <form
+                className="flex flex-wrap items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setQuery(text.trim());
+                }}
+              >
+                <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Xodim: familiya yoki PINFL" className={cn(input, 'w-72')} />
+                <Button size="sm" variant="secondary" type="submit" disabled={text.trim().length < 2}>
+                  Topish
+                </Button>
+                {found.loading && <span className="text-xs text-(--color-text-muted)">qidirilmoqda…</span>}
+              </form>
+              {query && found.data && (
+                <div className="flex flex-wrap gap-2">
+                  {found.data.length ? (
+                    found.data.map((x) => (
+                      <button key={x.pinfl} type="button" onClick={() => setEmp({ pinfl: x.pinfl, fullName: x.fullName })} className="rounded-md border border-(--color-line-strong) px-2 py-1 text-left text-sm hover:border-brand-300 hover:bg-brand-50">
+                        {x.fullName}
+                        {x.department?.name && <span className="ml-1 text-xs text-(--color-text-muted)">· {x.department.name}</span>}
+                      </button>
+                    ))
+                  ) : (
+                    <span className="text-sm text-(--color-text-muted)">Markaz xodimlari orasida topilmadi</span>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <b className="text-heading">{emp.fullName}</b>
+              <button type="button" className="text-xs text-brand-700 underline" onClick={() => setEmp(null)}>
+                boshqa xodim
+              </button>
+              <span className="ml-2">oydan:</span>
+              <input type="month" value={from} onChange={(e) => setFrom(e.target.value)} className={input} />
+              <span className="ml-2">{depName}</span>
+              <input value={pct} onChange={(e) => setPct(e.target.value)} inputMode="decimal" className={cn(input, 'w-16 text-right')} />
+              <span>%</span>
+              <span className="ml-2">va</span>
+              <select value={other} onChange={(e) => setOther(e.target.value)} className={cn(input, 'max-w-64')}>
+                <option value="">— bo‘lim —</option>
+                {others.map((d) => (
+                  <option key={d.key} value={d.key}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+              <b>{own > 0 && own < 100 ? `${Math.round((100 - own) * 100) / 100}%` : '—'}</b>
+              <Button size="sm" onClick={save} disabled={!valid || busy} loading={busy}>
+                Saqlash
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function BringHere({ unit, unitName, isAdmin, range, onDone }: { unit: string; unitName: string; isAdmin: boolean; range: { from: string; to: string }; onDone: (m: string, t?: 'success' | 'error') => void }) {
   const [text, setText] = useState('');
   const [query, setQuery] = useState('');

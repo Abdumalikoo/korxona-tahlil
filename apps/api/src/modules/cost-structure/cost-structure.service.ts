@@ -1,9 +1,13 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { runExclusive } from '../../common/locks';
 import { SEGMENTS, segmentLabel } from '../../common/segments/segments';
 import { AuditService } from '../audit/audit.service';
 import { CenterIncomeService } from '../cashbook/center-income.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PayrollService } from '../payroll/payroll.service';
+import { readSplits, SPLITS_KEY, type EmployeeSplit } from '../payroll/payroll-splits';
 
 // ═══════════════════════════════════════════════════════════
 // Moddalar boshqaruvi › Xarajatlar tarkibiy tuzilishi — haqiqiy ishlayotgan tuzilma, birlik bo'yicha:
@@ -50,6 +54,7 @@ export class CostStructureService {
     private readonly audit: AuditService,
     private readonly expenses: ExpensesService,
     private readonly centerIncome: CenterIncomeService,
+    @Optional() private readonly payroll?: PayrollService,
   ) {}
 
   /** Tanlash uchun birliklar: Markaz bo'limlari, hududlar, yo'nalishlar */
@@ -213,5 +218,85 @@ export class CostStructureService {
       });
     }
     return { moved, movedTiyin: movedTiyin.toString(), skipped: skipped.slice(0, 50), skippedCount: skipped.length };
+  }
+
+  // ═══════════ Xodim xarajatini foiz bilan bo'limlarga bo'lish ═══════════
+
+  private async splitsStore(): Promise<EmployeeSplit[]> {
+    return readSplits((await this.prisma.setting.findUnique({ where: { key: SPLITS_KEY } }))?.value ?? null);
+  }
+
+  /** Ish haqi qayta guruhlanadi — shu oydan boshlab tasdiqlangan oylar (bo'linish yozuvlarga tushadi) */
+  private async regroupFrom(from: string): Promise<number> {
+    if (!this.payroll) return 0;
+    const periods = (await this.payroll.committedPeriods()).filter((p) => p >= from);
+    for (const p of periods) await this.payroll.regroup(p);
+    return periods.length;
+  }
+
+  /** Hamma bo'linishlar (bo'lim nomlari bilan); dep berilsa — shu bo'lim qatnashganlari */
+  async splits(depId?: unknown) {
+    const [list, deps] = await Promise.all([this.splitsStore(), this.prisma.department.findMany({ select: { id: true, name: true } })]);
+    const name = new Map(deps.map((d) => [d.id, d.name]));
+    const dep = typeof depId === 'string' && depId ? depId : null;
+    return list
+      .filter((s) => !dep || s.parts.some((p) => p.departmentId === dep))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName) || b.from.localeCompare(a.from))
+      .map((s) => ({ ...s, parts: s.parts.map((p) => ({ ...p, departmentName: name.get(p.departmentId) ?? "Bo'lim (o'chirilgan)" })) }));
+  }
+
+  /**
+   * Bo'linish saqlash: { pinfl, from: 'YYYY-MM', to?: 'YYYY-MM' | null, parts: [{ departmentId, pct }] } — kamida ikki
+   * bo'lim, foizlar yig'indisi 100. Shu xodim va shu oydan boshlangan avvalgisi bo'lsa — almashtiriladi.
+   * Ish haqi shu oydan boshlab qayta guruhlanadi (soliq ham ergashadi).
+   */
+  async saveSplit(body: { pinfl?: unknown; from?: unknown; to?: unknown; parts?: unknown }, userId: string) {
+    const pinfl = typeof body?.pinfl === 'string' ? body.pinfl.replace(/\D/g, '') : '';
+    if (!/^\d{14}$/.test(pinfl)) throw new BadRequestException("Xodim noto'g'ri (PINFL 14 xonali)");
+    const from = typeof body.from === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(body.from) ? body.from : null;
+    if (!from) throw new BadRequestException("Qaysi oydan — YYYY-MM");
+    const to = typeof body.to === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(body.to) ? body.to : null;
+    if (to && to < from) throw new BadRequestException("Tugash oyi boshlanishdan oldin bo'lmasin");
+    const raw = Array.isArray(body.parts) ? (body.parts as Record<string, unknown>[]) : [];
+    const parts = raw.map((p) => ({ departmentId: typeof p?.departmentId === 'string' ? p.departmentId : '', pct: Math.round(Number(p?.pct) * 100) / 100 }));
+    if (parts.length < 2) throw new BadRequestException("Kamida ikki bo'lim kerak");
+    if (parts.some((p) => !p.departmentId || !(p.pct > 0) || p.pct > 100)) throw new BadRequestException("Har bo'lim va uning foizi (0 dan katta) kerak");
+    if (new Set(parts.map((p) => p.departmentId)).size !== parts.length) throw new BadRequestException("Bir bo'lim ikki marta tanlangan");
+    const total = parts.reduce((s, p) => s + p.pct, 0);
+    if (Math.abs(total - 100) > 0.001) throw new BadRequestException(`Foizlar yig'indisi 100 bo'lsin (hozir ${total})`);
+    const [emp, deps, user] = await Promise.all([
+      this.prisma.employee.findUnique({ where: { pinfl }, select: { fullName: true } }),
+      this.prisma.department.findMany({ where: { id: { in: parts.map((p) => p.departmentId) } }, select: { id: true, name: true } }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } }).catch(() => null),
+    ]);
+    if (!emp) throw new NotFoundException('Xodim topilmadi');
+    if (deps.length !== parts.length) throw new BadRequestException("Bo'lim topilmadi");
+    const item: EmployeeSplit = { id: randomUUID(), pinfl, fullName: emp.fullName, from, to, parts, at: new Date().toISOString(), by: user?.fullName ?? '' };
+    await runExclusive(`setting:${SPLITS_KEY}`, async () => {
+      const list = (await this.splitsStore()).filter((s) => !(s.pinfl === pinfl && s.from === from));
+      list.push(item);
+      const value = { items: list } as object;
+      await this.prisma.setting.upsert({ where: { key: SPLITS_KEY }, create: { key: SPLITS_KEY, value }, update: { value } });
+    });
+    const regrouped = await this.regroupFrom(from);
+    const dn = new Map(deps.map((d) => [d.id, d.name]));
+    await this.audit.log({ userId, action: 'UPDATE', entity: 'employee_split', entityId: item.id, summary: `Xarajatlar tarkibiy tuzilishi: xodim ${from}${to ? `–${to}` : ''} dan bo'limlarga — ${parts.map((p) => `${dn.get(p.departmentId)} ${p.pct}%`).join(', ')}` });
+    return { success: true as const, id: item.id, regrouped };
+  }
+
+  /** Bo'linishni o'chirish — xodim yana bitta (o'z) bo'limida; ish haqi qayta guruhlanadi */
+  async removeSplit(id: string, userId: string) {
+    let removed: EmployeeSplit | null = null;
+    await runExclusive(`setting:${SPLITS_KEY}`, async () => {
+      const list = await this.splitsStore();
+      removed = list.find((s) => s.id === id) ?? null;
+      if (!removed) throw new NotFoundException("Bo'linish topilmadi");
+      const value = { items: list.filter((s) => s.id !== id) } as object;
+      await this.prisma.setting.upsert({ where: { key: SPLITS_KEY }, create: { key: SPLITS_KEY, value }, update: { value } });
+    });
+    const r = removed as EmployeeSplit | null;
+    const regrouped = r ? await this.regroupFrom(r.from) : 0;
+    await this.audit.log({ userId, action: 'DELETE', entity: 'employee_split', entityId: id, summary: `Xarajatlar tarkibiy tuzilishi: xodim bo'linishi bekor qilindi (${r?.from ?? ''} dan)` });
+    return { success: true as const, regrouped };
   }
 }

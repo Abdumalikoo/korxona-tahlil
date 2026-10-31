@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { CostStructureService } from './cost-structure.service';
@@ -32,5 +32,27 @@ export class CostStructureController {
   @HttpCode(HttpStatus.OK)
   async move(@Body() body: { ids?: unknown; unit?: unknown; categoryCode?: unknown }, @CurrentUser('id') userId: string) {
     return { data: await this.service.move(body, userId) };
+  }
+
+  /** Xodim xarajatini foiz bilan bo'limlarga bo'lish: ro'yxat (?dep= — shu bo'lim qatnashganlari) */
+  @Get('splits')
+  async splits(@Query('dep') dep?: string) {
+    return { data: await this.service.splits(dep) };
+  }
+
+  /** Bo'linish saqlash: { pinfl, from, to?, parts: [{ departmentId, pct }] } — ish haqi shu oydan qayta guruhlanadi */
+  @Roles(UserRole.ADMIN)
+  @Post('splits')
+  @HttpCode(HttpStatus.OK)
+  async saveSplit(@Body() body: { pinfl?: unknown; from?: unknown; to?: unknown; parts?: unknown }, @CurrentUser('id') userId: string) {
+    return { data: await this.service.saveSplit(body, userId) };
+  }
+
+  /** Bo'linishni bekor qilish */
+  @Roles(UserRole.ADMIN)
+  @Post('splits/:id/delete')
+  @HttpCode(HttpStatus.OK)
+  async removeSplit(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return { data: await this.service.removeSplit(id, userId) };
   }
 }

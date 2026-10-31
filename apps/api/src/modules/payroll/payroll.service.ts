@@ -13,6 +13,7 @@ import type { UnitMove } from '../unit-payroll/unit-payroll.service';
 import { isNdflWorkbook, parseNdfl, type NdflResult } from './ndfl.parser';
 import { CENTRAL_REGION } from '../../common/segments/segments';
 import { approvedBayram } from '../acc-23106/acc23106.bayram-ids';
+import { readSplits, splitAmount, splitAt, SPLITS_KEY } from './payroll-splits';
 
 const PAYROLL_CATEGORY = 'PAYROLL_BASE';
 const TASHKENT_OFFSET_HOURS = 5;
@@ -1036,6 +1037,10 @@ export class PayrollService {
   }
 
   private async regroupNow(period: string): Promise<RegroupReport> {
+    // Xodim xarajatini foiz bilan bo'limlarga bo'lish (Xarajatlar tarkibiy tuzilishi) — shu oy amaldagilari
+    const [splitRow, depRows] = await Promise.all([this.prisma.setting.findUnique({ where: { key: SPLITS_KEY } }), this.prisma.department.findMany({ select: { id: true, name: true } })]);
+    const splits = readSplits(splitRow?.value ?? null);
+    const depName = new Map(depRows.map((d) => [d.id, d.name]));
 
     const [batches, locations, shares] = await Promise.all([
       this.prisma.payrollBatch.findMany({
@@ -1102,7 +1107,14 @@ export class PayrollService {
         return { entry, full, center, net: full - center, parts, group: after, employee: effective };
       });
 
-      const groups = [...this.buildGroups(items.map((i) => ({ amountTiyin: i.net, employee: i.employee })), batch.scope).values()].filter(
+      // Markaz xodimi foiz bilan bo'lingan bo'lsa — ish haqi (hududda qolgan qismi) bo'limlarga foizlar bo'yicha
+      const groupItems = items.flatMap((i) => {
+        const sp = i.group.regionCode === CENTRAL_REGION ? splitAt(splits, i.entry.employeePinfl, period) : null;
+        if (!sp) return [{ amountTiyin: i.net, employee: i.employee }];
+        const amounts = splitAmount(i.net, sp.parts);
+        return sp.parts.map((p, k) => ({ amountTiyin: amounts[k]!, employee: { ...i.employee, departmentId: p.departmentId, department: { name: depName.get(p.departmentId) ?? "Bo'lim" } } }));
+      });
+      const groups = [...this.buildGroups(groupItems, batch.scope).values()].filter(
         (group) => group.totalTiyin > 0n,
       );
       // Markaz hisobidagi qism: hudud × modda
