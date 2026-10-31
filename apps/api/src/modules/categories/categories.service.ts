@@ -283,6 +283,58 @@ export class CategoriesService {
     });
   }
 
+  // ═══════════ Moddalar boshqaruvi (Umumiy manba) ═══════════
+
+  /**
+   * Hamma faol xarajat moddalari — daraxt uchun (ota, guruhmi) va har biriga yozilgan xarajatlar soni va summasi
+   * (o'chirilmagan yozuvlar). Moddalar boshqaruvi sahifasi shundan daraxt quradi.
+   */
+  async manageList() {
+    const [cats, usage] = await Promise.all([
+      this.prisma.category.findMany({ where: { isActive: true }, select: { code: true, label: true, parentCode: true, isLeaf: true, order: true }, orderBy: [{ order: 'asc' }, { label: 'asc' }] }),
+      this.prisma.expense.groupBy({ by: ['categoryCode'], where: { deletedAt: null }, _count: { _all: true }, _sum: { amountTiyin: true } }),
+    ]);
+    const use = new Map(usage.map((u) => [u.categoryCode, u]));
+    return cats.map((c) => ({ ...c, count: use.get(c.code)?._count._all ?? 0, totalTiyin: (use.get(c.code)?._sum.amountTiyin ?? 0n).toString() }));
+  }
+
+  /**
+   * Moddani boshqa guruhga ko'chirish (parentCode: null — eng yuqori darajaga). Qoidalar:
+   *  • o'ziga yoki o'z ichidagi bo'limchaga ko'chirib bo'lmaydi (aylana bo'lmasin);
+   *  • yangi ota — guruh yoki hali yozuvi yo'q modda (u guruhga aylanadi); yozuvi bor moddaga ko'chirilmaydi
+   *    (aks holda yozuvlar guruhda qolib ketadi);
+   *  • eski guruh bo'sh qolsa — oddiy moddaga aylanadi.
+   * Xarajat yozuvlari o'zgarmaydi — faqat modda qaysi guruhda turishi (hisobotlarda o'sha guruh ichida ko'rinadi).
+   */
+  async move(code: string, parentCodeRaw: unknown): Promise<{ code: string; label: string; from: string | null; to: string | null }> {
+    const parentCode = typeof parentCodeRaw === 'string' && parentCodeRaw.trim() ? parentCodeRaw.trim() : null;
+    const all = await this.prisma.category.findMany({ select: { code: true, label: true, parentCode: true, isLeaf: true } });
+    const by = new Map(all.map((c) => [c.code, c]));
+    const cat = by.get(code);
+    if (!cat) throw new NotFoundException('Modda topilmadi');
+    if (cat.parentCode === parentCode) return { code, label: cat.label, from: cat.parentCode, to: parentCode };
+    if (parentCode) {
+      const target = by.get(parentCode);
+      if (!target) throw new BadRequestException('Guruh topilmadi');
+      // Aylana: yangi ota — shu moddaning o'zi yoki uning ichidagi bo'limcha bo'lmasin
+      for (let p: string | null = parentCode; p; p = by.get(p)?.parentCode ?? null) {
+        if (p === code) throw new BadRequestException("Moddani o'ziga yoki o'z ichidagi bo'limchaga ko'chirib bo'lmaydi");
+      }
+      if (target.isLeaf && (await this.prisma.expense.count({ where: { categoryCode: parentCode, deletedAt: null } })) > 0) {
+        throw new BadRequestException(`«${target.label}» — yozuvlari bor modda, guruh emas. Avval yangi guruh yarating va o'shanga ko'chiring`);
+      }
+    }
+    const from = cat.parentCode;
+    await this.prisma.$transaction(async (tx) => {
+      if (parentCode && by.get(parentCode)!.isLeaf) await tx.category.update({ where: { code: parentCode }, data: { isLeaf: false } });
+      const last = await tx.category.findFirst({ where: { parentCode }, orderBy: { order: 'desc' }, select: { order: true } });
+      await tx.category.update({ where: { code }, data: { parentCode, order: (last?.order ?? 0) + (parentCode ? 1 : 100) } });
+      // Eski guruh bo'sh qoldi — oddiy moddaga aylanadi
+      if (from && (await tx.category.count({ where: { parentCode: from } })) === 0) await tx.category.update({ where: { code: from }, data: { isLeaf: true } });
+    });
+    return { code, label: cat.label, from, to: parentCode };
+  }
+
   /** Daromad kategoriyalari */
   async findIncomeCategories(includeInactive = false) {
     return this.prisma.incomeCategory.findMany({

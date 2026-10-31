@@ -125,6 +125,21 @@ export class CategoriesController {
     return { data };
   }
 
+  /** Moddalar boshqaruvi: hamma faol moddalar (daraxt uchun) va har biriga yozilgan xarajatlar soni va summasi */
+  @Get('manage/list')
+  async manageList() {
+    return { data: await this.categories.manageList() };
+  }
+
+  /** Moddani boshqa guruhga ko'chirish: { parentCode } (null — eng yuqori daraja) */
+  @Roles(UserRole.ADMIN)
+  @Patch(':code/move')
+  async move(@Param('code') code: string, @Body() body: { parentCode?: unknown }, @CurrentUser('id') userId: string) {
+    const data = await this.categories.move(code, body?.parentCode ?? null);
+    if (data.from !== data.to) await this.audit.log({ userId, action: 'UPDATE', entity: 'category', entityId: code, summary: `Modda ko'chirildi: «${data.label}» ${data.from ?? 'yuqori daraja'} → ${data.to ?? 'yuqori daraja'}` });
+    return { data };
+  }
+
   @Roles(UserRole.ADMIN)
   @Patch(':code/archive')
   async archive(@Param('code') code: string) {

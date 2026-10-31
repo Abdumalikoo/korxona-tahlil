@@ -619,6 +619,7 @@ export const SIDEBAR: SideEntry[] = [
       { label: 'Daromadlar', href: '/daromadlar', match: ['/daromadlar'], children: unitChildren('/daromadlar') },
       { label: 'Xarajatlar', href: '/xarajatlar', match: ['/xarajatlar'], children: unitChildren('/xarajatlar') },
       { label: "3802 — Qo'mita qoplashi", href: '/3802', match: ['/3802'] },
+      { label: 'Moddalar boshqaruvi', href: '/moddalar', match: ['/moddalar'], description: "Xarajat moddalari guruhlari: yangi guruh / modda, nomini o'zgartirish, boshqa guruhga ko'chirish" },
       { label: 'Modellar', href: '/modellar', match: ['/modellar', '/katta-modellar'] },
       { label: 'Rollar', href: '/rollar', rolesSlot: true },
       { label: 'Xodimlar', href: '/xodimlar', match: ['/xodimlar'] },
@@ -648,7 +649,7 @@ export const SIDEBAR: SideEntry[] = [
 /**
  * Ma'lumot kiritish sahifalari — qisqa (rahbar) rejimda ham har doim to'liq ko'rinadi.
  */
-export const SOURCE_PREFIXES = ['/kiritish', '/daromadlar', '/xarajatlar', '/3802', '/xodimlar', '/sozlamalar'];
+export const SOURCE_PREFIXES = ['/kiritish', '/daromadlar', '/xarajatlar', '/3802', '/moddalar', '/xodimlar', '/sozlamalar'];
 
 /**
  * Rol zonalari: bu sahifalarda faqat rol (Omborchi) ishlaydi. Umumiy hudud foydalanuvchisi
