@@ -27,12 +27,11 @@ import { count, LoadingCard } from '@/components/report/report-extra-c';
 import { ExpandBox } from '@/components/report/nested';
 import { type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { csvPct, csvSom, downloadCsv } from '@/features/structure/stats';
-import { calcResult, calcSum, moneyText, Q } from '@/lib/calc';
+import { calcResult, calcSum, Q } from '@/lib/calc';
 import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/use-async';
 import { cn, cap } from '@/lib/utils';
 import { unitByCode } from '@/lib/segments';
-import { useRouter } from 'next/navigation';
 import { createContext, useContext, useMemo, useState } from 'react';
 import { KIND_LABEL, regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
 import { UnassignedDrawer } from './unassigned-drawer';
@@ -156,7 +155,6 @@ export function OverallView({ range }: { range: DateRange }) {
 }
 
 function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
-  const router = useRouter();
   const [view, setView] = useState<View>('result');
   /** Natija jadvalida birlik qidirish */
   const [query, setQuery] = useState('');
@@ -183,9 +181,10 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
   const reg = totalsOf(activeRegions);
   const profit = total.income - total.expense;
   const previousProfit = total.previousIncome - total.previousExpense;
-  const regProfit = reg.income - reg.expense;
-  const centerNet = center ? center.expense - center.income : 0;
-  const coverage = centerNet > 0 ? (regProfit / centerNet) * 100 : null;
+  /** Korxona rentabelligi: natija ÷ daromad (daromad bo'lmasa — yo'q) */
+  const margin = total.income > 0 ? (profit / total.income) * 100 : null;
+  const previousMargin = total.previousIncome > 0 ? (previousProfit / total.previousIncome) * 100 : null;
+  const pctText = (v: number) => `${v.toFixed(1).replace('.', ',')}%`;
   const label = cap(data.compareLabel);
 
   const q = query.trim().toLowerCase();
@@ -295,15 +294,12 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
     { label: 'Korxona daromadi', value: total.income, previous: total.previousIncome, tone: 'green', calc: calcSum('Korxona daromadi', units.map((s) => Q.money(s.unit.name, s.income))) },
     { label: 'Korxona xarajati', value: total.expense, previous: total.previousExpense, growthGood: false, tone: 'red', calc: calcSum('Korxona xarajati', units.map((s) => Q.money(s.unit.name, s.expense))) },
     { label: profit >= 0 ? 'Korxona natijasi (foyda)' : 'Korxona natijasi (zarar)', value: profit, previous: previousProfit, signed: true, tone: 'blue', calc: calcResult(total.income, total.expense, { title: 'Korxona natijasi' }) },
-    { label: 'Hududlar natijasi', value: regProfit, previous: reg.previousIncome - reg.previousExpense, signed: true, tone: 'cyan', calc: calcResult(reg.income, reg.expense, { title: 'Hududlar natijasi' }) },
     {
-      label: 'Markazni qoplash',
+      label: 'Korxona rentabelligi',
       value: 0,
-      text: coverage === null ? '' : `${coverage.toFixed(1).replace('.', ',')}%`,
-      note: centerNet > 0 ? `Markaz sof xarajati ${moneyText(centerNet)}` : "Markazning sof xarajati yo'q",
+      text: margin === null ? '—' : pctText(margin),
+      note: previousMargin === null ? 'natija ÷ daromad' : `natija ÷ daromad · avval ${pctText(previousMargin)}`,
       tone: 'purple',
-      // Markazni qoplash — Solishtirma › Hududlar sahifasida
-      onClick: () => router.push('/solishtirma?m=cover'),
     },
   ];
 
