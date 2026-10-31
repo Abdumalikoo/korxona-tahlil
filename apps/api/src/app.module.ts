@@ -52,6 +52,7 @@ import { SearchModule } from './modules/search/search.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
 import { ViewModeModule } from './modules/view-mode/view-mode.module';
 import { ExportXlsxModule } from './modules/export-xlsx/export-xlsx.module';
+import { CostStructureModule } from './modules/cost-structure/cost-structure.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { UsersModule } from './modules/users/users.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
@@ -117,6 +118,7 @@ import { RateLimitGuard } from './common/security/rate-limit';
     AlertsModule,
     ViewModeModule,
     ExportXlsxModule,
+    CostStructureModule,
     WarehouseModule,
     UsersModule,
     TelegramModule,
