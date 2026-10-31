@@ -58,6 +58,21 @@ const { EmployeeChainService } = require('../dist/modules/employees/employee-cha
   const t2 = await svc.timeline('p2', '2026-01', '2026-02');
   assert.strictEqual(t2.rows[1].effective, 'Sinov viloyati', 'davr fayldan ustun');
 
+  // Xodimlar harakati jadvali: har oy amaldagi joy, ko'chish / kelish / ketish belgilari
+  const g = await svc.grid('2026-01', '2026-03');
+  const row = (pinfl) => g.rows.find((x) => x.pinfl === pinfl);
+  const places = (pinfl) => row(pinfl).cells.map((c) => (c.l < 0 ? null : g.labels[c.l]));
+  assert.deepStrictEqual(places('p1'), ['Markaz › Sinov bo‘limi', 'Markaz › Sinov bo‘limi', 'Namuna viloyati']);
+  assert.deepStrictEqual(row('p1').cells.map((c) => c.move), [false, false, true]);
+  assert.deepStrictEqual([row('p1').moves, row('p1').units], [1, ['Markaz', 'Namuna viloyati']]);
+  assert.deepStrictEqual(places('p2'), ['Namuna viloyati', 'Sinov viloyati', 'Sinov viloyati'], 'davr fayldan ustun');
+  assert.deepStrictEqual(places('p3'), [null, 'Namuna viloyati', null]);
+  assert.deepStrictEqual([row('p3').started, row('p3').stopped, row('p3').moves], [true, true, 0]);
+  assert.deepStrictEqual(places('p4'), [null, 'Namuna viloyati', null], 'ish haqi bor, joy yo‘q — reestr');
+  assert.deepStrictEqual(g.rows.slice(0, 2).map((x) => x.moves), [1, 1], 'ko‘chganlar birinchi');
+  assert.deepStrictEqual(g.months.map((m) => [m.period, m.placed, m.moved, m.started, m.stopped]), [['2026-01', 2, 0, 0, 0], ['2026-02', 4, 1, 2, 0], ['2026-03', 2, 1, 0, 2]]);
+  await assert.rejects(() => svc.grid('2023-01', '2026-03'), /24 oy/);
+
   // Ko'rib chiqildi — ochiq ro'yxatdan chiqadi, qayta ochish mumkin
   await svc.review({ pinfl: 'p2', period: '2026-02', type: 'CONFLICT', note: 'buyruq bor' }, 'adm');
   let r = await svc.report('2026-01', '2026-03');

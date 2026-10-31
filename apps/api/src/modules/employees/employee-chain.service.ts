@@ -171,6 +171,69 @@ export class EmployeeChainService {
     return { from: months[0]!, to: months[months.length - 1]!, months: [...byMonth.values()], summary, issues: issues.slice(0, 3000), moves: moves.slice(0, 3000), totals: { issues: issues.length, moves: moves.length } };
   }
 
+  /**
+   * Xodimlar harakati jadvali — davrdagi har xodim, har oy amaldagi joyi (hisoblar ishlatadigan tartibda). Katak: joy
+   * (labels indeksi, -1 — shu oy hech qayerda emas), ish haqi olganmi. Qator belgilari: ko'chgan (joy almashgan),
+   * kelgan (o'rtada boshlangan), ketgan (o'rtada to'xtagan). Oyma-oy jamlama. Hech narsa o'zgartirilmaydi (shaxsiy ma'lumot).
+   */
+  async grid(from: string, to: string) {
+    const months = monthsBetween(String(from ?? ''), String(to ?? ''));
+    if (months.length > 36) throw new BadRequestException("Ko'pi bilan 36 oy");
+    const ctx = await this.load(months);
+    const ev = this.evaluate(ctx);
+    const labels: string[] = [];
+    const labelIdx = new Map<string, number>();
+    const idx = (label: string) => {
+      let i = labelIdx.get(label);
+      if (i === undefined) {
+        i = labels.length;
+        labels.push(label);
+        labelIdx.set(label, i);
+      }
+      return i;
+    };
+    const unitName = (unit: string) => (unit === 'C' ? 'Markaz' : (ctx.regionName.get(Number(unit.split(':')[1])) ?? 'Hudud'));
+    const byMonth = months.map((p) => ({ period: p, placed: 0, moved: 0, started: 0, stopped: 0 }));
+    const rows: { pinfl: string; fullName: string; position: string | null; cells: { l: number; paid: boolean; move: boolean }[]; units: string[]; moves: number; started: boolean; stopped: boolean }[] = [];
+    for (const e of ctx.employees) {
+      const cells: { l: number; paid: boolean; move: boolean }[] = [];
+      const units = new Set<string>();
+      let prevKey: string | null = null;
+      let seen = false;
+      let moves = 0;
+      let started = false;
+      let stopped = false;
+      months.forEach((p, k) => {
+        const r = ev(e, p);
+        const place = r.effective;
+        const cell = { l: place ? idx(place.label) : -1, paid: r.paid, move: false };
+        if (place) {
+          byMonth[k]!.placed += 1;
+          units.add(unitName(place.unit));
+          if (prevKey && prevKey !== place.key) {
+            cell.move = true;
+            moves += 1;
+            byMonth[k]!.moved += 1;
+          }
+          if (!seen && k > 0) {
+            started = true;
+            byMonth[k]!.started += 1;
+          }
+          seen = true;
+          prevKey = place.key;
+        } else if (cells.length && cells[cells.length - 1]!.l >= 0) {
+          stopped = true;
+          byMonth[k]!.stopped += 1;
+        }
+        cells.push(cell);
+      });
+      if (!seen) continue;
+      rows.push({ pinfl: e.pinfl, fullName: e.fullName, position: e.position, cells, units: [...units], moves, started, stopped });
+    }
+    rows.sort((a, b) => b.moves - a.moves || Number(b.started || b.stopped) - Number(a.started || a.stopped) || a.fullName.localeCompare(b.fullName));
+    return { from: months[0]!, to: months[months.length - 1]!, months: byMonth, labels, rows };
+  }
+
   /** Bir xodim: vaqt chizig'i (uzluksiz davrlar), harakatlar va har oy manbalari (shaxsiy ma'lumot) */
   async timeline(pinfl: string, from: string, to: string) {
     const months = monthsBetween(String(from ?? ''), String(to ?? ''));

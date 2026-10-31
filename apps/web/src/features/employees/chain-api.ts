@@ -51,7 +51,17 @@ export interface ChainTimeline {
   }[];
 }
 
+/** Xodimlar harakati jadvali: har xodim, har oy amaldagi joy (labels indeksi; -1 — shu oy hech qayerda emas) */
+export interface ChainGrid {
+  from: string;
+  to: string;
+  months: { period: string; placed: number; moved: number; started: number; stopped: number }[];
+  labels: string[];
+  rows: { pinfl: string; fullName: string; position: string | null; cells: { l: number; paid: boolean; move: boolean }[]; units: string[]; moves: number; started: boolean; stopped: boolean }[];
+}
+
 export const chainApi = {
+  grid: (from: string, to: string) => api.get<ApiResponse<ChainGrid>>('/employees/chain/grid', { params: { from, to } }),
   report: (from: string, to: string) => api.get<ApiResponse<ChainReport>>('/employees/chain/report', { params: { from, to } }),
   timeline: (pinfl: string, from: string, to: string) => api.get<ApiResponse<ChainTimeline>>(`/employees/${encodeURIComponent(pinfl)}/chain`, { params: { from, to } }),
   review: (body: { pinfl: string; period: string; type: ChainIssueType; note?: string; undo?: boolean }) => api.put<ApiResponse<{ key: string; reviewed: boolean }>>('/employees/chain/review', body),

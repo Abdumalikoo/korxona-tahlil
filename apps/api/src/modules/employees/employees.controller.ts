@@ -41,6 +41,12 @@ export class EmployeesController {
     return { data: await this.chain.report(from, to) };
   }
 
+  /** Xodimlar harakati jadvali: har xodim, har oy qayerda (?from=YYYY-MM&to=YYYY-MM) */
+  @Get('chain/grid')
+  async chainGrid(@Query('from') from: string, @Query('to') to: string) {
+    return { data: await this.chain.grid(from, to) };
+  }
+
   /** Muammoni «ko'rib chiqildi» deb belgilash yoki qayta ochish: { pinfl, period, type, note?, undo? } */
   @Roles(UserRole.ADMIN)
   @Put('chain/review')
