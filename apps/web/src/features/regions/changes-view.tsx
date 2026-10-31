@@ -73,8 +73,8 @@ export function ChangesView({ to }: { to: string }) {
   const exportCsv = () =>
     downloadCsv(
       `solishtirma-ozgarishlar-${data.period}`,
-      ['Holat', 'Xodim', 'JShShIR', 'Lavozim', 'Hudud / Markaz', 'Qayerdan', `${prevLabel}, so'm`, `${curLabel}, so'm`, 'Ishga kirgan', "Bo'shagan"],
-      people.map((p) => [KIND[p.kind].label, p.fullName, p.pinfl, p.position ?? '', p.unitName, p.fromUnitName ?? '', csvSom(p.previousTiyin), csvSom(p.currentTiyin), p.hiredAt ? formatDate(p.hiredAt) : '', p.firedAt ? formatDate(p.firedAt) : '']),
+      ['Holat', 'Xodim', 'JShShIR', 'Lavozim', 'Hudud / Markaz', 'Qayerdan', `${prevLabel}, so'm`, `${curLabel}, so'm`, "Farqi, so'm (+ oshdi, − kamaydi)", 'Ishga kirgan', "Bo'shagan"],
+      people.map((p) => [KIND[p.kind].label, p.fullName, p.pinfl, p.position ?? '', p.unitName, p.fromUnitName ?? '', csvSom(p.previousTiyin), csvSom(p.currentTiyin), csvSom(Number(p.currentTiyin) - Number(p.previousTiyin)), p.hiredAt ? formatDate(p.hiredAt) : '', p.firedAt ? formatDate(p.firedAt) : '']),
     );
 
   const tiles: StatTile[] = [
@@ -163,7 +163,7 @@ export function ChangesView({ to }: { to: string }) {
                   <CountCell value={data.counts.idle} />
                   <CountCell value={data.counts.moved} />
                   <MoneyCell value={Number(t.currentTiyin)} />
-                  <DiffCell value={Number(t.currentTiyin) - Number(t.previousTiyin)} pct={changeOf(Number(t.currentTiyin), Number(t.previousTiyin))} growthGood={false} />
+                  <DiffCell value={Number(t.currentTiyin) - Number(t.previousTiyin)} pct={changeOf(Number(t.currentTiyin), Number(t.previousTiyin))} direction />
                 </Tr>
                 {data.units.map((u, i) => (
                   <Tr key={u.key} onClick={() => setUnit(unit === u.key ? null : u.key)} muted={u.kind === 'center'} className={cn(unit === u.key && 'bg-brand-50')}>
@@ -180,7 +180,7 @@ export function ChangesView({ to }: { to: string }) {
                     <CountCell value={u.idle} />
                     <Td>{u.movedIn || u.movedOut ? `+${u.movedIn} / −${u.movedOut}` : <span className="text-(--color-text-faint)"></span>}</Td>
                     <MoneyCell value={Number(u.currentTiyin)} />
-                    <DiffCell value={Number(u.currentTiyin) - Number(u.previousTiyin)} pct={changeOf(Number(u.currentTiyin), Number(u.previousTiyin))} growthGood={false} />
+                    <DiffCell value={Number(u.currentTiyin) - Number(u.previousTiyin)} pct={changeOf(Number(u.currentTiyin), Number(u.previousTiyin))} direction />
                   </Tr>
                 ))}
               </tbody>
@@ -247,7 +247,7 @@ export function ChangesView({ to }: { to: string }) {
                   <tr>
                     <Th className="first:border-l">{prevLabel}</Th>
                     <Th>{curLabel}</Th>
-                    <Th>Farqi, foizda</Th>
+                    <Th>Farqi</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -276,7 +276,7 @@ export function ChangesView({ to }: { to: string }) {
                         <Td className="text-left text-(--color-text-muted)">{p.fromUnitName ? `${p.fromUnitName} → ${p.unitName}` : p.unitName}</Td>
                         <MoneyCell value={prev} className="text-(--color-text-muted)" />
                         <MoneyCell value={cur} strong />
-                        <DiffCell value={cur - prev} pct={changeOf(cur, prev)} growthGood={false} />
+                        <DiffCell value={cur - prev} direction />
                         <Td className="whitespace-nowrap text-xs text-(--color-text-muted)">
                           {p.kind === 'fired' && p.firedAt ? `bo'shagan ${formatDate(p.firedAt)}` : (p.kind === 'hired' || p.kind === 'hiredUnpaid') && p.hiredAt ? `ishga kirgan ${formatDate(p.hiredAt)}` : ''}
                         </Td>

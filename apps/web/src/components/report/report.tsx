@@ -423,10 +423,11 @@ export function MoneyCell({ value, calc, className, strong, signedColor }: { val
 /**
  * Farq katakchasi. pct berilsa («Farqi, foizda» ustuni) — asosiy qiymat FOIZ (+/− natijaga ta'siri bo'yicha), summa —
  * sichqoncha ustida; o'tgan davr 0 bo'lsa (foiz ma'nosiz) — summa. pct berilmasa — summa.
+ * direction — belgi haqiqiy yo'nalish: oshsa «+» (yashil), kamaysa «−» (qizil); natijaga ta'siri emas (masalan, oylik o'zgarishi).
  */
-export function DiffCell({ value, growthGood = true, calc, className, pct }: { value: number; growthGood?: boolean; calc?: Calc | null; className?: string; /** Berilsa — foizda (summa sichqoncha ustida) */ pct?: number | null }) {
+export function DiffCell({ value, growthGood = true, calc, className, pct, direction }: { value: number; growthGood?: boolean; calc?: Calc | null; className?: string; /** Berilsa — foizda (summa sichqoncha ustida) */ pct?: number | null; direction?: boolean }) {
   const rounded = Math.round(value / 100);
-  const good = rounded === 0 ? null : rounded > 0 === growthGood;
+  const good = rounded === 0 ? null : direction ? rounded > 0 : rounded > 0 === growthGood;
   const amount = `${effectSign(good)}${sum(Math.abs(value))}`;
   const asPct = pct !== undefined && pct !== null && Number.isFinite(pct) && Math.abs(pct) < 1000;
   return (
