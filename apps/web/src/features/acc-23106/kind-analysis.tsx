@@ -1,6 +1,7 @@
 'use client';
 
 import { ExcelButton, GroupTh, MoneyCell, NameCell, PillTabs, ReportCard, RTable, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr, sum } from '@/components/report/report';
+import { ExpandBox } from '@/components/report/nested';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatPeriod, formatPeriodShort } from '@/lib/format';
 import { errorMessage } from '@/lib/error-message';
@@ -302,7 +303,7 @@ export function KindAnalysis({
                   <Tr onClick={() => toggle(k.kind)} onDoubleClick={() => openUnits(k.kind)} title={placesLoader ? "Bosing — ochiladi · ikki marta bosing — bo'limlar / hududlar bo'yicha" : undefined} className={cn('select-none', isOpen && 'bg-brand-50')}>
                     <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
                     <NameCell
-                      before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')}>▸</span>}
+                      before={<ExpandBox open={isOpen} onClick={() => toggle(k.kind)} />}
                       sub={isOpen ? 'yopish uchun bosing' : placesLoader ? "2 marta bosing — bo'limlar / hududlar bo'yicha" : k.kind === 'BOSHQA' ? 'bosing — bank izohlari' : 'bosing — kimga qancha, izohlar'}
                       className="font-medium text-heading"
                     >
@@ -362,6 +363,7 @@ export function KindAnalysis({
                             cols={cols}
                             kindTotal={k.total}
                             safarPost={k.kind === 'SAFAR' ? safarPost : undefined}
+                            no={i + 1}
                           />
                         ))}
                       {modeOf(k.kind) === 'comments' &&
@@ -411,7 +413,9 @@ export function KindAnalysis({
                         ))}
                       {modeOf(k.kind) === 'people' && k.byPerson.slice(0, TOP_PEOPLE).map((p, j) => (
                         <tr key={p.key} className="bg-[#fffaf0] [&>td]:bg-inherit">
-                          <Td className={cn(STICKY_NO, 'text-[11px] text-(--color-text-faint)')}>{j + 1}</Td>
+                          <Td className={cn(STICKY_NO, 'text-[11px] text-(--color-text-faint)')}>
+                            {i + 1}.{j + 1}
+                          </Td>
                           <td className={cn('border-b border-l border-(--color-line) px-1.5 py-1.5 text-left text-[12.5px]', STICKY_NAME)}>
                             <span className="block pl-4 text-heading">{p.name}</span>
                             {p.pinfl && <span className="block pl-4 font-mono text-[10.5px] text-(--color-text-faint)">{p.pinfl}</span>}

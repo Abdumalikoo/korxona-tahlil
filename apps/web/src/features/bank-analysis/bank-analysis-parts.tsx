@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox } from '@/components/report/nested';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
@@ -68,17 +69,19 @@ export function PreviewGroups({ analysis }: { analysis: BankAnalysis }) {
           const rows = (g.rowIds ?? []).map((id) => byId.get(id)).filter((r): r is BankRow => Boolean(r));
           return (
             <li key={g.key}>
-              <button type="button" onClick={() => setOpenKey(isOpen ? null : g.key)} className={cn('flex w-full flex-wrap items-center gap-2 px-5 py-2 text-left hover:bg-(--color-surface-muted)', isOpen && 'bg-brand-50/60')} aria-expanded={isOpen}>
-                <span className="text-(--color-text-faint)">{isOpen ? '▾' : '▸'}</span>
-                <Badge tone={g.dir === 'OUT' ? 'expense' : 'income'}>{DIR_LABEL[g.dir]}</Badge>
-                <KindBadge g={g} />
-                <span className="min-w-0 flex-1 truncate font-medium text-heading" title={`${g.counterparty}\n${g.samples.join('\n')}`}>
-                  {g.name ?? g.counterparty} <span className="font-normal text-(--color-text-muted)">· {g.name ? `${g.counterparty} · ` : ''}{g.samples[0]}</span>
-                </span>
-                <Badge tone={g.pattern === 'ONCE' ? 'warn' : 'neutral'}>{PATTERN_LABEL[g.pattern].toLowerCase()}</Badge>
-                <span className="text-xs text-(--color-text-muted)">{g.count} ta</span>
-                <Money tiyin={g.totalTiyin} tone={g.dir === 'OUT' ? 'expense' : 'income'} />
-              </button>
+              <div className={cn('flex w-full items-center gap-2 pl-5 hover:bg-(--color-surface-muted)', isOpen && 'bg-brand-50/60')}>
+                <ExpandBox open={isOpen} onClick={() => setOpenKey(isOpen ? null : g.key)} />
+                <button type="button" onClick={() => setOpenKey(isOpen ? null : g.key)} className="flex min-w-0 flex-1 flex-wrap items-center gap-2 py-2 pr-5 text-left" aria-expanded={isOpen}>
+                  <Badge tone={g.dir === 'OUT' ? 'expense' : 'income'}>{DIR_LABEL[g.dir]}</Badge>
+                  <KindBadge g={g} />
+                  <span className="min-w-0 flex-1 truncate font-medium text-heading" title={`${g.counterparty}\n${g.samples.join('\n')}`}>
+                    {g.name ?? g.counterparty} <span className="font-normal text-(--color-text-muted)">· {g.name ? `${g.counterparty} · ` : ''}{g.samples[0]}</span>
+                  </span>
+                  <Badge tone={g.pattern === 'ONCE' ? 'warn' : 'neutral'}>{PATTERN_LABEL[g.pattern].toLowerCase()}</Badge>
+                  <span className="text-xs text-(--color-text-muted)">{g.count} ta</span>
+                  <Money tiyin={g.totalTiyin} tone={g.dir === 'OUT' ? 'expense' : 'income'} />
+                </button>
+              </div>
               {isOpen && (
                 <div className="space-y-3 border-t border-(--color-line) bg-(--color-surface-muted)/40 px-5 py-3">
                   <MonthsTable periods={periods} byMonth={g.byMonth} countByMonth={g.countByMonth} cumulative={g.cumulative} />

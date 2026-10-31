@@ -1,6 +1,7 @@
 'use client';
 
 import { PageHeader } from '@/components/layout/page-header';
+import { ExpandBox } from '@/components/report/nested';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorState, LoadingState } from '@/components/ui/states';
@@ -541,11 +542,9 @@ export function CashDaySheet({ adminView = false }: { adminView?: boolean }) {
                       <td className={cn('sticky left-[52px] z-[5] border-b border-r border-(--color-line) px-3 py-1.5 group-hover:bg-brand-50/60', parentRow ? 'bg-slate-50' : 'bg-white')}>
                         <div className="flex items-start gap-2" style={{ paddingLeft: Math.max(0, a.level - 1) * 16 }}>
                           {parentRow ? (
-                            <button type="button" onClick={() => toggle(a.id)} className="mt-0.5 w-3 shrink-0 text-xs text-(--color-text-muted) hover:text-brand-700" aria-label={isOpen ? 'Yig‘ish' : 'Ochish'}>
-                              {isOpen ? '▾' : '▸'}
-                            </button>
+                            <ExpandBox open={isOpen} onClick={() => toggle(a.id)} title={isOpen ? 'Yig‘ish' : 'Ochish'} />
                           ) : (
-                            sub && <span className="mt-0.5 w-3 shrink-0 text-xs text-slate-300">└</span>
+                            sub && <span className="mt-0.5 w-[18px] shrink-0 text-center text-xs text-slate-300">└</span>
                           )}
                           <div className="min-w-0">
                             <p className={cn('leading-snug text-heading', parentRow ? 'font-bold' : 'font-medium', sub && 'text-[12.5px]')}>{a.name}</p>

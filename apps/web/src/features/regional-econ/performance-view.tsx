@@ -264,7 +264,7 @@ export function PerformanceView() {
               </Tr>
             ))}
             <Tr muted>
-              <Td className={STICKY_NO} />
+              <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{rows.length + 1}</Td>
               <NameCell sub="Hududlarga berilgan ulush Markaz xarajatidan chiqarildi" className="font-semibold text-heading">
                 Markaz
               </NameCell>
@@ -279,7 +279,7 @@ export function PerformanceView() {
             </Tr>
             {d.unassigned && (
               <Tr muted className="bg-[#fff8ec]">
-                <Td className={STICKY_NO} />
+                <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{rows.length + 2}</Td>
                 <NameCell sub="Hudud ham, bo'lim ham ko'rsatilmagan yozuvlar" className="font-semibold text-[#b45309]">
                   Biriktirilmagan
                 </NameCell>

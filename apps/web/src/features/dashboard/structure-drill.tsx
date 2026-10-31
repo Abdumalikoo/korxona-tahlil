@@ -1,7 +1,7 @@
 'use client';
 
 import { DiffCell, changeOf, MoneyCell, NameCell, PctCell, RTable, STICKY_NAME, STICKY_NO, Td, Th, Tr } from '@/components/report/report';
-import { IconSpinner } from '@/components/ui/icons';
+import { ExpandBox, nestHead, NestedRow } from '@/components/report/nested';
 import type { DateRange } from '@/components/shared/date-range-picker';
 import { DrillProvider } from '@/features/explore/drill';
 import { partOpens, statsOf, type RegionUnit } from '@/features/regions/api';
@@ -17,6 +17,7 @@ import { useState, type ReactNode } from 'react';
 //          yoki «xizmat turlari (moddalar) bo'yicha» → viloyatlar → yozuvlar
 //   Yo'nalishlar (Tax free, Marksheyder, Fermer, Buxgalteriya) → tuzilmalar / xizmat turlari → … → oylar → yozuvlar
 // Daraxt — Solishtirma › Umumiy bilan bir xil (overall-tree), faqat tanlangan tomon (daromad yoki xarajat) ko'rsatiladi.
+// Ochilgan qator bolalari — qator tagidagi alohida panelda, o'z sarlavhasi va o'z raqamlashi (1, 2, 3 …) bilan.
 // ═══════════════════════════════════════════════════════════
 
 type Kind = 'income' | 'expense';
@@ -173,91 +174,110 @@ function Tree({ units, kind, cmpOn, info, range }: { units: RegionUnit[]; kind: 
   const columns = 3 + (cmpOn ? 3 : 1);
   const rows: ReactNode[] = [];
   let num = 0;
-  const walk = (list: TNode[], depth: number) => {
-    for (const nd of list) {
-      const expandable = Boolean(nd.load || nd.children?.length);
-      const isOpen = open.has(nd.id);
-      const cur = nd.group ? null : (nd[kind] ?? 0);
-      const prev = nd.group ? null : (nd[prevKey] ?? 0);
-      rows.push(
-        <Tr key={nd.id} onClick={expandable ? () => void toggle(nd) : undefined} className={cn(nd.group ? 'bg-[#eef2fb]' : depth > 0 && 'bg-(--color-surface-muted)/40')}>
-          <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{depth === 0 ? ++num : ''}</Td>
-          <NameCell
-            sub={nd.sub}
-            className={cn(depth === 0 && 'font-semibold text-heading', nd.group && 'text-[11px] font-bold uppercase tracking-wide text-brand-700')}
-            before={
-              <span className="flex shrink-0 items-center" style={{ paddingLeft: depth * 18 }}>
-                {loading.has(nd.id) ? (
-                  <IconSpinner className="size-3.5 text-brand-600" />
-                ) : (
-                  <span className={cn('inline-block w-3.5 text-center text-(--color-text-faint)', !expandable && 'invisible')}>{isOpen ? '▾' : '▸'}</span>
-                )}
-              </span>
-            }
-          >
-            <span className="flex flex-wrap items-center gap-2">
-              {nd.label}
-            </span>
-          </NameCell>
-          {cmpOn && (prev === null ? <Td /> : <MoneyCell value={prev} />)}
-          {cur === null ? <Td /> : <MoneyCell value={cur} strong={depth === 0} />}
-          {cmpOn && (cur === null || prev === null ? <Td /> : <DiffCell value={cur - prev} pct={changeOf(cur, prev)} growthGood={kind === 'income'} />)}
-          {cur === null ? <Td /> : <PctCell value={total.cur > 0 ? (cur / total.cur) * 100 : null} plain className="font-normal text-(--color-text-muted)" />}
-        </Tr>,
-      );
-      if (!isOpen) continue;
-      // Hudud — ko'rinishni tanlash (viloyatlar yoki xizmat turlari / moddalar bo'yicha)
-      if (nd.id === 'h:regions')
-        rows.push(
-          <tr key="regions-mode" className="bg-brand-50/50">
-            <td colSpan={columns} className="border-b border-(--color-line) px-3 py-2">
-              <span className="sticky left-3 inline-flex items-center gap-2 pl-8 text-xs">
-                <span className="text-(--color-text-muted)">Ko&apos;rinish:</span>
-                <span className="inline-flex rounded-lg border border-(--color-line-strong) bg-white p-0.5 shadow-sm" role="tablist">
-                  {(
-                    [
-                      ['regions', 'Viloyatlar bo‘yicha'],
-                      ['parts', kind === 'income' ? 'Xizmat turlari bo‘yicha' : 'Moddalar bo‘yicha'],
-                    ] as const
-                  ).map(([m, t]) => (
-                    <button
-                      key={m}
-                      type="button"
-                      role="tab"
-                      aria-selected={regionMode === m}
-                      onClick={() => setRegionMode(m)}
-                      className={cn('rounded-md px-3 py-1 font-medium transition-colors', regionMode === m ? 'bg-brand-600 text-white' : 'text-(--color-text-muted) hover:bg-(--color-surface-muted) hover:text-heading')}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </span>
-              </span>
-            </td>
-          </tr>,
-        );
-      const err = errors.get(nd.id);
-      const kids = kidsOf(nd);
-      if (err)
-        rows.push(
-          <tr key={`${nd.id}:err`}>
-            <td colSpan={columns} className="border-b border-(--color-line) px-3 py-2 text-xs text-(--color-expense)" style={{ paddingLeft: `${1 + (depth + 1) * 1.1}rem` }}>
-              {err}
-            </td>
-          </tr>,
-        );
-      else if (kids && !kids.length && !loading.has(nd.id))
-        rows.push(
-          <tr key={`${nd.id}:empty`}>
-            <td colSpan={columns} className="border-b border-(--color-line) px-3 py-2 text-xs text-(--color-text-faint)" style={{ paddingLeft: `${1 + (depth + 1) * 1.1}rem` }}>
-              Bu davrda {kind === 'income' ? 'daromad' : 'xarajat'} yo&apos;q
-            </td>
-          </tr>,
-        );
-      if (kids) walk(kids, depth + 1);
-    }
+  /** Bitta qator: depth 0 — asosiy jadval (№ va nom qotib turadi), 1+ — panel jadvali (strelka alohida ustunda) */
+  const line = (nd: TNode, depth: number, no: number | null): ReactNode => {
+    const expandable = Boolean(nd.load || nd.children?.length);
+    const isOpen = open.has(nd.id);
+    const cur = nd.group ? null : (nd[kind] ?? 0);
+    const prev = nd.group ? null : (nd[prevKey] ?? 0);
+    const top = depth === 0;
+    const box = <ExpandBox open={isOpen} hidden={!expandable} loading={loading.has(nd.id)} onClick={() => void toggle(nd)} />;
+    return (
+      <Tr key={nd.id} onClick={expandable ? () => void toggle(nd) : undefined} className={cn(nd.group ? 'bg-[#eef2fb]' : !top && isOpen && 'bg-brand-50/60')}>
+        {!top && <Td className="w-8">{box}</Td>}
+        <Td className={cn(top ? STICKY_NO : 'w-9', 'text-(--color-text-faint)')}>{no ?? ''}</Td>
+        <NameCell
+          sticky={top}
+          sub={nd.sub}
+          className={cn((top || isOpen) && 'font-semibold text-heading', nd.group && 'text-[11px] font-bold uppercase tracking-wide text-brand-700')}
+          before={top ? box : undefined}
+        >
+          <span className="flex flex-wrap items-center gap-2">
+            {nd.label}
+          </span>
+        </NameCell>
+        {cmpOn && (prev === null ? <Td /> : <MoneyCell value={prev} />)}
+        {cur === null ? <Td /> : <MoneyCell value={cur} strong={top} />}
+        {cmpOn && (cur === null || prev === null ? <Td /> : <DiffCell value={cur - prev} pct={changeOf(cur, prev)} growthGood={kind === 'income'} />)}
+        {cur === null ? <Td /> : <PctCell value={total.cur > 0 ? (cur / total.cur) * 100 : null} plain className="font-normal text-(--color-text-muted)" />}
+      </Tr>
+    );
   };
-  walk(roots, 0);
+  /** Ochilgan qator tagidagi panel: Hudud ko'rinishi tanlagichi, xato / bo'sh xabari yoki bolalar jadvali */
+  const panelOf = (nd: TNode, depth: number): ReactNode => {
+    // Hudud — ko'rinishni tanlash (viloyatlar yoki xizmat turlari / moddalar bo'yicha)
+    const modeSwitch =
+      nd.id === 'h:regions' ? (
+        <div className="flex items-center gap-2 border-b border-(--color-line) bg-brand-50/50 px-3 py-2 text-xs">
+          <span className="text-(--color-text-muted)">Ko&apos;rinish:</span>
+          <span className="inline-flex rounded-lg border border-(--color-line-strong) bg-white p-0.5 shadow-sm" role="tablist">
+            {(
+              [
+                ['regions', 'Viloyatlar bo‘yicha'],
+                ['parts', kind === 'income' ? 'Xizmat turlari bo‘yicha' : 'Moddalar bo‘yicha'],
+              ] as const
+            ).map(([m, t]) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={regionMode === m}
+                onClick={() => setRegionMode(m)}
+                className={cn('rounded-md px-3 py-1 font-medium transition-colors', regionMode === m ? 'bg-brand-600 text-white' : 'text-(--color-text-muted) hover:bg-(--color-surface-muted) hover:text-heading')}
+              >
+                {t}
+              </button>
+            ))}
+          </span>
+        </div>
+      ) : null;
+    const err = errors.get(nd.id);
+    const kids = kidsOf(nd);
+    const body = err ? (
+      <p className="px-3 py-2 text-xs text-(--color-expense)">{err}</p>
+    ) : kids && !kids.length && !loading.has(nd.id) ? (
+      <p className="px-3 py-2 text-xs text-(--color-text-faint)">Bu davrda {kind === 'income' ? 'daromad' : 'xarajat'} yo&apos;q</p>
+    ) : kids?.length ? (
+      table(kids, depth + 1)
+    ) : null;
+    if (!modeSwitch && !body) return null;
+    return (
+      <NestedRow key={`${nd.id}>`} colSpan={depth === 0 ? columns : columns + 1} level={depth + 1}>
+        {modeSwitch}
+        {body}
+      </NestedRow>
+    );
+  };
+  /** Panel ichidagi jadval: o'z sarlavhasi, o'z raqamlashi (guruh sarlavhalari raqamsiz) */
+  const table = (list: TNode[], depth: number): ReactNode => {
+    const head = cn(nestHead(depth), 'border-l border-(--color-line) text-center first:border-l-0');
+    const body: ReactNode[] = [];
+    let no = 0;
+    for (const nd of list) {
+      body.push(line(nd, depth, nd.group ? null : ++no));
+      if (open.has(nd.id)) body.push(panelOf(nd, depth));
+    }
+    return (
+      <table className="w-full border-separate border-spacing-0 text-sm">
+        <thead>
+          <tr>
+            <th className={cn(head, 'w-8')} />
+            <th className={cn(head, 'w-9')}>№</th>
+            <th className={cn(head, 'min-w-60 text-left')}>Nomi</th>
+            {cmpOn && <th className={head}>O&apos;tgan davr</th>}
+            <th className={head}>Joriy davr</th>
+            {cmpOn && <th className={head}>Farqi, foizda</th>}
+            <th className={head}>Ulushi</th>
+          </tr>
+        </thead>
+        <tbody>{body}</tbody>
+      </table>
+    );
+  };
+  for (const nd of roots) {
+    rows.push(line(nd, 0, ++num));
+    if (open.has(nd.id)) rows.push(panelOf(nd, 0));
+  }
 
   // Ma'lumot qatori — jamiga kirmaydi (bosilsa — o'z sahifasi)
   if (info)

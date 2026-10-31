@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox } from '@/components/report/nested';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ErrorState, LoadingState } from '@/components/ui/states';
@@ -247,16 +248,18 @@ function ExpenseSide({
       <ul className="divide-y divide-(--color-line) text-sm">
         {v.expense.items.map((i) => (
           <li key={i.code}>
-            <button type="button" onClick={() => setOpen(open === i.code ? null : i.code)} className={cn('flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-(--color-surface-muted)', open === i.code && 'bg-brand-50')}>
-              <span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', open === i.code && 'rotate-90')}>▸</span>
-              <span className="min-w-0 flex-1">
-                <span className="font-medium text-heading">{i.label}</span>
-                {i.group && <span className="ml-2 text-xs text-(--color-text-muted)">{i.group}</span>}
-                {i.locked > 0 && <span className="ml-2 text-[11px] text-(--color-text-faint)">avtomatik</span>}
-              </span>
-              <span className="text-xs text-(--color-text-muted)">{i.count} ta</span>
-              <span className="w-36 text-right font-semibold tabular-nums text-(--color-expense)">{formatTiyin(i.totalTiyin)}</span>
-            </button>
+            <div className={cn('flex w-full items-center gap-3 pl-4 hover:bg-(--color-surface-muted)', open === i.code && 'bg-brand-50')}>
+              <ExpandBox open={open === i.code} onClick={() => setOpen(open === i.code ? null : i.code)} />
+              <button type="button" onClick={() => setOpen(open === i.code ? null : i.code)} className="flex min-w-0 flex-1 items-center gap-3 py-2 pr-4 text-left">
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium text-heading">{i.label}</span>
+                  {i.group && <span className="ml-2 text-xs text-(--color-text-muted)">{i.group}</span>}
+                  {i.locked > 0 && <span className="ml-2 text-[11px] text-(--color-text-faint)">avtomatik</span>}
+                </span>
+                <span className="text-xs text-(--color-text-muted)">{i.count} ta</span>
+                <span className="w-36 text-right font-semibold tabular-nums text-(--color-expense)">{formatTiyin(i.totalTiyin)}</span>
+              </button>
+            </div>
             {open === i.code && <RecordsPanel unit={unit} categoryCode={i.code} parentCode={i.parentCode} isAdmin={isAdmin} leaves={leaves} units={units} unitLabel={unitLabel} range={range} onDone={onDone} />}
           </li>
         ))}

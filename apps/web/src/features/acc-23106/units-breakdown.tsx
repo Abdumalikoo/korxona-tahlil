@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox } from '@/components/report/nested';
 import { MoneyCell, STICKY_NAME, STICKY_NO, Td, sum } from '@/components/report/report';
 import { choiceReady, EMPTY_CHOICE, PlacePicker, type MoveChoice } from '@/features/unit-payroll/place-picker';
 import { referencesApi } from '@/features/shared/references';
@@ -71,6 +72,7 @@ export function UnitsBreakdown({
   cols,
   kindTotal,
   safarPost,
+  no,
 }: {
   kind: PayoutKind;
   rows: PayoutRow[];
@@ -82,6 +84,8 @@ export function UnitsBreakdown({
   kindTotal: number;
   /** Faqat xizmat safari: kutayotgan to'lovlarni xarajatga o'tkazish */
   safarPost?: (items: SafarConfirmItem[], categoryCode: string) => Promise<void>;
+  /** Ota qator (tur) raqami — ichki qatorlar «2.1», «2.1.3» tarzida raqamlanadi */
+  no?: number | string;
 }) {
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [posting, setPosting] = useState<string | null>(null);
@@ -141,19 +145,19 @@ export function UnitsBreakdown({
       return next;
     });
 
-  const row = (n: Node, hasKids: boolean) => {
+  const row = (n: Node, hasKids: boolean, index: string) => {
     const isOpen = open.has(n.id);
     const pad = n.level === 1 ? 'pl-4' : n.level === 2 ? 'pl-8' : 'pl-12';
     return (
       <Fragment key={n.id}>
       <tr className={cn('[&>td]:bg-inherit', n.level === 1 ? 'bg-[#f2f6ff]' : n.level === 2 ? 'bg-[#f8faff]' : 'bg-white')}>
-        <Td className={STICKY_NO} />
+        <Td className={cn(STICKY_NO, 'whitespace-nowrap text-[11px] text-(--color-text-faint)')}>{index}</Td>
         <td
           className={cn('border-b border-l border-(--color-line) px-1.5 py-1.5 text-left text-[12.5px]', STICKY_NAME, hasKids && 'cursor-pointer select-none')}
           onClick={hasKids ? () => toggle(n.id) : undefined}
         >
           <span className={cn('flex items-start gap-1.5', pad)}>
-            {hasKids ? <span className={cn('mt-0.5 inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')}>▸</span> : <span className="inline-block w-3" />}
+            <ExpandBox open={isOpen} hidden={!hasKids} onClick={() => toggle(n.id)} />
             <span className="min-w-0">
               <span className={cn('block', n.level === 1 ? 'font-semibold text-heading' : n.level === 2 ? 'font-medium text-heading' : 'text-heading')}>{n.label}</span>
               {n.sub && <span className={cn('block text-[10.5px] text-(--color-text-faint)', n.level === 3 && 'font-mono')}>{n.sub}</span>}
@@ -200,18 +204,21 @@ export function UnitsBreakdown({
 
   return (
     <>
-      {tree.map(({ n, kids }) => (
-        <Fragment key={n.id}>
-          {row(n, kids.length > 0)}
-          {open.has(n.id) &&
-            kids.map(({ n: k, kids: grand }) => (
-              <Fragment key={k.id}>
-                {row(k, grand.length > 0)}
-                {open.has(k.id) && grand.map((g) => row(g, false))}
-              </Fragment>
-            ))}
-        </Fragment>
-      ))}
+      {tree.map(({ n, kids }, a) => {
+        const na = no === undefined ? `${a + 1}` : `${no}.${a + 1}`;
+        return (
+          <Fragment key={n.id}>
+            {row(n, kids.length > 0, na)}
+            {open.has(n.id) &&
+              kids.map(({ n: k, kids: grand }, b) => (
+                <Fragment key={k.id}>
+                  {row(k, grand.length > 0, `${na}.${b + 1}`)}
+                  {open.has(k.id) && grand.map((g, c) => row(g, false, `${na}.${b + 1}.${c + 1}`))}
+                </Fragment>
+              ))}
+          </Fragment>
+        );
+      })}
     </>
   );
 }

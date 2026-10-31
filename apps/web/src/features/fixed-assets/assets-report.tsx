@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox, NestedRow, nestHead } from '@/components/report/nested';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { compact } from '@/features/structure/api';
@@ -17,64 +18,68 @@ import { assetsApi, downloadBalanceReport, type ReportGroup } from './api';
 
 const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--color-text-muted)';
 
-function GroupRow({ g, open, onToggle, residual }: { g: ReportGroup; open: boolean; onToggle: () => void; residual: boolean }) {
+function GroupRow({ g, no, open, onToggle, residual }: { g: ReportGroup; no: number; open: boolean; onToggle: () => void; residual: boolean }) {
+  const h = nestHead(1);
   return (
     <>
-      <tr className="cursor-pointer hover:bg-brand-50/50" onClick={onToggle}>
-        <td className="py-2 pl-4 pr-3">
-          <span className="mr-1.5 inline-block w-3 text-(--color-text-faint)">{open ? '▾' : '▸'}</span>
-          <span className="font-medium text-heading">{g.label}</span>
+      <tr className={cn('cursor-pointer hover:bg-brand-50/50', open && 'bg-brand-50/60')} onClick={onToggle}>
+        <td className="w-12 py-2 pl-4 pr-1 text-center text-(--color-text-faint)">{no}</td>
+        <td className="px-3 py-2">
+          <span className="flex items-center gap-1.5">
+            <ExpandBox open={open} onClick={onToggle} />
+            <span className="font-medium text-heading">{g.label}</span>
+          </span>
         </td>
         <td className="px-3 py-2 text-right tabular-nums">{g.count}</td>
         <td className="px-3 py-2 text-right tabular-nums">{g.quantity}</td>
         <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{compact(g.costTiyin)}</td>
         {residual && <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums">{compact(g.residualTiyin)}</td>}
         <td className="py-2 pl-3 pr-4 text-xs text-(--color-text-muted)">
-          <span className="line-clamp-1">{g.holders.map((h) => `${h.name} (${h.count})`).join(', ')}</span>
+          <span className="line-clamp-1">{g.holders.map((x) => `${x.name} (${x.count})`).join(', ')}</span>
         </td>
       </tr>
       {open && (
-        <tr>
-          <td colSpan={residual ? 6 : 5} className="bg-(--color-surface-muted) px-4 py-3">
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {g.holders.map((h) => (
-                <span key={h.name} className="rounded-full bg-white px-2.5 py-0.5 text-xs shadow-card">
-                  {h.name}: <b>{h.count}</b> ta · {compact(h.costTiyin)}
-                </span>
-              ))}
-            </div>
-            <div className="max-h-96 overflow-auto rounded-(--radius-control) border border-(--color-line) bg-white">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-white">
-                  <tr className="text-left text-[10px] uppercase tracking-wider text-(--color-text-muted)">
-                    <th className="px-3 py-1.5">Sana</th>
-                    <th className="px-3 py-1.5">Nomi</th>
-                    <th className="px-3 py-1.5">Inventar</th>
-                    <th className="px-3 py-1.5 text-right">Soni</th>
-                    <th className="px-3 py-1.5 text-right">Qiymat</th>
-                    <th className="px-3 py-1.5">Qabul qiluvchi</th>
-                    <th className="px-3 py-1.5">Fayldagi bo&apos;lim</th>
-                    <th className="px-3 py-1.5">Rejim</th>
+        <NestedRow colSpan={residual ? 7 : 6}>
+          <div className="flex flex-wrap gap-1.5 border-b border-(--color-line) px-3 py-2">
+            {g.holders.map((x) => (
+              <span key={x.name} className="rounded-full bg-(--color-surface-muted) px-2.5 py-0.5 text-xs">
+                {x.name}: <b>{x.count}</b> ta · {compact(x.costTiyin)}
+              </span>
+            ))}
+          </div>
+          <div className="max-h-96 overflow-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0">
+                <tr>
+                  <th className={cn(h, 'w-10 text-center')}>№</th>
+                  <th className={cn(h, 'text-left')}>Sana</th>
+                  <th className={cn(h, 'text-left')}>Nomi</th>
+                  <th className={cn(h, 'text-left')}>Inventar</th>
+                  <th className={cn(h, 'text-right')}>Soni</th>
+                  <th className={cn(h, 'text-right')}>Qiymat</th>
+                  <th className={cn(h, 'text-left')}>Qabul qiluvchi</th>
+                  <th className={cn(h, 'text-left')}>Fayldagi bo&apos;lim</th>
+                  <th className={cn(h, 'text-left')}>Rejim</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-(--color-line)">
+                {g.items.map((it, i) => (
+                  <tr key={it.id}>
+                    <td className="px-2 py-1 text-center text-(--color-text-faint)">{i + 1}</td>
+                    <td className="whitespace-nowrap px-3 py-1 tabular-nums">{formatDate(it.date)}</td>
+                    <td className="px-3 py-1">{it.name}</td>
+                    <td className="px-3 py-1 tabular-nums">{it.inventoryNo ?? '—'}</td>
+                    <td className="px-3 py-1 text-right tabular-nums">{it.quantity}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-right tabular-nums">{compact(it.costTiyin)}</td>
+                    <td className="px-3 py-1">{it.holderName ?? '—'}</td>
+                    <td className="px-3 py-1 text-(--color-text-muted)">{it.placeText ?? '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-(--color-text-muted)">{it.modeLabel}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-(--color-line)">
-                  {g.items.map((it) => (
-                    <tr key={it.id}>
-                      <td className="whitespace-nowrap px-3 py-1 tabular-nums">{formatDate(it.date)}</td>
-                      <td className="px-3 py-1">{it.name}</td>
-                      <td className="px-3 py-1 tabular-nums">{it.inventoryNo ?? '—'}</td>
-                      <td className="px-3 py-1 text-right tabular-nums">{it.quantity}</td>
-                      <td className="whitespace-nowrap px-3 py-1 text-right tabular-nums">{compact(it.costTiyin)}</td>
-                      <td className="px-3 py-1">{it.holderName ?? '—'}</td>
-                      <td className="px-3 py-1 text-(--color-text-muted)">{it.placeText ?? '—'}</td>
-                      <td className="whitespace-nowrap px-3 py-1 text-(--color-text-muted)">{it.modeLabel}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </td>
-        </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </NestedRow>
       )}
     </>
   );
@@ -165,7 +170,8 @@ export function BalanceReportView({ batches }: { batches: { batch: string; count
             <table className="w-full min-w-[820px] text-sm">
               <thead className="border-b border-(--color-line) bg-(--color-surface-muted)">
                 <tr>
-                  <th className={cn(TH, 'pl-4 text-left')}>Joy — balansda ({formatDate(r.at)})</th>
+                  <th className={cn(TH, 'w-12 pl-4 pr-1 text-center')}>№</th>
+                  <th className={cn(TH, 'text-left')}>Joy — balansda ({formatDate(r.at)})</th>
                   <th className={cn(TH, 'text-right')}>Vositalar</th>
                   <th className={cn(TH, 'text-right')}>Dona</th>
                   <th className={cn(TH, 'text-right')}>Qiymat</th>
@@ -176,17 +182,18 @@ export function BalanceReportView({ batches }: { batches: { batch: string; count
               <tbody className="divide-y divide-(--color-line)">
                 {r.balance.groups.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center text-(--color-text-muted)">
+                    <td colSpan={7} className="px-4 py-6 text-center text-(--color-text-muted)">
                       Bu sanada balansda vosita yo&apos;q
                     </td>
                   </tr>
                 ) : (
-                  r.balance.groups.map((g) => <GroupRow key={g.key} g={g} open={open.has(`b|${g.key}`)} onToggle={() => toggle(`b|${g.key}`)} residual />)
+                  r.balance.groups.map((g, i) => <GroupRow key={g.key} g={g} no={i + 1} open={open.has(`b|${g.key}`)} onToggle={() => toggle(`b|${g.key}`)} residual />)
                 )}
               </tbody>
               <tfoot className="border-t-2 border-(--color-line) bg-(--color-surface-muted) font-semibold">
                 <tr>
-                  <td className="py-2 pl-4">Jami balansda</td>
+                  <td />
+                  <td className="px-3 py-2">Jami balansda</td>
                   <td className="px-3 py-2 text-right tabular-nums">{r.balance.count}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{r.balance.quantity}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{compact(r.balance.costTiyin)}</td>
@@ -204,8 +211,8 @@ export function BalanceReportView({ batches }: { batches: { batch: string; count
               </p>
               <table className="w-full min-w-[720px] text-sm">
                 <tbody className="divide-y divide-(--color-line)">
-                  {r.expensed.groups.map((g) => (
-                    <GroupRow key={g.key} g={g} open={open.has(`x|${g.key}`)} onToggle={() => toggle(`x|${g.key}`)} residual={false} />
+                  {r.expensed.groups.map((g, i) => (
+                    <GroupRow key={g.key} g={g} no={i + 1} open={open.has(`x|${g.key}`)} onToggle={() => toggle(`x|${g.key}`)} residual={false} />
                   ))}
                 </tbody>
               </table>

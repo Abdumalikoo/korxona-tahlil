@@ -2,7 +2,8 @@
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { IconChevronRight, IconSearch } from '@/components/ui/icons';
+import { IconSearch } from '@/components/ui/icons';
+import { ExpandBox } from '@/components/report/nested';
 import { formatDate, formatSum, tiyinToSum } from '@/lib/format';
 import { SEGMENTS, segmentLabel } from '@/lib/segments';
 import { cn } from '@/lib/utils';
@@ -254,25 +255,18 @@ export function CategoryBoard({
           </td>
           <td className="py-2 pr-2" style={{ paddingLeft: 4 + depth * 22 }}>
             <div className="flex min-w-0 items-center gap-1.5">
-              {kids ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setClosed((s) => {
-                      const n = new Set(s);
-                      if (n.has(c.code)) n.delete(c.code);
-                      else n.add(c.code);
-                      return n;
-                    })
-                  }
-                  className="flex size-6 shrink-0 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50"
-                  aria-expanded={isOpen}
-                >
-                  <IconChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
-                </button>
-              ) : (
-                <span className="size-6 shrink-0" />
-              )}
+              <ExpandBox
+                open={isOpen}
+                hidden={!kids}
+                onClick={() =>
+                  setClosed((s) => {
+                    const n = new Set(s);
+                    if (n.has(c.code)) n.delete(c.code);
+                    else n.add(c.code);
+                    return n;
+                  })
+                }
+              />
               <span className={cn('min-w-0 truncate', kids ? 'font-semibold text-heading' : 'text-heading')} title={c.label}>
                 {c.label}
               </span>

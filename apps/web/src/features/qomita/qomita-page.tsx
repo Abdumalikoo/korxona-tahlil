@@ -1,6 +1,7 @@
 'use client';
 
 import { PageHeader } from '@/components/layout/page-header';
+import { ExpandBox, NestedRow, nestHead } from '@/components/report/nested';
 import { MoneyCell, NameCell, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr, sum } from '@/components/report/report';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -290,8 +291,8 @@ function ReportTable({
                   <Tr onClick={() => toggle(r.key)} className={cn(isOpen && 'bg-brand-50/60')}>
                     <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
                     <NameCell
-                      drill
-                      before={<span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')}>▸</span>}
+                      className="font-medium text-heading"
+                      before={<ExpandBox open={isOpen} onClick={() => toggle(r.key)} />}
                       sub={r.key === '-' ? 'daromad turi bo‘limga bog‘lanmagan' : !inc && what.length ? `qoplaydi: ${what.join(', ')}` : undefined}
                     >
                       {r.label}
@@ -330,11 +331,37 @@ function ReportTable({
 
 // ─────────── Ichma-ich: bo'lim ichi ───────────
 
-const TONES = ['bg-[#f7f9fc]', 'bg-[#f0f5fc]', 'bg-[#e9f0fa]'];
+/** Ichki panel (qator tagida): o'z sarlavhasi va raqamlashi bilan; ustunlar — asosiy jadval bilan bir xil */
+function SubPanel({ level, income, title, children }: { level: number; income: boolean; title: string; children: ReactNode }) {
+  const h = nestHead(level);
+  return (
+    <NestedRow colSpan={income ? 3 : 8} level={level}>
+      <table className="w-full">
+        <thead>
+          <tr>
+            <th className={cn(h, 'w-12 text-center')}>№</th>
+            <th className={cn(h, 'min-w-60 text-left')}>{title}</th>
+            <th className={cn(h, 'text-right')}>{income ? 'Kelgan (daromad)' : 'Kelgan'}</th>
+            {!income && (
+              <>
+                <th className={cn(h, 'text-right')}>Ish haqi qismlari</th>
+                <th className={cn(h, 'text-right')}>Boshqa moddalar</th>
+                <th className={cn(h, 'text-right')}>Qoplanishi kerak</th>
+                <th className={cn(h, 'text-right')}>Qoldiq / kamomad</th>
+                <th className={cn(h, 'text-right')}>Qoplandi</th>
+              </>
+            )}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </NestedRow>
+  );
+}
 
 /** Ichki qator: summalar kerakli ustunlarda (null — bo'sh) */
 function SubRow({
-  depth,
+  no,
   label,
   sub,
   allocated = null,
@@ -348,7 +375,8 @@ function SubRow({
   group,
   income = false,
 }: {
-  depth: number;
+  /** Tartib raqami (izoh / guruh qatorida — bo'sh) */
+  no?: number;
   label: ReactNode;
   sub?: ReactNode;
   allocated?: number | null;
@@ -366,11 +394,11 @@ function SubRow({
 }) {
   const cell = (v: number | null, cls?: string) => (v === null ? <Td /> : <MoneyCell value={v} className={cn('text-[12.5px]', v ? cls : 'text-(--color-text-faint)')} />);
   return (
-    <tr className={cn(TONES[Math.min(depth - 1, TONES.length - 1)], '[&>td]:bg-inherit', onClick && 'cursor-pointer hover:brightness-[0.98]')} onClick={onClick}>
-      <Td className={STICKY_NO} />
-      <td className={cn('border-b border-l border-(--color-line) px-1.5 py-2 text-left text-[12.5px]', STICKY_NAME)}>
-        <span className="flex items-start gap-1" style={{ paddingLeft: depth * 14 }}>
-          <span className="w-3 shrink-0 text-[10px] leading-5 text-(--color-text-faint)">{open === undefined ? '·' : open ? '▾' : '▸'}</span>
+    <tr className={cn('[&>td]:bg-inherit', open ? 'bg-brand-50/60' : 'bg-white', onClick && 'cursor-pointer hover:bg-brand-50')} onClick={onClick}>
+      <Td className="w-12 text-center text-(--color-text-faint)">{no ?? ''}</Td>
+      <td className="border-b border-(--color-line) px-1.5 py-2 text-left text-[12.5px]">
+        <span className="flex items-start gap-1.5">
+          <ExpandBox open={Boolean(open)} hidden={open === undefined} onClick={onClick} />
           <span className="min-w-0 flex-1">
             <span className={cn('block text-heading', group && 'font-semibold')}>{label}</span>
             {sub && <span className="block text-[11px] text-(--color-text-muted)">{sub}</span>}
@@ -443,6 +471,8 @@ function RowDetail({
   const otherTotal = n(row.otherTiyin);
   const allocTotal = n(row.allocatedTiyin);
   const partName = new Map(d.payrollParts.map((p) => [p.code, p.name]));
+  const showPay = !inc && (row.components.length > 0 || payrollTotal !== 0);
+  const showOth = !inc && (row.categories.length > 0 || otherTotal !== 0);
 
   async function removeIncome() {
     if (!removing) return;
@@ -461,23 +491,27 @@ function RowDetail({
 
   return (
     <>
+      <SubPanel level={1} income={inc} title="Bo'lim tarkibi">
       {/* Oyma-oy */}
-      <SubRow depth={1} group income={inc} label="Oyma-oy" sub={`${months.length} oy`} open={open.has('months')} onClick={() => toggle('months')} />
-      {open.has('months') &&
-        (months.length ? (
-          months.map(([p, m]) => {
-            const a = n(m.allocated);
-            const pr = n(m.payroll);
-            const o = n(m.other);
-            return inc ? <SubRow key={p} depth={2} income label={formatPeriod(p)} allocated={a} /> : <SubRow key={p} depth={2} label={formatPeriod(p)} allocated={a} payroll={pr} other={o} covered={pr + o} balance={a - pr - o} />;
-          })
-        ) : (
-          <SubRow depth={2} income={inc} label="Bu davrda harakat yo'q" />
-        ))}
+      <SubRow no={1} group income={inc} label="Oyma-oy" sub={`${months.length} oy`} open={open.has('months')} onClick={() => toggle('months')} />
+      {open.has('months') && (
+        <SubPanel level={2} income={inc} title="Oy">
+          {months.length ? (
+            months.map(([p, m], i) => {
+              const a = n(m.allocated);
+              const pr = n(m.payroll);
+              const o = n(m.other);
+              return inc ? <SubRow key={p} no={i + 1} income label={formatPeriod(p)} allocated={a} /> : <SubRow key={p} no={i + 1} label={formatPeriod(p)} allocated={a} payroll={pr} other={o} covered={pr + o} balance={a - pr - o} />;
+            })
+          ) : (
+            <SubRow income={inc} label="Bu davrda harakat yo'q" />
+          )}
+        </SubPanel>
+      )}
 
       {/* Ajratmalar */}
       <SubRow
-        depth={1}
+        no={2}
         group
         income={inc}
         label="Ajratmalar (Qo'mita daromadi)"
@@ -500,42 +534,45 @@ function RowDetail({
           ) : undefined
         }
       />
-      {open.has('inc') &&
-        (d.incomes.length ? (
-          d.incomes.map((x) => (
-            <SubRow
-              key={x.id}
-              depth={2}
-              income={inc}
-              label={`${x.date.split('-').reverse().join('.')} · ${formatPeriod(x.period)} uchun`}
-              sub={[ORIGIN_LABEL[x.origin], x.clientName, x.documentNo ? `№ ${x.documentNo}` : '', x.description].filter(Boolean).join(' · ')}
-              allocated={n(x.amountTiyin)}
-              action={
-                canEdit && (x.origin === 'MANUAL' || x.origin === 'FILE' || x.origin === 'BANK') ? (
-                  <button
-                    type="button"
-                    title="O'chirish"
-                    className="shrink-0 rounded px-1.5 text-xs text-(--color-text-faint) hover:bg-red-50 hover:text-(--color-expense)"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRemoving({ id: x.id, text: `${sum(n(x.amountTiyin))} so'm · ${formatPeriod(x.period)}${x.origin === 'BANK' ? " (bank ko'chirmasidagi yo'naltirish ham bekor qilinadi — to'lov yana «yo'naltirilmagan» bo'ladi)" : ''}` });
-                    }}
-                  >
-                    ✕
-                  </button>
-                ) : undefined
-              }
-            />
-          ))
-        ) : (
-          <SubRow depth={2} income={inc} label="Ajratma kiritilmagan" sub={canEdit ? "«+ Kiritish» yoki pastdagi «Bankdan» kartasi orqali" : inc ? undefined : "Kiritish — Daromadlar › Qo'mita mablag'lari"} />
-        ))}
+      {open.has('inc') && (
+        <SubPanel level={2} income={inc} title="Ajratma">
+          {d.incomes.length ? (
+            d.incomes.map((x, i) => (
+              <SubRow
+                key={x.id}
+                no={i + 1}
+                income={inc}
+                label={`${x.date.split('-').reverse().join('.')} · ${formatPeriod(x.period)} uchun`}
+                sub={[ORIGIN_LABEL[x.origin], x.clientName, x.documentNo ? `№ ${x.documentNo}` : '', x.description].filter(Boolean).join(' · ')}
+                allocated={n(x.amountTiyin)}
+                action={
+                  canEdit && (x.origin === 'MANUAL' || x.origin === 'FILE' || x.origin === 'BANK') ? (
+                    <button
+                      type="button"
+                      title="O'chirish"
+                      className="shrink-0 rounded px-1.5 text-xs text-(--color-text-faint) hover:bg-red-50 hover:text-(--color-expense)"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRemoving({ id: x.id, text: `${sum(n(x.amountTiyin))} so'm · ${formatPeriod(x.period)}${x.origin === 'BANK' ? " (bank ko'chirmasidagi yo'naltirish ham bekor qilinadi — to'lov yana «yo'naltirilmagan» bo'ladi)" : ''}` });
+                      }}
+                    >
+                      ✕
+                    </button>
+                  ) : undefined
+                }
+              />
+            ))
+          ) : (
+            <SubRow income={inc} label="Ajratma kiritilmagan" sub={canEdit ? "«+ Kiritish» yoki pastdagi «Bankdan» kartasi orqali" : inc ? undefined : "Kiritish — Daromadlar › Qo'mita mablag'lari"} />
+          )}
+        </SubPanel>
+      )}
 
       {/* Ish haqi qismlari → xodimlar */}
-      {!inc && (row.components.length > 0 || payrollTotal !== 0) && (
+      {showPay && (
         <>
           <SubRow
-            depth={1}
+            no={3}
             group
             label="Ish haqi qismlari (bo'lim ish haqidan)"
             sub={d.tarkibMissing.length ? `ish haqi tarkibi yuklanmagan: ${d.tarkibMissing.map(formatPeriodShort).join(', ')}` : row.components.map((c) => c.name).join(', ')}
@@ -545,11 +582,11 @@ function RowDetail({
             onClick={() => toggle('pay')}
           />
           {open.has('pay') && (
-            <>
-              {d.payrollParts.map((p) => (
+            <SubPanel level={2} income={false} title="Ish haqi qismi">
+              {d.payrollParts.map((p, i) => (
                 <SubRow
                   key={p.code}
-                  depth={2}
+                  no={i + 1}
                   label={p.name}
                   sub={Object.entries(p.months)
                     .sort(([a], [b]) => a.localeCompare(b))
@@ -559,32 +596,35 @@ function RowDetail({
                   covered={n(p.totalTiyin)}
                 />
               ))}
-              {!d.payrollParts.length && <SubRow depth={2} label="Bu davrda ajratilgan ish haqi qismi yo'q" />}
+              {!d.payrollParts.length && <SubRow label="Bu davrda ajratilgan ish haqi qismi yo'q" />}
               {d.employees.length > 0 && (
-                <SubRow depth={2} group label={`Xodimlar (${d.employees.length})`} payroll={payrollTotal} open={open.has('emp')} onClick={() => toggle('emp')} />
+                <SubRow group label={`Xodimlar (${d.employees.length})`} payroll={payrollTotal} open={open.has('emp')} onClick={() => toggle('emp')} />
               )}
-              {open.has('emp') &&
-                d.employees.map((e) => (
-                  <SubRow
-                    key={e.pinfl}
-                    depth={3}
-                    label={e.fullName}
-                    sub={Object.entries(e.parts)
-                      .map(([c, v]) => `${partName.get(c) ?? c}: ${sum(n(v))}`)
-                      .join(' · ')}
-                    payroll={n(e.totalTiyin)}
-                  />
-                ))}
-            </>
+              {open.has('emp') && (
+                <SubPanel level={3} income={false} title="Xodim">
+                  {d.employees.map((e, i) => (
+                    <SubRow
+                      key={e.pinfl}
+                      no={i + 1}
+                      label={e.fullName}
+                      sub={Object.entries(e.parts)
+                        .map(([c, v]) => `${partName.get(c) ?? c}: ${sum(n(v))}`)
+                        .join(' · ')}
+                      payroll={n(e.totalTiyin)}
+                    />
+                  ))}
+                </SubPanel>
+              )}
+            </SubPanel>
           )}
         </>
       )}
 
       {/* Boshqa moddalar */}
-      {!inc && (row.categories.length > 0 || otherTotal !== 0) && (
+      {showOth && (
         <>
           <SubRow
-            depth={1}
+            no={showPay ? 4 : 3}
             group
             label="Boshqa moddalar (siyosat bo'yicha)"
             sub={row.categories.map((c) => c.label).join(', ')}
@@ -593,31 +633,35 @@ function RowDetail({
             open={open.has('oth')}
             onClick={() => toggle('oth')}
           />
-          {open.has('oth') &&
-            (d.categories.length ? (
-              d.categories.map((c) => (
-                <SubRow
-                  key={c.code}
-                  depth={2}
-                  label={c.label}
-                  sub={[
-                    Object.entries(c.months)
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .map(([m, v]) => `${formatPeriodShort(m)}: ${sum(n(v))}`)
-                      .join(' · '),
-                    c.sub ? `💬 ${c.sub}` : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' — ')}
-                  other={n(c.totalTiyin)}
-                  covered={n(c.totalTiyin)}
-                />
-              ))
-            ) : (
-              <SubRow depth={2} label="Bu davrda shu moddalarda xarajat yo'q" />
-            ))}
+          {open.has('oth') && (
+            <SubPanel level={2} income={false} title="Modda">
+              {d.categories.length ? (
+                d.categories.map((c, i) => (
+                  <SubRow
+                    key={c.code}
+                    no={i + 1}
+                    label={c.label}
+                    sub={[
+                      Object.entries(c.months)
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([m, v]) => `${formatPeriodShort(m)}: ${sum(n(v))}`)
+                        .join(' · '),
+                      c.sub ? `💬 ${c.sub}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' — ')}
+                    other={n(c.totalTiyin)}
+                    covered={n(c.totalTiyin)}
+                  />
+                ))
+              ) : (
+                <SubRow label="Bu davrda shu moddalarda xarajat yo'q" />
+              )}
+            </SubPanel>
+          )}
         </>
       )}
+      </SubPanel>
       {removing !== null &&
         createPortal(
       <ConfirmDialog

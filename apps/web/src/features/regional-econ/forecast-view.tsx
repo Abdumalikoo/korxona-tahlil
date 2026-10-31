@@ -1,6 +1,7 @@
 'use client';
 
 import { changeOf, ExcelButton, Field, FilterBar, MoneyCell, NameCell, PctInline, PillTabs, ReportCard, RTable, SelectBox, StatTiles, STICKY_NAME, STICKY_NO, sum, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { ExpandBox, NEST_CELL, nestHead, NestedRow } from '@/components/report/nested';
 import { MiniButton, NotesList } from '@/components/report/report-extra-b';
 import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
 import { Button } from '@/components/ui/button';
@@ -718,7 +719,7 @@ function RunsView({ d, month, h }: { d: RegionalForecast; month: string; h: numb
                 <Fragment key={r.id}>
                   <Tr onClick={() => setOpen(open === r.id ? null : r.id)} title="Bosing — oylar bo'yicha prognoz va fakt" className={cn(open === r.id && SELECTED)}>
                     <NoCell i={i + 1} />
-                    <NameCell drill sub={r.note || undefined}>
+                    <NameCell sub={r.note || undefined} className="font-medium text-heading" before={<ExpandBox open={open === r.id} onClick={() => setOpen(open === r.id ? null : r.id)} />}>
                       {r.lastLabel} gacha · {r.horizon} oy
                     </NameCell>
                     <Td className="text-left text-xs text-(--color-text-muted)">
@@ -733,41 +734,41 @@ function RunsView({ d, month, h }: { d: RegionalForecast; month: string; h: numb
                     <Td>{isAdmin && <MiniButton onClick={() => setDel(r.id)}>O&apos;chirish</MiniButton>}</Td>
                   </Tr>
                   {open === r.id && (
-                    <Tr muted>
-                      <Td colSpan={8} className="px-5 py-3 text-left">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-left text-(--color-text-muted)">
-                              <th className="py-1 font-semibold">Oy</th>
-                              <th className="px-3 py-1 text-right font-semibold">Daromad: prognoz → fakt</th>
-                              <th className="px-3 py-1 text-right font-semibold">Ish haqi: prognoz → fakt</th>
-                              <th className="px-3 py-1 text-right font-semibold">Xarajat: prognoz → fakt</th>
-                              <th className="py-1 pl-4 font-semibold">Eng katta farq (hudud daromadi)</th>
+                    <NestedRow colSpan={8} level={1}>
+                      <table className="w-full border-separate border-spacing-0 text-xs">
+                        <thead>
+                          <tr>
+                            <th className={cn(nestHead(1), 'w-9')}>№</th>
+                            <th className={cn(nestHead(1), 'text-left')}>Oy</th>
+                            <th className={cn(nestHead(1), 'text-right')}>Daromad: prognoz → fakt</th>
+                            <th className={cn(nestHead(1), 'text-right')}>Ish haqi: prognoz → fakt</th>
+                            <th className={cn(nestHead(1), 'text-right')}>Xarajat: prognoz → fakt</th>
+                            <th className={cn(nestHead(1), 'text-left')}>Eng katta farq (hudud daromadi)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {r.months.map((m, k) => (
+                            <tr key={m.period}>
+                              <td className={cn(NEST_CELL, 'text-center text-(--color-text-faint)')}>{k + 1}</td>
+                              <td className={cn(NEST_CELL, 'font-medium')}>{m.label}</td>
+                              {m.available ? (
+                                <>
+                                  {[m.revenue, m.payroll, m.opex].map((c, j) => (
+                                    <td key={j} className={cn(NEST_CELL, 'whitespace-nowrap text-right')}>
+                                      {sum(c.forecastTiyin)} → {sum(c.actualTiyin)}{' '}
+                                      <b className={cn(c.error !== null && Math.abs(c.error) > 0.1 ? 'text-(--color-expense)' : 'text-heading')}>{share(c.error, true)}</b>
+                                    </td>
+                                  ))}
+                                  <td className={cn(NEST_CELL, 'text-(--color-text-muted)')}>{m.worst.map((w) => `${w.name} ${share(w.error, true)}`).join(', ')}</td>
+                                </>
+                              ) : (
+                                <td colSpan={4} className={cn(NEST_CELL, 'text-(--color-text-faint)')}>hali haqiqiy ma&apos;lumot yo&apos;q</td>
+                              )}
                             </tr>
-                          </thead>
-                          <tbody>
-                            {r.months.map((m) => (
-                              <tr key={m.period} className="border-t border-(--color-line)">
-                                <td className="py-1.5 font-medium">{m.label}</td>
-                                {m.available ? (
-                                  <>
-                                    {[m.revenue, m.payroll, m.opex].map((c, j) => (
-                                      <td key={j} className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
-                                        {sum(c.forecastTiyin)} → {sum(c.actualTiyin)}{' '}
-                                        <b className={cn(c.error !== null && Math.abs(c.error) > 0.1 ? 'text-(--color-expense)' : 'text-heading')}>{share(c.error, true)}</b>
-                                      </td>
-                                    ))}
-                                    <td className="py-1.5 pl-4 text-(--color-text-muted)">{m.worst.map((w) => `${w.name} ${share(w.error, true)}`).join(', ')}</td>
-                                  </>
-                                ) : (
-                                  <td colSpan={4} className="py-1.5 text-(--color-text-faint)">hali haqiqiy ma&apos;lumot yo&apos;q</td>
-                                )}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </Td>
-                    </Tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </NestedRow>
                   )}
                 </Fragment>
               ))}

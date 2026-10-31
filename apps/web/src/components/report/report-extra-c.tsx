@@ -1,6 +1,7 @@
 'use client';
 
 import { DiffCell, MoneyCell, NameCell, PctBadge, PctInline, RTable, STICKY_NAME, STICKY_NO, Td, Th, Tr, changeOf, sum } from '@/components/report/report';
+import { ExpandBox, nestHead, NestedRow } from '@/components/report/nested';
 import { CalcValue } from '@/components/ui/calc';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import type { MarkItem } from '@/features/reactions/api';
@@ -184,16 +185,27 @@ export function PartsTable({
           const isSafar = Boolean(safar) && p.key === 'SAFAR';
           const isPart = Boolean(ctx) && !isVehicle && !isSafar && partOpens(ctx!.unit, p.key);
           const partOpen = isPart && openParts.has(p.key);
+          const expandable = isVehicle || isSafar || isPart;
+          const isOpen = (isVehicle && openVehicles) || (isSafar && openSafar) || partOpen;
+          const onToggle = isVehicle ? () => setOpenVehicles((x) => !x) : isSafar ? () => setOpenSafar((x) => !x) : isPart ? () => togglePart(p.key) : undefined;
           return (
             <Fragment key={p.key}>
-            <Tr onClick={isVehicle ? () => setOpenVehicles((x) => !x) : isSafar ? () => setOpenSafar((x) => !x) : isPart ? () => togglePart(p.key) : undefined}>
+            <Tr onClick={onToggle} className={cn(isOpen && 'bg-brand-50/60')}>
               <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
               <NameCell
-                drill={isVehicle || isSafar || isPart}
                 sub={isVehicle ? (openVehicles ? 'mashinalar bo‘yicha — yopish' : 'bosing — qaysi mashinaga qancha') : isSafar ? (openSafar ? 'xodimlar bo‘yicha — yopish' : 'bosing — kimga qancha, oyma-oy') : isPart ? (partOpen ? 'ichi ochiq — yopish' : 'bosing — ichida nimalar bor') : undefined}
-                before={mark ? <Mark item={mark} /> : undefined}
+                before={
+                  ctx || mark ? (
+                    <>
+                      {ctx && <ExpandBox open={isOpen} hidden={!expandable} onClick={onToggle} />}
+                      {mark && <Mark item={mark} />}
+                    </>
+                  ) : undefined
+                }
               >
-                <span title={p.label}>{p.label}</span>
+                <span title={p.label} className={cn(expandable && 'font-medium text-heading', isOpen && 'font-semibold')}>
+                  {p.label}
+                </span>
               </NameCell>
               <MoneyCell value={previous} />
               <MoneyCell value={amount} />
@@ -205,9 +217,21 @@ export function PartsTable({
               />
               <ShareCell part={amount} total={total} calc={calcShare(`${p.label}: ulush`, Q.money(p.label, amount), Q.money(totalLabel, total))} />
             </Tr>
-            {isVehicle && openVehicles && <VehicleRows query={vehicles!} partTotal={amount} growthGood={growthGood} />}
-            {isSafar && openSafar && <SafarRows query={safar!} partTotal={amount} growthGood={growthGood} />}
-            {partOpen && <PartRows query={ctx!} partKey={p.key} partTotal={amount} growthGood={growthGood} depth={1} />}
+            {isVehicle && openVehicles && (
+              <NestedRow colSpan={6} level={1}>
+                <VehicleRows query={vehicles!} partTotal={amount} growthGood={growthGood} prevHead={label} />
+              </NestedRow>
+            )}
+            {isSafar && openSafar && (
+              <NestedRow colSpan={6} level={1}>
+                <SafarRows query={safar!} partTotal={amount} growthGood={growthGood} prevHead={label} />
+              </NestedRow>
+            )}
+            {partOpen && (
+              <NestedRow colSpan={6} level={1}>
+                <PartRows query={ctx!} partKey={p.key} partTotal={amount} growthGood={growthGood} depth={1} prevHead={label} />
+              </NestedRow>
+            )}
             </Fragment>
           );
         })}
@@ -216,87 +240,95 @@ export function PartsTable({
   );
 }
 
-/** «Mashina xarajatlari» ichi: har mashina (raqami · rusumi, izoh, turlari) — o'tgan / joriy / farq / moddadagi ulushi */
-function VehicleRows({ query, partTotal, growthGood }: { query: VehicleQuery; partTotal: number; growthGood: boolean }) {
-  const res = useAsync(() => vehicleCostsApi.costs(query).then((r) => r.data), [query.unit, query.range.from, query.range.to, query.compare, query.section]);
-  if (res.error)
-    return (
-      <tr>
-        <td colSpan={6} className="border-b border-(--color-line) bg-[#fffaf0] px-4 py-2 text-xs text-(--color-expense)">
-          {res.error}
-        </td>
-      </tr>
-    );
-  if (!res.data)
-    return (
-      <tr>
-        <td colSpan={6} className="border-b border-(--color-line) bg-[#fffaf0] px-4 py-2 text-xs text-(--color-text-muted)">
-          Mashinalar yuklanmoqda…
-        </td>
-      </tr>
-    );
-  if (!res.data.items.length)
-    return (
-      <tr>
-        <td colSpan={6} className="border-b border-(--color-line) bg-[#fffaf0] px-4 py-2 text-xs text-(--color-text-muted)">
-          Bu birlikda mashinaga bog&apos;langan xarajat topilmadi
-        </td>
-      </tr>
-    );
+/** Ichki panel jadvali: o'z sarlavhasi (pog'ona rangi) va o'z raqamlashi — [strelka] · № · Nomi · O'tgan · Joriy · Farqi · Ulushi */
+function SubTable({ level, prevHead, nameHead, expander, children }: { level: number; prevHead: string; nameHead: string; expander?: boolean; children: ReactNode }) {
+  const head = nestHead(level);
   return (
-    <>
-      {res.data.items.map((v) => {
+    <table className="w-full border-separate border-spacing-0 text-[13px]">
+      <thead>
+        <tr>
+          {expander && <th className={cn(head, 'w-8')} />}
+          <th className={cn(head, 'w-9')}>№</th>
+          <th className={cn(head, 'min-w-48 text-left')}>{nameHead}</th>
+          <th className={head}>{prevHead}</th>
+          <th className={head}>Joriy davr</th>
+          <th className={head}>Farqi, foizda</th>
+          <th className={head} title="Moddadagi ulushi">
+            Ulushi
+          </th>
+        </tr>
+      </thead>
+      <tbody>{children}</tbody>
+    </table>
+  );
+}
+
+/** Panel ichidagi izoh (yuklanmoqda / xato / bo'sh) */
+function PanelNote({ text, color = 'text-(--color-text-muted)' }: { text: string; color?: string }) {
+  return <p className={cn('px-3 py-2 text-xs', color)}>{text}</p>;
+}
+
+/** Ichki jadval nom katagi */
+const SUB_NAME = 'border-b border-l border-(--color-line) px-1.5 py-2 text-left text-[12.5px]';
+
+/** Moddadagi ulushi (foizda) */
+function partShare(cur: number, partTotal: number): string {
+  return partTotal > 0 ? `${((cur / partTotal) * 100).toFixed(1).replace('.', ',')}%` : '';
+}
+
+/** «Mashina xarajatlari» ichi: har mashina (raqami · rusumi, izoh, turlari) — o'tgan / joriy / farq / moddadagi ulushi */
+function VehicleRows({ query, partTotal, growthGood, prevHead }: { query: VehicleQuery; partTotal: number; growthGood: boolean; prevHead: string }) {
+  const res = useAsync(() => vehicleCostsApi.costs(query).then((r) => r.data), [query.unit, query.range.from, query.range.to, query.compare, query.section]);
+  if (res.error) return <PanelNote text={res.error} color="text-(--color-expense)" />;
+  if (!res.data) return <PanelNote text="Mashinalar yuklanmoqda…" />;
+  if (!res.data.items.length) return <PanelNote text="Bu birlikda mashinaga bog'langan xarajat topilmadi" />;
+  return (
+    <SubTable level={1} prevHead={prevHead} nameHead="Mashina">
+      {res.data.items.map((v, i) => {
         const cur = Number(v.amountTiyin);
         const prev = Number(v.previousTiyin);
         return (
-          <tr key={v.vehicleId ?? '-'} className="bg-[#fffaf0] [&>td]:bg-inherit">
-            <Td className={STICKY_NO} />
-            <td className={cn('border-b border-l border-(--color-line) px-1.5 py-2 text-left text-[12.5px]', STICKY_NAME)}>
-              <span className="block pl-4">
+          <tr key={v.vehicleId ?? '-'} className="bg-white [&>td]:bg-inherit">
+            <Td className="text-(--color-text-faint)">{i + 1}</Td>
+            <td className={SUB_NAME}>
+              <span className="block">
                 <span className="mr-1.5 rounded border border-(--color-line-strong) bg-white px-1 py-px font-mono text-[11px] font-semibold">{v.plateNumber}</span>
                 <span className="text-heading">{v.model}</span>
               </span>
-              <span className="block pl-4 text-[11px] text-(--color-text-muted)">{v.kinds.map((k) => `${k.label} ${sum(Number(k.amountTiyin))}`).join(' · ')}</span>
-              {v.comment && <span className="block pl-4 text-[11px] text-amber-800">💬 {v.comment}</span>}
+              <span className="block text-[11px] text-(--color-text-muted)">{v.kinds.map((k) => `${k.label} ${sum(Number(k.amountTiyin))}`).join(' · ')}</span>
+              {v.comment && <span className="block text-[11px] text-amber-800">💬 {v.comment}</span>}
             </td>
             <MoneyCell value={prev} className="text-(--color-text-muted)" />
             <MoneyCell value={cur} />
             <DiffCell value={cur - prev} pct={changeOf(cur, prev)} growthGood={growthGood} />
-            <Td className="text-xs text-(--color-text-muted)">{partTotal > 0 ? `${((cur / partTotal) * 100).toFixed(1).replace('.', ',')}%` : ''}</Td>
+            <Td className="text-xs text-(--color-text-muted)">{partShare(cur, partTotal)}</Td>
           </tr>
         );
       })}
-    </>
+    </SubTable>
   );
 }
 
 /** «Xizmat safari» ichi: har xodim (F.I.Sh., ishlagan joyi, oylar) — o'tgan / joriy / farq / moddadagi ulushi */
-function SafarRows({ query, partTotal, growthGood }: { query: VehicleQuery; partTotal: number; growthGood: boolean }) {
+function SafarRows({ query, partTotal, growthGood, prevHead }: { query: VehicleQuery; partTotal: number; growthGood: boolean; prevHead: string }) {
   const res = useAsync(() => safarCostsApi.costs(query).then((r) => r.data), [query.unit, query.range.from, query.range.to, query.compare, query.section]);
-  const note = (text: string, tone = 'text-(--color-text-muted)') => (
-    <tr>
-      <td colSpan={6} className={cn('border-b border-(--color-line) bg-[#f5f8ff] px-4 py-2 text-xs', tone)}>
-        {text}
-      </td>
-    </tr>
-  );
-  if (res.error) return note(res.error, 'text-(--color-expense)');
-  if (!res.data) return note('Xodimlar yuklanmoqda…');
-  if (!res.data.items.length) return note("Bu birlikda 23106 dan o'tkazilgan xizmat safari topilmadi (qo'lda yozilganlari — umumiy summada)");
+  if (res.error) return <PanelNote text={res.error} color="text-(--color-expense)" />;
+  if (!res.data) return <PanelNote text="Xodimlar yuklanmoqda…" />;
+  if (!res.data.items.length) return <PanelNote text="Bu birlikda 23106 dan o'tkazilgan xizmat safari topilmadi (qo'lda yozilganlari — umumiy summada)" />;
   return (
-    <>
-      {res.data.items.map((v) => {
+    <SubTable level={1} prevHead={prevHead} nameHead="Xodim">
+      {res.data.items.map((v, i) => {
         const cur = Number(v.amountTiyin);
         const prev = Number(v.previousTiyin);
         const months = Object.entries(v.months);
         return (
-          <tr key={v.key} className="bg-[#f5f8ff] [&>td]:bg-inherit">
-            <Td className={STICKY_NO} />
-            <td className={cn('border-b border-l border-(--color-line) px-1.5 py-2 text-left text-[12.5px]', STICKY_NAME)}>
-              <span className="block pl-4 text-heading">{v.fullName}</span>
-              {v.placeLabel && <span className="block pl-4 text-[11px] text-(--color-text-muted)">{v.placeLabel}</span>}
+          <tr key={v.key} className="bg-white [&>td]:bg-inherit">
+            <Td className="text-(--color-text-faint)">{i + 1}</Td>
+            <td className={SUB_NAME}>
+              <span className="block text-heading">{v.fullName}</span>
+              {v.placeLabel && <span className="block text-[11px] text-(--color-text-muted)">{v.placeLabel}</span>}
               {months.length > 0 && (
-                <span className="block pl-4 text-[11px] text-(--color-text-faint)">
+                <span className="block text-[11px] text-(--color-text-faint)">
                   {months.map(([m, t]) => `${formatPeriodShort(m)}: ${sum(Number(t))}`).join(' · ')}
                   {v.count > 1 ? ` · ${v.count} ta to'lov` : ''}
                 </span>
@@ -305,32 +337,21 @@ function SafarRows({ query, partTotal, growthGood }: { query: VehicleQuery; part
             <MoneyCell value={prev} className="text-(--color-text-muted)" />
             <MoneyCell value={cur} />
             <DiffCell value={cur - prev} pct={changeOf(cur, prev)} growthGood={growthGood} />
-            <Td className="text-xs text-(--color-text-muted)">{partTotal > 0 ? `${((cur / partTotal) * 100).toFixed(1).replace('.', ',')}%` : ''}</Td>
+            <Td className="text-xs text-(--color-text-muted)">{partShare(cur, partTotal)}</Td>
           </tr>
         );
       })}
-    </>
+    </SubTable>
   );
 }
 
-const PART_TONE = ['bg-[#f7f9fc]', 'bg-[#f1f5fb]', 'bg-[#ebf1f9]', 'bg-[#e5edf7]'];
-
-/** Boshqa moddalar ichi — ichma-ich: guruh → moddalar → kontragent / joy. Kalitli qator yana ochiladi. */
-function PartRows({ query, partKey, partTotal, growthGood, depth }: { query: VehicleQuery; partKey: string; partTotal: number; growthGood: boolean; depth: number }) {
+/** Boshqa moddalar ichi — ichma-ich panellar: guruh → moddalar → kontragent / joy. Kalitli qator tagida yana panel ochiladi. */
+function PartRows({ query, partKey, partTotal, growthGood, depth, prevHead }: { query: VehicleQuery; partKey: string; partTotal: number; growthGood: boolean; depth: number; prevHead: string }) {
   const res = useAsync(() => partDetailApi.detail({ ...query, key: partKey }).then((r) => r.data), [query.unit, partKey, query.range.from, query.range.to, query.compare, query.section]);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
-  const tone = PART_TONE[Math.min(depth - 1, PART_TONE.length - 1)];
-  const pad = { paddingLeft: `${depth * 14}px` };
-  const note = (text: string, color = 'text-(--color-text-muted)') => (
-    <tr>
-      <td colSpan={6} className={cn('border-b border-(--color-line) px-4 py-2 text-xs', tone, color)}>
-        <span style={pad}>{text}</span>
-      </td>
-    </tr>
-  );
-  if (res.error) return note(res.error, 'text-(--color-expense)');
-  if (!res.data) return note('Yuklanmoqda…');
-  if (!res.data.items.length) return note('Bu qismda yozuv topilmadi');
+  if (res.error) return <PanelNote text={res.error} color="text-(--color-expense)" />;
+  if (!res.data) return <PanelNote text="Yuklanmoqda…" />;
+  if (!res.data.items.length) return <PanelNote text="Bu qismda yozuv topilmadi" />;
   const toggle = (k: string) =>
     setOpen((s) => {
       const next = new Set(s);
@@ -339,7 +360,7 @@ function PartRows({ query, partKey, partTotal, growthGood, depth }: { query: Veh
       return next;
     });
   return (
-    <>
+    <SubTable level={depth} prevHead={prevHead} nameHead="Nomi" expander>
       {res.data.items.map((v: PartDetailItem, idx) => {
         const cur = Number(v.amountTiyin);
         const prev = Number(v.previousTiyin);
@@ -347,29 +368,35 @@ function PartRows({ query, partKey, partTotal, growthGood, depth }: { query: Veh
         const isOpen = k !== null && open.has(k);
         return (
           <Fragment key={k ?? `${idx}:${v.label}`}>
-            <tr className={cn(tone, '[&>td]:bg-inherit', k && 'cursor-pointer hover:brightness-[0.98]')} onClick={k ? () => toggle(k) : undefined}>
-              <Td className={STICKY_NO} />
-              <td className={cn('border-b border-l border-(--color-line) px-1.5 py-2 text-left text-[12.5px]', STICKY_NAME)}>
-                <span className="flex items-start gap-1" style={pad}>
-                  <span className="w-3 shrink-0 text-[10px] leading-5 text-(--color-text-faint)">{k ? (isOpen ? '▾' : '▸') : '·'}</span>
-                  <span className="min-w-0">
-                    <span className="block text-heading" title={v.label}>
-                      {v.label}
-                    </span>
-                    {v.count > 0 && <span className="block text-[11px] text-(--color-text-muted)">{count(v.count)} ta yozuv</span>}
-                    {v.sub && <span className="block truncate text-[11px] text-(--color-text-faint)" title={v.sub}>💬 {v.sub}</span>}
-                  </span>
+            <tr className={cn('[&>td]:bg-inherit', isOpen ? 'bg-brand-50/60' : 'bg-white', k && 'cursor-pointer hover:bg-brand-50')} onClick={k ? () => toggle(k) : undefined}>
+              <Td className="w-8">
+                <ExpandBox open={isOpen} hidden={!k} onClick={k ? () => toggle(k) : undefined} />
+              </Td>
+              <Td className="text-(--color-text-faint)">{idx + 1}</Td>
+              <td className={SUB_NAME}>
+                <span className={cn('block text-heading', isOpen && 'font-semibold')} title={v.label}>
+                  {v.label}
                 </span>
+                {v.count > 0 && <span className="block text-[11px] text-(--color-text-muted)">{count(v.count)} ta yozuv</span>}
+                {v.sub && (
+                  <span className="block truncate text-[11px] text-(--color-text-faint)" title={v.sub}>
+                    💬 {v.sub}
+                  </span>
+                )}
               </td>
               <MoneyCell value={prev} className="text-(--color-text-muted)" />
               <MoneyCell value={cur} />
               <DiffCell value={cur - prev} pct={changeOf(cur, prev)} growthGood={growthGood} />
-              <Td className="text-xs text-(--color-text-muted)">{partTotal > 0 ? `${((cur / partTotal) * 100).toFixed(1).replace('.', ',')}%` : ''}</Td>
+              <Td className="text-xs text-(--color-text-muted)">{partShare(cur, partTotal)}</Td>
             </tr>
-            {isOpen && <PartRows query={query} partKey={k!} partTotal={partTotal} growthGood={growthGood} depth={depth + 1} />}
+            {isOpen && (
+              <NestedRow colSpan={7} level={depth + 1}>
+                <PartRows query={query} partKey={k!} partTotal={partTotal} growthGood={growthGood} depth={depth + 1} prevHead={prevHead} />
+              </NestedRow>
+            )}
           </Fragment>
         );
       })}
-    </>
+    </SubTable>
   );
 }

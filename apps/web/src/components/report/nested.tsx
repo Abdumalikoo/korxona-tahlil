@@ -1,16 +1,16 @@
 'use client';
 
-import { IconSpinner } from '@/components/ui/icons';
+import { IconChevronRight, IconSpinner } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import type { ReactNode } from 'react';
 
 // ═══════════════════════════════════════════════════════════
-// Ichma-ich jadvallar — yagona ko'rinish: qator chapida [+] / [−] kvadrati; bosilsa qator tagida chapdan surilgan
+// Ichma-ich jadvallar — yagona ko'rinish: qator chapida strelka (› / ⌄); bosilsa qator tagida chapdan surilgan
 // alohida panel ochiladi — o'z sarlavhasi, o'z raqamlashi bilan; panel ichidagi qator ham shu tarzda ochiladi.
 // Sarlavha rangi pog'onaga qarab: 1 — och ko'k, 2 — och kulrang, 3+ — oq-kulrang.
 // ═══════════════════════════════════════════════════════════
 
-/** Ochib-yopish kvadrati: [+] yopiq, [−] ochiq; bolasi yo'q — bo'sh joy (ustun tekis qolsin) */
+/** Ochib-yopish strelkasi: › yopiq, ⌄ (pastga burilgan) ochiq; bolasi yo'q — bo'sh joy (ustun tekis qolsin) */
 export function ExpandBox({ open, onClick, loading, hidden, title }: { open: boolean; onClick?: () => void; loading?: boolean; hidden?: boolean; title?: string }) {
   if (hidden) return <span className="inline-block size-[18px] shrink-0" aria-hidden />;
   if (loading) return <IconSpinner className="size-[18px] shrink-0 p-0.5 text-brand-600" />;
@@ -23,12 +23,9 @@ export function ExpandBox({ open, onClick, loading, hidden, title }: { open: boo
       }}
       aria-expanded={open}
       title={title ?? (open ? 'Yopish' : 'Ochish')}
-      className={cn(
-        'inline-flex size-[18px] shrink-0 items-center justify-center rounded-[4px] border text-[13px] font-bold leading-none transition-colors',
-        open ? 'border-brand-600 bg-brand-600 text-white hover:bg-brand-700' : 'border-(--color-line-strong) bg-white text-(--color-text-muted) hover:border-brand-400 hover:text-brand-700',
-      )}
+      className={cn('inline-flex size-[18px] shrink-0 items-center justify-center rounded transition-colors', open ? 'text-brand-700' : 'text-(--color-text-muted) hover:bg-brand-50 hover:text-brand-700')}
     >
-      {open ? '−' : '+'}
+      <IconChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
     </button>
   );
 }

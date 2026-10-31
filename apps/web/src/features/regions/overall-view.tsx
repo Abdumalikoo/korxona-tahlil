@@ -37,6 +37,7 @@ import { createContext, useContext, useMemo, useState } from 'react';
 import { KIND_LABEL, regionsApi, statsOf, type RegionsResult, type RegionUnit, type UnitStats } from './api';
 import { UnassignedDrawer } from './unassigned-drawer';
 import { MonthsTable } from './overall-tables';
+import { EmployeesCutView } from './employees-cut';
 import { UnitTree } from './overall-tree';
 import { BridgeTree } from './bridge-tree';
 import { DrillProvider } from '@/features/explore/drill';
@@ -135,7 +136,7 @@ function subOf(s: UnitStats): string {
 // Asosiy komponent
 // ═══════════════════════════════════════════════════════════
 
-type View = 'result' | 'months' | 'bridge';
+type View = 'result' | 'months' | 'employees' | 'bridge';
 
 const REGIONS_KEY = '__regions';
 
@@ -192,10 +193,16 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
   const shownRegions = activeRegions.filter(match);
   /** «Hudud» guruhi: bosilganda yoki qidiruv viloyatga mos kelganda ochiq */
   const regionsOpen = opened.has(REGIONS_KEY) || (q !== '' && shownRegions.length > 0);
+  /** Tartib raqami: Markaz, Hudud, yo'nalishlar, biriktirilmagan — 1, 2, 3 …; viloyat — «Hudud» raqami ichida */
+  const topNo = new Map<string, number>();
+  let topCount = 0;
+  if (center) topNo.set(center.unit.key, ++topCount);
+  const regionsNo = activeRegions.length > 0 ? ++topCount : 0;
+  for (const x of [...segments, ...(unassigned ? [unassigned] : [])]) topNo.set(x.unit.key, ++topCount);
   /** Birlik qatori (bosilsa — joyida ichma-ich daraxt); depth 1 — «Hudud» ichidagi viloyat */
   const unitRow = (s: UnitStats, depth: number) => {
     const isOpen = opened.has(s.unit.key);
-    const index = s.unit.kind === 'region' ? activeRegions.indexOf(s) + 1 : null;
+    const index = s.unit.kind === 'region' ? `${regionsNo}.${activeRegions.indexOf(s) + 1}` : topNo.get(s.unit.key);
     return (
     <Fragment key={s.unit.key}>
       <Tr onClick={() => toggle(s.unit.key)} className={cn(isOpen && 'bg-brand-50')}>
@@ -303,6 +310,7 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
   const views: { value: View; label: string }[] = [
     { value: 'result', label: 'Natija jadvali' },
     { value: 'months', label: 'Oylar kesimida' },
+    { value: 'employees', label: 'Xodimlar kesimida' },
     { value: 'bridge', label: 'Natija qanday shakllanadi' },
   ];
 
@@ -357,7 +365,7 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
               {/* Hudud — bitta qator; bosilsa viloyatlar ochiladi */}
               {activeRegions.length > 0 && (shownRegions.length > 0 || !q) && (
                 <Tr onClick={() => toggle(REGIONS_KEY)} className={cn('bg-[#f1f5fe] font-semibold', regionsOpen && 'bg-brand-50')}>
-                  <Td className={STICKY_NO} />
+                  <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{regionsNo}</Td>
                   <NameCell
                     before={<ExpandBox open={regionsOpen} onClick={() => toggle(REGIONS_KEY)} />}
                     sub={`${activeRegions.length} viloyat · ${count(reg.headcount)} xodim · bosing — viloyatlar`}
@@ -384,6 +392,7 @@ function Body({ data, loading }: { data: RegionsResult; loading: boolean }) {
       )}
 
       {view === 'months' && <MonthsTable units={units} months={data.months} range={data.range} onOpen={open} />}
+      {view === 'employees' && <EmployeesCutView range={data.range} />}
 
       {view === 'bridge' && <BridgeTree center={center} regions={activeRegions} segments={segments} unassigned={unassigned} compareLabel={data.compareLabel} period={`Joriy: ${period} · ${data.compareLabel}: ${previousPeriod}`} notes={data.notes} />}
 

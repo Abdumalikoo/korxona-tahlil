@@ -1,6 +1,7 @@
 'use client';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
+import { ExpandBox, nestHead, NestedRow } from '@/components/report/nested';
 import {
   changeOf,
   DiffCell,
@@ -248,7 +249,7 @@ function CenterBody({ data, coverage, onDepartment, vehicles }: { data: CenterDe
                 const sub = [d.headcount ? `${count(d.headcount)} xodim` : '', d.topParts.length ? `asosan: ${d.topParts.map((p) => p.label).join(', ')}` : ''].filter(Boolean).join(' · ');
                 return (
                   <Tr key={d.id} onClick={() => onDepartment(d)} muted={d.unassigned}>
-                    <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{d.unassigned ? '' : i + 1}</Td>
+                    <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
                     <NameCell
                       drill
                       before={<Mark item={departmentMark(d.id, d.name, 'EXPENSE', data.section)} />}
@@ -601,7 +602,8 @@ function DepartmentBody({ data, onEmployee, vehicles }: { data: DepartmentDetail
 
 /**
  * Markaz hisobidan (Xarajatlar siyosati bo'yicha) to'langan xarajatlar — qaysi hudud uchun.
- * Hudud bosilsa — moddalar (bayram, mukofot, xizmat safari …), modda bosilsa — oyma-oy.
+ * Hudud bosilsa — moddalar (bayram, mukofot, xizmat safari …), modda bosilsa — oyma-oy; har biri qator tagidagi
+ * alohida panelda, o'z sarlavhasi va raqamlashi bilan.
  */
 function RegionalByTable({ data, total }: { data: CenterDetailResult; total: number }) {
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -642,11 +644,8 @@ function RegionalByTable({ data, total }: { data: CenterDetailResult; total: num
         ['Jami hududlar uchun', '', '', csvSom(total), '100'],
       ],
     );
-  const chevron = (isOpen: boolean, can: boolean, depth: number) => (
-    <span className="flex shrink-0 items-center" style={{ paddingLeft: depth * 18 }}>
-      <span className={cn('inline-block w-3.5 text-center text-(--color-text-faint)', !can && 'invisible')}>{isOpen ? '▾' : '▸'}</span>
-    </span>
-  );
+  /** Ichki panel sarlavhasi (pog'ona bo'yicha) */
+  const nh = (level: number) => cn(nestHead(level), 'border-l border-(--color-line) text-center first:border-l-0');
 
   return (
     <ReportCard
@@ -691,7 +690,7 @@ function RegionalByTable({ data, total }: { data: CenterDetailResult; total: num
                 const out = [
                   <Tr key={k} onClick={parts.length ? () => toggle(k) : undefined}>
                     <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
-                    <NameCell before={chevron(rOpen, parts.length > 0, 0)} sub={parts.length ? `${r.parts.length} ta modda` : undefined}>
+                    <NameCell before={<ExpandBox open={rOpen} hidden={!parts.length} onClick={() => toggle(k)} />} sub={parts.length ? `${r.parts.length} ta modda` : undefined}>
                       {r.name}
                     </NameCell>
                     <MoneyCell value={amount} calc={calcSum(r.name, r.parts.map((p) => Q.money(p.label, p.amountTiyin)))} />
@@ -699,32 +698,70 @@ function RegionalByTable({ data, total }: { data: CenterDetailResult; total: num
                   </Tr>,
                 ];
                 if (!rOpen) return out;
-                for (const p of parts) {
-                  const pk = `${k}|${p.key}`;
-                  const pOpen = open.has(pk);
-                  out.push(
-                    <Tr key={pk} onClick={p.months.length ? () => toggle(pk) : undefined} className="bg-(--color-surface-muted)/40">
-                      <Td className={STICKY_NO} />
-                      <NameCell before={chevron(pOpen, p.months.length > 0, 1)} sub={p.months.length > 1 ? `${p.months.length} oy` : p.months[0] ? formatPeriod(p.months[0].period) : undefined}>
-                        {p.label}
-                      </NameCell>
-                      <MoneyCell value={Number(p.amountTiyin)} />
-                      <ShareCell part={Number(p.amountTiyin)} total={amount} calc={calcShare(`${p.label}: ${r.name} ichidagi ulushi`, Q.money(p.label, p.amountTiyin), Q.money(r.name, r.amountTiyin))} />
-                    </Tr>,
-                  );
-                  if (pOpen)
-                    for (const m of p.months)
-                      out.push(
-                        <Tr key={`${pk}|${m.period}`} className="bg-(--color-surface-muted)/70">
-                          <Td className={STICKY_NO} />
-                          <NameCell before={chevron(false, false, 2)} className="font-normal text-(--color-text-muted)">
-                            {formatPeriod(m.period)}
-                          </NameCell>
-                          <MoneyCell value={Number(m.amountTiyin)} className="text-(--color-text-muted)" />
-                          <Td />
-                        </Tr>,
-                      );
-                }
+                // Hudud tagidagi panel: moddalar (o'z raqamlashi); modda ochilsa — yana panel: oylar
+                const canMonths = parts.some((p) => p.months.length > 0);
+                out.push(
+                  <NestedRow key={`${k}>`} colSpan={4} level={1}>
+                    <table className="w-full border-separate border-spacing-0 text-sm">
+                      <thead>
+                        <tr>
+                          {canMonths && <th className={cn(nh(1), 'w-8')} />}
+                          <th className={cn(nh(1), 'w-9')}>№</th>
+                          <th className={cn(nh(1), 'min-w-56 text-left')}>Modda</th>
+                          <th className={nh(1)}>Summasi</th>
+                          <th className={nh(1)}>Ulushi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {parts.flatMap((p, j) => {
+                          const pk = `${k}|${p.key}`;
+                          const pOpen = open.has(pk);
+                          const pRows = [
+                            <Tr key={pk} onClick={p.months.length ? () => toggle(pk) : undefined} className={cn(pOpen && 'bg-brand-50/60')}>
+                              {canMonths && (
+                                <Td className="w-8">
+                                  <ExpandBox open={pOpen} hidden={!p.months.length} onClick={() => toggle(pk)} />
+                                </Td>
+                              )}
+                              <Td className="w-9 text-(--color-text-faint)">{j + 1}</Td>
+                              <NameCell sticky={false} sub={p.months.length > 1 ? `${p.months.length} oy` : p.months[0] ? formatPeriod(p.months[0].period) : undefined} className={cn(pOpen && 'font-semibold text-heading')}>
+                                {p.label}
+                              </NameCell>
+                              <MoneyCell value={Number(p.amountTiyin)} />
+                              <ShareCell part={Number(p.amountTiyin)} total={amount} calc={calcShare(`${p.label}: ${r.name} ichidagi ulushi`, Q.money(p.label, p.amountTiyin), Q.money(r.name, r.amountTiyin))} />
+                            </Tr>,
+                          ];
+                          if (pOpen)
+                            pRows.push(
+                              <NestedRow key={`${pk}>`} colSpan={canMonths ? 5 : 4} level={2}>
+                                <table className="w-full border-separate border-spacing-0 text-sm">
+                                  <thead>
+                                    <tr>
+                                      <th className={cn(nh(2), 'w-9')}>№</th>
+                                      <th className={cn(nh(2), 'text-left')}>Oy</th>
+                                      <th className={nh(2)}>Summasi</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {p.months.map((m, mi) => (
+                                      <Tr key={`${pk}|${m.period}`}>
+                                        <Td className="w-9 text-(--color-text-faint)">{mi + 1}</Td>
+                                        <NameCell sticky={false} className="font-normal text-(--color-text-muted)">
+                                          {formatPeriod(m.period)}
+                                        </NameCell>
+                                        <MoneyCell value={Number(m.amountTiyin)} className="text-(--color-text-muted)" />
+                                      </Tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </NestedRow>,
+                            );
+                          return pRows;
+                        })}
+                      </tbody>
+                    </table>
+                  </NestedRow>,
+                );
                 return out;
               })}
             </tbody>

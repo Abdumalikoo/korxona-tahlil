@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox, NEST_CELL, NestedRow, nestHead } from '@/components/report/nested';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -229,7 +230,8 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-[1] bg-(--color-surface-muted) text-[11px] uppercase tracking-wide text-(--color-text-muted)">
               <tr>
-                <th className="px-4 py-2 text-left font-semibold">Viloyat › tuman › xodim</th>
+                <th className="w-12 px-2 py-2 text-center font-semibold">№</th>
+                <th className="px-2 py-2 text-left font-semibold">Viloyat</th>
                 <th className="w-28 px-2 py-2 text-right font-semibold">To&apos;lovlar</th>
                 <th className="w-40 px-2 py-2 text-right font-semibold">23106 summa</th>
                 <th className="w-40 px-2 py-2 text-right font-semibold">Ajratiladi</th>
@@ -237,14 +239,19 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
               </tr>
             </thead>
             <tbody>
-              {tree.map((r) => {
+              {tree.map((r, ri) => {
                 const ro = openReg.has(r.regionCode);
                 return (
                   <Fragment key={r.regionCode}>
                     <tr className={cn('cursor-pointer border-t border-(--color-line) bg-[#f6f8fd] font-semibold hover:bg-brand-50', ro && 'bg-brand-50')} onClick={() => setOpenReg((o) => toggled(o, r.regionCode))}>
-                      <td className="px-4 py-2 text-heading">
-                        <Caret open={ro} />
-                        {r.name} <span className="text-xs font-normal text-(--color-text-muted)">· {r.people} xodim</span>
+                      <td className="px-2 py-2 text-center font-normal text-(--color-text-faint)">{ri + 1}</td>
+                      <td className="px-2 py-2 text-heading">
+                        <span className="flex items-center gap-1.5">
+                          <ExpandBox open={ro} onClick={() => setOpenReg((o) => toggled(o, r.regionCode))} />
+                          <span>
+                            {r.name} <span className="text-xs font-normal text-(--color-text-muted)">· {r.people} xodim</span>
+                          </span>
+                        </span>
                       </td>
                       <td className="money px-2 py-2 text-right">{r.count}</td>
                       <td className="px-2 py-2 text-right">
@@ -255,36 +262,60 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
                       </td>
                       <td className="px-3 py-2" />
                     </tr>
-                    {ro &&
-                      r.districts.map((d) => {
-                        const dk = `${r.regionCode}|${d.districtId ?? ''}`;
-                        const dop = openDis.has(dk);
-                        return (
-                          <Fragment key={dk}>
-                            <tr className="cursor-pointer border-t border-(--color-line) hover:bg-(--color-surface-muted)" onClick={() => setOpenDis((o) => toggled(o, dk))}>
-                              <td className={cn('py-2 pr-2 pl-9 font-medium', d.districtId ? 'text-heading' : 'text-(--color-warn)')}>
-                                <Caret open={dop} />
-                                {d.name} <span className="text-xs font-normal text-(--color-text-muted)">· {d.employees.length} xodim</span>
-                              </td>
-                              <td className="money px-2 py-2 text-right">{d.count}</td>
-                              <td className="px-2 py-2 text-right">
-                                <Money tiyin={d.totalTiyin} />
-                              </td>
-                              <td className="px-2 py-2 text-right">
-                                <Money tiyin={d.movableTiyin} tone="expense" />
-                              </td>
-                              <td className="px-3 py-2" />
-                            </tr>
-                            {dop && d.employees.map((e) => <EmpRow key={`${e.period}|${e.pinfl}`} e={e} showMonth={month === 'ALL'} />)}
-                          </Fragment>
-                        );
-                      })}
+                    {ro && (
+                      <NestedRow colSpan={6} level={1}>
+                        <table className="w-full text-sm">
+                          <BayramHead level={1} title="Tuman" />
+                          <tbody>
+                            {r.districts.map((d, di) => {
+                              const dk = `${r.regionCode}|${d.districtId ?? ''}`;
+                              const dop = openDis.has(dk);
+                              return (
+                                <Fragment key={dk}>
+                                  <tr className={cn('cursor-pointer hover:bg-brand-50', dop && 'bg-brand-50/60')} onClick={() => setOpenDis((o) => toggled(o, dk))}>
+                                    <td className={cn(NEST_CELL, 'w-12 text-center text-(--color-text-faint)')}>{di + 1}</td>
+                                    <td className={cn(NEST_CELL, 'font-medium', d.districtId ? 'text-heading' : 'text-(--color-warn)')}>
+                                      <span className="flex items-center gap-1.5">
+                                        <ExpandBox open={dop} onClick={() => setOpenDis((o) => toggled(o, dk))} />
+                                        <span>
+                                          {d.name} <span className="text-xs font-normal text-(--color-text-muted)">· {d.employees.length} xodim</span>
+                                        </span>
+                                      </span>
+                                    </td>
+                                    <td className={cn(NEST_CELL, 'money text-right')}>{d.count}</td>
+                                    <td className={cn(NEST_CELL, 'text-right')}>
+                                      <Money tiyin={d.totalTiyin} />
+                                    </td>
+                                    <td className={cn(NEST_CELL, 'text-right')}>
+                                      <Money tiyin={d.movableTiyin} tone="expense" />
+                                    </td>
+                                    <td className={NEST_CELL} />
+                                  </tr>
+                                  {dop && (
+                                    <NestedRow colSpan={6} level={2}>
+                                      <table className="w-full text-sm">
+                                        <BayramHead level={2} title="Xodim" />
+                                        <tbody>
+                                          {d.employees.map((e, ei) => (
+                                            <EmpRow key={`${e.period}|${e.pinfl}`} no={ei + 1} e={e} showMonth={month === 'ALL'} />
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </NestedRow>
+                                  )}
+                                </Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </NestedRow>
+                    )}
                   </Fragment>
                 );
               })}
               {!tree.length && (
                 <tr>
-                  <td colSpan={5} className="py-6 text-center text-sm text-(--color-text-muted)">
+                  <td colSpan={6} className="py-6 text-center text-sm text-(--color-text-muted)">
                     Bu oyda hudud xodimlarining bayram to&apos;lovi yo&apos;q
                   </td>
                 </tr>
@@ -337,11 +368,29 @@ export function BayramPanel({ from, to, rangeText, disabled, isAdmin, reloadKey,
   );
 }
 
-function EmpRow({ e, showMonth }: { e: BayramEmployee; showMonth: boolean }) {
+/** Ichki panel sarlavhasi (tuman / xodim) */
+function BayramHead({ level, title }: { level: number; title: string }) {
+  const h = nestHead(level);
+  return (
+    <thead>
+      <tr>
+        <th className={cn(h, 'w-12 text-center')}>№</th>
+        <th className={cn(h, 'text-left')}>{title}</th>
+        <th className={cn(h, 'w-28 text-right')}>To&apos;lovlar</th>
+        <th className={cn(h, 'w-40 text-right')}>23106 summa</th>
+        <th className={cn(h, 'w-40 text-right')}>Ajratiladi</th>
+        <th className={cn(h, 'w-44 text-left')}>Holat</th>
+      </tr>
+    </thead>
+  );
+}
+
+function EmpRow({ e, showMonth, no }: { e: BayramEmployee; showMonth: boolean; no: number }) {
   const capped = e.fullTiyin !== null && BigInt(e.movableTiyin) < BigInt(e.amountTiyin);
   return (
     <tr className={cn('border-t border-(--color-line) align-top', e.fullTiyin === null && 'bg-(--color-expense-soft)/20')}>
-      <td className="py-2 pr-2 pl-16">
+      <td className="px-2 py-2 text-center text-(--color-text-faint)">{no}</td>
+      <td className="px-2 py-2">
         <span className="block font-medium text-heading">{e.fullName}</span>
         <span className="flex flex-wrap gap-x-2 text-[11px] text-(--color-text-muted)">
           <span className="money">{e.pinfl}</span>

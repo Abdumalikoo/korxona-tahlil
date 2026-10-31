@@ -14,15 +14,17 @@ import { SafarCostsService } from './safar-costs.service';
 import { PartDetailService } from './part-detail.service';
 import { UnitPayrollModule } from '../unit-payroll/unit-payroll.module';
 import { QomitaModule } from '../qomita/qomita.module';
+import { EmployeesModule } from '../employees/employees.module';
+import { EmployeesCutService } from './employees-cut.service';
 
 @Module({
   // Xodimning oyma-oy joyi («miya»: ko'chishlar va ish haqi tarkibi) — hamma sahifa bilan bir xil
   // Qo'mita 3802 hovuzi qoplashi — har bo'limga o'z xodimlariga qoplangani (Solishtirma daromadi)
-  imports: [UnitPayrollModule, QomitaModule],
+  imports: [UnitPayrollModule, QomitaModule, EmployeesModule],
   // RegionsController va DistrictsController birinchi: "structure/regions" va "structure/drill"
   // yo'llari ":kind/tree" dan oldin tekshiriladi
   controllers: [RegionsController, DistrictsController, StructureController],
-  providers: [StructureService, RegionsService, DistrictsService, CenterService, ChangesService, UnassignedService, SegmentsService, VehicleCostsService, SafarCostsService, PartDetailService],
+  providers: [StructureService, RegionsService, DistrictsService, CenterService, ChangesService, UnassignedService, SegmentsService, VehicleCostsService, SafarCostsService, PartDetailService, EmployeesCutService],
   // Hisobotlar bo'limidagi raqamlar tekshiruvi uchun
   exports: [StructureService, RegionsService, DistrictsService, CenterService, ChangesService, UnassignedService, SegmentsService],
 })

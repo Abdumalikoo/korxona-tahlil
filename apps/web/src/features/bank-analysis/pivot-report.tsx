@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PATTERN_LABEL, PIVOT_LEVEL_LABEL, type BankDir, type BankPattern, type PivotLevel, type PivotNode, type PivotParams } from './api';
 import { useSource } from './source';
 import { ToggleAllButton } from '@/components/report/report';
+import { ExpandBox, NestedRow, nestHead } from '@/components/report/nested';
 
 // ═══════════════════════════════════════════════════════════
 // Hisobot (bank va faktura uchun bir xil): modda › kontragent (nomi, INN) › xizmat (izohi bilan),
@@ -222,7 +223,7 @@ export function PivotReport({ from, to, account, defaultDir, isAdmin, onToast, o
             </thead>
             <tbody>
               {p.rows.map((n, i) => (
-                <Node key={n.id} n={n} depth={0} no={String(i + 1)} months={p.months} isOpen={isOpen} onToggle={toggleOpen} picked={picked} onPick={isAdmin ? togglePick : null} onOpenGroup={onOpenGroup} />
+                <Node key={n.id} n={n} depth={0} no={String(i + 1)} months={p.months} levels={levels} isOpen={isOpen} onToggle={toggleOpen} picked={picked} onPick={isAdmin ? togglePick : null} onOpenGroup={onOpenGroup} />
               ))}
             </tbody>
             <tfoot className="sticky bottom-0 z-[2] bg-(--color-surface-muted) text-xs font-semibold">
@@ -247,20 +248,48 @@ export function PivotReport({ from, to, account, defaultDir, isAdmin, onToast, o
   );
 }
 
-function Node({ n, depth, no, months, isOpen, onToggle, picked, onPick, onOpenGroup }: { n: PivotNode; depth: number; no: string; months: string[]; isOpen: (id: string) => boolean; onToggle: (id: string) => void; picked: Set<string>; onPick: ((id: string) => void) | null; onOpenGroup: (key: string) => void }) {
+// Qator bolalari — qator tagidagi alohida panelda: o'z sarlavhasi (keyingi daraja nomi) va o'z raqamlashi (1, 2, 3 …)
+function SubTable({ list, depth, months, levels, isOpen, onToggle, picked, onPick, onOpenGroup }: { list: PivotNode[]; depth: number; months: string[]; levels: PivotLevel[]; isOpen: (id: string) => boolean; onToggle: (id: string) => void; picked: Set<string>; onPick: ((id: string) => void) | null; onOpenGroup: (key: string) => void }) {
+  const head = nestHead(depth);
+  const level = levels[depth];
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr>
+          <th className={cn(head, 'w-12 text-center')}>T/p</th>
+          <th className={cn(head, 'min-w-80 text-left')}>{level ? PIVOT_LEVEL_LABEL[level] : 'Nomi'}</th>
+          <th className={cn(head, 'text-right text-(--color-expense)')}>Umumiy</th>
+          {months.map((m) => (
+            <th key={m} className={cn(head, 'text-right')}>
+              {formatPeriodShort(m)}
+            </th>
+          ))}
+          <th className={cn(head, 'text-right text-(--color-expense)')}>Umumiy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {list.map((c, i) => (
+          <Node key={c.id} n={c} depth={depth} no={String(i + 1)} months={months} levels={levels} isOpen={isOpen} onToggle={onToggle} picked={picked} onPick={onPick} onOpenGroup={onOpenGroup} />
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function Node({ n, depth, no, months, levels, isOpen, onToggle, picked, onPick, onOpenGroup }: { n: PivotNode; depth: number; no: string; months: string[]; levels: PivotLevel[]; isOpen: (id: string) => boolean; onToggle: (id: string) => void; picked: Set<string>; onPick: ((id: string) => void) | null; onOpenGroup: (key: string) => void }) {
   const has = n.children.length > 0;
   const opened = has && isOpen(n.id);
   const leafOpen = !has && n.groupKey;
   return (
     <>
       <tr className={cn('border-t border-(--color-line) align-top', depth === 0 ? 'bg-white font-semibold' : 'bg-white', picked.has(n.id) && 'bg-brand-50/60', (has || leafOpen) && 'cursor-pointer hover:bg-(--color-surface-muted)')} onClick={() => (has ? onToggle(n.id) : leafOpen ? onOpenGroup(n.groupKey!) : undefined)}>
-        <td className="px-2 py-1.5 text-center text-xs text-(--color-text-muted)">{depth === 0 ? no : ''}</td>
-        <td className="sticky left-0 z-[1] max-w-[34rem] bg-inherit px-2 py-1.5" style={{ paddingLeft: `${8 + depth * 22}px` }}>
+        <td className="px-2 py-1.5 text-center text-xs text-(--color-text-muted)">{no}</td>
+        <td className={cn('max-w-[34rem] bg-inherit px-2 py-1.5', depth === 0 && 'sticky left-0 z-[1]')}>
           <span className="flex items-start gap-1.5">
             {onPick && (
               <input type="checkbox" className="mt-1 size-3.5 shrink-0 accent-brand-600" checked={picked.has(n.id)} onClick={(e) => e.stopPropagation()} onChange={() => onPick(n.id)} aria-label="Tanlash" />
             )}
-            <span className={cn('mt-0.5 w-3 shrink-0 text-xs text-(--color-text-faint)', !has && 'invisible')}>{opened ? '▾' : '▸'}</span>
+            <ExpandBox open={opened} hidden={!has} onClick={() => onToggle(n.id)} />
             <span className="min-w-0">
               <span className={cn('block truncate', depth === 0 ? 'text-heading' : depth === 1 ? 'font-medium text-heading' : 'text-(--color-text)', leafOpen && 'underline decoration-(--color-line-strong) decoration-dotted underline-offset-2')} title={n.label}>
                 {n.label}
@@ -288,7 +317,11 @@ function Node({ n, depth, no, months, isOpen, onToggle, picked, onPick, onOpenGr
         ))}
         <td className={cn('money px-3 py-1.5 text-right whitespace-nowrap text-(--color-expense)', depth > 0 && 'italic')}>{formatTiyin(n.totalTiyin)}</td>
       </tr>
-      {opened && n.children.map((c) => <Node key={c.id} n={c} depth={depth + 1} no="" months={months} isOpen={isOpen} onToggle={onToggle} picked={picked} onPick={onPick} onOpenGroup={onOpenGroup} />)}
+      {opened && (
+        <NestedRow colSpan={months.length + 4} level={depth + 1}>
+          <SubTable list={n.children} depth={depth + 1} months={months} levels={levels} isOpen={isOpen} onToggle={onToggle} picked={picked} onPick={onPick} onOpenGroup={onOpenGroup} />
+        </NestedRow>
+      )}
     </>
   );
 }

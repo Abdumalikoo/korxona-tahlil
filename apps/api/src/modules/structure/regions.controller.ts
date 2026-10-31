@@ -1,4 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Personal } from '../../common/decorators/personal.decorator';
+import { EmployeesCutService } from './employees-cut.service';
 import { ChangesService } from './changes.service';
 import { RegionsService } from './regions.service';
 import { SegmentsService } from './segments.service';
@@ -18,6 +20,7 @@ export class RegionsController {
     private readonly vehicleCosts: VehicleCostsService,
     private readonly safarCosts: SafarCostsService,
     private readonly partDetail: PartDetailService,
+    private readonly cut: EmployeesCutService,
   ) {}
 
   /** «Mashina xarajatlari» ichi: qaysi mashinaga qancha, turlari, izoh (?unit=center|dep:ID|r:3|dist:ID|rnd:3|cnd|s:KOD&from&to&compare&section) */
@@ -72,5 +75,12 @@ export class RegionsController {
   @Get('changes')
   async changesOf(@Query('month') month?: string, @Query('to') to?: string) {
     return { data: await this.changes.month({ month, to }) };
+  }
+
+  /** Bosh sahifa › Xodimlar kesimida: birlik › xodim › oy — xarajat (ish haqi, ijtimoiy soliq, safar) va daromad ulushi */
+  @Personal()
+  @Get('employees-cut')
+  async employeesCut(@Query('from') from?: string, @Query('to') to?: string) {
+    return { data: await this.cut.view({ from, to }) };
   }
 }

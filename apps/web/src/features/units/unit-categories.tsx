@@ -2,7 +2,8 @@
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { IconChevronRight, IconPlus, IconSearch, IconTrash } from '@/components/ui/icons';
+import { IconPlus, IconSearch, IconTrash } from '@/components/ui/icons';
+import { ExpandBox } from '@/components/report/nested';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { Toast } from '@/components/ui/toast';
 import { referencesApi } from '@/features/shared/references';
@@ -10,7 +11,6 @@ import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
 import type { EntryUnit } from '@/lib/segments';
 import { useAsync } from '@/lib/use-async';
-import { cn } from '@/lib/utils';
 import type { CategoryTree } from '@/lib/types';
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { unitCategoriesApi, useUnitCategories, type EntryKind } from './api';
@@ -151,15 +151,7 @@ export function UnitCategories({ kind, unit }: { kind: EntryKind; unit: EntryUni
       rows.push(
         <li key={g.code} className="border-t border-(--color-line) bg-(--color-surface-muted)/60">
           <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-            <button
-              type="button"
-              aria-expanded={open}
-              aria-label={open ? 'Yopish' : 'Ochish'}
-              onClick={() => setClosed((s) => { const x = new Set(s); if (x.has(g.code)) x.delete(g.code); else x.add(g.code); return x; })}
-              className="flex size-6 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50"
-            >
-              <IconChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
-            </button>
+            <ExpandBox open={open} onClick={() => setClosed((s) => { const x = new Set(s); if (x.has(g.code)) x.delete(g.code); else x.add(g.code); return x; })} />
             <span className="min-w-0 flex-1 truncate text-sm font-semibold text-heading">{g.label}</span>
             <span className="text-[11px] text-(--color-text-faint)">{g.children.length} ta modda</span>
             {isAdmin && (

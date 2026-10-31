@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox } from '@/components/report/nested';
 import { CalcValue } from '@/components/ui/calc';
 import { actualCalc, changeCalc, countCalc, effectCalc, expectedCalc, gainCalc, perDayCalc, verdictCalc } from './calcs';
 import { Button } from '@/components/ui/button';
@@ -467,7 +468,7 @@ export function ReactionDetailView({ id }: { id: string }) {
                     <tr className={cn('cursor-pointer hover:bg-(--color-surface-muted)', isOpen && 'bg-(--color-surface-muted)')} onClick={() => setOpenItem(isOpen ? null : item.id)}>
                       <td className="py-2.5 pl-5 pr-3">
                         <span className="flex items-center gap-2">
-                          <span className={cn('text-[10px] text-(--color-text-faint) transition-transform', isOpen && 'rotate-90')}>▶</span>
+                          <ExpandBox open={isOpen} onClick={() => setOpenItem(isOpen ? null : item.id)} />
                           <KindBadge kind={item.kind} />
                           <span className="min-w-0">
                             <span className="block max-w-[22rem] truncate" title={item.label}>{item.label}</span>

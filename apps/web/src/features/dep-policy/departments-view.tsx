@@ -1,6 +1,7 @@
 'use client';
 
 import { PageHeader } from '@/components/layout/page-header';
+import { ExpandBox } from '@/components/report/nested';
 import { MoneyCell, NameCell, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr, sum } from '@/components/report/report';
 import { Button } from '@/components/ui/button';
 import { ErrorState, LoadingState } from '@/components/ui/states';
@@ -198,16 +199,18 @@ function DetailBody({
       const p = c.parentCode && codes.has(c.parentCode) ? c.parentCode : null;
       byParent.set(p, [...(byParent.get(p) ?? []), c]);
     }
-    const out: { c: DepCategoryRow; depth: number; hasKids: boolean }[] = [];
-    const walk = (p: string | null, depth: number) => {
+    // no — raqam: yuqori daraja 1, 2, 3 …; bolalar ota.bola (2.1, 2.2 …)
+    const out: { c: DepCategoryRow; depth: number; hasKids: boolean; no: string }[] = [];
+    const walk = (p: string | null, depth: number, prefix: string) => {
       const kids = (byParent.get(p) ?? []).sort((a, b) => Number(BigInt(b.totalTiyin) - BigInt(a.totalTiyin)) || a.label.localeCompare(b.label));
-      for (const c of kids) {
+      kids.forEach((c, k) => {
         const hasKids = (byParent.get(c.code) ?? []).length > 0;
-        out.push({ c, depth, hasKids });
-        if (hasKids && !closed.has(c.code)) walk(c.code, depth + 1);
-      }
+        const no = `${prefix}${k + 1}`;
+        out.push({ c, depth, hasKids, no });
+        if (hasKids && !closed.has(c.code)) walk(c.code, depth + 1, `${no}.`);
+      });
     };
-    walk(null, 0);
+    walk(null, 0, '');
     return out;
   }, [v.categories, all, closed]);
 
@@ -280,16 +283,16 @@ function DetailBody({
                 <Td />
                 {showMonths && v.months.map((m) => <MoneyCell key={m} value={v.categories.filter((c) => !c.parentCode).reduce((s, c) => s + Number(c.months[m] ?? 0), 0)} />)}
               </Tr>
-              {rows.map(({ c, depth, hasKids }, i) => {
+              {rows.map(({ c, depth, hasKids, no }) => {
                 const amount = Number(c.totalTiyin);
                 const value = rules[c.code] ?? '';
                 return (
                   <Tr key={c.code} onClick={hasKids ? () => toggle(c.code) : undefined} className={cn(depth === 0 && hasKids && 'bg-[#f5f8ff]', !c.used && 'opacity-70')}>
-                    <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                    <Td className={cn(STICKY_NO, 'whitespace-nowrap text-(--color-text-faint)')}>{no}</Td>
                     <NameCell
                       before={
-                        <span style={{ width: depth * 16 }} className="inline-flex shrink-0 justify-end">
-                          {hasKids ? <span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', !closed.has(c.code) && 'rotate-90')}>▸</span> : <span className="inline-block w-3" />}
+                        <span className="inline-flex shrink-0" style={{ marginLeft: depth * 16 }}>
+                          <ExpandBox open={!closed.has(c.code)} hidden={!hasKids} onClick={() => toggle(c.code)} />
                         </span>
                       }
                       className={cn(hasKids ? 'font-semibold text-heading' : 'text-heading')}

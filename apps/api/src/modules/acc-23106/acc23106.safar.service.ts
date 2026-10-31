@@ -84,7 +84,7 @@ const ISSUE_TEXT: Record<SafarIssue, string> = {
   NO_REGION: "Hudud xodimi, lekin Xodimlar bazasida viloyati yo'q",
 };
 
-function readSafar(raw: unknown): SafarStore {
+export function readSafar(raw: unknown): SafarStore {
   const v = (raw ?? {}) as Partial<SafarStore>;
   return { posts: Array.isArray(v.posts) ? (v.posts as SafarPost[]).filter((p) => p && typeof p.id === 'string' && Array.isArray(p.items)) : [] };
 }

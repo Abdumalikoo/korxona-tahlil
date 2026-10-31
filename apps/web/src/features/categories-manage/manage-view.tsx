@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox } from '@/components/report/nested';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ErrorState, LoadingState } from '@/components/ui/states';
@@ -204,13 +205,7 @@ function Row({
     <li className="border-b border-(--color-line) last:border-0">
       <div className={cn('grid grid-cols-[1fr_auto_auto] items-center gap-x-4 px-4 py-2', group && depth === 0 && 'bg-[#f6f8fd]')}>
         <div className="flex min-w-0 flex-wrap items-center gap-2" style={{ paddingLeft: depth * 22 }}>
-          {group ? (
-            <button type="button" onClick={() => toggle(n.code)} className="w-4 text-xs text-(--color-text-faint)" aria-label={isOpen ? 'Yopish' : 'Ochish'}>
-              <span className={cn('inline-block transition-transform', isOpen && 'rotate-90')}>▸</span>
-            </button>
-          ) : (
-            <span className="w-4" />
-          )}
+          <ExpandBox open={isOpen} hidden={!group} onClick={() => toggle(n.code)} />
           {mode === 'rename' ? (
             <NameInput
               initial={n.label}

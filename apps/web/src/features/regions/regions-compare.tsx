@@ -2,6 +2,7 @@
 
 import type { DateRange } from '@/components/shared/date-range-picker';
 import { Card } from '@/components/ui/card';
+import { ExpandBox } from '@/components/report/nested';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import {
   ActionButton,
@@ -184,7 +185,7 @@ function UnitRow({
         sub={sub}
         before={
           <>
-            <span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', open && 'rotate-90')}>▸</span>
+            <ExpandBox open={open} onClick={() => onToggle(u.key)} />
             <Mark item={unitMark(u, 'RESULT', section)} />
           </>
         }

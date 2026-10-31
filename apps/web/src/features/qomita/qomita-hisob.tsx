@@ -1,6 +1,7 @@
 'use client';
 
 import { ActionButton, MoneyCell, NameCell, PillTabs, ReportCard, RTable, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, ToggleAllButton, Tr, sum } from '@/components/report/report';
+import { ExpandBox, NestedRow, nestHead } from '@/components/report/nested';
 import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
 import { errorMessage } from '@/lib/error-message';
 import { formatPeriod } from '@/lib/format';
@@ -99,47 +100,73 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
     }
   };
 
-  // ─────────── Daraxt qatorlari ───────────
-  const rows: ReactNode[] = [];
-  const line = (
-    id: string,
-    label: ReactNode,
-    depth: number,
-    v: { inc?: number | null; out?: number | null; bal?: number | null },
-    opts: { openKey?: string; period?: string; sub?: ReactNode; strong?: boolean; tone?: string; muted?: boolean; extra?: ReactNode } = {},
-  ) => {
-    const isOpen = opts.openKey ? open.has(opts.openKey) : false;
-    rows.push(
-      <Tr key={id} muted={opts.muted} onClick={opts.openKey ? () => toggle(opts.openKey!, opts.period) : undefined} className={cn(depth === 0 && 'bg-brand-50/60', depth >= 3 && 'bg-(--color-surface-muted)/40')}>
-        <Td className={STICKY_NO} />
-        <NameCell
-          sub={opts.sub}
-          className={cn((opts.strong || depth === 0) && 'font-semibold text-heading', opts.tone)}
-          before={
-            <span className="flex shrink-0 items-center" style={{ paddingLeft: depth * 18 }}>
-              <span className={cn('inline-block w-3.5 text-center text-(--color-text-faint)', !opts.openKey && 'invisible')}>{isOpen ? '▾' : '▸'}</span>
-            </span>
-          }
-        >
-          {label}
-        </NameCell>
-        {v.inc === null || v.inc === undefined ? <Td /> : <MoneyCell value={v.inc} className={cn(!v.inc && 'text-(--color-text-faint)')} strong={depth === 0} />}
-        {v.out === null || v.out === undefined ? <Td /> : <MoneyCell value={v.out} className={cn(!v.out && 'text-(--color-text-faint)')} strong={depth === 0} />}
-        {v.bal === null || v.bal === undefined ? <Td /> : <MoneyCell value={v.bal} strong signedColor />}
-        <Td className="whitespace-nowrap text-left text-xs" onClick={(e) => e.stopPropagation()}>
-          {opts.extra}
-        </Td>
-      </Tr>,
-    );
-    return isOpen;
+  // ─────────── Daraxt: har pog'ona — alohida panel (o'z sarlavhasi va raqamlashi bilan) ───────────
+  type Col = 'inc' | 'out' | 'bal' | 'extra';
+  type Opts = { openKey?: string; period?: string; sub?: ReactNode; strong?: boolean; tone?: string; muted?: boolean; extra?: ReactNode; plain?: boolean };
+  type Line = { id: string; label: ReactNode; v: { inc?: number | null; out?: number | null; bal?: number | null }; opts: Opts; kids?: () => Line[]; kidsLabel?: string; kidsCols?: Col[] };
+  const ALL: Col[] = ['inc', 'out', 'bal', 'extra'];
+  const COL_HEAD: Record<Col, string> = { inc: 'Kelgan', out: 'Sarflangan', bal: 'Qoldiq', extra: 'Shablon' };
+  /** plain — guruh / izoh qatori (raqamsiz) */
+  const line = (id: string, label: ReactNode, v: Line['v'], opts: Opts = {}, more: Pick<Line, 'kids' | 'kidsLabel' | 'kidsCols'> = {}): Line => ({ id, label, v, opts, ...more });
+  const money = (x: number | null | undefined, depth: number) => (x === null || x === undefined ? <Td /> : <MoneyCell value={x} className={cn(!x && 'text-(--color-text-faint)')} strong={depth === 0} />);
+  const level = (list: Line[], depth: number, cols: Col[]): ReactNode[] => {
+    const out: ReactNode[] = [];
+    let no = 0;
+    for (const x of list) {
+      const { opts, v } = x;
+      const isOpen = opts.openKey ? open.has(opts.openKey) : false;
+      if (!opts.plain) no += 1;
+      out.push(
+        <Tr key={x.id} muted={opts.muted} onClick={opts.openKey ? () => toggle(opts.openKey!, opts.period) : undefined} className={cn(depth === 0 && 'bg-brand-50/60')}>
+          <Td className={cn(depth === 0 && STICKY_NO, 'w-12 text-center text-(--color-text-faint)')}>{opts.plain ? '' : no}</Td>
+          <NameCell
+            sticky={depth === 0}
+            sub={opts.sub}
+            className={cn((opts.strong || depth === 0) && 'font-semibold text-heading', opts.tone)}
+            before={<ExpandBox open={isOpen} hidden={!opts.openKey} onClick={() => toggle(opts.openKey!, opts.period)} />}
+          >
+            {x.label}
+          </NameCell>
+          {cols.includes('inc') && money(v.inc, depth)}
+          {cols.includes('out') && money(v.out, depth)}
+          {cols.includes('bal') && (v.bal === null || v.bal === undefined ? <Td /> : <MoneyCell value={v.bal} strong signedColor />)}
+          {cols.includes('extra') && (
+            <Td className="whitespace-nowrap text-left text-xs" onClick={(e) => e.stopPropagation()}>
+              {opts.extra}
+            </Td>
+          )}
+        </Tr>,
+      );
+      if (isOpen && x.kids) {
+        const kc = x.kidsCols ?? ALL;
+        const h = nestHead(depth + 1);
+        out.push(
+          <NestedRow key={`${x.id}|panel`} colSpan={2 + cols.length} level={depth + 1}>
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className={cn(h, 'w-12 text-center')}>№</th>
+                  <th className={cn(h, 'min-w-72 text-left')}>{x.kidsLabel}</th>
+                  {kc.map((c) => (
+                    <th key={c} className={cn(h, c === 'extra' ? 'text-left' : 'text-right')}>
+                      {COL_HEAD[c]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>{level(x.kids(), depth + 1, kc)}</tbody>
+            </table>
+          </NestedRow>,
+        );
+      }
+    }
+    return out;
   };
 
-  for (const sk of ['pool', 'marksheyder'] as const) {
+  const tree: Line[] = (['pool', 'marksheyder'] as const).map((sk) => {
     const s: HisobSide = d[sk];
-    if (!line(sk, SIDE_LABEL[sk].title, 0, { inc: n(s.incomeTiyin), out: n(s.spendTiyin), bal: n(s.balanceTiyin) }, { openKey: sk, sub: SIDE_LABEL[sk].sub })) continue;
     const months = s.months.filter((m) => m.incomeTiyin !== '0' || m.spendTiyin !== '0' || m.vedomost !== 'NONE');
-    if (!months.length) line(`${sk}:none`, <span className="text-(--color-text-faint)">Bu davrda harakat yo&apos;q</span>, 1, {});
-    for (const m of months) {
+    const monthLine = (m: HisobSide['months'][number]): Line => {
       const p = m.period;
       const incs = s.incomes.filter((x) => x.period === p);
       const secs = s.sections.filter((x) => x.months[p]);
@@ -159,45 +186,64 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
         ) : (
           <span className="text-amber-700">sarf hisobga olinmaydi</span>
         );
-      if (!line(`${sk}:${p}`, formatPeriod(p), 1, { inc: n(m.incomeTiyin), out: n(m.spendTiyin), bal: n(m.balanceTiyin) }, { openKey: `${sk}:${p}`, period: m.vedomost === 'NONE' ? undefined : p, sub: m.employees ? `${m.employees} xodim` : undefined, muted: m.vedomost === 'EXCLUDED', extra: status })) continue;
 
       // Kelgan pullar
-      if (line(`${sk}:${p}:in`, `Kelgan pullar (${incs.length} ta)`, 2, { inc: n(m.incomeTiyin) }, { openKey: incs.length ? `${sk}:${p}:in` : undefined, tone: 'text-(--color-income)' }))
-        for (const x of incs) line(`${sk}:${p}:in:${x.id}`, x.date.split('-').reverse().join('.'), 3, { inc: n(x.amountTiyin) }, { sub: `${x.label} · ${x.source}` });
+      const inLine = line(
+        `${sk}:${p}:in`,
+        `Kelgan pullar (${incs.length} ta)`,
+        { inc: n(m.incomeTiyin) },
+        { openKey: incs.length ? `${sk}:${p}:in` : undefined, tone: 'text-(--color-income)', plain: true },
+        { kidsLabel: 'Sana', kidsCols: ['inc'], kids: () => incs.map((x) => line(`${sk}:${p}:in:${x.id}`, x.date.split('-').reverse().join('.'), { inc: n(x.amountTiyin) }, { sub: `${x.label} · ${x.source}` })) },
+      );
 
       // Sarf: bo'limlar → xodimlar
       const excl = m.vedomost === 'EXCLUDED';
       const sarfLabel = excl ? "Sarf — shablonda bor, hisobga olinmaydi" : `Sarf: bo'limlar (${secs.length} ta)`;
-      if (m.vedomost === 'NONE') {
-        line(`${sk}:${p}:out`, <span className="text-(--color-text-faint)">Sarf: shablon yuklanmagan</span>, 2, {});
-        continue;
-      }
-      if (!line(`${sk}:${p}:out`, sarfLabel, 2, { out: excl ? null : n(m.spendTiyin) }, { openKey: `${sk}:${p}:out`, period: p, tone: excl ? 'text-amber-700' : 'text-(--color-expense)' })) continue;
-      if (det === 'loading' || !det) {
-        line(`${sk}:${p}:out:wait`, <span className="text-(--color-text-faint)">Yuklanmoqda…</span>, 3, {});
-        continue;
-      }
-      if ('error' in det) {
-        line(`${sk}:${p}:out:err`, <span className="text-(--color-expense)">{(det as { error: string }).error}</span>, 3, {});
-        continue;
-      }
-      if (!exSecs.length) line(`${sk}:${p}:out:none`, <span className="text-(--color-text-faint)">Bu hisob bo&apos;yicha sarf yo&apos;q</span>, 3, {});
-      for (const sec of exSecs) {
-        const sid = `${sk}:${p}:out:${sec.name}`;
-        if (!line(sid, sec.name, 3, { out: n(sec.totalTiyin) }, { openKey: sid, sub: `${sec.employees.length} xodim`, muted: excl })) continue;
-        sec.employees.forEach((e, i) => {
-          const eid = `${sid}:${i}`;
-          // Xodim → nimaga qancha: shablondagi qismlar (oklad, ustama, mukofot, ta'til …)
-          const parts = (ready?.components ?? []).filter((c) => e.amounts[c.code] && e.amounts[c.code] !== '0');
-          if (!line(eid, e.fullName, 4, { out: n(e.totalTiyin) }, { openKey: parts.length || e.note ? eid : undefined, sub: e.position || undefined, muted: excl })) return;
-          for (const c of parts) line(`${eid}:${c.code}`, c.label, 5, { out: n(e.amounts[c.code]!) }, { muted: excl });
-          const rest = n(e.totalTiyin) - parts.reduce((t, c) => t + n(e.amounts[c.code]!), 0);
-          if (parts.length && Math.abs(rest) >= 100) line(`${eid}:rest`, 'Jami ustunidagi farq (qismlarga ajratilmagan)', 5, { out: rest }, { muted: excl });
-          if (e.note) line(`${eid}:note`, <span className="text-(--color-text-muted)">Izoh: {e.note}</span>, 5, {}, { muted: excl });
+      const outKids = (): Line[] => {
+        if (det === 'loading' || !det) return [line(`${sk}:${p}:out:wait`, <span className="text-(--color-text-faint)">Yuklanmoqda…</span>, {}, { plain: true })];
+        if ('error' in det) return [line(`${sk}:${p}:out:err`, <span className="text-(--color-expense)">{(det as { error: string }).error}</span>, {}, { plain: true })];
+        if (!exSecs.length) return [line(`${sk}:${p}:out:none`, <span className="text-(--color-text-faint)">Bu hisob bo&apos;yicha sarf yo&apos;q</span>, {}, { plain: true })];
+        return exSecs.map((sec) => {
+          const sid = `${sk}:${p}:out:${sec.name}`;
+          const empKids = (): Line[] =>
+            sec.employees.map((e, i) => {
+              const eid = `${sid}:${i}`;
+              // Xodim → nimaga qancha: shablondagi qismlar (oklad, ustama, mukofot, ta'til …)
+              const parts = (ready?.components ?? []).filter((c) => e.amounts[c.code] && e.amounts[c.code] !== '0');
+              const partKids = (): Line[] => {
+                const r = parts.map((c) => line(`${eid}:${c.code}`, c.label, { out: n(e.amounts[c.code]!) }, { muted: excl }));
+                const rest = n(e.totalTiyin) - parts.reduce((t, c) => t + n(e.amounts[c.code]!), 0);
+                if (parts.length && Math.abs(rest) >= 100) r.push(line(`${eid}:rest`, 'Jami ustunidagi farq (qismlarga ajratilmagan)', { out: rest }, { muted: excl }));
+                if (e.note) r.push(line(`${eid}:note`, <span className="text-(--color-text-muted)">Izoh: {e.note}</span>, {}, { muted: excl, plain: true }));
+                return r;
+              };
+              return line(eid, e.fullName, { out: n(e.totalTiyin) }, { openKey: parts.length || e.note ? eid : undefined, sub: e.position || undefined, muted: excl }, { kidsLabel: 'Nimaga', kidsCols: ['out'], kids: partKids });
+            });
+          return line(sid, sec.name, { out: n(sec.totalTiyin) }, { openKey: sid, sub: `${sec.employees.length} xodim`, muted: excl }, { kidsLabel: 'Xodim', kidsCols: ['out'], kids: empKids });
         });
-      }
-    }
-  }
+      };
+      const outLine =
+        m.vedomost === 'NONE'
+          ? line(`${sk}:${p}:out`, <span className="text-(--color-text-faint)">Sarf: shablon yuklanmagan</span>, {}, { plain: true })
+          : line(`${sk}:${p}:out`, sarfLabel, { out: excl ? null : n(m.spendTiyin) }, { openKey: `${sk}:${p}:out`, period: p, tone: excl ? 'text-amber-700' : 'text-(--color-expense)', plain: true }, { kidsLabel: "Bo'lim", kidsCols: ['out'], kids: outKids });
+
+      return line(
+        `${sk}:${p}`,
+        formatPeriod(p),
+        { inc: n(m.incomeTiyin), out: n(m.spendTiyin), bal: n(m.balanceTiyin) },
+        { openKey: `${sk}:${p}`, period: m.vedomost === 'NONE' ? undefined : p, sub: m.employees ? `${m.employees} xodim` : undefined, muted: m.vedomost === 'EXCLUDED', extra: status },
+        { kidsLabel: 'Kelgan / sarf', kidsCols: ['inc', 'out'], kids: () => [inLine, outLine] },
+      );
+    };
+    return line(
+      sk,
+      SIDE_LABEL[sk].title,
+      { inc: n(s.incomeTiyin), out: n(s.spendTiyin), bal: n(s.balanceTiyin) },
+      { openKey: sk, sub: SIDE_LABEL[sk].sub },
+      { kidsLabel: 'Oy', kids: () => (months.length ? months.map(monthLine) : [line(`${sk}:none`, <span className="text-(--color-text-faint)">Bu davrda harakat yo&apos;q</span>, {}, { plain: true })]) },
+    );
+  });
+  const rows = level(tree, 0, ALL);
 
   return (
     <div className={cn('space-y-4', loading && 'opacity-70')}>
@@ -227,8 +273,8 @@ function Body({ d, loading, reload, isAdmin, onToast }: { d: Hisob3802; loading:
         <RTable minWidth={980}>
           <thead>
             <tr>
-              <Th className={cn(STICKY_NO, 'z-[2]')} />
-              <Th className={cn(STICKY_NAME, 'z-[2] min-w-80 text-left')}>Hisob → oy → kelgan / sarf → bo&apos;lim → xodim → nimaga qancha</Th>
+              <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+              <Th className={cn(STICKY_NAME, 'z-[2] min-w-80 text-left')}>Hisob</Th>
               <Th>Kelgan</Th>
               <Th>Sarflangan</Th>
               <Th>Qoldiq</Th>

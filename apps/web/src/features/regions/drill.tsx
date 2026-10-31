@@ -341,7 +341,7 @@ function RegionBody({ data, onDistrict, extraActions }: { data: RegionDistrictsR
             {rows.map((d, i) => (
               <DistrictTr key={d.id} d={d} index={i + 1} section={data.section} base={{ income, expense }} onOpen={() => onDistrict(d)} />
             ))}
-            {unassigned && <DistrictTr d={unassigned} index={null} section={data.section} base={{ income, expense }} onOpen={() => onDistrict(unassigned)} />}
+            {unassigned && <DistrictTr d={unassigned} index={rows.length + 1} section={data.section} base={{ income, expense }} onOpen={() => onDistrict(unassigned)} />}
           </tbody>
         </RTable>
         <TableNote>

@@ -8,6 +8,6 @@ import { EmployeeChainService } from "./employee-chain.service";
 @Module({
   controllers: [EmployeesController],
   providers: [EmployeesService, EmployeesExportService, EmployeePlacementsService, EmployeeChainService],
-  exports: [EmployeesService],
+  exports: [EmployeesService, EmployeeChainService],
 })
 export class EmployeesModule {}

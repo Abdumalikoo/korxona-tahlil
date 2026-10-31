@@ -6,6 +6,7 @@ import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Toast } from '@/components/ui/toast';
+import { ExpandBox } from '@/components/report/nested';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { useAuth } from '@/lib/auth-context';
 import { errorMessage } from '@/lib/error-message';
@@ -215,7 +216,7 @@ function RentTable({ d, until, title, badge }: { d: RentView; until: number; tit
     lines.push(
       <Tr key={k} onClick={() => toggle(k)} className="bg-brand-50/50">
         <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{gi + 1}</Td>
-        <NameCell className="font-semibold text-heading" sub={sub} before={<span className="inline-block w-3.5 text-center text-(--color-text-faint)">{isOpen ? '▾' : '▸'}</span>}>
+        <NameCell className="font-semibold text-heading" sub={sub} before={<ExpandBox open={isOpen} onClick={() => toggle(k)} />}>
           {g.name}
         </NameCell>
         <Td />
@@ -227,13 +228,16 @@ function RentTable({ d, until, title, badge }: { d: RentView; until: number; tit
       </Tr>,
     );
     if (!isOpen) return;
-    for (const r of g.list) {
+    // Tumanlar — shu jadvalda (oylar ustunlari hudud qatori bilan tekis turishi uchun), raqami «hudud.tuman»
+    for (const [ri, r] of g.list.entries()) {
       const a = actionOf(r);
       lines.push(
         <Tr key={`${k}|${r.ref ?? r.leaseId}`} muted={a === 'EMPTY'}>
-          <Td className={STICKY_NO} />
+          <Td className={cn(STICKY_NO, 'text-[11px] text-(--color-text-faint)')}>
+            {gi + 1}.{ri + 1}
+          </Td>
           <NameCell
-            before={<span className="inline-block w-3.5" />}
+            before={<span className="inline-block w-8 shrink-0" />}
             sub={[r.districtName && r.districtName !== r.district ? `ilovada: ${r.districtName}${r.approx ? ' (taxminiy)' : ''}` : null, r.leaseTitle && r.leaseTitle !== r.district ? `ijara: ${r.leaseTitle}` : null, r.ref].filter(Boolean).join(' · ') || undefined}
           >
             {r.district}

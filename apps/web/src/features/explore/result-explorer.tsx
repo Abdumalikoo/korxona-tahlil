@@ -19,7 +19,8 @@ import {
   Th,
   Tr,
 } from '@/components/report/report';
-import { LinkMoneyCell, STICKY_LEFT, TreeNameCell } from '@/components/report/report-extra-a';
+import { NEST_CELL, nestHead, NestedRow } from '@/components/report/nested';
+import { LinkMoneyCell, TreeNameCell } from '@/components/report/report-extra-a';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { calcChange, calcMargin, calcResult, Q } from '@/lib/calc';
 import { formatPeriod } from '@/lib/format';
@@ -122,7 +123,8 @@ function PnlTable({ d }: { d: ResultExplore }) {
       return n;
     });
 
-  const rowOf = (r: PnlRow, depth: number, path: string[], id: string, up: boolean, total = false): ReactNode[] => {
+  /** no — raqami: yuqori qator «1», ichkisi «1.2» (jami — bo'sh) */
+  const rowOf = (r: PnlRow, depth: number, path: string[], id: string, up: boolean, no: string, total = false): ReactNode[] => {
     const has = Boolean(r.children?.length);
     const isOpen = opened.has(id);
     const drill = (month: string | undefined, which: 'cur' | 'prev' | 'ly', expected: number) =>
@@ -130,7 +132,8 @@ function PnlTable({ d }: { d: ResultExplore }) {
     const signed = !r.kind;
     const out: ReactNode[] = [
       <Tr key={id} total={total} muted={depth > 0} className={cn(depth === 0 && !total && 'font-semibold text-heading')}>
-        <TreeNameCell depth={depth} open={has ? isOpen : undefined} onToggle={has ? () => toggle(id) : undefined}>
+        <Td className={cn(STICKY_NO, 'whitespace-nowrap font-normal text-(--color-text-faint)')}>{no}</Td>
+        <TreeNameCell depth={depth} sticky={STICKY_NAME} open={has ? isOpen : undefined} onToggle={has ? () => toggle(id) : undefined}>
           {r.label}
         </TreeNameCell>
         <LinkMoneyCell value={r.prev} onClick={drill(undefined, 'prev', r.prev)} signedColor={signed} />
@@ -143,7 +146,7 @@ function PnlTable({ d }: { d: ResultExplore }) {
         ))}
       </Tr>,
     ];
-    if (has && isOpen) r.children!.forEach((c) => out.push(...rowOf(c, depth + 1, [...path, r.label], `${id}/${c.key}`, up)));
+    if (has && isOpen) r.children!.forEach((c, i) => out.push(...rowOf(c, depth + 1, [...path, r.label], `${id}/${c.key}`, up, no ? `${no}.${i + 1}` : `${i + 1}`)));
     return out;
   };
 
@@ -152,7 +155,8 @@ function PnlTable({ d }: { d: ResultExplore }) {
   const ppText = (v: number | null) => (v === null ? '' : `${v > 0 ? '+' : ''}${v.toFixed(1).replace('.', ',')} p.p.`);
   const marginRow = (
     <Tr muted>
-      <TreeNameCell>Rentabellik (natija / daromad)</TreeNameCell>
+      <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>3</Td>
+      <TreeNameCell sticky={STICKY_NAME}>Rentabellik (natija / daromad)</TreeNameCell>
       <Td>{pct(m.prev)}</Td>
       <Td className="font-semibold text-heading">{pct(m.total)}</Td>
       <Td className={cn('text-xs font-semibold', (pp(m.total, m.prev) ?? 0) < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{ppText(pp(m.total, m.prev))}</Td>
@@ -186,10 +190,13 @@ function PnlTable({ d }: { d: ResultExplore }) {
       badge={`Joriy: ${spanText(d.cur)} · o'tgan davr: ${spanText(d.prev)} · o'tgan yil: ${spanText(d.ly)}`}
       actions={<ExcelButton onClick={exportCsv} />}
     >
-      <RTable minWidth={260 + 5 * 118 + months.length * 108}>
+      <RTable minWidth={48 + 260 + 5 * 118 + months.length * 108}>
         <thead>
           <tr>
-            <Th rowSpan={2} className={cn(STICKY_LEFT, 'z-[2] min-w-60 text-left')}>
+            <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>
+              №
+            </Th>
+            <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-60 text-left')}>
               Ko&apos;rsatkich
             </Th>
             <GroupTh span={3}>O&apos;tgan davr bilan</GroupTh>
@@ -210,9 +217,9 @@ function PnlTable({ d }: { d: ResultExplore }) {
           </tr>
         </thead>
         <tbody>
-          {rowOf(d.pnl.result, 0, [], 'result', true, true)}
-          {rowOf(d.pnl.income, 0, [], 'income', true)}
-          {rowOf(d.pnl.expense, 0, [], 'expense', false)}
+          {rowOf(d.pnl.result, 0, [], 'result', true, '', true)}
+          {rowOf(d.pnl.income, 0, [], 'income', true, '1')}
+          {rowOf(d.pnl.expense, 0, [], 'expense', false, '2')}
           {marginRow}
         </tbody>
       </RTable>
@@ -343,14 +350,12 @@ function UnitsTable({ units, totals }: { units: UnitRow[]; totals: ResultExplore
                   <PctCell value={margin(u.margin)} plain />
                 </Tr>
                 {isOpen && (
-                  <tr>
-                    <td colSpan={11} className="border-b border-(--color-line) bg-[#f8f9fc] px-6 py-3">
-                      <div className="flex flex-col gap-6 lg:flex-row">
-                        <TopList u={u} title="Eng katta daromad moddalari" nodes={u.incomeTop} total={u.income.cur} />
-                        <TopList u={u} title="Eng katta xarajat guruhlari" nodes={u.expenseTop} total={u.expense.cur} />
-                      </div>
-                    </td>
-                  </tr>
+                  <NestedRow colSpan={11} level={1}>
+                    <div className="flex flex-col gap-4 p-3 lg:flex-row">
+                      <TopList u={u} title="Eng katta daromad moddalari" nodes={u.incomeTop} total={u.income.cur} />
+                      <TopList u={u} title="Eng katta xarajat guruhlari" nodes={u.expenseTop} total={u.expense.cur} />
+                    </div>
+                  </NestedRow>
                 )}
               </Fragment>
             );
@@ -367,23 +372,26 @@ function UnitsTable({ units, totals }: { units: UnitRow[]; totals: ResultExplore
 
 function TopList({ u, title, nodes, total }: { u: UnitRow; title: string; nodes: XNode[]; total: number }) {
   const { open } = useDrill();
+  const head = nestHead(1);
   return (
     <div className="min-w-0 flex-1">
       <p className="mb-1.5 text-xs font-bold text-heading">{title}</p>
       {nodes.length ? (
-        <table className="w-full overflow-hidden rounded-lg border border-(--color-line) bg-white text-xs">
+        <table className="w-full border-separate border-spacing-0 overflow-hidden rounded-lg border border-(--color-line) bg-white text-xs [&_tbody_tr:last-child>td]:border-b-0">
           <thead>
-            <tr className="bg-[#f3f6fd] text-heading">
-              <th className="px-2 py-1.5 text-left font-semibold">Modda</th>
-              <th className="w-28 px-2 py-1.5 text-center font-semibold">Joriy davr</th>
-              <th className="w-16 px-2 py-1.5 text-center font-semibold">Ulushi</th>
-              <th className="w-20 px-2 py-1.5 text-center font-semibold">O&apos;zgarish</th>
+            <tr>
+              <th className={cn(head, 'w-9')}>№</th>
+              <th className={cn(head, 'text-left')}>Modda</th>
+              <th className={cn(head, 'w-28')}>Joriy davr</th>
+              <th className={cn(head, 'w-16')}>Ulushi</th>
+              <th className={cn(head, 'w-20')}>O&apos;zgarish</th>
             </tr>
           </thead>
           <tbody>
-            {nodes.map((n) => (
-              <tr key={n.key} className="border-t border-(--color-line)">
-                <td className="px-2 py-1.5">
+            {nodes.map((n, i) => (
+              <tr key={n.key}>
+                <td className={cn(NEST_CELL, 'text-center text-(--color-text-faint)')}>{i + 1}</td>
+                <td className={NEST_CELL}>
                   <button
                     type="button"
                     onClick={() => open({ kind: n.kind, f: n.f, title: [n.kind === 'income' ? 'Daromad' : 'Xarajat', u.label, n.label].join(' › '), expected: n.cur })}
@@ -392,9 +400,9 @@ function TopList({ u, title, nodes, total }: { u: UnitRow; title: string; nodes:
                     {n.label}
                   </button>
                 </td>
-                <td className="px-2 py-1.5 text-center tabular-nums text-heading">{som(n.cur)}</td>
-                <td className="px-2 py-1.5 text-center tabular-nums text-(--color-text-muted)">{pct(share(n.cur, total))}</td>
-                <td className="px-2 py-1.5 text-center">
+                <td className={cn(NEST_CELL, 'text-center text-heading')}>{som(n.cur)}</td>
+                <td className={cn(NEST_CELL, 'text-center text-(--color-text-muted)')}>{pct(share(n.cur, total))}</td>
+                <td className={cn(NEST_CELL, 'text-center')}>
                   <PctBadge value={changeOf(n.cur, n.prev)} growthGood={n.kind !== 'expense'} />
                 </td>
               </tr>

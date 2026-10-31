@@ -1,7 +1,8 @@
 'use client';
 
-import { changeOf, DiffCell, ExcelButton, GroupTh, ReportCard, RTable, TableNote, Td, Th, ToggleAllButton, Tr } from '@/components/report/report';
-import { LinkMoneyCell, STICKY_LEFT, TreeNameCell } from '@/components/report/report-extra-a';
+import { nestHead, NestedRow } from '@/components/report/nested';
+import { changeOf, DiffCell, ExcelButton, GroupTh, ReportCard, RTable, STICKY_NAME, STICKY_NO, TableNote, Td, Th, ToggleAllButton, Tr } from '@/components/report/report';
+import { LinkMoneyCell, TreeNameCell } from '@/components/report/report-extra-a';
 import { cn } from '@/lib/utils';
 import { useMemo, useState, type ReactNode } from 'react';
 import { change, csvSom, downloadCsv, goodUp, pct, pctSigned, share, short, som, type Filter, type Kind, type Vals, type Which, type XNode } from './api';
@@ -136,17 +137,25 @@ export function DrillTable({ nodes: nodesIn, title, description, nameHeader = 'N
   const open = (n: XNode, path: string[], which: Which, f: Filter = n.f, label?: string) =>
     drill({ kind: n.kind, f, which, title: [root, ...path, n.label, ...(label ? [label] : [])].join(' › '), expected: which === 'cur' && !label ? n.cur : which === 'prev' && !label ? n.prev : which === 'ly' && !label ? n.ly : undefined });
 
-  const rows: ReactNode[] = [];
-  const walk = (list: XNode[], depth: number, path: string[], ppath: string, parentCur: number) => {
+  const groups = (showPrev ? 1 : 0) + (showLy ? 1 : 0);
+  const cols = 5 + groups * 2 + extra.length;
+  const minWidth = 48 + 250 + 110 + 70 + groups * 2 * 112 + 64 + extra.length * 112;
+
+  /** Har pog'ona — o'z qatorlari va raqamlashi (1, 2, 3 …); ochilgan qator bolalari — tagidagi panelda, o'z sarlavhali jadvalda */
+  const rowsOf = (list: XNode[], depth: number, path: string[], ppath: string, parentCur: number): ReactNode[] => {
+    const rows: ReactNode[] = [];
+    let no = 0;
     for (const n of list) {
       if (term && !hit(n)) continue;
       const p = `${ppath}/${n.key}`;
       const has = Boolean(n.children?.length);
       const isOpen = has && (Boolean(term) || expanded.has(p));
       const sh = share(n.cur, parentCur);
+      no += 1;
       rows.push(
-        <Tr key={p} muted={depth > 0} className={cn(depth === 0 && 'font-semibold text-heading')}>
-          <TreeNameCell depth={depth} open={has ? isOpen : undefined} onToggle={has ? () => toggle(p) : undefined} sub={has ? `${n.children!.length} ta ichki qator` : undefined}>
+        <Tr key={p} className={cn(depth === 0 && 'font-semibold text-heading', isOpen && 'bg-brand-50/60')}>
+          <Td className={cn(depth === 0 && STICKY_NO, 'font-normal text-(--color-text-faint)')}>{no}</Td>
+          <TreeNameCell sticky={depth === 0 ? STICKY_NAME : ''} open={has ? isOpen : undefined} onToggle={has ? () => toggle(p) : undefined} sub={has ? `${n.children!.length} ta ichki qator` : undefined}>
             <button
               type="button"
               onClick={() => (has ? toggle(p) : open(n, path, 'cur'))}
@@ -176,14 +185,48 @@ export function DrillTable({ nodes: nodesIn, title, description, nameHeader = 'N
           })}
         </Tr>,
       );
-      if (isOpen) walk(n.children!, depth + 1, [...path, n.label], p, n.cur);
+      if (isOpen)
+        rows.push(
+          <NestedRow key={`${p}>`} colSpan={cols} level={depth + 1}>
+            {subTable(rowsOf(n.children!, depth + 1, [...path, n.label], p, n.cur), depth + 1)}
+          </NestedRow>,
+        );
     }
+    return rows;
   };
-  walk(cut, 0, [], '', tot.cur);
 
-  const groups = (showPrev ? 1 : 0) + (showLy ? 1 : 0);
-  const cols = 4 + groups * 2 + extra.length;
-  const minWidth = 250 + 110 + 70 + groups * 2 * 112 + 64 + extra.length * 112;
+  /** Ichki panel jadvali: sarlavhasi (pog'ona rangi) — asosiy jadval ustunlari bilan bir xil */
+  const subTable = (body: ReactNode[], level: number): ReactNode => {
+    const head = nestHead(level);
+    return (
+      <table className="w-full border-separate border-spacing-0 text-[13px]">
+        <thead>
+          <tr>
+            <th className={cn(head, 'w-9')}>№</th>
+            <th className={cn(head, 'min-w-60 text-left')}>{nameHeader}</th>
+            <th className={head}>Joriy davr</th>
+            <th className={head} title="Yuqori qatordagi summaga nisbatan">
+              Ulushi
+            </th>
+            {showPrev && <th className={head}>O&apos;tgan davr</th>}
+            {showPrev && <th className={head}>Farqi, foizda</th>}
+            {showLy && <th className={head}>O&apos;tgan yil</th>}
+            {showLy && <th className={head}>Farqi, foizda</th>}
+            <th className={head} title="Yozuvlar soni">
+              Soni
+            </th>
+            {extra.map((e) => (
+              <th key={e.key} className={head} title={e.hint}>
+                {e.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{body}</tbody>
+      </table>
+    );
+  };
+  const rows = rowsOf(cut, 0, [], '', tot.cur);
 
   return (
     <ReportCard
@@ -205,7 +248,10 @@ export function DrillTable({ nodes: nodesIn, title, description, nameHeader = 'N
       <RTable minWidth={minWidth}>
         <thead>
           <tr>
-            <Th rowSpan={2} className={cn(STICKY_LEFT, 'z-[2] min-w-60 text-left')}>
+            <Th rowSpan={2} className={cn(STICKY_NO, 'z-[2]')}>
+              №
+            </Th>
+            <Th rowSpan={2} className={cn(STICKY_NAME, 'z-[2] min-w-60 text-left')}>
               {nameHeader}
             </Th>
             <Th rowSpan={2}>Joriy davr</Th>
@@ -234,7 +280,8 @@ export function DrillTable({ nodes: nodesIn, title, description, nameHeader = 'N
         </thead>
         <tbody>
           <Tr total>
-            <TreeNameCell>Jami</TreeNameCell>
+            <Td className={STICKY_NO} />
+            <TreeNameCell sticky={STICKY_NAME}>Jami</TreeNameCell>
             <LinkMoneyCell value={tot.cur} />
             <Td className="text-xs">100%</Td>
             {showPrev && <LinkMoneyCell value={tot.prev} />}

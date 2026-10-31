@@ -1,6 +1,8 @@
 'use client';
 
+import { ExpandBox, NEST_CELL, NestedRow, nestHead } from '@/components/report/nested';
 import { Badge } from '@/components/ui/badge';
+import { IconChevronRight } from '@/components/ui/icons';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -327,16 +329,18 @@ function SectionsTable({ kind, sheet, departments, editable, onToast, onChanged 
               <Fragment key={sec.key}>
                 <tr className="border-t border-(--color-line) align-top">
                   <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      className="text-left font-medium text-heading hover:text-brand-700"
-                      onClick={() => setOpen((x) => { const n = new Set(x); if (n.has(sec.key)) n.delete(sec.key); else n.add(sec.key); return n; })}
-                      aria-expanded={isOpen}
-                    >
-                      <span className="mr-1 text-(--color-text-faint)">{isOpen ? '▾' : '▸'}</span>
-                      {sec.key}. {sec.name}
-                    </button>
-                    <span className="mt-0.5 flex flex-wrap gap-1 pl-4">
+                    <span className="flex items-center gap-1.5">
+                      <ExpandBox open={isOpen} onClick={() => setOpen((x) => { const n = new Set(x); if (n.has(sec.key)) n.delete(sec.key); else n.add(sec.key); return n; })} />
+                      <button
+                        type="button"
+                        className="text-left font-medium text-heading hover:text-brand-700"
+                        onClick={() => setOpen((x) => { const n = new Set(x); if (n.has(sec.key)) n.delete(sec.key); else n.add(sec.key); return n; })}
+                        aria-expanded={isOpen}
+                      >
+                        {sec.key}. {sec.name}
+                      </button>
+                    </span>
+                    <span className="mt-0.5 flex flex-wrap gap-1 pl-6">
                       <span className="text-xs text-(--color-text-faint)">{sec.positions.length} lavozim</span>
                       {!sec.ok && (
                         <Badge tone="expense">
@@ -383,34 +387,34 @@ function SectionsTable({ kind, sheet, departments, editable, onToast, onChanged 
                   {oladi && <td className="money px-3 py-2 text-right">{sec.coverage === 'NONE' ? '—' : formatTiyin(sec.coveredTiyin)}</td>}
                 </tr>
                 {isOpen && (
-                  <tr className="bg-(--color-surface-muted)/50">
-                    <td colSpan={oladi ? 6 : 4} className="px-3 pb-3">
-                      <table className="mt-1 w-full text-xs">
-                        <thead className="text-(--color-text-muted)">
-                          <tr>
-                            <th className="px-2 py-1 text-left font-semibold">Lavozim</th>
-                            <th className="px-2 py-1 text-right font-semibold">Birlik</th>
-                            <th className="px-2 py-1 text-left font-semibold">Razryad</th>
-                            <th className="px-2 py-1 text-right font-semibold">Oklad (1 birlik)</th>
-                            <th className="px-2 py-1 text-right font-semibold">40% ustama (1 birlik)</th>
-                            <th className="px-2 py-1 text-right font-semibold">Jami (oylik)</th>
+                  <NestedRow colSpan={oladi ? 6 : 4}>
+                    <table className="w-full">
+                      <thead>
+                        <tr>
+                          <th className={cn(nestHead(1), 'w-10 text-center')}>№</th>
+                          <th className={cn(nestHead(1), 'text-left')}>Lavozim</th>
+                          <th className={cn(nestHead(1), 'text-right')}>Birlik</th>
+                          <th className={cn(nestHead(1), 'text-left')}>Razryad</th>
+                          <th className={cn(nestHead(1), 'text-right')}>Oklad (1 birlik)</th>
+                          <th className={cn(nestHead(1), 'text-right')}>40% ustama (1 birlik)</th>
+                          <th className={cn(nestHead(1), 'text-right')}>Jami (oylik)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sec.positions.map((p, i) => (
+                          <tr key={p.row} className="hover:bg-[#f7f9fc]">
+                            <td className={cn(NEST_CELL, 'text-center text-(--color-text-faint)')}>{i + 1}</td>
+                            <td className={cn(NEST_CELL, 'text-heading')}>{p.name}</td>
+                            <td className={cn(NEST_CELL, 'money text-right')}>{units(p.units)}</td>
+                            <td className={NEST_CELL}>{p.grade}</td>
+                            <td className={cn(NEST_CELL, 'money text-right')}>{formatTiyin(p.salaryTiyin)}</td>
+                            <td className={cn(NEST_CELL, 'money text-right')}>{formatTiyin(p.bonusTiyin)}</td>
+                            <td className={cn(NEST_CELL, 'money text-right')}>{formatTiyin(p.totalTiyin)}</td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {sec.positions.map((p) => (
-                            <tr key={p.row} className="border-t border-(--color-line)">
-                              <td className="px-2 py-1 text-heading">{p.name}</td>
-                              <td className="money px-2 py-1 text-right">{units(p.units)}</td>
-                              <td className="px-2 py-1">{p.grade}</td>
-                              <td className="money px-2 py-1 text-right">{formatTiyin(p.salaryTiyin)}</td>
-                              <td className="money px-2 py-1 text-right">{formatTiyin(p.bonusTiyin)}</td>
-                              <td className="money px-2 py-1 text-right">{formatTiyin(p.totalTiyin)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </NestedRow>
                 )}
               </Fragment>
             );
@@ -482,7 +486,7 @@ function MembersCard({ kind, rev }: { kind: ShtatKind; rev: number }) {
                     onClick={() => setOpen((x) => { const n = new Set(x); if (n.has(s.key)) n.delete(s.key); else n.add(s.key); return n; })}
                     aria-expanded={isOpen}
                   >
-                    <span className="text-(--color-text-faint)">{isOpen ? '▾' : '▸'}</span>
+                    <Chevron open={isOpen} />
                     <span className="min-w-0 flex-1 font-medium text-heading">
                       {s.key}. {s.name}
                       <span className="ml-2 text-xs font-normal text-(--color-text-muted)">{s.departmentName ? `→ ${s.departmentName}` : 'bog‘lanmagan'}</span>
@@ -512,6 +516,15 @@ function MembersCard({ kind, rev }: { kind: ShtatKind; rev: number }) {
   );
 }
 
+/** Ro'yxat qatoridagi strelka (tugma ichida — ExpandBox bilan bir xil ko'rinish, lekin <button> emas) */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <span className={cn('inline-flex size-[18px] shrink-0 items-center justify-center', open ? 'text-brand-700' : 'text-(--color-text-muted)')} aria-hidden>
+      <IconChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+    </span>
+  );
+}
+
 function MemberTable({ title, note, rows, warn = false }: { title: string; note: string; rows: ShtatMember[]; warn?: boolean }) {
   return (
     <div className="pt-2">
@@ -519,28 +532,32 @@ function MemberTable({ title, note, rows, warn = false }: { title: string; note:
         {title} <span className="font-normal text-(--color-text-muted)">· {note}</span>
       </p>
       {rows.length > 0 && (
-        <table className="mt-1 w-full text-xs">
-          <thead className="text-(--color-text-muted)">
-            <tr>
-              <th className="px-2 py-1 text-left font-semibold">F.I.Sh.</th>
-              <th className="px-2 py-1 text-left font-semibold">Lavozimi (ma&apos;lumotnomada)</th>
-              <th className="px-2 py-1 text-right font-semibold">Oklad</th>
-              <th className="px-2 py-1 text-right font-semibold">40% ustama</th>
-              <th className="px-2 py-1 text-right font-semibold">Tarkib jami</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((m) => (
-              <tr key={m.pinfl} className="border-t border-(--color-line)">
-                <td className="px-2 py-1 text-heading">{m.fullName}</td>
-                <td className="px-2 py-1">{m.position || '—'}</td>
-                <td className="money px-2 py-1 text-right">{formatTiyin(m.okladTiyin)}</td>
-                <td className="money px-2 py-1 text-right">{formatTiyin(m.ustamaTiyin)}</td>
-                <td className="money px-2 py-1 text-right">{formatTiyin(m.totalTiyin)}</td>
+        <div className="mt-1 overflow-x-auto rounded-lg border border-(--color-line) bg-white">
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className={cn(nestHead(1), 'w-10 text-center')}>№</th>
+                <th className={cn(nestHead(1), 'text-left')}>F.I.Sh.</th>
+                <th className={cn(nestHead(1), 'text-left')}>Lavozimi (ma&apos;lumotnomada)</th>
+                <th className={cn(nestHead(1), 'text-right')}>Oklad</th>
+                <th className={cn(nestHead(1), 'text-right')}>40% ustama</th>
+                <th className={cn(nestHead(1), 'text-right')}>Tarkib jami</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((m, i) => (
+                <tr key={m.pinfl} className="hover:bg-[#f7f9fc]">
+                  <td className={cn(NEST_CELL, 'text-center text-(--color-text-faint)')}>{i + 1}</td>
+                  <td className={cn(NEST_CELL, 'text-heading')}>{m.fullName}</td>
+                  <td className={NEST_CELL}>{m.position || '—'}</td>
+                  <td className={cn(NEST_CELL, 'money text-right')}>{formatTiyin(m.okladTiyin)}</td>
+                  <td className={cn(NEST_CELL, 'money text-right')}>{formatTiyin(m.ustamaTiyin)}</td>
+                  <td className={cn(NEST_CELL, 'money text-right')}>{formatTiyin(m.totalTiyin)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -779,8 +796,8 @@ function SavedPeriods({ periods, isAdmin, onToast, onChanged }: { periods: VedSa
               onClick={() => setOpen(open === p.period ? null : p.period)}
               aria-expanded={open === p.period}
             >
-              <span className="w-32 font-medium text-heading">
-                <span className="mr-1 text-(--color-text-faint)">{open === p.period ? '▾' : '▸'}</span>
+              <span className="flex w-36 items-center gap-1.5 font-medium text-heading">
+                <Chevron open={open === p.period} />
                 {formatPeriod(p.period)}
               </span>
               <span className="text-xs text-(--color-text-muted)">{p.employees} xodim</span>
@@ -842,8 +859,8 @@ function PeriodDetail({ period, warnings }: { period: string; warnings: string[]
               onClick={() => setOpen((x) => { const n = new Set(x); if (n.has(key)) n.delete(key); else n.add(key); return n; })}
               aria-expanded={isOpen}
             >
-              <span className="min-w-0 flex-1 font-medium text-heading">
-                <span className="mr-1 text-(--color-text-faint)">{isOpen ? '▾' : '▸'}</span>
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium text-heading">
+                <Chevron open={isOpen} />
                 {s.name}
               </span>
               <span className="text-xs text-(--color-text-muted)">{s.employees.length} xodim</span>
@@ -854,32 +871,34 @@ function PeriodDetail({ period, warnings }: { period: string; warnings: string[]
             </button>
             {isOpen && (
               <div className="overflow-x-auto border-t border-(--color-line)">
-                <table className="w-full text-xs">
-                  <thead className="text-(--color-text-muted)">
+                <table className="w-full">
+                  <thead>
                     <tr>
-                      <th className="px-2 py-1 text-left font-semibold">F.I.Sh.</th>
-                      <th className="px-2 py-1 text-left font-semibold">Lavozimi</th>
+                      <th className={cn(nestHead(1), 'w-10 text-center')}>№</th>
+                      <th className={cn(nestHead(1), 'text-left')}>F.I.Sh.</th>
+                      <th className={cn(nestHead(1), 'text-left')}>Lavozimi</th>
                       {d.components.map((c) => (
-                        <th key={c.code} className="px-2 py-1 text-right font-semibold whitespace-nowrap">
+                        <th key={c.code} className={cn(nestHead(1), 'text-right')}>
                           {c.label}
                         </th>
                       ))}
-                      <th className="px-2 py-1 text-right font-semibold">Jami</th>
-                      <th className="px-2 py-1 text-left font-semibold">Izoh</th>
+                      <th className={cn(nestHead(1), 'text-right')}>Jami</th>
+                      <th className={cn(nestHead(1), 'text-left')}>Izoh</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {s.employees.map((e) => (
-                      <tr key={e.row} className="border-t border-(--color-line)">
-                        <td className="px-2 py-1 whitespace-nowrap text-heading">{e.fullName}</td>
-                        <td className="px-2 py-1">{e.position || '—'}</td>
+                    {s.employees.map((e, n) => (
+                      <tr key={e.row} className="hover:bg-[#f7f9fc]">
+                        <td className={cn(NEST_CELL, 'text-center text-(--color-text-faint)')}>{n + 1}</td>
+                        <td className={cn(NEST_CELL, 'whitespace-nowrap text-heading')}>{e.fullName}</td>
+                        <td className={NEST_CELL}>{e.position || '—'}</td>
                         {d.components.map((c) => (
-                          <td key={c.code} className="money px-2 py-1 text-right">
+                          <td key={c.code} className={cn(NEST_CELL, 'money text-right')}>
                             {e.amounts[c.code] ? formatTiyin(e.amounts[c.code]!) : ''}
                           </td>
                         ))}
-                        <td className="money px-2 py-1 text-right font-semibold">{formatTiyin(e.totalTiyin)}</td>
-                        <td className="px-2 py-1 text-(--color-text-muted)">{e.note}</td>
+                        <td className={cn(NEST_CELL, 'money text-right font-semibold')}>{formatTiyin(e.totalTiyin)}</td>
+                        <td className={cn(NEST_CELL, 'text-(--color-text-muted)')}>{e.note}</td>
                       </tr>
                     ))}
                   </tbody>

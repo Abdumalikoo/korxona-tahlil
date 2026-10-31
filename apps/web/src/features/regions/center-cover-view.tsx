@@ -1,6 +1,7 @@
 'use client';
 
 import type { DateRange } from '@/components/shared/date-range-picker';
+import { ExpandBox, nestHead, NestedRow } from '@/components/report/nested';
 import { NameCell, PillTabs, RTable, STICKY_NAME, STICKY_NO, sum, Td, Th, Tr } from '@/components/report/report';
 import { pct, TONE, type CompareMode, type SectionFilter } from '@/features/structure/api';
 import { useAsync } from '@/lib/use-async';
@@ -22,8 +23,8 @@ const n = (t: string | number) => Number(t);
 const compact = (t: string | number) => `${sum(t)}\u00A0so'm`;
 /** Jadvalda: «1 234 567» */
 const cell = (t: string | number) => sum(t);
-/** Ichki (ochiladigan) jadval sarlavhasi va katakchasi */
-const IN_TH = 'border-b border-(--color-line) bg-[#f3f6fd] px-2 py-2 text-center text-[11px] font-bold text-heading';
+/** Ichki (ochiladigan) panel jadvali sarlavhasi (pog'ona bo'yicha) va katakchasi */
+const inTh = (level: number) => cn(nestHead(level), 'text-center');
 const IN_TD = 'border-b border-(--color-line) px-2 py-1.5 text-center text-[13px] tabular-nums';
 const pctOf = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : null);
 
@@ -45,31 +46,33 @@ function DistrictBreakdown({ code, regionName, regionShare, centerNet, ctx }: { 
   const rows = [...res.data.districts].filter((d) => n(d.incomeTiyin) !== 0 || n(d.factTiyin) !== 0).sort((a, b) => n(b.incomeTiyin) - n(a.incomeTiyin));
   if (!rows.length || total <= 0) return <p className="px-4 py-3 text-xs text-(--color-text-muted)">{regionName}: tanlangan davrda tumanlar daromadi yo&apos;q.</p>;
   return (
-    <div className="space-y-2 bg-[#f8f9fc] px-4 py-3">
+    <div>
       {res.data.notes
         .filter((t) => /taqsimlandi|bo'lib bo'lmadi/.test(t))
         .map((t) => (
-          <p key={t} className="rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+          <p key={t} className="mx-3 mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
             {t}
           </p>
         ))}
-      <p className="text-xs text-(--color-text-muted)">
+      <p className="px-3 py-2 text-xs text-(--color-text-muted)">
         <b className="text-heading">{regionName}</b> Markazga {compact(regionShare)} beradi — u tumanlarga <b>daromad ulushiga</b> qarab bo&apos;linadi (viloyat daromadi{' '}
         {compact(total)}). Tumanni bosing — xodimlar ulushi ochiladi.
       </p>
-      <table className="w-full overflow-hidden rounded-lg border border-(--color-line) bg-white text-sm">
+      <table className="w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
-            <th className={cn(IN_TH, 'text-left')}>Tuman</th>
-            <th className={IN_TH}>Daromad</th>
-            <th className={cn(IN_TH, 'w-44')}>Viloyat daromadidan</th>
-            <th className={IN_TH}>Markazga ulush</th>
-            <th className={IN_TH}>Markazni qoplash</th>
-            <th className={IN_TH}>Tuman natijasi</th>
+            <th className={cn(inTh(1), 'w-8')} />
+            <th className={cn(inTh(1), 'w-9')}>№</th>
+            <th className={cn(inTh(1), 'text-left')}>Tuman</th>
+            <th className={inTh(1)}>Daromad</th>
+            <th className={cn(inTh(1), 'w-44')}>Viloyat daromadidan</th>
+            <th className={inTh(1)}>Markazga ulush</th>
+            <th className={inTh(1)}>Markazni qoplash</th>
+            <th className={inTh(1)}>Tuman natijasi</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((d) => {
+          {rows.map((d, i) => {
             const inc = n(d.incomeTiyin);
             const p = pctOf(inc, total);
             const part = (regionShare * Math.max(0, inc)) / total;
@@ -77,8 +80,11 @@ function DistrictBreakdown({ code, regionName, regionShare, centerNet, ctx }: { 
             return (
               <Fragment key={d.id}>
                 <tr className={cn('cursor-pointer hover:bg-brand-50/60', open && 'bg-brand-50/60')} onClick={() => setOpenId(open ? null : d.id)}>
+                  <td className={IN_TD}>
+                    <ExpandBox open={open} onClick={() => setOpenId(open ? null : d.id)} />
+                  </td>
+                  <td className={cn(IN_TD, 'text-(--color-text-faint)')}>{i + 1}</td>
                   <td className={cn(IN_TD, 'text-left font-medium text-heading')}>
-                    <span className="mr-1.5 inline-block w-3 text-(--color-text-faint)">{open ? '▾' : '▸'}</span>
                     {d.unassigned || d.id === UNASSIGNED_KEY ? 'Tumanga biriktirilmagan' : d.name}
                   </td>
                   <td className={cn(IN_TD, 'whitespace-nowrap')}>
@@ -96,11 +102,9 @@ function DistrictBreakdown({ code, regionName, regionShare, centerNet, ctx }: { 
                   <td className={cn(IN_TD, 'whitespace-nowrap font-semibold', n(d.resultTiyin) < 0 ? 'text-(--color-expense)' : 'text-(--color-income)')}>{cell(d.resultTiyin)}</td>
                 </tr>
                 {open && (
-                  <tr>
-                    <td colSpan={6} className="bg-white p-0">
-                      <EmployeeBreakdown id={d.id} code={code} districtName={d.unassigned ? 'Tumanga biriktirilmagan' : d.name} districtShare={part} regionShare={regionShare} centerNet={centerNet} ctx={ctx} />
-                    </td>
-                  </tr>
+                  <NestedRow colSpan={8} level={2}>
+                    <EmployeeBreakdown id={d.id} code={code} districtName={d.unassigned ? 'Tumanga biriktirilmagan' : d.name} districtShare={part} regionShare={regionShare} centerNet={centerNet} ctx={ctx} />
+                  </NestedRow>
                 )}
               </Fragment>
             );
@@ -114,45 +118,47 @@ function DistrictBreakdown({ code, regionName, regionShare, centerNet, ctx }: { 
 // ─────────── Tuman → xodimlar: tumanning Markazga ulushi xodimlarga tushumi (fakt) ulushiga qarab bo'linadi ───────────
 function EmployeeBreakdown({ id, code, districtName, districtShare, regionShare, centerNet, ctx }: { id: string; code: number; districtName: string; districtShare: number; regionShare: number; centerNet: number; ctx: DrillCtx }) {
   const res = useAsync(() => drillApi.district(id, code, ctx.range, ctx.section, ctx.compare).then((r) => r.data), [id, code, ctx.range.from, ctx.range.to, ctx.section, ctx.compare]);
-  if (!res.data) return <p className="px-6 py-3 text-xs text-(--color-text-muted)">{res.error ? `Xodimlarni yuklab bo'lmadi: ${res.error}` : 'Xodimlar yuklanmoqda…'}</p>;
+  if (!res.data) return <p className="px-3 py-2 text-xs text-(--color-text-muted)">{res.error ? `Xodimlarni yuklab bo'lmadi: ${res.error}` : 'Xodimlar yuklanmoqda…'}</p>;
   const list = res.data.employees.filter((e) => n(e.factTiyin) > 0).sort((a, b) => n(b.factTiyin) - n(a.factTiyin));
   const factSum = list.reduce((a, e) => a + n(e.factTiyin), 0);
   const income = n(res.data.summary.incomeTiyin);
   if (!list.length)
     return (
-      <p className="border-l-4 border-brand-200 px-6 py-3 text-xs text-(--color-text-muted)">
+      <p className="px-3 py-2 text-xs text-(--color-text-muted)">
         {districtName}: xodimlarning tushumi (Natijalar / Reja va tushum fayli) tanlangan davrda yo&apos;q — xodimlarga bo&apos;lib bo&apos;lmaydi.
       </p>
     );
   const coverage = pctOf(factSum, income);
   return (
-    <div className="border-l-4 border-brand-300 bg-[#f8f9fc] py-2 pl-6 pr-3">
-      <p className="mb-1.5 text-xs text-(--color-text-muted)">
+    <div>
+      <p className="px-3 py-2 text-xs text-(--color-text-muted)">
         <b className="text-heading">{districtName}</b> Markazga {compact(districtShare)} beradi — xodimlarga <b>tushumi (fakt) ulushiga</b> qarab bo&apos;linadi. Xodimlar tushumi{' '}
         {compact(factSum)}
         {income > 0 && <> — tuman daromadining {pct(coverage)}</>}
         {coverage !== null && Math.abs(coverage - 100) > 1 && <span className="text-amber-700"> (daromad bilan to&apos;liq mos emas)</span>}.
       </p>
-      <table className="w-full overflow-hidden rounded-lg border border-(--color-line) bg-white text-sm">
+      <table className="w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
-            <th className={cn(IN_TH, 'text-left')}>Xodim</th>
-            <th className={IN_TH}>Tushum (fakt)</th>
-            <th className={cn(IN_TH, 'w-40')}>Tumandagi ulushi</th>
-            <th className={IN_TH}>Markazga ulush</th>
-            <th className={IN_TH} title="Viloyat ulushining necha foizi">
+            <th className={cn(inTh(2), 'w-9')}>№</th>
+            <th className={cn(inTh(2), 'text-left')}>Xodim</th>
+            <th className={inTh(2)}>Tushum (fakt)</th>
+            <th className={cn(inTh(2), 'w-40')}>Tumandagi ulushi</th>
+            <th className={inTh(2)}>Markazga ulush</th>
+            <th className={inTh(2)} title="Viloyat ulushining necha foizi">
               Viloyatdan
             </th>
-            <th className={IN_TH}>Markazni qoplash</th>
+            <th className={inTh(2)}>Markazni qoplash</th>
           </tr>
         </thead>
         <tbody>
-          {list.map((e) => {
+          {list.map((e, i) => {
             const f = n(e.factTiyin);
             const p = pctOf(f, factSum);
             const part = (districtShare * f) / factSum;
             return (
               <tr key={e.pinfl}>
+                <td className={cn(IN_TD, 'text-(--color-text-faint)')}>{i + 1}</td>
                 <td className={cn(IN_TD, 'text-left')}>
                   <span className="font-medium text-heading">{e.fullName}</span>
                   <span className="ml-1">
@@ -425,7 +431,7 @@ export function CenterCoverView({
                   <Tr onClick={() => (canDrill ? setExpanded(isOpen ? null : row.key) : onOpen(row.key))} className={cn(isOpen && 'bg-brand-50')}>
                     <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
                     <NameCell
-                      before={<span className="inline-block w-3 text-(--color-text-faint)">{canDrill ? (isOpen ? '▾' : '▸') : ''}</span>}
+                      before={<ExpandBox open={isOpen} hidden={!canDrill} onClick={() => setExpanded(isOpen ? null : row.key)} />}
                       className="font-medium text-heading"
                     >
                       <span className="inline-flex items-center gap-1">
@@ -457,11 +463,9 @@ export function CenterCoverView({
                     </Td>
                   </Tr>
                   {isOpen && ctx && row.code !== null && row.code !== undefined && (
-                    <tr>
-                      <td colSpan={hasPaid ? 10 : 9} className="border-b border-(--color-line) p-0">
-                        <DistrictBreakdown code={row.code} regionName={row.name} regionShare={share} centerNet={r.centerNet} ctx={ctx} />
-                      </td>
-                    </tr>
+                    <NestedRow colSpan={hasPaid ? 10 : 9} level={1}>
+                      <DistrictBreakdown code={row.code} regionName={row.name} regionShare={share} centerNet={r.centerNet} ctx={ctx} />
+                    </NestedRow>
                   )}
                 </Fragment>
               );

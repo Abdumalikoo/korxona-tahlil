@@ -23,6 +23,7 @@ import {
   type StatTile,
 } from '@/components/report/report';
 import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
+import { ExpandBox, nestHead, NestedRow } from '@/components/report/nested';
 import { IconArrowRight } from '@/components/ui/icons';
 import { monthLabel } from '@/features/explore/api';
 import { DrillProvider, useDrill } from '@/features/explore/drill';
@@ -309,7 +310,10 @@ export function segmentUnit(code: string | null | undefined): EntryUnit | null {
 const HEAD = 'border-b border-l border-(--color-line) bg-[#f3f6fd] px-2 py-2.5 text-center text-xs font-bold text-heading first:border-l-0';
 const CELL = 'border-b border-l border-(--color-line) px-2 py-1.5 text-center text-[13px] tabular-nums first:border-l-0';
 
-/** Ichma-ich jadval: ▸ — ichiga; summa — yozuvlar; «Oylar kesimida» — har oy ustuni (katak bosilsa — o'sha oy yozuvlari) */
+/**
+ * Ichma-ich jadval: › — qator tagida o'z sarlavhali, o'z raqamlashli panel ochiladi (bolalari yoki oylari); summa — yozuvlar;
+ * «Oylar kesimida» — har oy ustuni (katak bosilsa — o'sha oy yozuvlari)
+ */
 function TreeCard({
   title,
   hint,
@@ -365,9 +369,12 @@ function TreeCard({
   const growthGood = kind === 'income';
   const prevTotal = nodes.reduce((s, nd) => s + n(nd.previousTiyin), 0);
 
-  const rows: ReactNode[] = [];
-  const walk = (list: DrillNode[], depth: number, parentId: string, path: string[]) => {
-    for (const nd of list) {
+  const cols = 3 + (byMonth ? months.length : 4);
+  /** Pog'ona jadvali: depth 0 — asosiy (Jami bilan), 1+ — ochilgan qator tagidagi panel ichida */
+  const table = (list: DrillNode[], depth: number, parentId: string, path: string[]): ReactNode => {
+    const head = depth === 0 ? HEAD : cn(nestHead(depth), 'border-l border-(--color-line) text-center first:border-l-0');
+    const rows: ReactNode[] = [];
+    list.forEach((nd, idx) => {
       const id = `${parentId}/${nd.key}`;
       const cur = n(nd.amountTiyin);
       const prev = n(nd.previousTiyin);
@@ -379,11 +386,14 @@ function TreeCard({
       const p = [...path, nd.label];
       const good = Math.round(diff / 100) === 0 ? null : diff > 0 === growthGood;
       rows.push(
-        <tr key={id} className={cn(depth === 0 ? 'bg-white font-medium' : depth === 1 ? 'bg-[#fafbfe]' : 'bg-[#f4f6fb]', expandable && 'cursor-pointer hover:bg-brand-50')} onClick={expandable ? () => toggle(id) : undefined}>
-          <td className={cn(CELL, 'text-left')} style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}>
+        <tr key={id} className={cn('[&>td]:bg-inherit', isOpen ? 'bg-brand-50/60' : 'bg-white', depth === 0 && 'font-medium', expandable && 'cursor-pointer hover:bg-brand-50')} onClick={expandable ? () => toggle(id) : undefined}>
+          <td className={cn(CELL, 'w-8')}>
+            <ExpandBox open={isOpen} hidden={!expandable} onClick={() => toggle(id)} />
+          </td>
+          <td className={cn(CELL, 'w-9 text-(--color-text-faint)')}>{idx + 1}</td>
+          <td className={cn(CELL, 'text-left')}>
             <span className="flex items-center gap-1.5">
-              <span className={cn('inline-block w-3 text-xs text-(--color-text-faint) transition-transform', isOpen && 'rotate-90', !expandable && 'invisible')}>▸</span>
-              <span className={cn('text-heading', depth === 0 && 'font-semibold')} title={nd.hint}>
+              <span className={cn('text-heading', (depth === 0 || isOpen) && 'font-semibold')} title={nd.hint}>
                 {nd.label}
               </span>
               {kids.length > 0 && <span className="text-xs text-(--color-text-faint)">{kids.length}</span>}
@@ -439,37 +449,95 @@ function TreeCard({
             })}
         </tr>,
       );
-      if (!isOpen) continue;
-      if (kids.length) walk(kids, depth + 1, id, p);
-      else
-        for (const { m, v } of monthKids)
-          rows.push(
-            <tr key={`${id}@${m}`} className="bg-brand-50/40 text-xs">
-              <td className={cn(CELL, 'text-left text-(--color-text-muted)')} style={{ paddingLeft: `${0.5 + (depth + 1) * 1.25 + 1}rem` }}>
-                {monthLabel(m)}
+      if (!isOpen) return;
+      if (kids.length)
+        rows.push(
+          <NestedRow key={`${id}>`} colSpan={cols} level={depth + 1}>
+            {table(kids, depth + 1, id, p)}
+          </NestedRow>,
+        );
+      else {
+        // Oylar paneli: bolasi yo'q qator — oyma-oy summasi (bosilsa — o'sha oy yozuvlari)
+        const mh = cn(nestHead(depth + 1), 'border-l border-(--color-line) text-center first:border-l-0');
+        rows.push(
+          <NestedRow key={`${id}@`} colSpan={cols} level={depth + 1}>
+            <table className="w-full border-separate border-spacing-0 text-sm">
+              <thead>
+                <tr>
+                  <th className={cn(mh, 'w-9')}>№</th>
+                  <th className={cn(mh, 'text-left')}>Oy</th>
+                  <th className={mh}>Summasi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthKids.map(({ m, v }, i) => (
+                  <tr key={`${id}@${m}`} className="bg-white text-xs">
+                    <td className={cn(CELL, 'w-9 text-(--color-text-faint)')}>{i + 1}</td>
+                    <td className={cn(CELL, 'text-left text-(--color-text-muted)')}>{monthLabel(m)}</td>
+                    <td className={cn(CELL, 'whitespace-nowrap')}>
+                      {nd.f ? (
+                        <button type="button" onClick={() => drill(nd, p, m, v)} className="text-heading hover:text-brand-700 hover:underline">
+                          {sum(v)}
+                        </button>
+                      ) : (
+                        <span className="text-heading">{sum(v)}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </NestedRow>,
+        );
+      }
+    });
+    return (
+      <table
+        className={cn('w-full border-separate border-spacing-0 text-sm', depth === 0 && 'overflow-hidden rounded-xl border border-(--color-line)')}
+        style={depth === 0 ? { minWidth: byMonth ? 380 + months.length * 110 : 960 } : undefined}
+      >
+        <thead>
+          <tr>
+            <th className={cn(head, 'w-8')} />
+            <th className={cn(head, 'w-9')}>№</th>
+            <th className={cn(head, 'text-left', depth === 0 && 'min-w-72')}>Nomi</th>
+            {!byMonth && (
+              <>
+                <th className={head}>{cap(compareLabel)}</th>
+                <th className={head}>Joriy davr</th>
+                <th className={head}>Farqi, foizda</th>
+                <th className={head}>Ulushi</th>
+              </>
+            )}
+            {byMonth &&
+              months.map((m) => (
+                <th key={m} className={cn(head, 'whitespace-nowrap')}>
+                  {monthLabel(m)}
+                </th>
+              ))}
+          </tr>
+        </thead>
+        <tbody>
+          {depth === 0 && !byMonth && (
+            <tr className="bg-[#eaf0fd] font-bold text-heading">
+              <td className={CELL} />
+              <td className={CELL} />
+              <td className={cn(CELL, 'text-left')}>Jami</td>
+              <td className={cn(CELL, 'whitespace-nowrap')}>{sum(prevTotal)}</td>
+              <td className={cn(CELL, 'whitespace-nowrap')}>{sum(total)}</td>
+              <td className={cn(CELL, 'whitespace-nowrap')}>
+                <span title={total !== prevTotal ? `Farqi: ${sum(total - prevTotal)} so'm` : undefined}>{pctOrSum(total, prevTotal, growthGood)}</span>
               </td>
-              {!byMonth && <td className={CELL} />}
               <td className={CELL}>
-                {nd.f ? (
-                  <button type="button" onClick={() => drill(nd, p, m, v)} className="text-heading hover:text-brand-700 hover:underline">
-                    {sum(v)}
-                  </button>
-                ) : (
-                  <span className="text-heading">{sum(v)}</span>
-                )}
+                <PctBadge value={100} plain />
               </td>
-              {!byMonth && (
-                <>
-                  <td className={CELL} />
-                  <td className={CELL} />
-                </>
-              )}
-              {byMonth && months.slice(1).map((x) => <td key={x} className={CELL} />)}
-            </tr>,
-          );
-    }
+            </tr>
+          )}
+          {rows}
+        </tbody>
+      </table>
+    );
   };
-  walk(shown, 0, '', []);
   const allIds = (list: DrillNode[], parentId: string): string[] => list.flatMap((nd) => [`${parentId}/${nd.key}`, ...allIds(nd.children ?? [], `${parentId}/${nd.key}`)]);
 
   return (
@@ -496,43 +564,7 @@ function TreeCard({
     >
       {nodes.length ? (
         <div className="overflow-x-auto px-4 pb-2">
-          <table className="w-full border-separate border-spacing-0 overflow-hidden rounded-xl border border-(--color-line) text-sm" style={{ minWidth: byMonth ? 320 + months.length * 110 : 900 }}>
-            <thead>
-              <tr>
-                <th className={cn(HEAD, 'min-w-72 text-left')}>Nomi</th>
-                {!byMonth && (
-                  <>
-                    <th className={HEAD}>{cap(compareLabel)}</th>
-                    <th className={HEAD}>Joriy davr</th>
-                    <th className={HEAD}>Farqi, foizda</th>
-                    <th className={HEAD}>Ulushi</th>
-                  </>
-                )}
-                {byMonth &&
-                  months.map((m) => (
-                    <th key={m} className={cn(HEAD, 'whitespace-nowrap')}>
-                      {monthLabel(m)}
-                    </th>
-                  ))}
-              </tr>
-            </thead>
-            <tbody>
-              {!byMonth && (
-                <tr className="bg-[#eaf0fd] font-bold text-heading">
-                  <td className={cn(CELL, 'text-left')}>Jami</td>
-                  <td className={cn(CELL, 'whitespace-nowrap')}>{sum(prevTotal)}</td>
-                  <td className={cn(CELL, 'whitespace-nowrap')}>{sum(total)}</td>
-                  <td className={cn(CELL, 'whitespace-nowrap')}>
-                    <span title={total !== prevTotal ? `Farqi: ${sum(total - prevTotal)} so'm` : undefined}>{pctOrSum(total, prevTotal, growthGood)}</span>
-                  </td>
-                  <td className={CELL}>
-                    <PctBadge value={100} plain />
-                  </td>
-                </tr>
-              )}
-              {rows}
-            </tbody>
-          </table>
+          {table(shown, 0, '', [])}
         </div>
       ) : (
         <EmptyNote>Bu davrda yo&apos;q</EmptyNote>

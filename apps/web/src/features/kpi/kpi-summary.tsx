@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox, NEST_CELL, nestHead, NestedRow } from '@/components/report/nested';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -78,6 +79,8 @@ function DepartmentCard({ d, months }: { d: KpiSummary['departments'][number]; m
         <table className="w-full text-sm">
           <thead className="bg-(--color-surface-muted) text-[10.5px] tracking-wide text-(--color-text-muted) uppercase">
             <tr>
+              <th className="w-8 px-1 py-2" />
+              <th className="w-9 px-1 py-2 text-center font-semibold">№</th>
               <th className="px-3 py-2 text-left font-semibold">Xodim</th>
               {d.months.map((m) => (
                 <th key={m.period} className="px-2 py-2 text-center font-semibold whitespace-nowrap" title={m.submittedAt ? `Yuborilgan: ${formatDateTime(m.submittedAt)}${m.submittedBy ? ` · ${m.submittedBy}` : ''}` : 'Yuborilmagan'}>
@@ -89,9 +92,13 @@ function DepartmentCard({ d, months }: { d: KpiSummary['departments'][number]; m
             </tr>
           </thead>
           <tbody>
-            {d.employees.map((e) => (
+            {d.employees.map((e, i) => (
               <Fragment key={e.pinfl}>
                 <tr className={cn('cursor-pointer border-t border-(--color-line) hover:bg-(--color-surface-muted)', open === e.pinfl && 'bg-brand-50/50')} onClick={() => setOpen(open === e.pinfl ? null : e.pinfl)}>
+                  <td className="px-1 py-1.5 text-center">
+                    <ExpandBox open={open === e.pinfl} onClick={() => setOpen(open === e.pinfl ? null : e.pinfl)} />
+                  </td>
+                  <td className="px-1 py-1.5 text-center text-(--color-text-faint) tabular-nums">{i + 1}</td>
                   <td className="px-3 py-1.5">
                     <span className="font-medium text-heading">{e.fullName}</span>
                     <span className="block text-[11px] text-(--color-text-muted)">{e.position ?? ''}</span>
@@ -107,48 +114,48 @@ function DepartmentCard({ d, months }: { d: KpiSummary['departments'][number]; m
                   <td className="px-3 py-1.5 text-right font-bold text-heading tabular-nums">{e.average ?? '—'}</td>
                 </tr>
                 {open === e.pinfl && (
-                  <tr>
-                    <td colSpan={months.length + 2} className="border-t border-(--color-line) bg-(--color-surface-muted)/40 px-3 py-2">
-                      <table className="w-full text-xs">
-                        <thead className="text-[10.5px] text-(--color-text-muted)">
-                          <tr>
-                            <th className="px-2 py-1 text-left font-semibold">Mezon</th>
-                            {months.map((p) => (
-                              <th key={p} className="px-2 py-1 text-center font-semibold">
-                                {formatPeriodShort(p)}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {d.criteria
-                            .filter((c) => months.some((p) => e.months[p]?.points[c.id]))
-                            .map((c) => (
-                              <tr key={c.id} className="border-t border-(--color-line)">
-                                <td className="px-2 py-1">
-                                  <Badge tone={c.kind === 'BONUS' ? 'income' : 'expense'} className="mr-1 px-1.5 py-0 text-[10px]">
-                                    {c.kind === 'BONUS' ? '+' : '−'}
-                                    {c.no}
-                                  </Badge>
-                                  {c.title}
+                  <NestedRow colSpan={months.length + 4} level={1}>
+                    <table className="w-full border-separate border-spacing-0 text-xs">
+                      <thead>
+                        <tr>
+                          <th className={cn(nestHead(1), 'w-9')}>№</th>
+                          <th className={cn(nestHead(1), 'text-left')}>Mezon</th>
+                          {months.map((p) => (
+                            <th key={p} className={nestHead(1)}>
+                              {formatPeriodShort(p)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {d.criteria
+                          .filter((c) => months.some((p) => e.months[p]?.points[c.id]))
+                          .map((c, j) => (
+                            <tr key={c.id}>
+                              <td className={cn(NEST_CELL, 'text-center text-(--color-text-faint)')}>{j + 1}</td>
+                              <td className={NEST_CELL}>
+                                <Badge tone={c.kind === 'BONUS' ? 'income' : 'expense'} className="mr-1 px-1.5 py-0 text-[10px]">
+                                  {c.kind === 'BONUS' ? '+' : '−'}
+                                  {c.no}
+                                </Badge>
+                                {c.title}
+                              </td>
+                              {months.map((p) => (
+                                <td key={p} className={cn(NEST_CELL, 'text-center', c.kind === 'BONUS' ? 'text-(--color-income)' : 'text-(--color-expense)')}>
+                                  {e.months[p]?.points[c.id] ? `${c.kind === 'BONUS' ? '+' : '−'}${e.months[p]!.points[c.id]}` : ''}
                                 </td>
-                                {months.map((p) => (
-                                  <td key={p} className={cn('px-2 py-1 text-center tabular-nums', c.kind === 'BONUS' ? 'text-(--color-income)' : 'text-(--color-expense)')}>
-                                    {e.months[p]?.points[c.id] ? `${c.kind === 'BONUS' ? '+' : '−'}${e.months[p]!.points[c.id]}` : ''}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
+                              ))}
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </NestedRow>
                 )}
               </Fragment>
             ))}
             {!d.employees.length && (
               <tr>
-                <td colSpan={months.length + 2} className="px-3 py-4 text-sm text-(--color-text-muted)">
+                <td colSpan={months.length + 4} className="px-3 py-4 text-sm text-(--color-text-muted)">
                   Bu davrda baholash kiritilmagan.
                 </td>
               </tr>

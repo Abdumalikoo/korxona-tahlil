@@ -4,12 +4,13 @@ import { CalcValue } from '@/components/ui/calc';
 import type { Calc } from '@/lib/calc';
 import { cn } from '@/lib/utils';
 import type { ReactNode } from 'react';
+import { ExpandBox } from './nested';
 import { sum, Td } from './report';
 
 // ═══════════════════════════════════════════════════════════
 // Hisobot jadvali uchun qo'shimcha katakchalar (Tahlil sahifalari):
 //  • bosiladigan summa (yozuvlar ochiladi);
-//  • ochiladigan daraxt qatori nomi (▸ / ▾, pog'ona bo'yicha surilgan).
+//  • ochiladigan daraxt qatori nomi (› / ⌄ strelka, pog'ona bo'yicha surilgan).
 // ═══════════════════════════════════════════════════════════
 
 /** Chapda qotib turadigan nom ustuni (№ ustunisiz jadvallar uchun) */
@@ -83,21 +84,7 @@ export function TreeNameCell({
   return (
     <td className={cn('border-b border-(--color-line) px-2 py-2 text-left text-[13px]', sticky, className)}>
       <span className="flex min-w-0 items-center gap-1" style={{ paddingLeft: depth * 16 }}>
-        {onToggle ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle();
-            }}
-            aria-expanded={open}
-            className="flex size-5 shrink-0 items-center justify-center rounded text-(--color-text-muted) hover:bg-brand-50 hover:text-brand-700"
-          >
-            <span className={cn('inline-block text-sm leading-none transition-transform', open && 'rotate-90')}>›</span>
-          </button>
-        ) : (
-          <span className="size-5 shrink-0" />
-        )}
+        <ExpandBox open={!!open} hidden={!onToggle} onClick={onToggle} />
         <span className="min-w-0">
           <span className="block truncate" title={typeof children === 'string' ? children : undefined}>
             {children}

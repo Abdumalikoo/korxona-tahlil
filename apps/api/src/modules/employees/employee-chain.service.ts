@@ -234,6 +234,19 @@ export class EmployeeChainService {
     return { from: months[0]!, to: months[months.length - 1]!, months: byMonth, labels, rows };
   }
 
+  /** Har xodim, har oy amaldagi joy (hisoblar tartibida) — boshqa bo'limlar uchun: «pinfl|YYYY-MM» → joy (unit: C yoki R:<kod>) */
+  async effectivePlaces(months: string[]): Promise<Map<string, { key: string; unit: string; label: string }>> {
+    const ctx = await this.load(months);
+    const ev = this.evaluate(ctx);
+    const out = new Map<string, { key: string; unit: string; label: string }>();
+    for (const e of ctx.employees)
+      for (const p of months) {
+        const place = ev(e, p).effective;
+        if (place) out.set(`${e.pinfl}|${p}`, place);
+      }
+    return out;
+  }
+
   /** Bir xodim: vaqt chizig'i (uzluksiz davrlar), harakatlar va har oy manbalari (shaxsiy ma'lumot) */
   async timeline(pinfl: string, from: string, to: string) {
     const months = monthsBetween(String(from ?? ''), String(to ?? ''));

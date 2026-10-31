@@ -1,6 +1,7 @@
 'use client';
 
 import { ExcelButton, Field, FilterBar, MoneyCell, NameCell, ReportCard, RTable, SelectBox, StatTiles, STICKY_NAME, STICKY_NO, sum, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { ExpandBox, NestedRow } from '@/components/report/nested';
 import { NotesList } from '@/components/report/report-extra-b';
 import { LoadingCard } from '@/components/report/report-extra-c';
 import { compact } from '@/features/structure/api';
@@ -225,7 +226,9 @@ function RegionServices({ d, r }: { d: PotentialResult; r: RegionPotential }) {
             <Fragment key={s.key}>
               <Tr onClick={() => setOpen(open === s.key ? null : s.key)} className={cn(open === s.key && 'bg-brand-50!')}>
                 <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{idx + 1}</Td>
-                <NameCell drill>{s.label}</NameCell>
+                <NameCell className="font-medium text-heading" before={<ExpandBox open={open === s.key} onClick={() => setOpen(open === s.key ? null : s.key)} />}>
+                  {s.label}
+                </NameCell>
                 <Td className="min-w-[170px] text-xs">
                   <span className="whitespace-nowrap">
                     {formatPeriodShort(s.window.from)} – {formatPeriodShort(s.window.to)} · {s.window.n} oy
@@ -247,11 +250,11 @@ function RegionServices({ d, r }: { d: PotentialResult; r: RegionPotential }) {
                 <MoneyCell value={n(s.forecast[0])} className="text-(--color-text-muted)" />
               </Tr>
               {open === s.key && (
-                <Tr muted>
-                  <Td colSpan={8 + d.periods.length} className="px-5 py-3 text-left text-sm">
+                <NestedRow colSpan={8 + d.periods.length} level={1}>
+                  <div className="px-4 py-3 text-left text-sm">
                     <Workings s={s} d={d} />
-                  </Td>
-                </Tr>
+                  </div>
+                </NestedRow>
               )}
             </Fragment>
           ))}

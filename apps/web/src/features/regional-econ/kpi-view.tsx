@@ -184,9 +184,9 @@ export function KpiView() {
                       <NameCell className="font-bold text-heading">{r.name}</NameCell>
                       <Td colSpan={6} />
                     </Tr>
-                    {r.metrics.map((c) => (
+                    {r.metrics.map((c, j) => (
                       <Tr key={c.metric} onClick={c.id ? () => setEdit({ cell: c, region: r.name }) : undefined}>
-                        <Td className={STICKY_NO} />
+                        <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{`${i + 1}.${j + 1}`}</Td>
                         <NameCell className="pl-5">
                           {c.label}
                           <span className="ml-1 text-[10px] text-(--color-text-faint)">{c.up ? '≥' : '≤'}</span>

@@ -1,6 +1,7 @@
 'use client';
 
 import { ExcelButton, MoneyCell, NameCell, PctCell, PillTabs, ReportCard, RTable, SearchInput, StatTiles, STICKY_NAME, STICKY_NO, TableNote, Td, Th, ToggleAllButton, Tr, sum } from '@/components/report/report';
+import { ExpandBox, NestedRow, nestHead } from '@/components/report/nested';
 import { EmptyNote, LoadingCard } from '@/components/report/report-extra-c';
 import { csvSom, downloadCsv } from '@/features/structure/stats';
 import { formatPeriod } from '@/lib/format';
@@ -54,7 +55,6 @@ function Body({ d, loading }: { d: Compare3802; loading: boolean }) {
   const over = s.months.flatMap((m) => m.sections.flatMap((x) => x.list)).filter((e) => e.companyTiyin !== null && n(e.companyTiyin) < 0).length;
 
   // ─────────── Daraxt ───────────
-  const rows: ReactNode[] = [];
   const cells = (x: CompareSum | null, strong = false) =>
     x ? (
       <>
@@ -71,83 +71,120 @@ function Body({ d, loading }: { d: Compare3802; loading: boolean }) {
         <Td />
       </>
     );
-  const line = (id: string, label: ReactNode, depth: number, body: ReactNode, opts: { openKey?: string; sub?: ReactNode; tone?: string; head?: boolean } = {}) => {
-    const isOpen = opts.openKey ? open.has(opts.openKey) : false;
-    rows.push(
-      <Tr key={id} onClick={opts.openKey ? () => toggle(opts.openKey!) : undefined} className={cn(opts.head && 'bg-brand-50/60', depth >= 2 && 'bg-(--color-surface-muted)/40')}>
-        <Td className={STICKY_NO} />
-        <NameCell
-          sub={opts.sub}
-          className={cn(opts.head && 'font-semibold text-heading', opts.tone)}
-          before={
-            <span className="flex shrink-0 items-center" style={{ paddingLeft: depth * 18 }}>
-              <span className={cn('inline-block w-3.5 text-center text-(--color-text-faint)', !opts.openKey && 'invisible')}>{isOpen ? '▾' : '▸'}</span>
-            </span>
-          }
-        >
-          {label}
-        </NameCell>
-        {body}
-      </Tr>,
-    );
-    return isOpen;
+  // Har pog'ona — alohida panel (o'z sarlavhasi va raqamlashi bilan): oy → bo'lim → xodim → oylik qismlari
+  type Line = { id: string; label: ReactNode; body: ReactNode; sub?: ReactNode; tone?: string; head?: boolean; openKey?: string; kids?: () => Line[] };
+  const LEVEL_LABEL = ['Oy', "Bo'lim", 'Xodim', 'Oylik qismi'];
+  const level = (list: Line[], depth: number): ReactNode[] => {
+    const out: ReactNode[] = [];
+    list.forEach((x, i) => {
+      const isOpen = x.openKey ? open.has(x.openKey) : false;
+      out.push(
+        <Tr key={x.id} onClick={x.openKey ? () => toggle(x.openKey!) : undefined} className={cn(x.head && 'bg-brand-50/60')}>
+          <Td className={cn(depth === 0 && STICKY_NO, 'w-12 text-center text-(--color-text-faint)')}>{i + 1}</Td>
+          <NameCell sticky={depth === 0} sub={x.sub} className={cn(x.head && 'font-semibold text-heading', x.tone)} before={<ExpandBox open={isOpen} hidden={!x.openKey} onClick={() => toggle(x.openKey!)} />}>
+            {x.label}
+          </NameCell>
+          {x.body}
+        </Tr>,
+      );
+      if (isOpen && x.kids)
+        out.push(
+          <NestedRow key={`${x.id}|panel`} colSpan={6} level={depth + 1}>
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className={cn(nestHead(depth + 1), 'w-12 text-center')}>№</th>
+                  <th className={cn(nestHead(depth + 1), 'min-w-72 text-left')}>{LEVEL_LABEL[depth + 1]}</th>
+                  <th className={cn(nestHead(depth + 1), 'text-right')}>To&apos;liq oylik</th>
+                  <th className={cn(nestHead(depth + 1), 'text-right')}>Qo&apos;mita qoplagan</th>
+                  <th className={cn(nestHead(depth + 1), 'text-right')}>Korxona to&apos;lagan</th>
+                  <th className={cn(nestHead(depth + 1), 'text-right')}>Qo&apos;mita ulushi</th>
+                </tr>
+              </thead>
+              <tbody>{level(x.kids(), depth + 1)}</tbody>
+            </table>
+          </NestedRow>,
+        );
+    });
+    return out;
   };
 
+  const tree: Line[] = [];
   for (const m of s.months) {
     const secs = m.sections
       .map((sec) => ({ ...sec, list: q ? sec.list.filter((e) => e.fullName.toLowerCase().includes(q)) : sec.list }))
       .filter((sec) => sec.list.length || !q);
     if (q && !secs.length) continue;
     const sub = [`${m.employees} xodim`, m.unmatched ? `${m.unmatched} tasining to'liq oyligi topilmadi` : null, !m.tarkib ? "ish haqi tarkibi yuklanmagan" : null].filter(Boolean).join(' · ');
-    if (!line(m.period, formatPeriod(m.period), 0, cells(m, true), { openKey: m.period, sub, head: true })) continue;
-    for (const sec of secs) {
-      const k = `${m.period}|${sec.name}`;
-      if (!line(k, sec.name, 1, cells(sec), { openKey: k, sub: `${sec.employees} xodim${sec.unmatched ? ` · ${sec.unmatched} topilmadi` : ''}` })) continue;
-      for (const [i, e] of sec.list.entries()) {
-        const neg = e.companyTiyin !== null && n(e.companyTiyin) < 0;
-        const subE = e.fullTiyin === null ? `to'liq oyligi topilmadi (${HOW[e.how]}) — faqat Qo'mita qismi ko'rsatilgan` : `${e.position ? `${e.position} · ` : ''}oylik — ${SOURCE[e.source!]}${neg ? " · Qo'mita qismi to'liq oylikdan ko'p — tarkib yoki shablonni tekshiring" : ''}`;
-        const ek = `${k}|${i}`;
-        const eOpen = line(
-          ek,
-          e.fullName,
-          2,
-          e.fullTiyin === null ? (
-            <>
-              <Td className="text-xs text-(--color-text-faint)">—</Td>
-              <MoneyCell value={n(e.qomitaTiyin)} className="text-(--color-income)" />
-              <Td className="text-xs text-(--color-text-faint)">—</Td>
-              <Td />
-            </>
-          ) : (
-            <>
-              <MoneyCell value={n(e.fullTiyin)} />
-              <MoneyCell value={n(e.qomitaTiyin)} className="text-(--color-income)" />
-              <MoneyCell value={n(e.companyTiyin)} className={neg ? 'font-semibold text-red-700' : 'text-(--color-expense)'} />
-              <PctCell value={share(n(e.qomitaTiyin), n(e.fullTiyin))} plain className="font-normal text-(--color-text-muted)" />
-            </>
-          ),
-          { sub: subE, tone: e.fullTiyin === null || neg ? 'text-amber-800' : undefined, openKey: e.parts.length ? ek : undefined },
-        );
-        // Xodim qismlari: nimaga qancha — to'liq oylikda, Qo'mita qoplagani, korxona to'lagani
-        if (eOpen)
-          for (const p of e.parts) {
-            const pNeg = p.companyTiyin !== null && n(p.companyTiyin) < 0;
-            line(
-              `${ek}|${p.key}`,
-              p.label,
-              3,
-              <>
-                {p.fullTiyin === null ? <Td className="text-xs text-(--color-text-faint)">—</Td> : <MoneyCell value={n(p.fullTiyin)} className="text-(--color-text-muted)" />}
-                {n(p.qomitaTiyin) ? <MoneyCell value={n(p.qomitaTiyin)} className="text-(--color-income)" /> : <Td className="text-xs text-(--color-text-faint)">—</Td>}
-                {p.companyTiyin === null ? <Td className="text-xs text-(--color-text-faint)">—</Td> : <MoneyCell value={n(p.companyTiyin)} className={pNeg ? 'text-red-700' : 'text-(--color-expense)'} />}
-                {p.fullTiyin === null || !n(p.qomitaTiyin) ? <Td /> : <PctCell value={share(n(p.qomitaTiyin), n(p.fullTiyin))} plain className="font-normal text-(--color-text-muted)" />}
-              </>,
-              { sub: p.fullTiyin === null ? "to'liq oylikda bu qism alohida ko'rinmaydi — faqat Qo'mita qoplagani" : n(p.qomitaTiyin) ? undefined : "Qo'mita qoplamagan — to'liq korxona hisobidan", tone: 'text-(--color-text-muted) font-normal' },
-            );
-          }
-      }
-    }
+    tree.push({
+      id: m.period,
+      label: formatPeriod(m.period),
+      body: cells(m, true),
+      openKey: m.period,
+      sub,
+      head: true,
+      kids: () =>
+        secs.map((sec): Line => {
+          const k = `${m.period}|${sec.name}`;
+          return {
+            id: k,
+            label: sec.name,
+            body: cells(sec),
+            openKey: k,
+            sub: `${sec.employees} xodim${sec.unmatched ? ` · ${sec.unmatched} topilmadi` : ''}`,
+            kids: () =>
+              sec.list.map((e, i): Line => {
+                const neg = e.companyTiyin !== null && n(e.companyTiyin) < 0;
+                const subE = e.fullTiyin === null ? `to'liq oyligi topilmadi (${HOW[e.how]}) — faqat Qo'mita qismi ko'rsatilgan` : `${e.position ? `${e.position} · ` : ''}oylik — ${SOURCE[e.source!]}${neg ? " · Qo'mita qismi to'liq oylikdan ko'p — tarkib yoki shablonni tekshiring" : ''}`;
+                const ek = `${k}|${i}`;
+                return {
+                  id: ek,
+                  label: e.fullName,
+                  body:
+                    e.fullTiyin === null ? (
+                      <>
+                        <Td className="text-xs text-(--color-text-faint)">—</Td>
+                        <MoneyCell value={n(e.qomitaTiyin)} className="text-(--color-income)" />
+                        <Td className="text-xs text-(--color-text-faint)">—</Td>
+                        <Td />
+                      </>
+                    ) : (
+                      <>
+                        <MoneyCell value={n(e.fullTiyin)} />
+                        <MoneyCell value={n(e.qomitaTiyin)} className="text-(--color-income)" />
+                        <MoneyCell value={n(e.companyTiyin)} className={neg ? 'font-semibold text-red-700' : 'text-(--color-expense)'} />
+                        <PctCell value={share(n(e.qomitaTiyin), n(e.fullTiyin))} plain className="font-normal text-(--color-text-muted)" />
+                      </>
+                    ),
+                  sub: subE,
+                  tone: e.fullTiyin === null || neg ? 'text-amber-800' : undefined,
+                  openKey: e.parts.length ? ek : undefined,
+                  // Xodim qismlari: nimaga qancha — to'liq oylikda, Qo'mita qoplagani, korxona to'lagani
+                  kids: () =>
+                    e.parts.map((p): Line => {
+                      const pNeg = p.companyTiyin !== null && n(p.companyTiyin) < 0;
+                      return {
+                        id: `${ek}|${p.key}`,
+                        label: p.label,
+                        body: (
+                          <>
+                            {p.fullTiyin === null ? <Td className="text-xs text-(--color-text-faint)">—</Td> : <MoneyCell value={n(p.fullTiyin)} className="text-(--color-text-muted)" />}
+                            {n(p.qomitaTiyin) ? <MoneyCell value={n(p.qomitaTiyin)} className="text-(--color-income)" /> : <Td className="text-xs text-(--color-text-faint)">—</Td>}
+                            {p.companyTiyin === null ? <Td className="text-xs text-(--color-text-faint)">—</Td> : <MoneyCell value={n(p.companyTiyin)} className={pNeg ? 'text-red-700' : 'text-(--color-expense)'} />}
+                            {p.fullTiyin === null || !n(p.qomitaTiyin) ? <Td /> : <PctCell value={share(n(p.qomitaTiyin), n(p.fullTiyin))} plain className="font-normal text-(--color-text-muted)" />}
+                          </>
+                        ),
+                        sub: p.fullTiyin === null ? "to'liq oylikda bu qism alohida ko'rinmaydi — faqat Qo'mita qoplagani" : n(p.qomitaTiyin) ? undefined : "Qo'mita qoplamagan — to'liq korxona hisobidan",
+                        tone: 'text-(--color-text-muted) font-normal',
+                      };
+                    }),
+                };
+              }),
+          };
+        }),
+    });
   }
+  const rows = level(tree, 0);
 
   const exportCsv = () =>
     downloadCsv(
@@ -193,8 +230,8 @@ function Body({ d, loading }: { d: Compare3802; loading: boolean }) {
           <RTable minWidth={980}>
             <thead>
               <tr>
-                <Th className={cn(STICKY_NO, 'z-[2]')} />
-                <Th className={cn(STICKY_NAME, 'z-[2] min-w-80 text-left')}>Oy → bo&apos;lim → xodim</Th>
+                <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+                <Th className={cn(STICKY_NAME, 'z-[2] min-w-80 text-left')}>Oy</Th>
                 <Th>To&apos;liq oylik</Th>
                 <Th>Qo&apos;mita qoplagan</Th>
                 <Th>Korxona to&apos;lagan</Th>

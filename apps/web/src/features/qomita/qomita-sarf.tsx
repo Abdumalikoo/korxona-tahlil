@@ -1,5 +1,6 @@
 'use client';
 
+import { ExpandBox, NestedRow, nestHead } from '@/components/report/nested';
 import { StatTiles, sum } from '@/components/report/report';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader } from '@/components/ui/card';
@@ -150,10 +151,12 @@ export function SarfSection({ from, to, isAdmin, onToast }: { from: string; to: 
 function UnitRows({ u, months, mode, open, onToggle, from, to, isAdmin, onToast, onChanged }: { u: SarfUnit; months: string[]; mode: 'POOL' | 'CONTRACT'; open: boolean; onToggle: () => void; from: string; to: string; isAdmin: boolean; onToast: ToastFn; onChanged: () => void }) {
   const head = (
     <td className="sticky left-0 border-t border-(--color-line) bg-white px-3 py-1.5 text-left">
-      <button type="button" onClick={onToggle} className="flex max-w-60 items-center text-left font-medium text-heading hover:text-brand-700" aria-expanded={open} title={u.label}>
-        <span className="mr-1 shrink-0 text-(--color-text-faint)">{open ? '▾' : '▸'}</span>
-        <span className="truncate">{u.label}</span>
-      </button>
+      <span className="flex max-w-64 items-center gap-1.5">
+        <ExpandBox open={open} onClick={onToggle} />
+        <button type="button" onClick={onToggle} className="min-w-0 text-left font-medium text-heading hover:text-brand-700" aria-expanded={open} title={u.label}>
+          <span className="block truncate">{u.label}</span>
+        </button>
+      </span>
       {mode === 'POOL' && n(u.incomeTiyin) > 0 && <span className="ml-1 text-[10.5px] text-(--color-income)">kelgan: {formatTiyin(u.incomeTiyin)}</span>}
     </td>
   );
@@ -198,11 +201,9 @@ function UnitRows({ u, months, mode, open, onToggle, from, to, isAdmin, onToast,
         </>
       )}
       {open && (
-        <tr>
-          <td colSpan={months.length + 2} className="border-t border-(--color-line) bg-(--color-surface-muted)/40 px-3 py-3">
-            <UnitDetail u={u} months={months} mode={mode} from={from} to={to} isAdmin={isAdmin} onToast={onToast} onChanged={onChanged} />
-          </td>
-        </tr>
+        <NestedRow colSpan={months.length + 2}>
+          <UnitDetail u={u} months={months} mode={mode} from={from} to={to} isAdmin={isAdmin} onToast={onToast} onChanged={onChanged} />
+        </NestedRow>
       )}
     </>
   );
@@ -243,7 +244,7 @@ function UnitDetail({ u, months, mode, from, to, isAdmin, onToast, onChanged }: 
   }
   const ORIGIN: Record<string, string> = { BANK: 'bank tahlilidan', MANUAL: "qo'lda", FILE: "ko'chirma faylidan", OTHER: 'boshqa manba' };
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 p-3">
       {/* Kelgan pullar */}
       <div>
         <p className="mb-1 text-xs font-semibold text-heading">Qo&apos;mitadan kelgan pullar</p>
@@ -256,11 +257,23 @@ function UnitDetail({ u, months, mode, from, to, isAdmin, onToast, onChanged }: 
         ) : (
           <div className="overflow-x-auto rounded-lg border border-(--color-line) bg-white">
             <table className="w-full text-xs">
+              <thead>
+                <tr>
+                  <th className={cn(nestHead(1), 'w-10 text-center')}>№</th>
+                  <th className={cn(nestHead(1), 'text-left')}>Sana</th>
+                  <th className={cn(nestHead(1), 'text-left')}>Davr</th>
+                  <th className={cn(nestHead(1), 'text-right')}>Summa</th>
+                  <th className={cn(nestHead(1), 'text-left')}>Manba · izoh</th>
+                  <th className={cn(nestHead(1), 'text-left')}>Tasdiq</th>
+                  <th className={nestHead(1)} />
+                </tr>
+              </thead>
               <tbody>
-                {inc.data.incomes.map((x) => {
+                {inc.data.incomes.map((x, i) => {
                   const canDelete = x.origin === 'MANUAL' || x.origin === 'FILE' || x.origin === 'BANK';
                   return (
                     <tr key={x.id} className="border-t border-(--color-line) first:border-t-0">
+                      <td className="px-2 py-1.5 text-center text-(--color-text-faint)">{i + 1}</td>
                       <td className="px-2 py-1.5 whitespace-nowrap">{x.date.split('-').reverse().join('.')}</td>
                       <td className="px-2 py-1.5 whitespace-nowrap">{formatPeriod(x.period)} uchun</td>
                       <td className="money px-2 py-1.5 text-right font-semibold text-(--color-income)">{formatTiyin(x.amountTiyin)}</td>
@@ -314,20 +327,22 @@ function UnitDetail({ u, months, mode, from, to, isAdmin, onToast, onChanged }: 
           <p className="mb-1 text-xs font-semibold text-heading">Sarf moddalar bo&apos;yicha{u.segment ? ` (bo'lim va «${u.label}» yo'nalishi xarajatlari)` : ''}</p>
           <div className="overflow-x-auto rounded-lg border border-(--color-line) bg-white">
             <table className="w-full text-xs">
-              <thead className="text-[10.5px] text-(--color-text-muted)">
+              <thead>
                 <tr>
-                  <th className="px-2 py-1 text-left font-semibold">Modda</th>
+                  <th className={cn(nestHead(1), 'w-10 text-center')}>№</th>
+                  <th className={cn(nestHead(1), 'text-left')}>Modda</th>
                   {months.map((p) => (
-                    <th key={p} className="px-2 py-1 text-right font-semibold">
+                    <th key={p} className={cn(nestHead(1), 'text-right')}>
                       {formatPeriodShort(p)}
                     </th>
                   ))}
-                  <th className="px-2 py-1 text-right font-semibold">Jami</th>
+                  <th className={cn(nestHead(1), 'text-right')}>Jami</th>
                 </tr>
               </thead>
               <tbody>
-                {u.categories.map((c) => (
+                {u.categories.map((c, i) => (
                   <tr key={c.code} className="border-t border-(--color-line)">
+                    <td className="px-2 py-1 text-center text-(--color-text-faint)">{i + 1}</td>
                     <td className="px-2 py-1 text-heading">{c.label}</td>
                     {months.map((p) => (
                       <td key={p} className="money px-2 py-1 text-right">
@@ -356,21 +371,23 @@ function UnitDetail({ u, months, mode, from, to, isAdmin, onToast, onChanged }: 
           ) : (
             <div className="max-h-[480px] overflow-auto rounded-lg border border-(--color-line) bg-white">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-(--color-surface-muted) text-[10.5px] text-(--color-text-muted)">
+                <thead className="sticky top-0 z-[2]">
                   <tr>
-                    <th className="sticky left-0 bg-(--color-surface-muted) px-2 py-1 text-left font-semibold">Xodim</th>
+                    <th className={cn(nestHead(1), 'sticky left-0 w-9 min-w-9 text-center')}>№</th>
+                    <th className={cn(nestHead(1), 'sticky left-9 text-left')}>Xodim</th>
                     {months.map((p) => (
-                      <th key={p} className="px-2 py-1 text-right font-semibold">
+                      <th key={p} className={cn(nestHead(1), 'text-right')}>
                         {formatPeriodShort(p)}
                       </th>
                     ))}
-                    <th className="px-2 py-1 text-right font-semibold">Jami</th>
+                    <th className={cn(nestHead(1), 'text-right')}>Jami</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {det.data.employees.map((e) => (
+                  {det.data.employees.map((e, i) => (
                     <tr key={e.pinfl ?? e.fullName} className="border-t border-(--color-line) align-top">
-                      <td className="sticky left-0 bg-white px-2 py-1">
+                      <td className="sticky left-0 w-9 min-w-9 bg-white px-2 py-1 text-center text-(--color-text-faint)">{i + 1}</td>
+                      <td className="sticky left-9 bg-white px-2 py-1">
                         <span className="font-medium text-heading">{e.fullName}</span>
                         <span className="block text-[10px] text-(--color-text-faint)">{[!e.inTarkib && "tarkibda yo'q", mode === 'POOL' && !e.inVedomost && "vedomostda yo'q"].filter(Boolean).join(' · ')}</span>
                       </td>

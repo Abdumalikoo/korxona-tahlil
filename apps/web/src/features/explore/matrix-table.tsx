@@ -1,7 +1,7 @@
 'use client';
 
-import { ExcelButton, ReportCard, RTable, SelectBox, TableNote, Td, Th, Tr } from '@/components/report/report';
-import { STICKY_LEFT, TreeNameCell } from '@/components/report/report-extra-a';
+import { ExcelButton, ReportCard, RTable, SelectBox, STICKY_NAME, STICKY_NO, TableNote, Td, Th, Tr } from '@/components/report/report';
+import { TreeNameCell } from '@/components/report/report-extra-a';
 import { formatPeriod } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useState, type ReactNode } from 'react';
@@ -48,7 +48,8 @@ export function MatrixTable({ data, months, title, description, root, csv, note 
     );
   };
 
-  const line = (row: MatrixRow, depth: number, path: string[], kind: 'row' | 'total' | 'unit' = 'row'): ReactNode[] => {
+  /** no — raqami: yuqori qator «2», ichkisi «2.1» (jami va Markaz / Hududlar kesimi — bo'sh) */
+  const line = (row: MatrixRow, depth: number, path: string[], kind: 'row' | 'total' | 'unit' = 'row', no = ''): ReactNode[] => {
     const has = Boolean(row.children?.length);
     const isOpen = opened.has(row.key);
     const toggle = () =>
@@ -60,7 +61,8 @@ export function MatrixTable({ data, months, title, description, root, csv, note 
       });
     const out: ReactNode[] = [
       <Tr key={`${kind}:${path.join('/')}/${row.key}`} total={kind === 'total'} muted={kind === 'unit' || depth > 0} className={cn(kind === 'row' && depth === 0 && 'font-medium text-heading')}>
-        <TreeNameCell depth={depth} open={has ? isOpen : undefined} onToggle={has ? toggle : undefined}>
+        <Td className={cn(STICKY_NO, 'whitespace-nowrap font-normal text-(--color-text-faint)')}>{no}</Td>
+        <TreeNameCell depth={depth} sticky={STICKY_NAME} open={has ? isOpen : undefined} onToggle={has ? toggle : undefined}>
           {row.label}
         </TreeNameCell>
         <Td className="whitespace-nowrap font-semibold">
@@ -77,7 +79,7 @@ export function MatrixTable({ data, months, title, description, root, csv, note 
         {months.map((_, i) => cell(row, i, path))}
       </Tr>,
     ];
-    if (has && isOpen) for (const c of row.children!) out.push(...line(c, depth + 1, [...path, row.label]));
+    if (has && isOpen) row.children!.forEach((c, i) => out.push(...line(c, depth + 1, [...path, row.label], 'row', no ? `${no}.${i + 1}` : '')));
     return out;
   };
 
@@ -110,10 +112,11 @@ export function MatrixTable({ data, months, title, description, root, csv, note 
         </>
       }
     >
-      <RTable minWidth={260 + 120 + 64 + months.length * colW}>
+      <RTable minWidth={48 + 260 + 120 + 64 + months.length * colW}>
         <thead>
           <tr>
-            <Th className={cn(STICKY_LEFT, 'z-[2] min-w-60 text-left')}>Nomi</Th>
+            <Th className={cn(STICKY_NO, 'z-[2]')}>№</Th>
+            <Th className={cn(STICKY_NAME, 'z-[2] min-w-60 text-left')}>Nomi</Th>
             <Th>Jami</Th>
             <Th>Ulushi</Th>
             {months.map((m) => (
@@ -126,7 +129,7 @@ export function MatrixTable({ data, months, title, description, root, csv, note 
         <tbody>
           {line(data.total, 0, [], 'total')}
           {data.units.filter((u) => u.total).flatMap((u) => line(u, 0, [], 'unit'))}
-          {data.rows.flatMap((r) => line(r, 0, []))}
+          {data.rows.flatMap((r, i) => line(r, 0, [], 'row', String(i + 1)))}
         </tbody>
       </RTable>
       <TableNote>{note ?? "Katakni bosing — o'sha oy yozuvlari ochiladi. Oylar o'ng tomonda — kerak bo'lsa o'ngga suring."}</TableNote>

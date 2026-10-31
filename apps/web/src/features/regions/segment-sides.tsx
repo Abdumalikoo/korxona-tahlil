@@ -126,8 +126,9 @@ export function SegmentSides({ d, isQomita }: { d: SegmentView; isQomita: boolea
             <PctCell value={income.cur > 0 ? (res.cur / income.cur) * 100 : null} plain />
           </Tr>
 
+          {/* Raqamlash: Daromad — 1, uning manbalari 1.1, 1.2 …; Xarajat — 2, moddalari 2.1, 2.2 … */}
           <Tr className="bg-brand-50/60">
-            <Td className={STICKY_NO} />
+            <Td className={cn(STICKY_NO, 'font-semibold text-(--color-text-faint)')}>1</Td>
             <NameCell className="font-semibold text-heading" sub={`${incomeLines.length} ta manba`}>
               Daromad
             </NameCell>
@@ -137,7 +138,7 @@ export function SegmentSides({ d, isQomita }: { d: SegmentView; isQomita: boolea
           {inc.length
             ? inc.map((x, i) => (
                 <Tr key={`i:${x.key}`}>
-                  <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                  <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>1.{i + 1}</Td>
                   <NameCell sub={x.hint}>{x.label}</NameCell>
                   {sideCells(x, true)}
                   {blank(5)}
@@ -146,7 +147,7 @@ export function SegmentSides({ d, isQomita }: { d: SegmentView; isQomita: boolea
             : empty(qq ? "Qidiruv bo'yicha daromad topilmadi" : "Bu davrda daromad yo'q")}
 
           <Tr className="bg-brand-50/60">
-            <Td className={STICKY_NO} />
+            <Td className={cn(STICKY_NO, 'font-semibold text-(--color-text-faint)')}>2</Td>
             <NameCell className="font-semibold text-heading" sub={`${expenseLines.length} ta modda`}>
               Xarajat
             </NameCell>
@@ -157,7 +158,7 @@ export function SegmentSides({ d, isQomita }: { d: SegmentView; isQomita: boolea
           {exp.length
             ? exp.map((x, i) => (
                 <Tr key={`e:${x.key}`}>
-                  <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>{i + 1}</Td>
+                  <Td className={cn(STICKY_NO, 'text-(--color-text-faint)')}>2.{i + 1}</Td>
                   <NameCell sub={x.hint}>{x.label}</NameCell>
                   {blank(3)}
                   {sideCells(x, false)}
